@@ -1,20 +1,20 @@
 import { useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { supabase } from '../lib/supabase'
-import CondoCard from '../components/CondoCard'
+import ModernCondoCard from '../components/ModernCondoCard'
 
 export default function HomePage() {
   const [featuredCondos, setFeaturedCondos] = useState([])
   const [currentImageIndex, setCurrentImageIndex] = useState(0)
   const [fade, setFade] = useState(true)
 
-    const heroImages = [
+  const heroImages = [
     'https://mlksustamjaxfpolazgw.supabase.co/storage/v1/object/public/hero-images/1.jpg',
     'https://mlksustamjaxfpolazgw.supabase.co/storage/v1/object/public/hero-images/2.jpg',
     'https://mlksustamjaxfpolazgw.supabase.co/storage/v1/object/public/hero-images/3.jpg',
     'https://mlksustamjaxfpolazgw.supabase.co/storage/v1/object/public/hero-images/4.jpg',
     'https://mlksustamjaxfpolazgw.supabase.co/storage/v1/object/public/hero-images/5.jpg',
-    ]
+  ]
 
   useEffect(() => {
     fetchFeaturedCondos()
@@ -24,7 +24,7 @@ export default function HomePage() {
     const { data } = await supabase
       .from('condos')
       .select('*')
-      .limit(5)
+      .limit(3)
     if (data) setFeaturedCondos(data)
   }
 
@@ -35,17 +35,17 @@ export default function HomePage() {
       setTimeout(() => {
         setCurrentImageIndex((prev) => (prev + 1) % heroImages.length)
         setFade(true)
-      }, 300)
-    }, 3000)
+      }, 500)
+    }, 5000)
     return () => clearInterval(interval)
   }, [])
 
   return (
     <div>
-      {/* Hero Section */}
-      <div style={{ position: 'relative', height: '600px', width: '100%', overflow: 'hidden' }}>
+      {/* Hero Section - Larger (occupies ~1/2 of screen) */}
+      <div style={{ position: 'relative', height: '80vh', minHeight: '550px', width: '100%', overflow: 'hidden' }}>
         
-        {/* Image with Fade Effect and BLUR */}
+        {/* Image with Fade Effect */}
         <div style={{
           position: 'absolute',
           top: 0,
@@ -61,24 +61,23 @@ export default function HomePage() {
             style={{ 
               width: '100%',
               height: '100%',
-              objectFit: 'cover',
-              filter: 'blur(3px)'
+              objectFit: 'cover'
             }}
           />
         </div>
         
-        {/* Dark Overlay - lighter so image shows through */}
+        {/* Dark Overlay */}
         <div style={{ 
           position: 'absolute', 
           top: 0, 
           left: 0, 
           width: '100%', 
           height: '100%', 
-          backgroundColor: 'rgba(0,0,0,0.3)',
+          backgroundColor: 'rgba(0,0,0,0.4)',
           zIndex: 1
         }}></div>
         
-        {/* Content - on top */}
+        {/* Content */}
         <div style={{ 
           position: 'relative', 
           zIndex: 2, 
@@ -94,23 +93,23 @@ export default function HomePage() {
                 <img 
                   src="/Iloilo_rentals_img.png" 
                   alt="Logo" 
-                  style={{ width: '256px', height: '256px', objectFit: 'contain' }}
+                  style={{ width: '400px', height: '400px', objectFit: 'contain' }}
                   onError={(e) => {
-                    e.target.src = 'https://picsum.photos/id/104/256/256'
+                    e.target.src = 'https://picsum.photos/id/104/200/200'
                   }}
                 />
               </div>
               
               {/* Text */}
               <div className="md:w-2/3 text-center md:text-left">
-                <h1 style={{ fontSize: '3rem', fontWeight: 'bold', color: 'white', marginBottom: '1rem', textShadow: '2px 2px 4px rgba(0,0,0,0.5)' }}>
+                <h1 className="text-4xl md:text-6xl font-bold text-white mb-4 drop-shadow-lg">
                   Find Your Perfect Stay in Iloilo City
                 </h1>
-                <p style={{ fontSize: '1.5rem', color: 'rgba(255,255,255,0.95)', marginBottom: '2rem', textShadow: '1px 1px 2px rgba(0,0,0,0.5)' }}>
+                <p className="text-xl md:text-2xl text-white/90 mb-8 drop-shadow-md">
                   Premium condo units near Megaworld, Atria, and Iloilo's best locations
                 </p>
                 <Link to="/condos">
-                  <button style={{ backgroundColor: 'white', color: '#2d568e', padding: '12px 32px', borderRadius: '8px', fontSize: '1.125rem', fontWeight: 'bold', border: 'none', cursor: 'pointer' }}>
+                  <button className="bg-white text-[#2d568e] px-8 py-3 rounded-xl font-semibold text-lg hover:bg-gray-100 transition shadow-lg">
                     Browse All Condos
                   </button>
                 </Link>
@@ -122,12 +121,15 @@ export default function HomePage() {
         
       </div>
 
-      {/* Featured Condos */}
+      {/* Featured Condos - Modern Cards */}
       <div className="max-w-7xl mx-auto px-4 py-16">
-        <h2 className="text-3xl font-bold text-center text-[#2d568e] mb-12">Listings</h2>
+        <div className="text-center mb-12">
+          <h2 className="text-3xl md:text-4xl font-bold text-[#2d568e] mb-3">Featured Listings</h2>
+          <p className="text-gray-500">Discover our most popular condo units in Iloilo City</p>
+        </div>
         <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-8">
           {featuredCondos.map((condo) => (
-            <CondoCard key={condo.id} condo={condo} />
+            <ModernCondoCard key={condo.id} condo={condo} />
           ))}
         </div>
       </div>
@@ -137,9 +139,21 @@ export default function HomePage() {
         <div className="max-w-7xl mx-auto px-4">
           <h2 className="text-3xl font-bold text-center text-[#2d568e] mb-12">Why Choose Iloilo Rentals?</h2>
           <div className="grid md:grid-cols-3 gap-8 text-center">
-            <div><div className="text-5xl mb-3">📍</div><h3 className="text-xl font-semibold mb-2">Prime Locations</h3><p className="text-gray-600">All units near business districts and malls</p></div>
-            <div><div className="text-5xl mb-3">📅</div><h3 className="text-xl font-semibold mb-2">Flexible Booking</h3><p className="text-gray-600">Easy online booking with instant confirmation</p></div>
-            <div><div className="text-5xl mb-3">🛡️</div><h3 className="text-xl font-semibold mb-2">24/7 Support</h3><p className="text-gray-600">Local team ready to assist you anytime</p></div>
+            <div className="bg-white p-6 rounded-2xl shadow-sm">
+              <div className="text-5xl mb-3">📍</div>
+              <h3 className="text-xl font-semibold mb-2">Prime Locations</h3>
+              <p className="text-gray-600">All units near business districts and malls</p>
+            </div>
+            <div className="bg-white p-6 rounded-2xl shadow-sm">
+              <div className="text-5xl mb-3">📅</div>
+              <h3 className="text-xl font-semibold mb-2">Flexible Booking</h3>
+              <p className="text-gray-600">Easy online booking with instant confirmation</p>
+            </div>
+            <div className="bg-white p-6 rounded-2xl shadow-sm">
+              <div className="text-5xl mb-3">🛡️</div>
+              <h3 className="text-xl font-semibold mb-2">24/7 Support</h3>
+              <p className="text-gray-600">Local team ready to assist you anytime</p>
+            </div>
           </div>
         </div>
       </div>

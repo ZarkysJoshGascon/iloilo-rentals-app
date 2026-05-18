@@ -1,4 +1,4 @@
-import { Routes, Route } from 'react-router-dom'
+import { Routes, Route, useLocation } from 'react-router-dom'
 import { Toaster } from 'react-hot-toast'
 import Navbar from './components/Navbar'
 import Footer from './components/Footer'
@@ -6,10 +6,13 @@ import HomePage from './pages/HomePage'
 import CondosPage from './pages/CondosPage'
 import CondoDetailPage from './pages/CondoDetailPage'
 import LoginPage from './pages/LoginPage'
-import AboutPage from './pages/AboutPage'
-import ContactPage from './pages/ContactPage'
+import AboutPage from './pages/Aboutpage'
+import ContactPage from './pages/Contactpage'
 
 function App() {
+  const location = useLocation()
+  const hideFooter = location.pathname.includes('/condo/')
+
   return (
     <div className="min-h-screen bg-gray-50 flex flex-col">
       <Navbar />
@@ -23,7 +26,7 @@ function App() {
           <Route path="/contact" element={<ContactPage />} />
         </Routes>
       </main>
-      <Footer />
+      {!hideFooter && <Footer />}
       <Toaster position="top-right" />
     </div>
   )
