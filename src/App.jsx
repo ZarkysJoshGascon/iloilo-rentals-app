@@ -8,6 +8,7 @@ import CondoDetailPage from './pages/CondoDetailPage'
 import LoginPage from './pages/LoginPage'
 import AboutPage from './pages/Aboutpage'
 import ContactPage from './pages/Contactpage'
+import MyBookingsPage from './pages/MyBookingsPage'
 
 function App() {
   const location = useLocation()
@@ -24,6 +25,7 @@ function App() {
           <Route path="/login" element={<LoginPage />} />
           <Route path="/about" element={<AboutPage />} />
           <Route path="/contact" element={<ContactPage />} />
+          <Route path="/my-bookings" element={<MyBookingsPage />} />
         </Routes>
       </main>
       {!hideFooter && <Footer />}
