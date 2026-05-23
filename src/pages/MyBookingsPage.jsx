@@ -2,8 +2,9 @@ import { useEffect, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { supabase } from '../lib/supabase'
 import { format } from 'date-fns'
-import { Calendar, MapPin, Users, ChevronRight, Clock, AlertCircle, CheckCircle, XCircle, X, ChevronLeft, ChevronRight as ChevronRightIcon } from 'lucide-react'
+import { Calendar, MapPin, Users, ChevronRight, Clock, AlertCircle, CheckCircle, XCircle, X, ChevronLeft, ChevronRight as ChevronRightIcon, Trash2 } from 'lucide-react'
 import { useCurrency } from '../context/CurrencyContext'
+import toast from 'react-hot-toast'
 
 export default function MyBookingsPage() {
   const [bookings, setBookings] = useState([])
@@ -17,6 +18,7 @@ export default function MyBookingsPage() {
   const [currentImageIndex, setCurrentImageIndex] = useState(0)
   const [currentCondoImages, setCurrentCondoImages] = useState([])
   const [currentCondoTitle, setCurrentCondoTitle] = useState('')
+  const [deletingId, setDeletingId] = useState(null)
 
   useEffect(() => {
     checkUser()
@@ -52,23 +54,50 @@ export default function MyBookingsPage() {
       setBookings(data || [])
     } catch (error) {
       console.error('Error fetching bookings:', error)
+      toast.error('Failed to load bookings')
     } finally {
       setLoading(false)
+    }
+  }
+
+  // Delete booking function - completely removes from database
+  const deleteBooking = async (bookingId) => {
+    if (!confirm('Are you sure you want to DELETE this booking? This cannot be undone.')) return
+    
+    setDeletingId(bookingId)
+    
+    try {
+      const { error } = await supabase
+        .from('bookings')
+        .delete()
+        .eq('id', bookingId)
+        .eq('user_id', user.id)
+      
+      if (error) throw error
+      
+      toast.success('Booking deleted successfully')
+      setBookings(prev => prev.filter(booking => booking.id !== bookingId))
+      
+    } catch (error) {
+      console.error('Delete error:', error)
+      toast.error('Failed to delete booking')
+    } finally {
+      setDeletingId(null)
     }
   }
 
   const getStatusConfig = (status) => {
     switch (status) {
       case 'pending':
-        return { color: 'bg-yellow-100 text-yellow-800', icon: Clock, text: 'Pending Approval' }
+        return { color: 'bg-yellow-100 text-yellow-800', icon: Clock, text: 'Pending Approval', canDelete: true }
       case 'confirmed':
-        return { color: 'bg-green-100 text-green-800', icon: CheckCircle, text: 'Confirmed' }
+        return { color: 'bg-green-100 text-green-800', icon: CheckCircle, text: 'Confirmed', canDelete: true }
       case 'cancelled':
-        return { color: 'bg-red-100 text-red-800', icon: XCircle, text: 'Cancelled' }
+        return { color: 'bg-red-100 text-red-800', icon: XCircle, text: 'Cancelled', canDelete: false }
       case 'completed':
-        return { color: 'bg-blue-100 text-blue-800', icon: CheckCircle, text: 'Completed' }
+        return { color: 'bg-blue-100 text-blue-800', icon: CheckCircle, text: 'Completed', canDelete: false }
       default:
-        return { color: 'bg-gray-100 text-gray-800', icon: AlertCircle, text: status }
+        return { color: 'bg-gray-100 text-gray-800', icon: AlertCircle, text: status, canDelete: false }
     }
   }
 
@@ -89,7 +118,6 @@ export default function MyBookingsPage() {
   const getAllCondoImages = (condo) => {
     const images = []
     
-    // Get from images array
     if (condo?.images && Array.isArray(condo.images)) {
       condo.images.forEach(img => {
         if (img && typeof img === 'string' && img.startsWith('http')) {
@@ -98,14 +126,12 @@ export default function MyBookingsPage() {
       })
     }
     
-    // Get from storage bucket using code
     if (condo?.code) {
       for (let i = 1; i <= 5; i++) {
         images.push(`https://mlksustamjaxfpolazgw.supabase.co/storage/v1/object/public/condo-images/${condo.code}_${i}.jpg`)
       }
     }
     
-    // Filter out duplicates and invalid
     return [...new Set(images)].filter(img => img && img !== '')
   }
 
@@ -243,10 +269,28 @@ export default function MyBookingsPage() {
                             <span className="text-sm">{condo?.location || 'Iloilo City'}</span>
                           </div>
                         </div>
-                        <span className={`px-3 py-1 rounded-full text-sm font-semibold flex items-center gap-1 ${statusConfig.color}`}>
-                          <StatusIcon size={14} />
-                          {statusConfig.text}
-                        </span>
+                        <div className="flex items-center gap-2">
+                          <span className={`px-3 py-1 rounded-full text-sm font-semibold flex items-center gap-1 ${statusConfig.color}`}>
+                            <StatusIcon size={14} />
+                            {statusConfig.text}
+                          </span>
+                          
+                          {/* Delete Button - Only for pending and confirmed bookings */}
+                          {statusConfig.canDelete && (
+                            <button 
+                              onClick={() => deleteBooking(booking.id)}
+                              disabled={deletingId === booking.id}
+                              className={`text-red-600 hover:text-red-800 transition-colors p-1 ${deletingId === booking.id ? 'opacity-50 cursor-not-allowed' : ''}`}
+                              title="Delete Booking"
+                            >
+                              {deletingId === booking.id ? (
+                                <div className="w-4 h-4 border-2 border-red-600 border-t-transparent rounded-full animate-spin"></div>
+                              ) : (
+                                <Trash2 size={18} />
+                              )}
+                            </button>
+                          )}
+                        </div>
                       </div>
                       
                       <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-4">
@@ -293,7 +337,6 @@ export default function MyBookingsPage() {
           className="fixed inset-0 z-[100] bg-black/90 backdrop-blur-md flex items-center justify-center"
           onClick={closeModal}
         >
-          {/* Close Button */}
           <button 
             onClick={closeModal}
             className="absolute top-4 right-4 z-10 text-white hover:text-gray-300 transition-colors bg-black/50 rounded-full p-2"
@@ -301,12 +344,10 @@ export default function MyBookingsPage() {
             <X size={28} />
           </button>
           
-          {/* Image Counter */}
           <div className="absolute top-4 left-4 z-10 text-white bg-black/50 px-3 py-1 rounded-full text-sm">
             {currentImageIndex + 1} / {currentCondoImages.length}
           </div>
           
-          {/* Navigation Arrows */}
           {currentCondoImages.length > 1 && (
             <>
               <button 
@@ -324,12 +365,10 @@ export default function MyBookingsPage() {
             </>
           )}
           
-          {/* Modal Title */}
           <div className="absolute bottom-4 left-0 right-0 text-center z-10 text-white bg-black/50 py-2 text-sm">
             {currentCondoTitle}
           </div>
           
-          {/* Image */}
           <div 
             className="relative max-w-[90vw] max-h-[90vh] animate-in zoom-in duration-300"
             onClick={(e) => e.stopPropagation()}
