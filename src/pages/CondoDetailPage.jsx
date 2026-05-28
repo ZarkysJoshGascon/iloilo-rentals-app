@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
 import { supabase } from '../lib/supabase'
-import { Calendar, Users, MapPin, Bed, Bath, Square, Wifi, Coffee, Car, Wind, Shield, X, Info, Clock, CheckCircle, AlertCircle, ChevronLeft, ChevronRight, Star, CreditCard, Tag, Users as UsersIcon, Calendar as CalendarIcon, Check, ChevronDown, ChevronDown as ScrollIcon } from 'lucide-react'
+import { Calendar, Users, MapPin, Bed, Bath, Square, Wifi, Coffee, Car, Wind, Shield, X, Info, Clock, CheckCircle, AlertCircle, ChevronLeft, ChevronRight, Star, Calendar as CalendarIcon, Check, ChevronDown } from 'lucide-react'
 import { differenceInDays, format } from 'date-fns'
 import toast from 'react-hot-toast'
 import { useCurrency } from '../context/CurrencyContext'
@@ -151,12 +151,10 @@ export default function CondoDetailPage() {
   // Hide body scroll, only left side scrolls
   useEffect(() => {
     document.body.style.overflow = 'hidden'
-    // Inject custom date picker styles
     const styleElement = document.createElement('style')
     styleElement.innerHTML = customDatePickerStyles
     document.head.appendChild(styleElement)
     
-    // Hide scroll hint after 3 seconds
     const timer = setTimeout(() => {
       setShowScrollHint(false)
     }, 3000)
@@ -333,7 +331,6 @@ export default function CondoDetailPage() {
     )
   }
 
-  // Custom Input for DatePicker - Fixed size
   const CustomDateInput = ({ value, onClick, label }) => (
     <div 
       onClick={onClick}
@@ -351,21 +348,18 @@ export default function CondoDetailPage() {
   return (
     <div className="h-screen bg-gray-50 flex overflow-hidden">
       
-      {/* LEFT SIDE - SCROLLABLE WITH VISUAL INDICATOR */}
+      {/* LEFT SIDE - SCROLLABLE */}
       <div className="w-2/3 h-full relative">
-        {/* Scroll Hint Animation */}
         {showScrollHint && (
           <div className="absolute bottom-6 left-1/2 -translate-x-1/2 z-20 bg-[#2d568e] text-white px-4 py-2 rounded-full shadow-lg flex items-center gap-2 animate-bounce">
-            <ScrollIcon size={16} className="animate-pulse" />
+            <ChevronDown size={16} className="animate-pulse" />
             <span className="text-sm font-medium">Scroll for more details</span>
           </div>
         )}
         
-        {/* Scrollable Content with Custom Scrollbar */}
         <div className="h-full overflow-y-auto scrollable-content">
           <ImageGallery images={allImages} title={condo.title} />
           <div className="max-w-3xl mx-auto px-6 py-8 pb-12">
-            {/* Scroll Indicator Gradient at Bottom */}
             <div className="relative">
               <div className="absolute bottom-0 left-0 right-0 h-12 bg-gradient-to-t from-gray-50 to-transparent pointer-events-none"></div>
               
@@ -395,15 +389,14 @@ export default function CondoDetailPage() {
           </div>
         </div>
         
-        {/* Subtle Scroll Indicator Line */}
         <div className="absolute right-0 top-0 bottom-0 w-1 bg-gradient-to-b from-[#2d568e]/20 via-[#2d568e]/40 to-[#2d568e]/20 pointer-events-none"></div>
       </div>
 
-      {/* RIGHT SIDE - MODERN BOOKING SIDEBAR */}
-      <div className="w-1/3 bg-white shadow-2xl flex flex-col h-full overflow-y-auto">
+      {/* RIGHT SIDE - BOOKING SIDEBAR WITH FIXED BUTTON AT BOTTOM */}
+      <div className="w-1/3 bg-white shadow-2xl flex flex-col" style={{ height: '100vh', position: 'sticky', top: '0' }}>
         
-        <div className="p-6 space-y-5">
-          {/* Price Header */}
+        {/* SCROLLABLE CONTENT AREA */}
+        <div className="flex-1 overflow-y-auto p-6 space-y-5">
           <div className="text-center pb-4 border-b border-gray-100">
             <div className="text-4xl font-bold text-[#2d568e]">
               {formatPrice(basePricePerNight)}
@@ -412,7 +405,6 @@ export default function CondoDetailPage() {
             <p className="text-xs text-gray-400 mt-1">Base rate per adult</p>
           </div>
           
-          {/* Date Selection - ENTIRE BOX CLICKABLE - NO OVERLAP */}
           <div className="grid grid-cols-2 gap-3">
             <div style={{ position: 'relative', zIndex: 20 }}>
               <DatePicker
@@ -438,13 +430,11 @@ export default function CondoDetailPage() {
             </div>
           </div>
 
-          {/* Guest counter display */}
           <div className="flex items-center justify-between text-sm text-gray-500 px-1">
             <span>Total nights: <strong className="text-[#2d568e]">{nights}</strong></span>
             <span>Total guests: <strong className="text-[#2d568e]">{totalGuests}</strong></span>
           </div>
 
-          {/* Guests Selection - Modern Dropdown */}
           <div className="relative" style={{ zIndex: 5 }}>
             <button onClick={() => setShowGuestDropdown(!showGuestDropdown)} className="w-full bg-gradient-to-r from-gray-50 to-white rounded-xl p-3 text-left flex justify-between items-center hover:from-gray-100 transition-all border border-gray-200 group">
               <div><div className="text-xs text-[#2d568e] font-semibold mb-1">GUESTS</div><span className="font-medium">{getGuestDisplayText()}</span></div>
@@ -461,13 +451,11 @@ export default function CondoDetailPage() {
             )}
           </div>
 
-          {/* Promo Code - Modern Input */}
           <div className="flex gap-2">
             <input type="text" placeholder="Promo Code" className="flex-1 bg-gray-50 rounded-xl p-3 border border-gray-200 focus:border-[#2d568e] focus:bg-white focus:outline-none transition-all" value={promoCode} onChange={(e) => setPromoCode(e.target.value)} />
             <button onClick={applyPromo} className="px-5 bg-gradient-to-r from-gray-100 to-white rounded-xl font-medium hover:from-[#2d568e] hover:to-[#1e3a5f] hover:text-white transition-all border border-gray-200">Apply</button>
           </div>
 
-          {/* Price Breakdown - Modern Cards */}
           <div className="space-y-2 pt-2 border-t border-gray-100">
             <div className="flex justify-between text-gray-600"><span>Nightly rate (avg)</span><span className="font-semibold">{formatPrice(effectiveNightlyRate)}</span></div>
             <div className="flex justify-between text-gray-600"><span>{formatPrice(effectiveNightlyRate)} × {nights} nights</span><span>{formatPrice(subtotal)}</span></div>
@@ -478,26 +466,25 @@ export default function CondoDetailPage() {
             <div className="flex justify-between font-bold text-xl pt-3 border-t border-gray-200 mt-2"><span>Total</span><span className="text-[#2d568e]">{formatPrice(finalTotal)}</span></div>
           </div>
 
-          {/* Night count badge */}
           <div className="flex items-center justify-center gap-2 text-xs text-gray-400">
             <span className="w-2 h-2 rounded-full bg-[#2d568e]"></span>
             {nights} night{nights !== 1 ? 's' : ''} stay
           </div>
 
-          {/* Discount Badge */}
           <div className="flex items-center gap-2 text-xs text-gray-500 bg-blue-50 p-3 rounded-lg">
             <Info size={14} className="text-[#2d568e]" />
             <span>Children 10% off • Infants & Seniors 20% off</span>
           </div>
           
-          {/* Cancellation Badge */}
           <div className="flex items-center gap-2 text-xs text-gray-500 bg-gray-50 p-3 rounded-lg">
             <Shield size={14} className="text-[#2d568e]" />
             <span>{getCancellationText()}</span>
           </div>
-
-          {/* Book Button - Modern with hover effect */}
-          <button onClick={handleBookNowClick} className="w-full bg-gradient-to-r from-[#2d568e] to-[#1e3a5f] text-white py-3.5 rounded-xl font-semibold text-lg hover:from-[#1e3a5f] hover:to-[#0f2a4a] transition-all hover:scale-[1.02] active:scale-[0.98] shadow-lg hover:shadow-xl mt-2">
+        </div>
+        
+        {/* FIXED BOOK BUTTON - ALWAYS VISIBLE AT BOTTOM */}
+        <div className="p-6 pt-0 border-t border-gray-100">
+          <button onClick={handleBookNowClick} className="w-full bg-[#2d568e] text-white py-3.5 rounded-xl font-semibold text-lg hover:bg-[#1e3a5f] transition-all shadow-lg">
             {user ? 'Reserve Now' : 'Sign in to Book'}
           </button>
         </div>
