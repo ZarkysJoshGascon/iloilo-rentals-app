@@ -128,7 +128,7 @@ export default function LoginPage() {
           </div>
         </div>
         
-        {/* Footer */}
+        {/* Footer with Terms and Privacy links */}
         <p className="text-center text-xs text-gray-400 mt-6">
           By signing in, you agree to our{' '}
           <a href="/terms" className="text-[#2d568e] hover:underline">Terms of Service</a>

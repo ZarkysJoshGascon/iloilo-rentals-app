@@ -1,7 +1,7 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useState, useCallback } from 'react'
 import { Link } from 'react-router-dom'
 import { supabase } from '../lib/supabase'
-import { Search } from 'lucide-react'
+import { Search, Loader2 } from 'lucide-react'
 import { useCurrency } from '../context/CurrencyContext'
 import ModernCondoCard from '../components/ModernCondoCard'
 
@@ -10,29 +10,66 @@ export default function CondosPage() {
   const [loading, setLoading] = useState(true)
   const [search, setSearch] = useState('')
   const [priceRange, setPriceRange] = useState(5000)
+  const [isSearching, setIsSearching] = useState(false)
   const { formatPrice } = useCurrency()
 
+  // SCROLL FIX: Scroll to top when page loads
   useEffect(() => {
-    fetchCondos()
-  }, [search, priceRange])
+    window.scrollTo(0, 0)
+  }, [])
+
+  // Debounced search - waits 1 second after user stops typing
+  const [debouncedSearch, setDebouncedSearch] = useState('')
+
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      setDebouncedSearch(search)
+    }, 1000)
+    
+    return () => clearTimeout(timer)
+  }, [search])
+
+  // Debounced price range - waits 500ms
+  const [debouncedPriceRange, setDebouncedPriceRange] = useState(priceRange)
+
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      setDebouncedPriceRange(priceRange)
+    }, 500)
+    
+    return () => clearTimeout(timer)
+  }, [priceRange])
 
   async function fetchCondos() {
+    setIsSearching(true)
     setLoading(true)
+    
     let query = supabase.from('condos').select('*')
     
-    if (search) {
-      query = query.ilike('title', `%${search}%`)
+    if (debouncedSearch) {
+      query = query.ilike('title', `%${debouncedSearch}%`)
     }
-    if (priceRange) {
-      query = query.lte('price_per_night', priceRange)
+    if (debouncedPriceRange) {
+      query = query.lte('price_per_night', debouncedPriceRange)
     }
     
     const { data } = await query
     setCondos(data || [])
     setLoading(false)
+    
+    setTimeout(() => setIsSearching(false), 300)
   }
 
-  if (loading) {
+  useEffect(() => {
+    fetchCondos()
+  }, [debouncedSearch, debouncedPriceRange])
+
+  const handleClearFilters = () => {
+    setSearch('')
+    setPriceRange(10000)
+  }
+
+  if (loading && condos.length === 0) {
     return (
       <div className="min-h-screen flex items-center justify-center">
         <div className="text-center">
@@ -61,13 +98,24 @@ export default function CondosPage() {
               <input
                 type="text"
                 placeholder="Search by condo name or location..."
-                className="w-full pl-10 pr-4 py-3 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-[#2d568e] focus:border-transparent"
+                className="w-full pl-10 pr-4 py-3 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-[#2d568e] focus:border-transparent transition-all"
                 value={search}
                 onChange={(e) => setSearch(e.target.value)}
               />
+              {/* Typing indicator */}
+              {search && search !== debouncedSearch && (
+                <div className="absolute right-3 top-1/2 -translate-y-1/2">
+                  <Loader2 size={16} className="animate-spin text-gray-400" />
+                </div>
+              )}
             </div>
             <div className="w-full md:w-80">
-              <label className="text-sm text-gray-500 mb-1 block">Max Price: {formatPrice(priceRange)}/night</label>
+              <div className="flex justify-between items-center mb-1">
+                <label className="text-sm text-gray-500">Max Price: {formatPrice(priceRange)}/night</label>
+                {priceRange !== debouncedPriceRange && (
+                  <Loader2 size={14} className="animate-spin text-gray-400" />
+                )}
+              </div>
               <input
                 type="range"
                 min="500"
@@ -75,7 +123,7 @@ export default function CondosPage() {
                 step="100"
                 value={priceRange}
                 onChange={(e) => setPriceRange(Number(e.target.value))}
-                className="w-full h-2 bg-gray-200 rounded-lg appearance-none cursor-pointer accent-[#2d568e]"
+                className="w-full h-2 bg-gray-200 rounded-lg appearance-none cursor-pointer accent-[#2d568e] transition-all"
               />
               <div className="flex justify-between text-xs text-gray-400 mt-1">
                 <span>{formatPrice(500)}</span>
@@ -89,34 +137,61 @@ export default function CondosPage() {
           </div>
         </div>
 
-        {/* Results Count */}
-        <div className="mb-6">
+        {/* Results Count with Loading Indicator */}
+        <div className="mb-6 flex justify-between items-center">
           <p className="text-gray-500">
             Found <span className="font-semibold text-[#2d568e]">{condos.length}</span> condos
           </p>
+          {isSearching && (
+            <div className="flex items-center gap-2 text-sm text-gray-400">
+              <Loader2 size={14} className="animate-spin" />
+              <span>Refreshing...</span>
+            </div>
+          )}
         </div>
 
-        {/* Condos Grid - Using the same ModernCondoCard as homepage */}
+        {/* Condos Grid */}
         {condos.length === 0 ? (
           <div className="text-center py-16 bg-white rounded-2xl">
             <div className="text-6xl mb-4">🏢</div>
             <p className="text-gray-500 text-lg">No condos found matching your criteria.</p>
             <button 
-              onClick={() => {
-                setSearch('')
-                setPriceRange(10000)
-              }}
-              className="mt-4 text-[#2d568e] hover:underline"
+              onClick={handleClearFilters}
+              className="mt-4 text-[#2d568e] hover:underline transition-all"
             >
               Clear filters
             </button>
           </div>
         ) : (
-          <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-8">
-            {condos.map((condo) => (
-              <ModernCondoCard key={condo.id} condo={condo} />
-            ))}
-          </div>
+          <>
+            {/* Shimmer loading effect while searching */}
+            {isSearching && (
+              <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-8 mb-8">
+                {[1, 2, 3].map((i) => (
+                  <div key={i} className="bg-white rounded-2xl overflow-hidden shadow-sm animate-pulse">
+                    <div className="h-64 bg-gray-200"></div>
+                    <div className="p-5 space-y-3">
+                      <div className="h-5 bg-gray-200 rounded w-3/4"></div>
+                      <div className="h-4 bg-gray-200 rounded w-1/2"></div>
+                      <div className="flex gap-4">
+                        <div className="h-4 bg-gray-200 rounded w-12"></div>
+                        <div className="h-4 bg-gray-200 rounded w-12"></div>
+                        <div className="h-4 bg-gray-200 rounded w-12"></div>
+                      </div>
+                      <div className="h-10 bg-gray-200 rounded-xl"></div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+            
+            {/* Actual results */}
+            <div className={`grid md:grid-cols-2 lg:grid-cols-3 gap-8 transition-opacity duration-300 ${isSearching ? 'opacity-50' : 'opacity-100'}`}>
+              {condos.map((condo) => (
+                <ModernCondoCard key={condo.id} condo={condo} />
+              ))}
+            </div>
+          </>
         )}
       </div>
     </div>

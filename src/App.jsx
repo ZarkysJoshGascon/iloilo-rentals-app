@@ -1,4 +1,5 @@
 import { Routes, Route, useLocation } from 'react-router-dom'
+import { useEffect } from 'react'
 import { Toaster } from 'react-hot-toast'
 import Navbar from './components/Navbar'
 import Footer from './components/Footer'
@@ -9,10 +10,17 @@ import LoginPage from './pages/LoginPage'
 import AboutPage from './pages/Aboutpage'
 import ContactPage from './pages/ContactPage'
 import MyBookingsPage from './pages/MyBookingsPage'
+import PrivacyPolicyPage from './pages/PrivacyPolicyPage'
+import TermsPage from './pages/TermsPage'
 
 function App() {
   const location = useLocation()
   const hideFooter = location.pathname.includes('/condo/')
+
+  // Scroll to top on EVERY page change
+  useEffect(() => {
+    window.scrollTo(0, 0)
+  }, [location.pathname])
 
   return (
     <div className="min-h-screen bg-gray-50 flex flex-col">
@@ -26,6 +34,8 @@ function App() {
           <Route path="/about" element={<AboutPage />} />
           <Route path="/contact" element={<ContactPage />} />
           <Route path="/my-bookings" element={<MyBookingsPage />} />
+          <Route path="/privacy" element={<PrivacyPolicyPage />} />
+          <Route path="/terms" element={<TermsPage />} />
         </Routes>
       </main>
       {!hideFooter && <Footer />}
