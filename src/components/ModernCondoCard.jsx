@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react'
+import { motion } from 'framer-motion'
 import { Link } from 'react-router-dom'
 import { MapPin, Users, Bed, Bath, Star, Heart, Eye } from 'lucide-react'
 import { useCurrency } from '../context/CurrencyContext'
@@ -40,7 +41,11 @@ export default function ModernCondoCard({ condo }) {
   const hasRating = condo.rating > 0
 
   return (
-    <div 
+    <motion.div 
+      initial={{ opacity: 0, y: 30 }}
+      animate={{ opacity: 1, y: 0 }}
+      transition={{ duration: 0.5 }}
+      whileHover={{ y: -8 }}
       className="relative group"
       onMouseEnter={() => setIsHovered(true)}
       onMouseLeave={() => setIsHovered(false)}
@@ -56,10 +61,12 @@ export default function ModernCondoCard({ condo }) {
                 className="absolute top-0 left-0 w-full h-full transition-opacity duration-700 ease-in-out"
                 style={{ opacity: idx === currentImageIndex && fade ? 1 : 0 }}
               >
-                <img 
+                <motion.img 
                   src={img}
                   alt={`${condo.title} ${idx + 1}`}
-                  className="w-full h-full object-cover transition-transform duration-1000 group-hover:scale-110"
+                  className="w-full h-full object-cover"
+                  whileHover={{ scale: 1.1 }}
+                  transition={{ duration: 0.3 }}
                 />
               </div>
             ))}
@@ -68,10 +75,13 @@ export default function ModernCondoCard({ condo }) {
             <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-black/20 to-transparent opacity-60 group-hover:opacity-80 transition-opacity duration-500"></div>
             
             {/* Price Badge - Premium */}
-            <div className="absolute top-4 right-4 bg-white/95 backdrop-blur-md px-3 py-1.5 rounded-full shadow-lg z-10 transform transition-all duration-300 group-hover:scale-105">
+            <motion.div 
+              className="absolute top-4 right-4 bg-white/95 backdrop-blur-md px-3 py-1.5 rounded-full shadow-lg z-10"
+              whileHover={{ scale: 1.05 }}
+            >
               <span className="text-lg font-bold text-[#2d568e]">{formatPrice(condo.price_per_night)}</span>
               <span className="text-xs text-gray-500">/night</span>
-            </div>
+            </motion.div>
             
             {/* Rating Badge */}
             {hasRating && (
@@ -104,18 +114,20 @@ export default function ModernCondoCard({ condo }) {
               <h3 className="text-xl font-bold text-gray-800 line-clamp-1 group-hover:text-[#2d568e] transition-colors duration-300">
                 {condo.title}
               </h3>
-              <button 
+              <motion.button 
                 onClick={(e) => {
                   e.preventDefault()
                   setIsLiked(!isLiked)
                 }}
                 className="p-1 rounded-full hover:bg-gray-100 transition-colors"
+                whileTap={{ scale: 0.8 }}
+                animate={isLiked ? { scale: [1, 1.2, 1] } : {}}
               >
                 <Heart 
                   size={18} 
                   className={`transition-all duration-300 ${isLiked ? 'fill-red-500 text-red-500' : 'text-gray-400 hover:text-red-400'}`}
                 />
-              </button>
+              </motion.button>
             </div>
             
             {/* Location */}
@@ -155,12 +167,16 @@ export default function ModernCondoCard({ condo }) {
             </div>
             
             {/* View Details Button - Premium */}
-            <button className="w-full bg-gradient-to-r from-[#2d568e] to-[#1e3a5f] text-white py-2.5 rounded-xl font-semibold hover:from-[#1e3a5f] hover:to-[#0f2a4a] transition-all duration-300 shadow-md hover:shadow-lg transform hover:scale-[1.02]">
+            <motion.button 
+              className="w-full bg-gradient-to-r from-[#2d568e] to-[#1e3a5f] text-white py-2.5 rounded-xl font-semibold hover:from-[#1e3a5f] hover:to-[#0f2a4a] transition-all duration-300 shadow-md hover:shadow-lg"
+              whileHover={{ scale: 1.02 }}
+              whileTap={{ scale: 0.98 }}
+            >
               View Details
-            </button>
+            </motion.button>
           </div>
         </div>
       </Link>
-    </div>
+    </motion.div>
   )
 }

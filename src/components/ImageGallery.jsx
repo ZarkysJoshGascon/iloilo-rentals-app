@@ -1,25 +1,44 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { X, ChevronLeft, ChevronRight } from 'lucide-react'
 
 export default function ImageGallery({ images, title }) {
   const [isOpen, setIsOpen] = useState(false)
   const [currentIndex, setCurrentIndex] = useState(0)
   const [fade, setFade] = useState(true)
+  const [isAutoRotating, setIsAutoRotating] = useState(true)
+  const intervalRef = useRef(null)
 
-  // Auto-rotate every 4 seconds with fade (like hero section)
+  // Auto-rotate every 4 seconds with fade (ONLY when NOT in gallery view and auto-rotate is enabled)
   useEffect(() => {
-    if (images.length <= 1) return
-    const interval = setInterval(() => {
-      setFade(false)
-      setTimeout(() => {
-        setCurrentIndex((prev) => (prev + 1) % images.length)
-        setFade(true)
-      }, 300)
-    }, 4000)
-    return () => clearInterval(interval)
-  }, [images.length])
+    // Clear any existing interval
+    if (intervalRef.current) {
+      clearInterval(intervalRef.current)
+    }
 
+    // Only start auto-rotation if:
+    // 1. There's more than 1 image
+    // 2. Gallery is NOT open
+    // 3. Auto-rotate is enabled
+    if (images.length > 1 && !isOpen && isAutoRotating) {
+      intervalRef.current = setInterval(() => {
+        setFade(false)
+        setTimeout(() => {
+          setCurrentIndex((prev) => (prev + 1) % images.length)
+          setFade(true)
+        }, 300)
+      }, 4000)
+    }
+
+    return () => {
+      if (intervalRef.current) {
+        clearInterval(intervalRef.current)
+      }
+    }
+  }, [images.length, isOpen, isAutoRotating])
+
+  // Stop auto-rotation when gallery opens
   const openGallery = (index) => {
+    setIsAutoRotating(false)  // Stop auto-rotation
     setCurrentIndex(index)
     setIsOpen(true)
     document.body.style.overflow = 'hidden'
@@ -27,6 +46,7 @@ export default function ImageGallery({ images, title }) {
 
   const closeGallery = () => {
     setIsOpen(false)
+    setIsAutoRotating(true)  // Resume auto-rotation when closing gallery
     document.body.style.overflow = 'unset'
   }
 
@@ -44,6 +64,23 @@ export default function ImageGallery({ images, title }) {
       setCurrentIndex((prev) => (prev - 1 + images.length) % images.length)
       setFade(true)
     }, 300)
+  }
+
+  // Function to manually change image via thumbnail
+  const changeImageManually = (index) => {
+    // Stop auto-rotation temporarily when user manually changes image
+    setIsAutoRotating(false)
+    
+    setFade(false)
+    setTimeout(() => {
+      setCurrentIndex(index)
+      setFade(true)
+    }, 300)
+    
+    // Resume auto-rotation after 10 seconds of inactivity
+    setTimeout(() => {
+      setIsAutoRotating(true)
+    }, 10000)
   }
 
   if (!images || images.length === 0) return null
@@ -80,6 +117,14 @@ export default function ImageGallery({ images, title }) {
             </div>
           )}
           
+          {/* Auto-rotate indicator - shows when auto-rotate is active */}
+          {images.length > 1 && isAutoRotating && !isOpen && (
+            <div className="absolute bottom-4 left-4 bg-black/50 text-white/70 px-2 py-1 rounded-full text-xs backdrop-blur-sm z-10 flex items-center gap-1">
+              <div className="w-1.5 h-1.5 bg-green-500 rounded-full animate-pulse"></div>
+              Auto-rotate
+            </div>
+          )}
+          
           {/* Hover Overlay */}
           <div className="absolute inset-0 bg-black/0 group-hover:bg-black/30 transition-all duration-300 flex items-center justify-center opacity-0 group-hover:opacity-100 z-10">
             <div className="bg-black/80 text-white px-4 py-2 rounded-full text-sm font-medium">
@@ -101,11 +146,7 @@ export default function ImageGallery({ images, title }) {
                 }`}
                 onClick={(e) => {
                   e.stopPropagation()
-                  setFade(false)
-                  setTimeout(() => {
-                    setCurrentIndex(idx)
-                    setFade(true)
-                  }, 300)
+                  changeImageManually(idx)
                 }}
               >
                 <img src={img} alt={`Thumb ${idx + 1}`} className="w-full h-full object-cover" />
@@ -115,7 +156,7 @@ export default function ImageGallery({ images, title }) {
         )}
       </div>
 
-      {/* Fullscreen Gallery Modal */}
+      {/* Fullscreen Gallery Modal - MANUAL CONTROL ONLY (no auto-rotate) */}
       {isOpen && (
         <div className="fixed inset-0 z-[100] bg-black/95 backdrop-blur-md flex items-center justify-center">
           {/* Close Button */}
@@ -174,6 +215,7 @@ export default function ImageGallery({ images, title }) {
                 <button
                   key={idx}
                   onClick={() => {
+                    // Manual control only - no auto-rotate in gallery
                     setFade(false)
                     setTimeout(() => {
                       setCurrentIndex(idx)
@@ -191,6 +233,11 @@ export default function ImageGallery({ images, title }) {
               ))}
             </div>
           )}
+          
+          {/* Manual control indicator */}
+          <div className="absolute bottom-20 left-1/2 -translate-x-1/2 text-white/50 text-xs bg-black/50 px-3 py-1 rounded-full">
+            Manual control • Use arrows or thumbnails
+          </div>
         </div>
       )}
     </>

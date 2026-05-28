@@ -1,5 +1,5 @@
-import { useEffect, useState, useCallback } from 'react'
-import { Link } from 'react-router-dom'
+import { useEffect, useState } from 'react'
+import { motion } from 'framer-motion'
 import { supabase } from '../lib/supabase'
 import { Search, Loader2 } from 'lucide-react'
 import { useCurrency } from '../context/CurrencyContext'
@@ -13,30 +13,25 @@ export default function CondosPage() {
   const [isSearching, setIsSearching] = useState(false)
   const { formatPrice } = useCurrency()
 
-  // SCROLL FIX: Scroll to top when page loads
   useEffect(() => {
     window.scrollTo(0, 0)
   }, [])
 
-  // Debounced search - waits 1 second after user stops typing
   const [debouncedSearch, setDebouncedSearch] = useState('')
 
   useEffect(() => {
     const timer = setTimeout(() => {
       setDebouncedSearch(search)
     }, 1000)
-    
     return () => clearTimeout(timer)
   }, [search])
 
-  // Debounced price range - waits 500ms
   const [debouncedPriceRange, setDebouncedPriceRange] = useState(priceRange)
 
   useEffect(() => {
     const timer = setTimeout(() => {
       setDebouncedPriceRange(priceRange)
     }, 500)
-    
     return () => clearTimeout(timer)
   }, [priceRange])
 
@@ -56,7 +51,6 @@ export default function CondosPage() {
     const { data } = await query
     setCondos(data || [])
     setLoading(false)
-    
     setTimeout(() => setIsSearching(false), 300)
   }
 
@@ -71,27 +65,48 @@ export default function CondosPage() {
 
   if (loading && condos.length === 0) {
     return (
-      <div className="min-h-screen flex items-center justify-center">
+      <motion.div 
+        initial={{ opacity: 0 }}
+        animate={{ opacity: 1 }}
+        className="min-h-screen flex items-center justify-center"
+      >
         <div className="text-center">
-          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-[#2d568e] mx-auto mb-4"></div>
+          <motion.div 
+            animate={{ rotate: 360 }}
+            transition={{ duration: 1, repeat: Infinity, ease: "linear" }}
+            className="rounded-full h-12 w-12 border-b-2 border-[#2d568e] mx-auto mb-4"
+          />
           <p className="text-gray-600">Loading condos...</p>
         </div>
-      </div>
+      </motion.div>
     )
   }
 
   return (
-    <div className="min-h-screen bg-gray-50">
+    <motion.div 
+      initial={{ opacity: 0 }}
+      animate={{ opacity: 1 }}
+      transition={{ duration: 0.5 }}
+      className="min-h-screen bg-gray-50"
+    >
       <div className="max-w-7xl mx-auto px-4 py-8">
         
-        {/* Header */}
-        <div className="mb-8">
+        <motion.div 
+          initial={{ opacity: 0, y: -30 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ duration: 0.3 }}
+          className="mb-8"
+        >
           <h1 className="text-3xl md:text-4xl font-bold text-[#2d568e] mb-2">All Condos in Iloilo</h1>
           <p className="text-gray-500">Find your perfect stay from our collection of premium condos</p>
-        </div>
+        </motion.div>
         
-        {/* Filters */}
-        <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-5 mb-8">
+        <motion.div 
+          initial={{ opacity: 0, y: 30 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ duration: 0.5, delay: 0.1 }}
+          className="bg-white rounded-2xl shadow-sm border border-gray-100 p-5 mb-8"
+        >
           <div className="flex flex-col md:flex-row gap-4">
             <div className="flex-1 relative">
               <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" size={18} />
@@ -102,7 +117,6 @@ export default function CondosPage() {
                 value={search}
                 onChange={(e) => setSearch(e.target.value)}
               />
-              {/* Typing indicator */}
               {search && search !== debouncedSearch && (
                 <div className="absolute right-3 top-1/2 -translate-y-1/2">
                   <Loader2 size={16} className="animate-spin text-gray-400" />
@@ -135,10 +149,14 @@ export default function CondosPage() {
               </div>
             </div>
           </div>
-        </div>
+        </motion.div>
 
-        {/* Results Count with Loading Indicator */}
-        <div className="mb-6 flex justify-between items-center">
+        <motion.div 
+          initial={{ opacity: 0 }}
+          animate={{ opacity: 1 }}
+          transition={{ delay: 0.2 }}
+          className="mb-6 flex justify-between items-center"
+        >
           <p className="text-gray-500">
             Found <span className="font-semibold text-[#2d568e]">{condos.length}</span> condos
           </p>
@@ -148,23 +166,27 @@ export default function CondosPage() {
               <span>Refreshing...</span>
             </div>
           )}
-        </div>
+        </motion.div>
 
-        {/* Condos Grid */}
         {condos.length === 0 ? (
-          <div className="text-center py-16 bg-white rounded-2xl">
+          <motion.div 
+            initial={{ opacity: 0, scale: 0.95 }}
+            animate={{ opacity: 1, scale: 1 }}
+            className="text-center py-16 bg-white rounded-2xl"
+          >
             <div className="text-6xl mb-4">🏢</div>
             <p className="text-gray-500 text-lg">No condos found matching your criteria.</p>
-            <button 
+            <motion.button 
+              whileHover={{ scale: 1.05 }}
+              whileTap={{ scale: 0.98 }}
               onClick={handleClearFilters}
               className="mt-4 text-[#2d568e] hover:underline transition-all"
             >
               Clear filters
-            </button>
-          </div>
+            </motion.button>
+          </motion.div>
         ) : (
           <>
-            {/* Shimmer loading effect while searching */}
             {isSearching && (
               <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-8 mb-8">
                 {[1, 2, 3].map((i) => (
@@ -185,15 +207,14 @@ export default function CondosPage() {
               </div>
             )}
             
-            {/* Actual results */}
             <div className={`grid md:grid-cols-2 lg:grid-cols-3 gap-8 transition-opacity duration-300 ${isSearching ? 'opacity-50' : 'opacity-100'}`}>
-              {condos.map((condo) => (
-                <ModernCondoCard key={condo.id} condo={condo} />
+              {condos.map((condo, index) => (
+                <ModernCondoCard key={condo.id} condo={condo} index={index} />
               ))}
             </div>
           </>
         )}
       </div>
-    </div>
+    </motion.div>
   )
 }

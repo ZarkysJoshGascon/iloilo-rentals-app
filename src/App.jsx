@@ -17,7 +17,6 @@ function App() {
   const location = useLocation()
   const hideFooter = location.pathname.includes('/condo/')
 
-  // Scroll to top on EVERY page change
   useEffect(() => {
     window.scrollTo(0, 0)
   }, [location.pathname])
@@ -44,4 +43,4 @@ function App() {
   )
 }
 
-export default App
+export default App  // <-- MAKE SURE THIS LINE EXISTS
