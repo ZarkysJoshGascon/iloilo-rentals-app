@@ -7,7 +7,7 @@ import CondosPage from './pages/CondosPage'
 import CondoDetailPage from './pages/CondoDetailPage'
 import LoginPage from './pages/LoginPage'
 import AboutPage from './pages/Aboutpage'
-import ContactPage from './pages/Contactpage'
+import ContactPage from './pages/ContactPage'
 import MyBookingsPage from './pages/MyBookingsPage'
 
 function App() {
