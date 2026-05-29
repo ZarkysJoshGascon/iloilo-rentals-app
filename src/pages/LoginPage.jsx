@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { motion } from 'framer-motion'
 import { supabase } from '../lib/supabase'
-import { Loader2 } from 'lucide-react'
+import { Loader2, ExternalLink } from 'lucide-react'
 
 export default function LoginPage() {
   const navigate = useNavigate()
@@ -59,32 +59,21 @@ export default function LoginPage() {
     }
   }
 
-  // Force open in external browser - works on iOS and Android
+  // This triggers the native "Open in Safari/Chrome" dialog on iOS
+  // and "Open with" dialog on Android
   const openInExternalBrowser = () => {
     const currentUrl = window.location.href
-    const userAgent = navigator.userAgent || navigator.vendor || window.opera
     
-    // For iOS devices (iPhone, iPad)
-    if (/iPhone|iPad|iPod/.test(userAgent)) {
-      // iOS: Use window.location which forces Safari to open
-      window.location.href = currentUrl
-    } 
-    // For Android devices
-    else if (/Android/.test(userAgent)) {
-      // Android: Use intent:// scheme to force Chrome
-      try {
-        // Try to open with intent:// for Chrome
-        const intentUrl = `intent://${window.location.host}${window.location.pathname}${window.location.search}#Intent;scheme=https;package=com.android.chrome;end;`
-        window.location.href = intentUrl
-      } catch (e) {
-        // Fallback: just open in new tab
-        window.open(currentUrl, '_blank')
-      }
-    } 
-    // For all other devices
-    else {
-      window.open(currentUrl, '_blank')
-    }
+    // Create a temporary anchor element
+    const link = document.createElement('a')
+    link.href = currentUrl
+    link.target = '_blank'
+    link.rel = 'noopener noreferrer'
+    
+    // Append to body, click, then remove
+    document.body.appendChild(link)
+    link.click()
+    document.body.removeChild(link)
   }
 
   // Animation variants
@@ -241,16 +230,14 @@ export default function LoginPage() {
             
             <button
               onClick={openInExternalBrowser}
-              className="mt-3 w-full bg-amber-500 hover:bg-amber-600 text-white font-semibold py-2.5 px-4 rounded-lg transition-all flex items-center justify-center gap-2 text-sm"
+              className="mt-3 w-full bg-amber-500 hover:bg-amber-600 text-white font-semibold py-3 px-4 rounded-lg transition-all flex items-center justify-center gap-2 text-sm"
             >
-              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" />
-              </svg>
+              <ExternalLink size={16} />
               Open in External Browser
             </button>
             
             <p className="text-xs text-amber-600 text-center mt-3">
-              This will open your default browser (Safari/Chrome)
+              Your phone will ask which browser to use
             </p>
           </motion.div>
         )}
