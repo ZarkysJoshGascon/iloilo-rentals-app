@@ -7,6 +7,7 @@ import { Loader2 } from 'lucide-react'
 export default function LoginPage() {
   const navigate = useNavigate()
   const [isLoading, setIsLoading] = useState(false)
+  const [showWarning, setShowWarning] = useState(false)
 
   // Check if already logged in
   useEffect(() => {
@@ -19,9 +20,7 @@ export default function LoginPage() {
     checkSession()
   }, [navigate])
 
-  // Detect if user is in an embedded browser and show warning (NO automatic redirect)
-  const [showWarning, setShowWarning] = useState(false)
-  
+  // Detect if user is in an embedded browser
   useEffect(() => {
     const ua = navigator.userAgent || navigator.vendor || window.opera
     
@@ -60,17 +59,31 @@ export default function LoginPage() {
     }
   }
 
-  // Function to open in external browser
+  // Force open in external browser - works on iOS and Android
   const openInExternalBrowser = () => {
-    // Get the current URL
     const currentUrl = window.location.href
+    const userAgent = navigator.userAgent || navigator.vendor || window.opera
     
-    // For iOS, use this method to open in Safari
-    if (navigator.userAgent.includes('iPhone') || navigator.userAgent.includes('iPad')) {
+    // For iOS devices (iPhone, iPad)
+    if (/iPhone|iPad|iPod/.test(userAgent)) {
+      // iOS: Use window.location which forces Safari to open
       window.location.href = currentUrl
-    } else {
-      // For Android
-      window.location.href = currentUrl
+    } 
+    // For Android devices
+    else if (/Android/.test(userAgent)) {
+      // Android: Use intent:// scheme to force Chrome
+      try {
+        // Try to open with intent:// for Chrome
+        const intentUrl = `intent://${window.location.host}${window.location.pathname}${window.location.search}#Intent;scheme=https;package=com.android.chrome;end;`
+        window.location.href = intentUrl
+      } catch (e) {
+        // Fallback: just open in new tab
+        window.open(currentUrl, '_blank')
+      }
+    } 
+    // For all other devices
+    else {
+      window.open(currentUrl, '_blank')
     }
   }
 
@@ -205,7 +218,7 @@ export default function LoginPage() {
         className="relative bg-white rounded-2xl shadow-2xl max-w-md w-full mx-4 p-8 md:p-10 transition-all duration-500"
       >
         
-        {/* Warning for embedded browsers - SHOW BUTTON, NO AUTO REDIRECT */}
+        {/* Warning for embedded browsers */}
         {showWarning && (
           <motion.div 
             initial={{ opacity: 0, y: -10 }}
@@ -233,11 +246,11 @@ export default function LoginPage() {
               <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" />
               </svg>
-              Open in Safari / Chrome
+              Open in External Browser
             </button>
             
             <p className="text-xs text-amber-600 text-center mt-3">
-              Tap the button above to open in your default browser
+              This will open your default browser (Safari/Chrome)
             </p>
           </motion.div>
         )}
