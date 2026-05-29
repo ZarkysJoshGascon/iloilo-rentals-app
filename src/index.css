@@ -1,11 +1,13 @@
 @import "tailwindcss";
-/* Remove text selection cursor from the entire page */
-/* Force scroll to top on page refresh */
+
 html {
   scroll-behavior: smooth;
 }
 
-/* Prevent browser from restoring scroll position */
 body {
   overflow-anchor: none;
+}
+
+body.modal-open {
+  overflow: hidden;
 }

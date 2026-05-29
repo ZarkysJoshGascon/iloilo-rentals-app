@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
+import { motion } from 'framer-motion'
 import { supabase } from '../lib/supabase'
 import { Loader2 } from 'lucide-react'
 
@@ -40,24 +41,151 @@ export default function LoginPage() {
     }
   }
 
+  // Animation variants
+  const containerVariants = {
+    hidden: { opacity: 0, scale: 0.9 },
+    visible: { 
+      opacity: 1, 
+      scale: 1,
+      transition: { 
+        duration: 0.5,
+        type: "spring",
+        stiffness: 200,
+        damping: 20
+      }
+    }
+  }
+
+  const logoVariants = {
+    hidden: { scale: 0, rotate: -180 },
+    visible: { 
+      scale: 1, 
+      rotate: 0,
+      transition: { 
+        duration: 0.5, 
+        type: "spring",
+        stiffness: 260,
+        damping: 20
+      }
+    }
+  }
+
+  const titleVariants = {
+    hidden: { opacity: 0, y: -30 },
+    visible: { 
+      opacity: 1, 
+      y: 0,
+      transition: { delay: 0.2, duration: 0.5 }
+    }
+  }
+
+  const subtitleVariants = {
+    hidden: { opacity: 0 },
+    visible: { 
+      opacity: 1,
+      transition: { delay: 0.3, duration: 0.5 }
+    }
+  }
+
+  const dividerVariants = {
+    hidden: { width: 0, opacity: 0 },
+    visible: { 
+      width: "100%", 
+      opacity: 1,
+      transition: { delay: 0.4, duration: 0.6 }
+    }
+  }
+
+  const buttonVariants = {
+    hidden: { opacity: 0, y: 20 },
+    visible: { 
+      opacity: 1, 
+      y: 0,
+      transition: { delay: 0.5, duration: 0.5 }
+    },
+    hover: { 
+      scale: 1.02,
+      borderColor: "#2d568e",
+      boxShadow: "0 10px 25px -5px rgba(45,86,142,0.2)",
+      transition: { duration: 0.2 }
+    },
+    tap: { scale: 0.98 }
+  }
+
+  const featuresVariants = {
+    hidden: { opacity: 0 },
+    visible: { 
+      opacity: 1,
+      transition: { delay: 0.6, staggerChildren: 0.1 }
+    }
+  }
+
+  const featureItemVariants = {
+    hidden: { opacity: 0, x: -10 },
+    visible: { opacity: 1, x: 0 }
+  }
+
+  const footerVariants = {
+    hidden: { opacity: 0 },
+    visible: { 
+      opacity: 1,
+      transition: { delay: 0.7, duration: 0.5 }
+    }
+  }
+
   return (
-    <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-[#2d568e]/5 via-white to-[#2d568e]/10">
+    <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-[#2d568e]/5 via-white to-[#2d568e]/10 overflow-hidden">
       
-      {/* Decorative background elements */}
+      {/* Decorative background elements with floating animation */}
       <div className="absolute inset-0 overflow-hidden pointer-events-none">
-        <div className="absolute -top-40 -right-40 w-80 h-80 bg-[#2d568e]/10 rounded-full blur-3xl"></div>
-        <div className="absolute -bottom-40 -left-40 w-80 h-80 bg-[#2d568e]/10 rounded-full blur-3xl"></div>
+        <motion.div 
+          animate={{ 
+            y: [0, -20, 0],
+            x: [0, 10, 0],
+          }}
+          transition={{ repeat: Infinity, duration: 8, ease: "easeInOut" }}
+          className="absolute -top-40 -right-40 w-80 h-80 bg-[#2d568e]/10 rounded-full blur-3xl"
+        />
+        <motion.div 
+          animate={{ 
+            y: [0, 20, 0],
+            x: [0, -10, 0],
+          }}
+          transition={{ repeat: Infinity, duration: 10, ease: "easeInOut" }}
+          className="absolute -bottom-40 -left-40 w-80 h-80 bg-[#2d568e]/10 rounded-full blur-3xl"
+        />
+        <motion.div 
+          animate={{ 
+            scale: [1, 1.2, 1],
+            opacity: [0.3, 0.5, 0.3]
+          }}
+          transition={{ repeat: Infinity, duration: 6, ease: "easeInOut" }}
+          className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-96 h-96 bg-[#2d568e]/5 rounded-full blur-3xl"
+        />
       </div>
 
-      <div className="relative bg-white rounded-2xl shadow-2xl max-w-md w-full mx-4 p-8 md:p-10 transform transition-all duration-500 hover:scale-[1.02]">
+      <motion.div 
+        variants={containerVariants}
+        initial="hidden"
+        animate="visible"
+        whileHover={{ scale: 1.02 }}
+        className="relative bg-white rounded-2xl shadow-2xl max-w-md w-full mx-4 p-8 md:p-10 transition-all duration-500"
+      >
         
         {/* Logo Section */}
         <div className="flex justify-center mb-6">
-          <div className="bg-[#2d568e]/10 p-4 rounded-full transition-all duration-300 hover:scale-110 hover:bg-[#2d568e]/20">
-            <img 
+          <motion.div 
+            variants={logoVariants}
+            className="bg-[#2d568e]/10 p-4 rounded-full transition-all duration-300 hover:bg-[#2d568e]/20 cursor-pointer"
+            whileHover={{ scale: 1.1 }}
+            whileTap={{ scale: 0.95 }}
+          >
+            <motion.img 
               src="/Iloilo_rentals_img.png" 
               alt="Iloilo Rentals Logo" 
               className="w-20 h-20 object-contain"
+              animate={{ rotate: [0, 5, -5, 0] }}
+              transition={{ repeat: Infinity, duration: 4, repeatDelay: 3 }}
               onError={(e) => {
                 e.target.style.display = 'none'
                 e.target.nextSibling.style.display = 'flex'
@@ -66,76 +194,147 @@ export default function LoginPage() {
             <div className="hidden w-20 h-20 bg-[#2d568e] rounded-full items-center justify-center">
               <span className="text-white text-2xl font-bold">IR</span>
             </div>
-          </div>
+          </motion.div>
         </div>
         
         {/* Title */}
-        <h1 className="text-3xl md:text-4xl font-bold text-center bg-gradient-to-r from-[#2d568e] to-[#1e3a5f] bg-clip-text text-transparent mb-3">
+        <motion.h1 
+          variants={titleVariants}
+          className="text-3xl md:text-4xl font-bold text-center bg-gradient-to-r from-[#2d568e] to-[#1e3a5f] bg-clip-text text-transparent mb-3"
+        >
           Iloilo Rentals
-        </h1>
-        <p className="text-center text-gray-500 mb-2">
+        </motion.h1>
+        
+        <motion.p 
+          variants={subtitleVariants}
+          className="text-center text-gray-500 mb-2"
+        >
           Sign in to book your perfect stay
-        </p>
-        <p className="text-center text-sm text-gray-400 mb-8">
+        </motion.p>
+        
+        <motion.p 
+          variants={subtitleVariants}
+          className="text-center text-sm text-gray-400 mb-8"
+        >
           in Iloilo City
-        </p>
+        </motion.p>
         
         {/* Divider */}
         <div className="relative mb-8">
-          <div className="absolute inset-0 flex items-center">
+          <motion.div 
+            variants={dividerVariants}
+            className="absolute inset-0 flex items-center"
+          >
             <div className="w-full border-t border-gray-200"></div>
-          </div>
+          </motion.div>
           <div className="relative flex justify-center text-sm">
-            <span className="px-4 bg-white text-gray-400">Continue with</span>
+            <motion.span 
+              initial={{ opacity: 0, scale: 0.8 }}
+              animate={{ opacity: 1, scale: 1 }}
+              transition={{ delay: 0.45 }}
+              className="px-4 bg-white text-gray-400"
+            >
+              Continue with
+            </motion.span>
           </div>
         </div>
         
         {/* Google Sign In Button */}
-        <button
+        <motion.button
+          variants={buttonVariants}
+          initial="hidden"
+          animate="visible"
+          whileHover="hover"
+          whileTap="tap"
           onClick={handleGoogleLogin}
           disabled={isLoading}
-          className="group relative w-full bg-white border-2 border-gray-200 text-gray-700 py-3.5 rounded-xl font-semibold hover:border-[#2d568e] hover:shadow-lg transition-all duration-300 flex items-center justify-center gap-3 overflow-hidden"
+          className="group relative w-full bg-white border-2 border-gray-200 text-gray-700 py-3.5 rounded-xl font-semibold transition-all duration-300 flex items-center justify-center gap-3 overflow-hidden cursor-pointer"
         >
           {/* Animated background on hover */}
-          <span className="absolute inset-0 bg-gradient-to-r from-[#2d568e]/0 via-[#2d568e]/5 to-[#2d568e]/0 translate-x-[-100%] group-hover:translate-x-[100%] transition-transform duration-700"></span>
+          <motion.span 
+            className="absolute inset-0 bg-gradient-to-r from-[#2d568e]/0 via-[#2d568e]/5 to-[#2d568e]/0"
+            initial={{ x: "-100%" }}
+            whileHover={{ x: "100%" }}
+            transition={{ duration: 0.7 }}
+          />
           
           {isLoading ? (
             <>
-              <Loader2 className="w-5 h-5 animate-spin" />
+              <motion.div 
+                animate={{ rotate: 360 }}
+                transition={{ duration: 1, repeat: Infinity, ease: "linear" }}
+              >
+                <Loader2 className="w-5 h-5" />
+              </motion.div>
               <span>Redirecting...</span>
             </>
           ) : (
             <>
-              <svg className="w-5 h-5 transition-transform group-hover:scale-110" viewBox="0 0 24 24">
+              <motion.svg 
+                className="w-5 h-5"
+                whileHover={{ scale: 1.2, rotate: 5 }}
+                viewBox="0 0 24 24"
+              >
                 <path fill="#4285F4" d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z" />
                 <path fill="#34A853" d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z" />
                 <path fill="#FBBC05" d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l2.85-2.22.81-.62z" />
                 <path fill="#EA4335" d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z" />
-              </svg>
+              </motion.svg>
               <span className="text-base">Sign in with Google</span>
             </>
           )}
-        </button>
+        </motion.button>
         
         {/* Features list */}
-        <div className="mt-8 pt-6 border-t border-gray-100">
+        <motion.div 
+          variants={featuresVariants}
+          initial="hidden"
+          animate="visible"
+          className="mt-8 pt-6 border-t border-gray-100"
+        >
           <div className="flex flex-col gap-2 text-center text-xs text-gray-400">
             <div className="flex justify-center gap-4">
-              <span className="flex items-center gap-1">✓ Secure login</span>
-              <span className="flex items-center gap-1">✓ No password needed</span>
-              <span className="flex items-center gap-1">✓ Instant access</span>
+              {["✓ Secure login", "✓ No password needed", "✓ Instant access"].map((feature, idx) => (
+                <motion.span 
+                  key={idx}
+                  variants={featureItemVariants}
+                  className="flex items-center gap-1"
+                  whileHover={{ scale: 1.05, color: "#2d568e" }}
+                >
+                  {feature}
+                </motion.span>
+              ))}
             </div>
           </div>
-        </div>
+        </motion.div>
         
         {/* Footer with Terms and Privacy links */}
-        <p className="text-center text-xs text-gray-400 mt-6">
+        <motion.p 
+          variants={footerVariants}
+          initial="hidden"
+          animate="visible"
+          className="text-center text-xs text-gray-400 mt-6"
+        >
           By signing in, you agree to our{' '}
-          <a href="/terms" className="text-[#2d568e] hover:underline">Terms of Service</a>
+          <motion.a 
+            href="/terms" 
+            className="text-[#2d568e] hover:underline inline-block"
+            whileHover={{ scale: 1.05, x: 2 }}
+            whileTap={{ scale: 0.98 }}
+          >
+            Terms of Service
+          </motion.a>
           {' '}and{' '}
-          <a href="/privacy" className="text-[#2d568e] hover:underline">Privacy Policy</a>
-        </p>
-      </div>
+          <motion.a 
+            href="/privacy" 
+            className="text-[#2d568e] hover:underline inline-block"
+            whileHover={{ scale: 1.05, x: 2 }}
+            whileTap={{ scale: 0.98 }}
+          >
+            Privacy Policy
+          </motion.a>
+        </motion.p>
+      </motion.div>
     </div>
   )
 }
