@@ -1,5 +1,5 @@
 import { Routes, Route, useLocation } from 'react-router-dom'
-import { useEffect, useState } from 'react'
+import { useEffect } from 'react'
 import { Toaster } from 'react-hot-toast'
 import Navbar from './components/Navbar'
 import Footer from './components/Footer'
@@ -18,6 +18,11 @@ function App() {
   const hideFooter = location.pathname.includes('/condo/')
 
   useEffect(() => {
+    // Reset body styles on navigation to fix back button freeze
+    document.documentElement.style.overflow = ''
+    document.body.style.overflow = ''
+    document.body.style.position = ''
+    document.body.style.width = ''
     window.scrollTo(0, 0)
   }, [location.pathname])
 

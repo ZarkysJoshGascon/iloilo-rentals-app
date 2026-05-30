@@ -421,8 +421,8 @@ export default function CondoDetailPage() {
             </div>
           </div>
 
-          {/* RIGHT SIDE - COMPLETELY STATIC - NO SCROLLING */}
-          <div className="w-1/3 bg-white shadow-xl flex flex-col h-full overflow-hidden">
+          {/* RIGHT SIDE - COMPLETELY STATIC - NO SCROLLING - REMOVED children discount and cancellation text */}
+          <div className="w-1/3 bg-white shadow-xl flex flex-col h-full overflow-hidden pt-25">
             <motion.div 
               initial={{ x: 50, opacity: 0 }}
               animate={{ x: 0, opacity: 1 }}
@@ -496,8 +496,7 @@ export default function CondoDetailPage() {
                   <div className="flex justify-between font-bold text-xl pt-2 border-t"><span>Total</span><span className="text-[#2d568e]">{formatPrice(finalTotal)}</span></div>
                 </div>
 
-                <div className="text-center text-xs text-gray-500 bg-blue-50 p-2 rounded-lg">Children 10% off • Infants & Seniors 20% off</div>
-                <div className="text-center text-xs text-gray-500 bg-gray-50 p-2 rounded-lg">{getCancellationText()}</div>
+                {/* THESE TWO LINES WERE REMOVED FROM HERE - Children discount and Cancellation policy moved to modal */}
                 
                 <button onClick={handleBookNowClick} className="w-full bg-[#2d568e] text-white py-3 rounded-xl font-semibold hover:bg-[#1e3a5f] transition shadow-lg">
                   {user ? 'Reserve Now' : 'Sign in to Book'}
@@ -562,7 +561,7 @@ export default function CondoDetailPage() {
         </div>
       </div>
 
-      {/* MODAL - with BLUR OVERLAY instead of dark overlay */}
+      {/* MODAL - ADDED children discount and cancellation policy here */}
       <AnimatePresence>
         {showBookingForm && (
           <div className="fixed inset-0 z-[99999] flex items-center justify-center">
@@ -652,6 +651,20 @@ export default function CondoDetailPage() {
                         </div>
                       </div>
                     </div>
+                  </div>
+
+                  {/* Children discount info - ADDED TO MODAL */}
+                  <div className="mt-3 p-3 bg-blue-50 rounded-lg">
+                    <p className="text-xs text-blue-700 text-center">
+                      Children 10% off • Infants & Seniors 20% off
+                    </p>
+                  </div>
+
+                  {/* Cancellation policy - ADDED TO MODAL near terms */}
+                  <div className="mt-2 p-2 bg-gray-50 rounded-lg">
+                    <p className="text-xs text-gray-600 text-center">
+                      {getCancellationText()}
+                    </p>
                   </div>
 
                   <div className="flex items-start gap-2 pt-2 mt-2">

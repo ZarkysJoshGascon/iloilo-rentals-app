@@ -8,17 +8,12 @@ export default function ImageGallery({ images, title }) {
   const [isAutoRotating, setIsAutoRotating] = useState(true)
   const intervalRef = useRef(null)
 
-  // Auto-rotate every 4 seconds with fade (ONLY when NOT in gallery view and auto-rotate is enabled)
+  // Auto-rotate every 4 seconds
   useEffect(() => {
-    // Clear any existing interval
     if (intervalRef.current) {
       clearInterval(intervalRef.current)
     }
 
-    // Only start auto-rotation if:
-    // 1. There's more than 1 image
-    // 2. Gallery is NOT open
-    // 3. Auto-rotate is enabled
     if (images.length > 1 && !isOpen && isAutoRotating) {
       intervalRef.current = setInterval(() => {
         setFade(false)
@@ -36,9 +31,8 @@ export default function ImageGallery({ images, title }) {
     }
   }, [images.length, isOpen, isAutoRotating])
 
-  // Stop auto-rotation when gallery opens
   const openGallery = (index) => {
-    setIsAutoRotating(false)  // Stop auto-rotation
+    setIsAutoRotating(false)
     setCurrentIndex(index)
     setIsOpen(true)
     document.body.style.overflow = 'hidden'
@@ -46,7 +40,7 @@ export default function ImageGallery({ images, title }) {
 
   const closeGallery = () => {
     setIsOpen(false)
-    setIsAutoRotating(true)  // Resume auto-rotation when closing gallery
+    setIsAutoRotating(true)
     document.body.style.overflow = 'unset'
   }
 
@@ -66,34 +60,27 @@ export default function ImageGallery({ images, title }) {
     }, 300)
   }
 
-  // Function to manually change image via thumbnail
-  const changeImageManually = (index) => {
-    // Stop auto-rotation temporarily when user manually changes image
-    setIsAutoRotating(false)
-    
-    setFade(false)
-    setTimeout(() => {
-      setCurrentIndex(index)
-      setFade(true)
-    }, 300)
-    
-    // Resume auto-rotation after 10 seconds of inactivity
-    setTimeout(() => {
-      setIsAutoRotating(true)
-    }, 10000)
-  }
+  // Close on Escape key
+  useEffect(() => {
+    const handleEscape = (e) => {
+      if (e.key === 'Escape' && isOpen) {
+        closeGallery()
+      }
+    }
+    window.addEventListener('keydown', handleEscape)
+    return () => window.removeEventListener('keydown', handleEscape)
+  }, [isOpen])
 
   if (!images || images.length === 0) return null
 
   return (
     <>
-      {/* Main Display - Taller height with auto-rotating animation */}
+      {/* Main Display */}
       <div className="relative">
         <div 
           className="relative h-[550px] md:h-[650px] lg:h-[700px] cursor-pointer group overflow-hidden"
           onClick={() => openGallery(0)}
         >
-          {/* Auto-rotating Images with Fade Effect (like hero section) */}
           {images.map((img, idx) => (
             <div
               key={idx}
@@ -105,27 +92,16 @@ export default function ImageGallery({ images, title }) {
                 alt={title}
                 className="w-full h-full object-cover transition-transform duration-700 group-hover:scale-105"
               />
-              {/* Dark gradient overlay for better text visibility */}
               <div className="absolute inset-0 bg-gradient-to-t from-black/40 via-transparent to-transparent"></div>
             </div>
           ))}
           
-          {/* Image Counter Badge */}
           {images.length > 1 && (
             <div className="absolute top-4 right-4 bg-black/60 text-white px-3 py-1 rounded-full text-sm backdrop-blur-sm z-10">
               {currentIndex + 1} / {images.length}
             </div>
           )}
           
-          {/* Auto-rotate indicator - shows when auto-rotate is active */}
-          {images.length > 1 && isAutoRotating && !isOpen && (
-            <div className="absolute bottom-4 left-4 bg-black/50 text-white/70 px-2 py-1 rounded-full text-xs backdrop-blur-sm z-10 flex items-center gap-1">
-              <div className="w-1.5 h-1.5 bg-green-500 rounded-full animate-pulse"></div>
-              Auto-rotate
-            </div>
-          )}
-          
-          {/* Hover Overlay */}
           <div className="absolute inset-0 bg-black/0 group-hover:bg-black/30 transition-all duration-300 flex items-center justify-center opacity-0 group-hover:opacity-100 z-10">
             <div className="bg-black/80 text-white px-4 py-2 rounded-full text-sm font-medium">
               View Gallery ({images.length} photos)
@@ -133,7 +109,7 @@ export default function ImageGallery({ images, title }) {
           </div>
         </div>
         
-        {/* Thumbnail Strip with Border Highlight */}
+        {/* Thumbnail Strip */}
         {images.length > 1 && (
           <div className="flex gap-2 justify-center mt-4 overflow-x-auto pb-2 px-4">
             {images.map((img, idx) => (
@@ -146,7 +122,13 @@ export default function ImageGallery({ images, title }) {
                 }`}
                 onClick={(e) => {
                   e.stopPropagation()
-                  changeImageManually(idx)
+                  setIsAutoRotating(false)
+                  setFade(false)
+                  setTimeout(() => {
+                    setCurrentIndex(idx)
+                    setFade(true)
+                    setTimeout(() => setIsAutoRotating(true), 10000)
+                  }, 300)
                 }}
               >
                 <img src={img} alt={`Thumb ${idx + 1}`} className="w-full h-full object-cover" />
@@ -156,42 +138,55 @@ export default function ImageGallery({ images, title }) {
         )}
       </div>
 
-      {/* Fullscreen Gallery Modal - MANUAL CONTROL ONLY (no auto-rotate) */}
+      {/* Fullscreen Gallery Modal */}
       {isOpen && (
-        <div className="fixed inset-0 z-[100] bg-black/95 backdrop-blur-md flex items-center justify-center">
-          {/* Close Button */}
+        <div className="fixed inset-0 z-[99999]">
+          {/* Black background - click to close */}
+          <div 
+            className="absolute inset-0 bg-black"
+            onClick={closeGallery}
+          />
+          
+          {/* X Button - TOP RIGHT, ABOVE NAVBAR */}
           <button 
             onClick={closeGallery}
-            className="absolute top-4 right-4 z-10 text-white hover:text-gray-300 transition-colors"
+            className="fixed top-6 right-6 z-[100000] text-white hover:text-gray-300 transition-colors bg-black/50 rounded-full p-3 hover:bg-black/70"
+            style={{ marginTop: '60px' }}
           >
-            <X size={32} />
+            <X size={28} />
           </button>
           
           {/* Navigation Arrows */}
           {images.length > 1 && (
             <>
               <button 
-                onClick={prevImage}
-                className="absolute left-4 z-10 text-white hover:text-gray-300 transition-colors bg-black/50 rounded-full p-2 hover:bg-black/70"
+                onClick={(e) => {
+                  e.stopPropagation()
+                  prevImage()
+                }}
+                className="fixed left-6 top-1/2 -translate-y-1/2 z-[100000] text-white hover:text-gray-300 transition-colors bg-black/50 rounded-full p-3 hover:bg-black/70"
               >
-                <ChevronLeft size={40} />
+                <ChevronLeft size={36} />
               </button>
               <button 
-                onClick={nextImage}
-                className="absolute right-4 z-10 text-white hover:text-gray-300 transition-colors bg-black/50 rounded-full p-2 hover:bg-black/70"
+                onClick={(e) => {
+                  e.stopPropagation()
+                  nextImage()
+                }}
+                className="fixed right-6 top-1/2 -translate-y-1/2 z-[100000] text-white hover:text-gray-300 transition-colors bg-black/50 rounded-full p-3 hover:bg-black/70"
               >
-                <ChevronRight size={40} />
+                <ChevronRight size={36} />
               </button>
             </>
           )}
           
           {/* Image Counter */}
-          <div className="absolute top-4 left-4 z-10 text-white bg-black/50 px-3 py-1 rounded-full text-sm">
+          <div className="fixed top-6 left-6 z-[100000] text-white bg-black/50 px-3 py-1 rounded-full text-sm">
             {currentIndex + 1} / {images.length}
           </div>
           
-          {/* Main Image with Fade Transition */}
-          <div className="relative w-full h-full flex items-center justify-center">
+          {/* Main Image */}
+          <div className="relative w-full h-full flex items-center justify-center pointer-events-none">
             {images.map((img, idx) => (
               <div
                 key={idx}
@@ -202,20 +197,20 @@ export default function ImageGallery({ images, title }) {
                 <img 
                   src={img}
                   alt={`${title} ${idx + 1}`}
-                  className="max-w-[90vw] max-h-[90vh] object-contain rounded-lg shadow-2xl"
+                  className="max-w-[90vw] max-h-[85vh] object-contain rounded-lg pointer-events-auto"
                 />
               </div>
             ))}
           </div>
           
-          {/* Thumbnails at bottom with border highlight */}
+          {/* Thumbnails at bottom */}
           {images.length > 1 && (
-            <div className="absolute bottom-4 left-0 right-0 flex justify-center gap-2 p-2 bg-black/50 backdrop-blur-sm overflow-x-auto">
+            <div className="fixed bottom-4 left-0 right-0 flex justify-center gap-2 p-2 bg-black/50 overflow-x-auto z-[100000]">
               {images.map((img, idx) => (
                 <button
                   key={idx}
-                  onClick={() => {
-                    // Manual control only - no auto-rotate in gallery
+                  onClick={(e) => {
+                    e.stopPropagation()
                     setFade(false)
                     setTimeout(() => {
                       setCurrentIndex(idx)
@@ -233,11 +228,6 @@ export default function ImageGallery({ images, title }) {
               ))}
             </div>
           )}
-          
-          {/* Manual control indicator */}
-          <div className="absolute bottom-20 left-1/2 -translate-x-1/2 text-white/50 text-xs bg-black/50 px-3 py-1 rounded-full">
-            Manual control • Use arrows or thumbnails
-          </div>
         </div>
       )}
     </>
