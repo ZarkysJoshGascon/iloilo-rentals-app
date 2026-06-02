@@ -510,11 +510,25 @@ export default function CondoDetailPage() {
         </div>
       </div>
 
-      {/* MOBILE SLIDE-UP DRAWER - Outside main content, works on ALL mobile devices */}
-      <div className="lg:hidden fixed bottom-0 left-0 right-0 z-50">
+            {/* MOBILE SLIDE-UP DRAWER - With drag to dismiss and click outside to close */}
+      <div className="md:hidden fixed inset-0 z-50 pointer-events-none">
+        {/* Backdrop overlay - click to close */}
+        <AnimatePresence>
+          {isDrawerOpen && (
+            <motion.div
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              transition={{ duration: 0.2 }}
+              className="absolute inset-0 bg-black/50 pointer-events-auto"
+              onClick={() => setIsDrawerOpen(false)}
+            />
+          )}
+        </AnimatePresence>
+
         {/* Sticky bottom bar - Always visible */}
         <div 
-          className="bg-white shadow-xl rounded-t-2xl border-t border-gray-100"
+          className="absolute bottom-0 left-0 right-0 bg-white shadow-xl rounded-t-2xl border-t border-gray-100 pointer-events-auto"
           style={{ boxShadow: '0 -4px 20px rgba(0,0,0,0.1)' }}
         >
           <button
@@ -534,7 +548,7 @@ export default function CondoDetailPage() {
           </button>
         </div>
 
-        {/* Slide-up Drawer */}
+        {/* Slide-up Drawer - With drag to dismiss */}
         <AnimatePresence>
           {isDrawerOpen && (
             <motion.div
@@ -542,13 +556,27 @@ export default function CondoDetailPage() {
               animate={{ y: 0 }}
               exit={{ y: '100%' }}
               transition={{ type: 'spring', damping: 25, stiffness: 300 }}
-              className="absolute bottom-full left-0 right-0 bg-white rounded-t-2xl shadow-2xl max-h-[70vh] overflow-y-auto"
+              drag="y"
+              dragConstraints={{ top: 0 }}
+              dragElastic={{ top: 0, bottom: 0.2 }}
+              onDragEnd={(event, info) => {
+                if (info.offset.y > 100) {
+                  setIsDrawerOpen(false)
+                }
+              }}
+              className="absolute bottom-0 left-0 right-0 bg-white rounded-t-2xl shadow-2xl max-h-[70vh] overflow-y-auto pointer-events-auto"
               style={{ bottom: '0px' }}
             >
               <div className="p-5 space-y-4">
-                {/* Drag handle */}
+                {/* Drag handle - pull down to close */}
                 <div className="flex justify-center">
-                  <div className="w-12 h-1 bg-gray-300 rounded-full"></div>
+                  <div 
+                    className="w-12 h-1 bg-gray-300 rounded-full cursor-grab active:cursor-grabbing"
+                    onMouseDown={(e) => e.preventDefault()}
+                  />
+                </div>
+                <div className="text-center text-xs text-gray-400 pb-1">
+                  Drag down to close
                 </div>
                 
                 <div className="text-center pb-2">
