@@ -396,7 +396,7 @@ export default function CondoDetailPage() {
       {/* Main content */}
       <div className="fixed inset-0 bg-gray-50 flex overflow-hidden">
         
-        {/* DESKTOP LAYOUT */}
+        {/* DESKTOP LAYOUT - Only visible on large screens */}
         <div className="hidden lg:flex w-full h-full">
           
           {/* LEFT SIDE - ONLY THIS SCROLLS */}
@@ -471,11 +471,11 @@ export default function CondoDetailPage() {
           </div>
         </div>
 
-        {/* MOBILE LAYOUT - WITH SLIDE-UP DRAWER */}
-        <div className="lg:hidden w-full h-full overflow-y-auto">
+        {/* MOBILE LAYOUT - Content only (no booking sidebar) */}
+        <div className="lg:hidden w-full h-full overflow-y-auto pb-32">
           <ImageGallery images={allImages} title={condo.title} />
           
-          <div className="px-4 py-6 pb-32">
+          <div className="px-4 py-6">
             <div className="flex flex-wrap items-center gap-2 mb-2">
               <h1 className="text-2xl font-bold text-gray-900">{condo.title}</h1>
               {condo.code && <span className="bg-[#2d568e] text-white px-2 py-0.5 rounded-full text-xs">{condo.code}</span>}
@@ -510,25 +510,29 @@ export default function CondoDetailPage() {
         </div>
       </div>
 
-      {/* MOBILE SLIDE-UP DRAWER FOR BOOKING */}
-      <div className="lg:hidden">
-        {/* Drawer Toggle Button */}
-        <button
-          onClick={() => setIsDrawerOpen(!isDrawerOpen)}
-          className="fixed bottom-4 left-4 right-4 bg-[#2d568e] text-white py-4 rounded-xl shadow-lg z-50 flex items-center justify-between px-6"
+      {/* MOBILE SLIDE-UP DRAWER - Outside main content, works on ALL mobile devices */}
+      <div className="lg:hidden fixed bottom-0 left-0 right-0 z-50">
+        {/* Sticky bottom bar - Always visible */}
+        <div 
+          className="bg-white shadow-xl rounded-t-2xl border-t border-gray-100"
+          style={{ boxShadow: '0 -4px 20px rgba(0,0,0,0.1)' }}
         >
-          <div className="flex flex-col items-start">
-            <span className="text-xs opacity-80">Total</span>
-            <span className="text-xl font-bold">{formatPrice(finalTotal)}</span>
-          </div>
-          <div className="flex flex-col items-end">
-            <span className="text-xs opacity-80">{nights} night{nights !== 1 ? 's' : ''}</span>
-            <div className="flex items-center gap-1">
-              <span className="text-sm">{isDrawerOpen ? 'Tap to close ↑' : 'Tap to book ↓'}</span>
-              <ChevronUp size={16} className={`transition-transform duration-300 ${isDrawerOpen ? 'rotate-180' : ''}`} />
+          <button
+            onClick={() => setIsDrawerOpen(!isDrawerOpen)}
+            className="w-full p-4 flex items-center justify-between hover:bg-gray-50 transition-colors"
+          >
+            <div className="flex flex-col items-start">
+              <span className="text-xs text-gray-500">Total Price</span>
+              <span className="text-xl font-bold text-[#2d568e]">{formatPrice(finalTotal)}</span>
             </div>
-          </div>
-        </button>
+            <div className="flex flex-col items-end">
+              <span className="text-xs text-gray-500">{nights} night{nights !== 1 ? 's' : ''}</span>
+              <div className="flex items-center gap-1 mt-1">
+                <span className="text-sm text-[#2d568e] font-medium">{isDrawerOpen ? 'Close ↑' : 'Book Now ↓'}</span>
+              </div>
+            </div>
+          </button>
+        </div>
 
         {/* Slide-up Drawer */}
         <AnimatePresence>
@@ -538,7 +542,8 @@ export default function CondoDetailPage() {
               animate={{ y: 0 }}
               exit={{ y: '100%' }}
               transition={{ type: 'spring', damping: 25, stiffness: 300 }}
-              className="fixed bottom-0 left-0 right-0 bg-white rounded-t-2xl shadow-2xl z-50 max-h-[80vh] overflow-y-auto"
+              className="absolute bottom-full left-0 right-0 bg-white rounded-t-2xl shadow-2xl max-h-[70vh] overflow-y-auto"
+              style={{ bottom: '0px' }}
             >
               <div className="p-5 space-y-4">
                 {/* Drag handle */}
@@ -664,14 +669,6 @@ export default function CondoDetailPage() {
                 {/* Reserve Button */}
                 <button onClick={handleBookNowClick} className="w-full bg-[#2d568e] text-white py-3 rounded-xl font-semibold hover:bg-[#1e3a5f] transition">
                   {user ? 'Reserve Now' : 'Sign in to Book'}
-                </button>
-                
-                {/* Close drawer button */}
-                <button 
-                  onClick={() => setIsDrawerOpen(false)}
-                  className="w-full text-gray-400 text-sm py-2"
-                >
-                  Close
                 </button>
               </div>
             </motion.div>
