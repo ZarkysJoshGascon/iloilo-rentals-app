@@ -508,7 +508,7 @@ export default function CondoDetailPage() {
         </div>
       </div>
 
-      {/* MOBILE BOOKING DRAWER - FIXED: No duplicate price, guest dropdown opens in modal style */}
+      {/* MOBILE BOOKING DRAWER - NO DUPLICATE BUMP OR PRICE */}
       <div className="lg:hidden fixed inset-0 z-50 pointer-events-none">
         <AnimatePresence>
           {isDrawerOpen && (
@@ -524,21 +524,15 @@ export default function CondoDetailPage() {
         </AnimatePresence>
 
         <div className="absolute bottom-0 left-0 right-0 pointer-events-auto">
-          {/* Collapsed Booking Bar */}
+          {/* Collapsed Booking Bar - NO BUMP */}
           <button
             onClick={() => setIsDrawerOpen(!isDrawerOpen)}
             className="w-full bg-white rounded-t-2xl shadow-xl transition-all active:scale-[0.99]"
             style={{ boxShadow: '0 -8px 30px rgba(0,0,0,0.12)' }}
           >
-            <div className="flex justify-center pt-3 pb-1">
-              <motion.div 
-                animate={{ y: isDrawerOpen ? 0 : [0, -3, 0] }}
-                transition={{ repeat: isDrawerOpen ? 0 : Infinity, duration: 1.5 }}
-                className="w-10 h-1 bg-gray-300 rounded-full"
-              />
-            </div>
+            {/* NO BUMP HERE - REMOVED */}
             
-            <div className="px-5 pb-5 pt-2">
+            <div className="px-5 pb-5 pt-4">
               <div className="flex items-center justify-between mb-3">
                 <div className="flex flex-col items-start">
                   <span className="text-xs text-gray-500 uppercase tracking-wide">Total Price</span>
@@ -575,7 +569,7 @@ export default function CondoDetailPage() {
             </div>
           </button>
 
-          {/* Expanded Drawer Content - NO DUPLICATE PRICE */}
+          {/* Expanded Drawer Content - NO DUPLICATE BUMP, NO DUPLICATE PRICE */}
           <AnimatePresence>
             {isDrawerOpen && (
               <motion.div
@@ -594,15 +588,8 @@ export default function CondoDetailPage() {
                 className="bg-white rounded-t-2xl shadow-2xl max-h-[70vh] overflow-y-auto"
               >
                 <div className="p-5 space-y-4">
-                  {/* Drag handle */}
-                  <div className="flex justify-center">
-                    <div className="w-12 h-1 bg-gray-300 rounded-full" />
-                  </div>
-                  <div className="text-center text-xs text-gray-400 pb-1">
-                    Drag down to close
-                  </div>
-                  
-                  {/* DUPLICATE PRICE REMOVED - No price display here */}
+                  {/* NO DRAG HANDLE INSIDE - REMOVED */}
+                  {/* NO DUPLICATE PRICE - REMOVED */}
                   
                   {/* Date Pickers */}
                   <div className="grid grid-cols-2 gap-3">
@@ -631,7 +618,7 @@ export default function CondoDetailPage() {
                     <span>{totalGuests} guests</span>
                   </div>
 
-                  {/* Guest Dropdown - FIXED: Opens in modal that covers the whole drawer */}
+                  {/* Guest Dropdown */}
                   <div className="relative">
                     <button 
                       onClick={() => setShowGuestDropdown(!showGuestDropdown)} 
@@ -640,82 +627,51 @@ export default function CondoDetailPage() {
                       <span className="truncate pr-2">{getGuestDisplayText()}</span>
                       <ChevronDown size={18} className={`flex-shrink-0 transition ${showGuestDropdown ? 'rotate-180' : ''}`} />
                     </button>
-                    
-                    {/* Modal-style dropdown that appears centered */}
-                    {showGuestDropdown && (
-                      <div className="fixed inset-0 z-[60] flex items-center justify-center" style={{ pointerEvents: 'auto' }}>
-                        <div 
-                          className="absolute inset-0 bg-black/50"
-                          onClick={() => setShowGuestDropdown(false)}
-                        />
-                        <div className="relative bg-white rounded-2xl shadow-2xl w-[90%] max-w-sm p-5 space-y-4">
-                          <div className="flex justify-between items-center mb-2">
-                            <h3 className="text-lg font-semibold text-gray-800">Select Guests</h3>
-                            <button 
-                              onClick={() => setShowGuestDropdown(false)}
-                              className="text-gray-400 hover:text-gray-600"
-                            >
-                              <X size={20} />
-                            </button>
-                          </div>
-                          
-                          <div className="flex justify-between items-center py-3 border-b">
-                            <div>
-                              <span className="font-medium">Adults</span>
-                              <p className="text-xs text-gray-400">Age 13+</p>
-                            </div>
-                            <div className="flex gap-4 items-center">
-                              <button onClick={() => setAdults(Math.max(1, adults-1))} className="w-8 h-8 rounded-full bg-gray-100 hover:bg-[#2d568e] hover:text-white transition text-lg">-</button>
-                              <span className="w-8 text-center font-semibold text-lg">{adults}</span>
-                              <button onClick={() => setAdults(adults+1)} className="w-8 h-8 rounded-full bg-gray-100 hover:bg-[#2d568e] hover:text-white transition text-lg">+</button>
+                    <AnimatePresence>
+                      {showGuestDropdown && (
+                        <motion.div 
+                          initial={{ opacity: 0, y: -10 }}
+                          animate={{ opacity: 1, y: 0 }}
+                          exit={{ opacity: 0, y: -10 }}
+                          className="absolute top-full left-0 right-0 mt-2 bg-white border rounded-xl shadow-xl z-40 p-4 space-y-3"
+                          style={{ maxHeight: '280px', overflowY: 'auto' }}
+                        >
+                          <div className="flex justify-between items-center">
+                            <span>Adults</span>
+                            <div className="flex gap-4">
+                              <button onClick={() => setAdults(Math.max(1, adults-1))} className="w-8 h-8 rounded-full bg-gray-100 hover:bg-[#2d568e] hover:text-white transition">-</button>
+                              <span className="w-8 text-center font-semibold">{adults}</span>
+                              <button onClick={() => setAdults(adults+1)} className="w-8 h-8 rounded-full bg-gray-100 hover:bg-[#2d568e] hover:text-white transition">+</button>
                             </div>
                           </div>
-                          
-                          <div className="flex justify-between items-center py-3 border-b">
-                            <div>
-                              <span className="font-medium">Children</span>
-                              <p className="text-xs text-green-600">10% off</p>
-                            </div>
-                            <div className="flex gap-4 items-center">
-                              <button onClick={() => setChildren(Math.max(0, children-1))} className="w-8 h-8 rounded-full bg-gray-100 hover:bg-[#2d568e] hover:text-white transition text-lg">-</button>
-                              <span className="w-8 text-center font-semibold text-lg">{children}</span>
-                              <button onClick={() => setChildren(children+1)} className="w-8 h-8 rounded-full bg-gray-100 hover:bg-[#2d568e] hover:text-white transition text-lg">+</button>
+                          <div className="flex justify-between items-center">
+                            <span>Children <span className="text-xs text-green-600">(10% off)</span></span>
+                            <div className="flex gap-4">
+                              <button onClick={() => setChildren(Math.max(0, children-1))} className="w-8 h-8 rounded-full bg-gray-100 hover:bg-[#2d568e] hover:text-white transition">-</button>
+                              <span className="w-8 text-center font-semibold">{children}</span>
+                              <button onClick={() => setChildren(children+1)} className="w-8 h-8 rounded-full bg-gray-100 hover:bg-[#2d568e] hover:text-white transition">+</button>
                             </div>
                           </div>
-                          
-                          <div className="flex justify-between items-center py-3 border-b">
-                            <div>
-                              <span className="font-medium">Infants</span>
-                              <p className="text-xs text-green-600">20% off</p>
-                            </div>
-                            <div className="flex gap-4 items-center">
-                              <button onClick={() => setInfants(Math.max(0, infants-1))} className="w-8 h-8 rounded-full bg-gray-100 hover:bg-[#2d568e] hover:text-white transition text-lg">-</button>
-                              <span className="w-8 text-center font-semibold text-lg">{infants}</span>
-                              <button onClick={() => setInfants(infants+1)} className="w-8 h-8 rounded-full bg-gray-100 hover:bg-[#2d568e] hover:text-white transition text-lg">+</button>
+                          <div className="flex justify-between items-center">
+                            <span>Infants <span className="text-xs text-green-600">(20% off)</span></span>
+                            <div className="flex gap-4">
+                              <button onClick={() => setInfants(Math.max(0, infants-1))} className="w-8 h-8 rounded-full bg-gray-100 hover:bg-[#2d568e] hover:text-white transition">-</button>
+                              <span className="w-8 text-center font-semibold">{infants}</span>
+                              <button onClick={() => setInfants(infants+1)} className="w-8 h-8 rounded-full bg-gray-100 hover:bg-[#2d568e] hover:text-white transition">+</button>
                             </div>
                           </div>
-                          
-                          <div className="flex justify-between items-center py-3 border-b">
-                            <div>
-                              <span className="font-medium">Seniors</span>
-                              <p className="text-xs text-green-600">20% off</p>
-                            </div>
-                            <div className="flex gap-4 items-center">
-                              <button onClick={() => setSeniors(Math.max(0, seniors-1))} className="w-8 h-8 rounded-full bg-gray-100 hover:bg-[#2d568e] hover:text-white transition text-lg">-</button>
-                              <span className="w-8 text-center font-semibold text-lg">{seniors}</span>
-                              <button onClick={() => setSeniors(seniors+1)} className="w-8 h-8 rounded-full bg-gray-100 hover:bg-[#2d568e] hover:text-white transition text-lg">+</button>
+                          <div className="flex justify-between items-center">
+                            <span>Seniors <span className="text-xs text-green-600">(20% off)</span></span>
+                            <div className="flex gap-4">
+                              <button onClick={() => setSeniors(Math.max(0, seniors-1))} className="w-8 h-8 rounded-full bg-gray-100 hover:bg-[#2d568e] hover:text-white transition">-</button>
+                              <span className="w-8 text-center font-semibold">{seniors}</span>
+                              <button onClick={() => setSeniors(seniors+1)} className="w-8 h-8 rounded-full bg-gray-100 hover:bg-[#2d568e] hover:text-white transition">+</button>
                             </div>
                           </div>
-                          
-                          <button 
-                            onClick={() => setShowGuestDropdown(false)} 
-                            className="w-full bg-[#2d568e] text-white py-3 rounded-xl font-semibold mt-3 hover:bg-[#1e3a5f] transition"
-                          >
-                            Apply
-                          </button>
-                        </div>
-                      </div>
-                    )}
+                          <button onClick={() => setShowGuestDropdown(false)} className="w-full bg-[#2d568e] text-white py-2 rounded-lg mt-2 hover:bg-[#1e3a5f] transition">Apply</button>
+                        </motion.div>
+                      )}
+                    </AnimatePresence>
                   </div>
 
                   {/* Promo Code */}
