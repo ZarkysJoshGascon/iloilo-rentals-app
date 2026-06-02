@@ -150,6 +150,7 @@ export default function CondoDetailPage() {
   const [promoDiscount, setPromoDiscount] = useState(0)
   const [termsError, setTermsError] = useState(false)
   
+  // Mobile drawer state
   const [isDrawerOpen, setIsDrawerOpen] = useState(false)
   
   const [validationErrors, setValidationErrors] = useState({
@@ -391,293 +392,273 @@ export default function CondoDetailPage() {
   if (error || !condo) return <div className="min-h-screen flex items-center justify-center">Condo not found</div>
 
   return (
-    <>
-      {/* Main content */}
-      <div className="fixed inset-0 bg-gray-50 flex overflow-hidden">
+    <div className="fixed inset-0 bg-gray-50 flex overflow-hidden">
+      
+      {/* DESKTOP LAYOUT */}
+      <div className="hidden lg:flex w-full h-full">
         
-        {/* DESKTOP LAYOUT */}
-        <div className="hidden lg:flex w-full h-full">
-          
-          <div className="w-2/3 h-full overflow-y-auto scrollable-content pt-16">
-            <ImageGallery images={allImages} title={condo.title} />
-            <div className="max-w-3xl mx-auto px-6 py-8 pb-16">
-              <div className="flex flex-wrap items-center gap-3 mb-2">
-                <h1 className="text-3xl font-bold text-gray-900">{condo.title}</h1>
-                {condo.code && <span className="bg-[#2d568e] text-white px-3 py-1 rounded-full text-sm">{condo.code}</span>}
-              </div>
-              <div className="flex items-center gap-2 text-gray-500 mb-6"><MapPin size={18} /><span>{condo.location}</span></div>
-              
-              <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-8">
-                <div className="bg-white rounded-xl p-4 shadow-sm"><Bed className="text-[#2d568e] mb-2" size={20} /><p className="text-2xl font-bold">{condo.bedroom_count}</p><p className="text-sm text-gray-500">Bedrooms</p></div>
-                <div className="bg-white rounded-xl p-4 shadow-sm"><Bath className="text-[#2d568e] mb-2" size={20} /><p className="text-2xl font-bold">{condo.bathroom_count}</p><p className="text-sm text-gray-500">Bathrooms</p></div>
-                <div className="bg-white rounded-xl p-4 shadow-sm"><Users className="text-[#2d568e] mb-2" size={20} /><p className="text-2xl font-bold">{condo.max_guests}</p><p className="text-sm text-gray-500">Max Guests</p></div>
-                <div className="bg-white rounded-xl p-4 shadow-sm"><Square className="text-[#2d568e] mb-2" size={20} /><p className="text-2xl font-bold">{condo.square_meters}</p><p className="text-sm text-gray-500">Sq Meters</p></div>
-              </div>
-
-              <div className="mb-8"><h2 className="text-xl font-semibold mb-3">About This Condo</h2><p className="text-gray-600">{condo.description}</p></div>
-              <div className="mb-8"><h2 className="text-xl font-semibold mb-4">Amenities</h2><div className="grid grid-cols-2 md:grid-cols-3 gap-3">{condo.amenities?.map((item, i) => (<div key={i} className="flex items-center gap-3 p-3 bg-white rounded-xl border"><span className="capitalize text-gray-700">{item}</span></div>))}</div></div>
-              <div className="mb-8 bg-white rounded-xl p-6"><h2 className="text-xl font-semibold mb-4">House Rules</h2><div className="grid md:grid-cols-2 gap-3"><div className="flex items-center gap-2 text-gray-600"><Clock size={16} className="text-[#2d568e]" />Check-in: 3PM</div><div className="flex items-center gap-2 text-gray-600"><Clock size={16} className="text-[#2d568e]" />Check-out: 11AM</div><div className="flex items-center gap-2 text-gray-600"><CheckCircle size={16} className="text-green-500" />No smoking</div><div className="flex items-center gap-2 text-gray-600"><CheckCircle size={16} className="text-green-500" />No pets</div><div className="flex items-center gap-2 text-gray-600"><AlertCircle size={16} className="text-amber-500" />No parties</div></div></div>
-              <div className="mb-8"><h2 className="text-xl font-semibold mb-4">Cancellation Policies</h2><div className="space-y-3">{['moderate', 'free', 'nonrefundable'].map((policy) => (<div key={policy} className={`p-4 rounded-xl border-2 cursor-pointer transition ${cancellationPolicy === policy ? 'border-[#2d568e] bg-blue-50' : 'border-gray-200'}`} onClick={() => setCancellationPolicy(policy)}><h3 className="font-semibold capitalize">{policy === 'nonrefundable' ? 'Non-refundable' : policy === 'free' ? 'Free 14 Cancellation' : 'Moderate Cancellation'}</h3><p className="text-sm text-gray-600">{policy === 'moderate' && "Cancel up to 14 days before for 50% refund"}{policy === 'free' && "Cancel up to 14 days before for 100% refund"}{policy === 'nonrefundable' && "Pay total now, no refunds"}</p></div>))}</div></div>
-              <div><h2 className="text-xl font-semibold mb-3">Location</h2><div className="bg-gray-100 h-64 rounded-xl flex items-center justify-center"><MapPin size={32} className="text-gray-400" /><span className="ml-2 text-gray-500">{condo.location}</span></div></div>
+        {/* LEFT SIDE - SCROLLABLE */}
+        <div className="w-2/3 h-full overflow-y-auto scrollable-content">
+          <ImageGallery images={allImages} title={condo.title} />
+          <div className="max-w-3xl mx-auto px-6 py-8">
+            <div className="flex flex-wrap items-center gap-3 mb-2">
+              <h1 className="text-3xl font-bold text-gray-900">{condo.title}</h1>
+              {condo.code && <span className="bg-[#2d568e] text-white px-3 py-1 rounded-full text-sm">{condo.code}</span>}
             </div>
-          </div>
-
-          {/* RIGHT SIDE - DESKTOP BOOKING */}
-          <div className="w-1/3 bg-white shadow-xl flex flex-col h-full overflow-hidden pt-16">
-            <div className="flex-1 overflow-y-auto p-6 space-y-5">
-              <div className="text-center pb-4 border-b">
-                <div className="text-4xl font-bold text-[#2d568e]">{formatPrice(basePricePerNight)}<span className="text-sm text-gray-400">/night</span></div>
-              </div>
-              
-              <div className="grid grid-cols-2 gap-3">
-                <div className="relative z-20"><DatePicker selected={startDate} onChange={(date) => setStartDate(date)} minDate={new Date()} dateFormat="MMM dd, yyyy" customInput={<CustomDateInput label="CHECK-IN" />} popperPlacement="bottom-start" /></div>
-                <div className="relative z-10"><DatePicker selected={endDate} onChange={(date) => setEndDate(date)} minDate={startDate} dateFormat="MMM dd, yyyy" customInput={<CustomDateInput label="CHECK-OUT" />} popperPlacement="bottom-start" /></div>
-              </div>
-
-              <div className="flex justify-between text-sm text-gray-500"><span>{nights} nights</span><span>{totalGuests} guests</span></div>
-
-              <div className="relative">
-                <button onClick={() => setShowGuestDropdown(!showGuestDropdown)} className="w-full bg-gray-50 rounded-xl p-3 text-left flex justify-between">
-                  <span>{getGuestDisplayText()}</span>
-                  <ChevronDown size={18} className={`transition ${showGuestDropdown ? 'rotate-180' : ''}`} />
-                </button>
-                {showGuestDropdown && (
-                  <div className="absolute top-full left-0 right-0 mt-2 bg-white border rounded-xl shadow-xl z-30 p-4 space-y-3">
-                    <div className="flex justify-between"><span>Adults</span><div className="flex gap-4"><button onClick={() => setAdults(Math.max(1, adults-1))} className="w-8 h-8 rounded-full bg-gray-100">-</button><span>{adults}</span><button onClick={() => setAdults(adults+1)} className="w-8 h-8 rounded-full bg-gray-100">+</button></div></div>
-                    <div className="flex justify-between"><span>Children (10% off)</span><div className="flex gap-4"><button onClick={() => setChildren(Math.max(0, children-1))} className="w-8 h-8 rounded-full bg-gray-100">-</button><span>{children}</span><button onClick={() => setChildren(children+1)} className="w-8 h-8 rounded-full bg-gray-100">+</button></div></div>
-                    <div className="flex justify-between"><span>Infants (20% off)</span><div className="flex gap-4"><button onClick={() => setInfants(Math.max(0, infants-1))} className="w-8 h-8 rounded-full bg-gray-100">-</button><span>{infants}</span><button onClick={() => setInfants(infants+1)} className="w-8 h-8 rounded-full bg-gray-100">+</button></div></div>
-                    <div className="flex justify-between"><span>Seniors (20% off)</span><div className="flex gap-4"><button onClick={() => setSeniors(Math.max(0, seniors-1))} className="w-8 h-8 rounded-full bg-gray-100">-</button><span>{seniors}</span><button onClick={() => setSeniors(seniors+1)} className="w-8 h-8 rounded-full bg-gray-100">+</button></div></div>
-                    <button onClick={() => setShowGuestDropdown(false)} className="w-full bg-[#2d568e] text-white py-2 rounded-lg">Apply</button>
-                  </div>
-                )}
-              </div>
-
-              <div className="flex gap-2"><input type="text" placeholder="Promo Code" className="flex-1 bg-gray-50 rounded-xl p-3" value={promoCode} onChange={(e) => setPromoCode(e.target.value)} /><button onClick={applyPromo} className="px-4 bg-gray-100 rounded-xl hover:bg-[#2d568e] hover:text-white transition">Apply</button></div>
-
-              <div className="space-y-2 pt-2 border-t">
-                <div className="flex justify-between"><span>Nightly avg</span><span>{formatPrice(effectiveNightlyRate)}</span></div>
-                <div className="flex justify-between"><span>{formatPrice(effectiveNightlyRate)} × {nights}</span><span>{formatPrice(subtotal)}</span></div>
-                <div className="flex justify-between"><span>Service fee (5%)</span><span>{formatPrice(serviceFee)}</span></div>
-                {promoApplied && <div className="flex justify-between text-green-600"><span>Discount</span><span>-{formatPrice(promoDiscount)}</span></div>}
-                <div className="flex justify-between font-bold text-xl pt-2 border-t"><span>Total</span><span className="text-[#2d568e]">{formatPrice(finalTotal)}</span></div>
-              </div>
-
-              <button onClick={handleBookNowClick} className="w-full bg-[#2d568e] text-white py-3 rounded-xl font-semibold hover:bg-[#1e3a5f] transition shadow-lg">
-                {user ? 'Reserve Now' : 'Sign in to Book'}
-              </button>
+            <div className="flex items-center gap-2 text-gray-500 mb-6"><MapPin size={18} /><span>{condo.location}</span></div>
+            
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-8">
+              <div className="bg-white rounded-xl p-4 shadow-sm"><Bed className="text-[#2d568e] mb-2" size={20} /><p className="text-2xl font-bold">{condo.bedroom_count}</p><p className="text-sm text-gray-500">Bedrooms</p></div>
+              <div className="bg-white rounded-xl p-4 shadow-sm"><Bath className="text-[#2d568e] mb-2" size={20} /><p className="text-2xl font-bold">{condo.bathroom_count}</p><p className="text-sm text-gray-500">Bathrooms</p></div>
+              <div className="bg-white rounded-xl p-4 shadow-sm"><Users className="text-[#2d568e] mb-2" size={20} /><p className="text-2xl font-bold">{condo.max_guests}</p><p className="text-sm text-gray-500">Max Guests</p></div>
+              <div className="bg-white rounded-xl p-4 shadow-sm"><Square className="text-[#2d568e] mb-2" size={20} /><p className="text-2xl font-bold">{condo.square_meters}</p><p className="text-sm text-gray-500">Sq Meters</p></div>
             </div>
+
+            <div className="mb-8"><h2 className="text-xl font-semibold mb-3">About This Condo</h2><p className="text-gray-600">{condo.description}</p></div>
+            <div className="mb-8"><h2 className="text-xl font-semibold mb-4">Amenities</h2><div className="grid grid-cols-2 md:grid-cols-3 gap-3">{condo.amenities?.map((item, i) => (<div key={i} className="flex items-center gap-3 p-3 bg-white rounded-xl border"><span className="capitalize text-gray-700">{item}</span></div>))}</div></div>
+            <div className="mb-8 bg-white rounded-xl p-6"><h2 className="text-xl font-semibold mb-4">House Rules</h2><div className="grid md:grid-cols-2 gap-3"><div className="flex items-center gap-2 text-gray-600"><Clock size={16} className="text-[#2d568e]" />Check-in: 3PM</div><div className="flex items-center gap-2 text-gray-600"><Clock size={16} className="text-[#2d568e]" />Check-out: 11AM</div><div className="flex items-center gap-2 text-gray-600"><CheckCircle size={16} className="text-green-500" />No smoking</div><div className="flex items-center gap-2 text-gray-600"><CheckCircle size={16} className="text-green-500" />No pets</div><div className="flex items-center gap-2 text-gray-600"><AlertCircle size={16} className="text-amber-500" />No parties</div></div></div>
+            <div className="mb-8"><h2 className="text-xl font-semibold mb-4">Cancellation Policies</h2><div className="space-y-3">{['moderate', 'free', 'nonrefundable'].map((policy) => (<div key={policy} className={`p-4 rounded-xl border-2 cursor-pointer transition ${cancellationPolicy === policy ? 'border-[#2d568e] bg-blue-50' : 'border-gray-200'}`} onClick={() => setCancellationPolicy(policy)}><h3 className="font-semibold capitalize">{policy === 'nonrefundable' ? 'Non-refundable' : policy === 'free' ? 'Free 14 Cancellation' : 'Moderate Cancellation'}</h3><p className="text-sm text-gray-600">{policy === 'moderate' && "Cancel up to 14 days before for 50% refund"}{policy === 'free' && "Cancel up to 14 days before for 100% refund"}{policy === 'nonrefundable' && "Pay total now, no refunds"}</p></div>))}</div></div>
+            <div><h2 className="text-xl font-semibold mb-3">Location</h2><div className="bg-gray-100 h-64 rounded-xl flex items-center justify-center"><MapPin size={32} className="text-gray-400" /><span className="ml-2 text-gray-500">{condo.location}</span></div></div>
           </div>
         </div>
 
-        {/* MOBILE LAYOUT - Content only */}
-        <div className="lg:hidden w-full h-full overflow-y-auto pb-32">
-          <ImageGallery images={allImages} title={condo.title} />
-          
-          <div className="px-4 py-6">
-            <div className="flex flex-wrap items-center gap-2 mb-2">
-              <h1 className="text-2xl font-bold text-gray-900">{condo.title}</h1>
-              {condo.code && <span className="bg-[#2d568e] text-white px-2 py-0.5 rounded-full text-xs">{condo.code}</span>}
+        {/* RIGHT SIDE - DESKTOP BOOKING SIDEBAR */}
+        <div className="w-1/3 bg-white shadow-xl flex flex-col h-full overflow-hidden">
+          <div className="flex-1 overflow-y-auto p-6 space-y-5">
+            <div className="text-center pb-4 border-b">
+              <div className="text-4xl font-bold text-[#2d568e]">{formatPrice(basePricePerNight)}<span className="text-sm text-gray-400">/night</span></div>
             </div>
-            <div className="flex items-center gap-1 text-gray-500 mb-4"><MapPin size={14} /><span className="text-sm">{condo.location}</span></div>
             
-            <div className="grid grid-cols-4 gap-2 mb-6">
-              <div className="bg-white rounded-lg p-2 text-center shadow-sm"><Bed className="text-[#2d568e] mx-auto mb-1" size={16} /><p className="text-lg font-bold">{condo.bedroom_count}</p><p className="text-xs text-gray-500">Beds</p></div>
-              <div className="bg-white rounded-lg p-2 text-center shadow-sm"><Bath className="text-[#2d568e] mx-auto mb-1" size={16} /><p className="text-lg font-bold">{condo.bathroom_count}</p><p className="text-xs text-gray-500">Baths</p></div>
-              <div className="bg-white rounded-lg p-2 text-center shadow-sm"><Users className="text-[#2d568e] mx-auto mb-1" size={16} /><p className="text-lg font-bold">{condo.max_guests}</p><p className="text-xs text-gray-500">Guests</p></div>
-              <div className="bg-white rounded-lg p-2 text-center shadow-sm"><Square className="text-[#2d568e] mx-auto mb-1" size={16} /><p className="text-lg font-bold">{condo.square_meters}</p><p className="text-xs text-gray-500">sqm</p></div>
+            <div className="grid grid-cols-2 gap-3">
+              <div className="relative z-20"><DatePicker selected={startDate} onChange={(date) => setStartDate(date)} minDate={new Date()} dateFormat="MMM dd, yyyy" customInput={<CustomDateInput label="CHECK-IN" />} popperPlacement="bottom-start" /></div>
+              <div className="relative z-10"><DatePicker selected={endDate} onChange={(date) => setEndDate(date)} minDate={startDate} dateFormat="MMM dd, yyyy" customInput={<CustomDateInput label="CHECK-OUT" />} popperPlacement="bottom-start" /></div>
             </div>
 
-            <div className="mb-6"><h2 className="text-lg font-semibold mb-2">About</h2><p className="text-gray-600 text-sm">{condo.description}</p></div>
+            <div className="flex justify-between text-sm text-gray-500"><span>{nights} nights</span><span>{totalGuests} guests</span></div>
+
+            <div className="relative">
+              <button onClick={() => setShowGuestDropdown(!showGuestDropdown)} className="w-full bg-gray-50 rounded-xl p-3 text-left flex justify-between">
+                <span>{getGuestDisplayText()}</span>
+                <ChevronDown size={18} className={`transition ${showGuestDropdown ? 'rotate-180' : ''}`} />
+              </button>
+              {showGuestDropdown && (
+                <div className="absolute top-full left-0 right-0 mt-2 bg-white border rounded-xl shadow-xl z-30 p-4 space-y-3">
+                  <div className="flex justify-between"><span>Adults</span><div className="flex gap-4"><button onClick={() => setAdults(Math.max(1, adults-1))} className="w-8 h-8 rounded-full bg-gray-100">-</button><span>{adults}</span><button onClick={() => setAdults(adults+1)} className="w-8 h-8 rounded-full bg-gray-100">+</button></div></div>
+                  <div className="flex justify-between"><span>Children (10% off)</span><div className="flex gap-4"><button onClick={() => setChildren(Math.max(0, children-1))} className="w-8 h-8 rounded-full bg-gray-100">-</button><span>{children}</span><button onClick={() => setChildren(children+1)} className="w-8 h-8 rounded-full bg-gray-100">+</button></div></div>
+                  <div className="flex justify-between"><span>Infants (20% off)</span><div className="flex gap-4"><button onClick={() => setInfants(Math.max(0, infants-1))} className="w-8 h-8 rounded-full bg-gray-100">-</button><span>{infants}</span><button onClick={() => setInfants(infants+1)} className="w-8 h-8 rounded-full bg-gray-100">+</button></div></div>
+                  <div className="flex justify-between"><span>Seniors (20% off)</span><div className="flex gap-4"><button onClick={() => setSeniors(Math.max(0, seniors-1))} className="w-8 h-8 rounded-full bg-gray-100">-</button><span>{seniors}</span><button onClick={() => setSeniors(seniors+1)} className="w-8 h-8 rounded-full bg-gray-100">+</button></div></div>
+                  <button onClick={() => setShowGuestDropdown(false)} className="w-full bg-[#2d568e] text-white py-2 rounded-lg">Apply</button>
+                </div>
+              )}
+            </div>
+
+            <div className="flex gap-2"><input type="text" placeholder="Promo Code" className="flex-1 bg-gray-50 rounded-xl p-3" value={promoCode} onChange={(e) => setPromoCode(e.target.value)} /><button onClick={applyPromo} className="px-4 bg-gray-100 rounded-xl hover:bg-[#2d568e] hover:text-white transition">Apply</button></div>
+
+            <div className="space-y-2 pt-2 border-t">
+              <div className="flex justify-between"><span>Nightly avg</span><span>{formatPrice(effectiveNightlyRate)}</span></div>
+              <div className="flex justify-between"><span>{formatPrice(effectiveNightlyRate)} × {nights}</span><span>{formatPrice(subtotal)}</span></div>
+              <div className="flex justify-between"><span>Service fee (5%)</span><span>{formatPrice(serviceFee)}</span></div>
+              {promoApplied && <div className="flex justify-between text-green-600"><span>Discount</span><span>-{formatPrice(promoDiscount)}</span></div>}
+              <div className="flex justify-between font-bold text-xl pt-2 border-t"><span>Total</span><span className="text-[#2d568e]">{formatPrice(finalTotal)}</span></div>
+            </div>
+
+            <div className="text-center text-xs text-gray-500 bg-blue-50 p-2 rounded-lg">Children 10% off • Infants & Seniors 20% off</div>
+            <div className="text-center text-xs text-gray-500 bg-gray-50 p-2 rounded-lg">{getCancellationText()}</div>
             
-            <ExpandableSection title="Amenities" icon={Wifi}>
-              <div className="flex flex-wrap gap-2">{condo.amenities?.map((item, i) => (<span key={i} className="bg-gray-100 px-3 py-1 rounded-full text-sm capitalize">{item}</span>))}</div>
-            </ExpandableSection>
-            
-            <ExpandableSection title="House Rules" icon={Clock}>
-              <div className="space-y-2 text-sm text-gray-600"><div>Check-in: 3:00 PM</div><div>Check-out: 11:00 AM</div><div>No smoking</div><div>No pets</div><div>No parties</div></div>
-            </ExpandableSection>
-            
-            <ExpandableSection title="Cancellation Policies" icon={Shield}>
-              <div className="space-y-2">{['moderate', 'free', 'nonrefundable'].map((policy) => (<div key={policy} className={`p-3 rounded-lg border cursor-pointer transition ${cancellationPolicy === policy ? 'border-[#2d568e] bg-blue-50' : 'border-gray-200'}`} onClick={() => setCancellationPolicy(policy)}><h3 className="font-semibold text-sm capitalize">{policy === 'nonrefundable' ? 'Non-refundable' : policy === 'free' ? 'Free 14 Cancellation' : 'Moderate Cancellation'}</h3><p className="text-xs text-gray-600">{policy === 'moderate' && "50% refund 14+ days before"}{policy === 'free' && "100% refund 14+ days before"}{policy === 'nonrefundable' && "No refunds"}</p></div>))}</div>
-            </ExpandableSection>
-            
-            <ExpandableSection title="Location" icon={MapPin} defaultOpen={false}>
-              <div className="bg-gray-100 h-48 rounded-xl flex items-center justify-center"><MapPin size={24} className="text-gray-400" /><span className="ml-2 text-gray-500 text-sm">{condo.location}</span></div>
-            </ExpandableSection>
+            <button onClick={handleBookNowClick} className="w-full bg-[#2d568e] text-white py-3 rounded-xl font-semibold hover:bg-[#1e3a5f] transition shadow-lg">
+              {user ? 'Reserve Now' : 'Sign in to Book'}
+            </button>
           </div>
         </div>
       </div>
 
-      {/* MOBILE BOOKING DRAWER - ONLY DRAWER CONTENT, NO TOP BAR */}
-      <div className="lg:hidden fixed inset-0 z-50 pointer-events-none">
-        <AnimatePresence>
-          {isDrawerOpen && (
+      {/* MOBILE LAYOUT - With Sticky Bottom Bar and Slide-up Drawer */}
+      <div className="lg:hidden w-full h-full overflow-y-auto pb-20">
+        <ImageGallery images={allImages} title={condo.title} />
+        
+        <div className="px-4 py-6">
+          <div className="flex flex-wrap items-center gap-2 mb-2">
+            <h1 className="text-2xl font-bold text-gray-900">{condo.title}</h1>
+            {condo.code && <span className="bg-[#2d568e] text-white px-2 py-0.5 rounded-full text-xs">{condo.code}</span>}
+          </div>
+          <div className="flex items-center gap-1 text-gray-500 mb-4"><MapPin size={14} /><span className="text-sm">{condo.location}</span></div>
+          
+          <div className="grid grid-cols-4 gap-2 mb-6">
+            <div className="bg-white rounded-lg p-2 text-center shadow-sm"><Bed className="text-[#2d568e] mx-auto mb-1" size={16} /><p className="text-lg font-bold">{condo.bedroom_count}</p><p className="text-xs text-gray-500">Beds</p></div>
+            <div className="bg-white rounded-lg p-2 text-center shadow-sm"><Bath className="text-[#2d568e] mx-auto mb-1" size={16} /><p className="text-lg font-bold">{condo.bathroom_count}</p><p className="text-xs text-gray-500">Baths</p></div>
+            <div className="bg-white rounded-lg p-2 text-center shadow-sm"><Users className="text-[#2d568e] mx-auto mb-1" size={16} /><p className="text-lg font-bold">{condo.max_guests}</p><p className="text-xs text-gray-500">Guests</p></div>
+            <div className="bg-white rounded-lg p-2 text-center shadow-sm"><Square className="text-[#2d568e] mx-auto mb-1" size={16} /><p className="text-lg font-bold">{condo.square_meters}</p><p className="text-xs text-gray-500">sqm</p></div>
+          </div>
+
+          <div className="mb-6"><h2 className="text-lg font-semibold mb-2">About</h2><p className="text-gray-600 text-sm">{condo.description}</p></div>
+          
+          <ExpandableSection title="Amenities" icon={Wifi}>
+            <div className="flex flex-wrap gap-2">{condo.amenities?.map((item, i) => (<span key={i} className="bg-gray-100 px-3 py-1 rounded-full text-sm capitalize">{item}</span>))}</div>
+          </ExpandableSection>
+          
+          <ExpandableSection title="House Rules" icon={Clock}>
+            <div className="space-y-2 text-sm text-gray-600"><div>Check-in: 3:00 PM</div><div>Check-out: 11:00 AM</div><div>No smoking</div><div>No pets</div><div>No parties</div></div>
+          </ExpandableSection>
+          
+          <ExpandableSection title="Cancellation Policies" icon={Shield}>
+            <div className="space-y-2">{['moderate', 'free', 'nonrefundable'].map((policy) => (<div key={policy} className={`p-3 rounded-lg border cursor-pointer transition ${cancellationPolicy === policy ? 'border-[#2d568e] bg-blue-50' : 'border-gray-200'}`} onClick={() => setCancellationPolicy(policy)}><h3 className="font-semibold text-sm capitalize">{policy === 'nonrefundable' ? 'Non-refundable' : policy === 'free' ? 'Free 14 Cancellation' : 'Moderate Cancellation'}</h3><p className="text-xs text-gray-600">{policy === 'moderate' && "50% refund 14+ days before"}{policy === 'free' && "100% refund 14+ days before"}{policy === 'nonrefundable' && "No refunds"}</p></div>))}</div>
+          </ExpandableSection>
+          
+          <ExpandableSection title="Location" icon={MapPin} defaultOpen={false}>
+            <div className="bg-gray-100 h-48 rounded-xl flex items-center justify-center"><MapPin size={24} className="text-gray-400" /><span className="ml-2 text-gray-500 text-sm">{condo.location}</span></div>
+          </ExpandableSection>
+        </div>
+      </div>
+
+      {/* STICKY BOTTOM BAR - Mobile only */}
+      <div className="lg:hidden fixed bottom-0 left-0 right-0 z-50">
+        <button
+          onClick={() => setIsDrawerOpen(true)}
+          className="w-full bg-[#2d568e] text-white py-4 px-6 flex items-center justify-between shadow-lg"
+        >
+          <div>
+            <span className="text-xs opacity-80">Total Price</span>
+            <div className="text-xl font-bold">{formatPrice(finalTotal)}</div>
+          </div>
+          <div className="text-right">
+            <div className="text-sm">{nights} night{nights !== 1 ? 's' : ''}</div>
+            <div className="text-xs opacity-80">{totalGuests} guest{totalGuests !== 1 ? 's' : ''}</div>
+          </div>
+          <ChevronUp size={20} className="animate-pulse" />
+        </button>
+      </div>
+
+      {/* SLIDE-UP DRAWER - Mobile booking form */}
+      <AnimatePresence>
+        {isDrawerOpen && (
+          <>
+            {/* Backdrop */}
             <motion.div
               initial={{ opacity: 0 }}
               animate={{ opacity: 1 }}
               exit={{ opacity: 0 }}
-              transition={{ duration: 0.2 }}
-              className="absolute inset-0 bg-black/50 pointer-events-auto"
+              className="lg:hidden fixed inset-0 bg-black/50 z-50"
               onClick={() => setIsDrawerOpen(false)}
             />
-          )}
-        </AnimatePresence>
-
-        <div className="absolute bottom-0 left-0 right-0 pointer-events-auto">
-          {/* DRAWER CONTENT ONLY - NO TOP BAR */}
-          <AnimatePresence>
-            {isDrawerOpen && (
-              <motion.div
-                initial={{ y: '100%' }}
-                animate={{ y: 0 }}
-                exit={{ y: '100%' }}
-                transition={{ type: 'spring', damping: 25, stiffness: 300 }}
-                drag="y"
-                dragConstraints={{ top: 0 }}
-                dragElastic={{ top: 0, bottom: 0.2 }}
-                onDragEnd={(event, info) => {
-                  if (info.offset.y > 100) {
-                    setIsDrawerOpen(false)
-                  }
-                }}
-                className="bg-white rounded-t-2xl shadow-2xl max-h-[85vh] overflow-y-auto"
-              >
-                {/* Drag handle at top of drawer */}
-                <div className="flex justify-center pt-3 pb-1">
-                  <div className="w-12 h-1 bg-gray-300 rounded-full" />
-                </div>
-                <div className="text-center text-xs text-gray-400 pb-2">
-                  Drag down to close
+            
+            {/* Drawer */}
+            <motion.div
+              initial={{ y: '100%' }}
+              animate={{ y: 0 }}
+              exit={{ y: '100%' }}
+              transition={{ type: 'spring', damping: 25, stiffness: 300 }}
+              drag="y"
+              dragConstraints={{ top: 0 }}
+              dragElastic={{ top: 0, bottom: 0.2 }}
+              onDragEnd={(event, info) => {
+                if (info.offset.y > 100) {
+                  setIsDrawerOpen(false)
+                }
+              }}
+              className="lg:hidden fixed bottom-0 left-0 right-0 bg-white rounded-t-2xl shadow-2xl z-50 max-h-[85vh] overflow-y-auto"
+            >
+              {/* Drag Handle */}
+              <div className="flex justify-center pt-3 pb-1">
+                <div className="w-12 h-1 bg-gray-300 rounded-full" />
+              </div>
+              <div className="text-center text-xs text-gray-400 pb-2">
+                Drag down to close
+              </div>
+              
+              <div className="p-5 space-y-4">
+                <div className="text-center pb-2">
+                  <div className="text-2xl font-bold text-[#2d568e]">{formatPrice(basePricePerNight)}<span className="text-sm text-gray-400">/night</span></div>
                 </div>
                 
-                <div className="px-5 pb-5 space-y-4">
-                  {/* Date Pickers */}
-                  <div className="grid grid-cols-2 gap-3">
-                    <div className="relative z-20">
-                      <DatePicker 
-                        selected={startDate} 
-                        onChange={(date) => setStartDate(date)} 
-                        minDate={new Date()} 
-                        dateFormat="MMM dd, yyyy" 
-                        customInput={<CustomDateInput label="CHECK-IN" />} 
-                      />
-                    </div>
-                    <div className="relative z-10">
-                      <DatePicker 
-                        selected={endDate} 
-                        onChange={(date) => setEndDate(date)} 
-                        minDate={startDate} 
-                        dateFormat="MMM dd, yyyy" 
-                        customInput={<CustomDateInput label="CHECK-OUT" />} 
-                      />
-                    </div>
+                {/* Date Pickers */}
+                <div className="grid grid-cols-2 gap-3">
+                  <div className="relative z-20">
+                    <DatePicker 
+                      selected={startDate} 
+                      onChange={(date) => setStartDate(date)} 
+                      minDate={new Date()} 
+                      dateFormat="MMM dd, yyyy" 
+                      customInput={<CustomDateInput label="CHECK-IN" />} 
+                    />
                   </div>
-
-                  <div className="flex justify-between text-sm">
-                    <span>{nights} nights</span>
-                    <span>{totalGuests} guests</span>
+                  <div className="relative z-10">
+                    <DatePicker 
+                      selected={endDate} 
+                      onChange={(date) => setEndDate(date)} 
+                      minDate={startDate} 
+                      dateFormat="MMM dd, yyyy" 
+                      customInput={<CustomDateInput label="CHECK-OUT" />} 
+                    />
                   </div>
-
-                  {/* Guest Dropdown */}
-                  <div className="relative">
-                    <button 
-                      onClick={() => setShowGuestDropdown(!showGuestDropdown)} 
-                      className="w-full bg-gray-50 rounded-xl p-3 text-left flex justify-between items-center"
-                    >
-                      <span className="truncate pr-2">{getGuestDisplayText()}</span>
-                      <ChevronDown size={18} className={`flex-shrink-0 transition ${showGuestDropdown ? 'rotate-180' : ''}`} />
-                    </button>
-                    <AnimatePresence>
-                      {showGuestDropdown && (
-                        <motion.div 
-                          initial={{ opacity: 0, y: -10 }}
-                          animate={{ opacity: 1, y: 0 }}
-                          exit={{ opacity: 0, y: -10 }}
-                          className="absolute top-full left-0 right-0 mt-2 bg-white border rounded-xl shadow-xl z-40 p-4 space-y-3"
-                          style={{ maxHeight: '280px', overflowY: 'auto' }}
-                        >
-                          <div className="flex justify-between items-center">
-                            <span>Adults</span>
-                            <div className="flex gap-4">
-                              <button onClick={() => setAdults(Math.max(1, adults-1))} className="w-8 h-8 rounded-full bg-gray-100 hover:bg-[#2d568e] hover:text-white transition">-</button>
-                              <span className="w-8 text-center font-semibold">{adults}</span>
-                              <button onClick={() => setAdults(adults+1)} className="w-8 h-8 rounded-full bg-gray-100 hover:bg-[#2d568e] hover:text-white transition">+</button>
-                            </div>
-                          </div>
-                          <div className="flex justify-between items-center">
-                            <span>Children <span className="text-xs text-green-600">(10% off)</span></span>
-                            <div className="flex gap-4">
-                              <button onClick={() => setChildren(Math.max(0, children-1))} className="w-8 h-8 rounded-full bg-gray-100 hover:bg-[#2d568e] hover:text-white transition">-</button>
-                              <span className="w-8 text-center font-semibold">{children}</span>
-                              <button onClick={() => setChildren(children+1)} className="w-8 h-8 rounded-full bg-gray-100 hover:bg-[#2d568e] hover:text-white transition">+</button>
-                            </div>
-                          </div>
-                          <div className="flex justify-between items-center">
-                            <span>Infants <span className="text-xs text-green-600">(20% off)</span></span>
-                            <div className="flex gap-4">
-                              <button onClick={() => setInfants(Math.max(0, infants-1))} className="w-8 h-8 rounded-full bg-gray-100 hover:bg-[#2d568e] hover:text-white transition">-</button>
-                              <span className="w-8 text-center font-semibold">{infants}</span>
-                              <button onClick={() => setInfants(infants+1)} className="w-8 h-8 rounded-full bg-gray-100 hover:bg-[#2d568e] hover:text-white transition">+</button>
-                            </div>
-                          </div>
-                          <div className="flex justify-between items-center">
-                            <span>Seniors <span className="text-xs text-green-600">(20% off)</span></span>
-                            <div className="flex gap-4">
-                              <button onClick={() => setSeniors(Math.max(0, seniors-1))} className="w-8 h-8 rounded-full bg-gray-100 hover:bg-[#2d568e] hover:text-white transition">-</button>
-                              <span className="w-8 text-center font-semibold">{seniors}</span>
-                              <button onClick={() => setSeniors(seniors+1)} className="w-8 h-8 rounded-full bg-gray-100 hover:bg-[#2d568e] hover:text-white transition">+</button>
-                            </div>
-                          </div>
-                          <button onClick={() => setShowGuestDropdown(false)} className="w-full bg-[#2d568e] text-white py-2 rounded-lg mt-2 hover:bg-[#1e3a5f] transition">Apply</button>
-                        </motion.div>
-                      )}
-                    </AnimatePresence>
-                  </div>
-
-                  {/* Promo Code */}
-                  <div className="flex gap-2">
-                    <input type="text" placeholder="Promo Code" className="flex-1 bg-gray-50 rounded-xl p-3 text-sm" value={promoCode} onChange={(e) => setPromoCode(e.target.value)} />
-                    <button onClick={applyPromo} className="px-4 bg-gray-100 rounded-xl hover:bg-[#2d568e] hover:text-white transition">Apply</button>
-                  </div>
-
-                  {/* Price Breakdown */}
-                  <div className="space-y-2 pt-2 border-t">
-                    <div className="flex justify-between text-sm">
-                      <span>Nightly avg</span>
-                      <span>{formatPrice(effectiveNightlyRate)}</span>
-                    </div>
-                    <div className="flex justify-between text-sm">
-                      <span>{formatPrice(effectiveNightlyRate)} × {nights} nights</span>
-                      <span>{formatPrice(subtotal)}</span>
-                    </div>
-                    <div className="flex justify-between text-sm">
-                      <span>Service fee (5%)</span>
-                      <span>{formatPrice(serviceFee)}</span>
-                    </div>
-                    {promoApplied && (
-                      <div className="flex justify-between text-green-600 text-sm">
-                        <span>Discount</span>
-                        <span>-{formatPrice(promoDiscount)}</span>
-                      </div>
-                    )}
-                    <div className="flex justify-between font-bold text-lg pt-2 border-t">
-                      <span>Total</span>
-                      <span className="text-[#2d568e]">{formatPrice(finalTotal)}</span>
-                    </div>
-                  </div>
-
-                  {/* Reserve Button */}
-                  <button onClick={handleBookNowClick} className="w-full bg-[#2d568e] text-white py-3 rounded-xl font-semibold hover:bg-[#1e3a5f] transition">
-                    {user ? 'Reserve Now' : 'Sign in to Book'}
-                  </button>
                 </div>
-              </motion.div>
-            )}
-          </AnimatePresence>
-        </div>
-      </div>
 
-      {/* MODAL */}
+                <div className="flex justify-between text-sm">
+                  <span>{nights} nights</span>
+                  <span>{totalGuests} guests</span>
+                </div>
+
+                {/* Guest Dropdown */}
+                <div className="relative">
+                  <button onClick={() => setShowGuestDropdown(!showGuestDropdown)} className="w-full bg-gray-50 rounded-xl p-3 text-left flex justify-between">
+                    <span>{getGuestDisplayText()}</span>
+                    <ChevronDown size={18} className={`transition ${showGuestDropdown ? 'rotate-180' : ''}`} />
+                  </button>
+                  <AnimatePresence>
+                    {showGuestDropdown && (
+                      <motion.div 
+                        initial={{ opacity: 0, y: -10 }}
+                        animate={{ opacity: 1, y: 0 }}
+                        exit={{ opacity: 0, y: -10 }}
+                        className="absolute top-full left-0 right-0 mt-2 bg-white border rounded-xl shadow-xl z-30 p-4 space-y-3"
+                      >
+                        <div className="flex justify-between"><span>Adults</span><div className="flex gap-4"><button onClick={() => setAdults(Math.max(1, adults-1))} className="w-8 h-8 rounded-full bg-gray-100">-</button><span>{adults}</span><button onClick={() => setAdults(adults+1)} className="w-8 h-8 rounded-full bg-gray-100">+</button></div></div>
+                        <div className="flex justify-between"><span>Children (10% off)</span><div className="flex gap-4"><button onClick={() => setChildren(Math.max(0, children-1))} className="w-8 h-8 rounded-full bg-gray-100">-</button><span>{children}</span><button onClick={() => setChildren(children+1)} className="w-8 h-8 rounded-full bg-gray-100">+</button></div></div>
+                        <div className="flex justify-between"><span>Infants (20% off)</span><div className="flex gap-4"><button onClick={() => setInfants(Math.max(0, infants-1))} className="w-8 h-8 rounded-full bg-gray-100">-</button><span>{infants}</span><button onClick={() => setInfants(infants+1)} className="w-8 h-8 rounded-full bg-gray-100">+</button></div></div>
+                        <div className="flex justify-between"><span>Seniors (20% off)</span><div className="flex gap-4"><button onClick={() => setSeniors(Math.max(0, seniors-1))} className="w-8 h-8 rounded-full bg-gray-100">-</button><span>{seniors}</span><button onClick={() => setSeniors(seniors+1)} className="w-8 h-8 rounded-full bg-gray-100">+</button></div></div>
+                        <button onClick={() => setShowGuestDropdown(false)} className="w-full bg-[#2d568e] text-white py-2 rounded-lg">Apply</button>
+                      </motion.div>
+                    )}
+                  </AnimatePresence>
+                </div>
+
+                {/* Promo Code */}
+                <div className="flex gap-2">
+                  <input type="text" placeholder="Promo Code" className="flex-1 bg-gray-50 rounded-xl p-3 text-sm" value={promoCode} onChange={(e) => setPromoCode(e.target.value)} />
+                  <button onClick={applyPromo} className="px-4 bg-gray-100 rounded-xl hover:bg-[#2d568e] hover:text-white transition">Apply</button>
+                </div>
+
+                {/* Price Breakdown */}
+                <div className="space-y-2 pt-2 border-t">
+                  <div className="flex justify-between text-sm">
+                    <span>Nightly avg</span>
+                    <span>{formatPrice(effectiveNightlyRate)}</span>
+                  </div>
+                  <div className="flex justify-between text-sm">
+                    <span>{formatPrice(effectiveNightlyRate)} × {nights} nights</span>
+                    <span>{formatPrice(subtotal)}</span>
+                  </div>
+                  <div className="flex justify-between text-sm">
+                    <span>Service fee (5%)</span>
+                    <span>{formatPrice(serviceFee)}</span>
+                  </div>
+                  {promoApplied && <div className="flex justify-between text-green-600 text-sm"><span>Discount</span><span>-{formatPrice(promoDiscount)}</span></div>}
+                  <div className="flex justify-between font-bold text-lg pt-2 border-t">
+                    <span>Total</span>
+                    <span className="text-[#2d568e]">{formatPrice(finalTotal)}</span>
+                  </div>
+                </div>
+
+                {/* Reserve Button */}
+                <button onClick={handleBookNowClick} className="w-full bg-[#2d568e] text-white py-3 rounded-xl font-semibold hover:bg-[#1e3a5f] transition">
+                  {user ? 'Reserve Now' : 'Sign in to Book'}
+                </button>
+              </div>
+            </motion.div>
+          </>
+        )}
+      </AnimatePresence>
+
+      {/* BOOKING MODAL (same as before) */}
       <AnimatePresence>
         {showBookingForm && (
           <div className="fixed inset-0 z-[99999] flex items-center justify-center">
@@ -721,6 +702,7 @@ export default function CondoDetailPage() {
                 </div>
                 
                 <div className="flex-1 overflow-y-auto p-5">
+                  {/* Personal Information */}
                   <div>
                     <h3 className="text-md font-semibold text-[#2d568e] mb-3">Personal Information</h3>
                     <div className="grid grid-cols-2 gap-3">
@@ -743,6 +725,7 @@ export default function CondoDetailPage() {
                     </div>
                   </div>
 
+                  {/* Booking Summary */}
                   <div className="mt-5">
                     <h3 className="text-md font-semibold text-[#2d568e] mb-2">Booking Summary</h3>
                     <div className="bg-gradient-to-br from-[#2d568e]/5 to-white rounded-xl border border-[#2d568e]/20 overflow-hidden">
@@ -760,12 +743,7 @@ export default function CondoDetailPage() {
                           </div>
                         </div>
                       </div>
-                      <div className="border-t border-gray-200 bg-white/50 p-4">
-                        <div className="flex justify-between">
-                          <span className="font-bold">Total Amount</span>
-                          <span className="text-xl font-bold text-[#2d568e]">{formatPrice(finalTotal)}</span>
-                        </div>
-                      </div>
+                      <div className="border-t border-gray-200 bg-white/50 p-4"><div className="flex justify-between"><span className="font-bold">Total Amount</span><span className="text-xl font-bold text-[#2d568e]">{formatPrice(finalTotal)}</span></div></div>
                     </div>
                   </div>
 
@@ -795,6 +773,6 @@ export default function CondoDetailPage() {
           </div>
         )}
       </AnimatePresence>
-    </>
+    </div>
   )
 }
