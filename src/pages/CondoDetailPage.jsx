@@ -508,7 +508,7 @@ export default function CondoDetailPage() {
         </div>
       </div>
 
-      {/* MOBILE BOOKING DRAWER - NO DUPLICATE PRICE */}
+      {/* MOBILE BOOKING DRAWER - FIXED: No duplicate price, guest dropdown opens in modal style */}
       <div className="lg:hidden fixed inset-0 z-50 pointer-events-none">
         <AnimatePresence>
           {isDrawerOpen && (
@@ -524,6 +524,7 @@ export default function CondoDetailPage() {
         </AnimatePresence>
 
         <div className="absolute bottom-0 left-0 right-0 pointer-events-auto">
+          {/* Collapsed Booking Bar */}
           <button
             onClick={() => setIsDrawerOpen(!isDrawerOpen)}
             className="w-full bg-white rounded-t-2xl shadow-xl transition-all active:scale-[0.99]"
@@ -574,6 +575,7 @@ export default function CondoDetailPage() {
             </div>
           </button>
 
+          {/* Expanded Drawer Content - NO DUPLICATE PRICE */}
           <AnimatePresence>
             {isDrawerOpen && (
               <motion.div
@@ -592,6 +594,7 @@ export default function CondoDetailPage() {
                 className="bg-white rounded-t-2xl shadow-2xl max-h-[70vh] overflow-y-auto"
               >
                 <div className="p-5 space-y-4">
+                  {/* Drag handle */}
                   <div className="flex justify-center">
                     <div className="w-12 h-1 bg-gray-300 rounded-full" />
                   </div>
@@ -599,7 +602,7 @@ export default function CondoDetailPage() {
                     Drag down to close
                   </div>
                   
-                  {/* DUPLICATE PRICE REMOVED FROM HERE */}
+                  {/* DUPLICATE PRICE REMOVED - No price display here */}
                   
                   {/* Date Pickers */}
                   <div className="grid grid-cols-2 gap-3">
@@ -628,8 +631,8 @@ export default function CondoDetailPage() {
                     <span>{totalGuests} guests</span>
                   </div>
 
-                  {/* Guest Dropdown */}
-                  <div className="relative z-30">
+                  {/* Guest Dropdown - FIXED: Opens in modal that covers the whole drawer */}
+                  <div className="relative">
                     <button 
                       onClick={() => setShowGuestDropdown(!showGuestDropdown)} 
                       className="w-full bg-gray-50 rounded-xl p-3 text-left flex justify-between items-center"
@@ -637,51 +640,82 @@ export default function CondoDetailPage() {
                       <span className="truncate pr-2">{getGuestDisplayText()}</span>
                       <ChevronDown size={18} className={`flex-shrink-0 transition ${showGuestDropdown ? 'rotate-180' : ''}`} />
                     </button>
-                    <AnimatePresence>
-                      {showGuestDropdown && (
-                        <motion.div 
-                          initial={{ opacity: 0, y: 10 }}
-                          animate={{ opacity: 1, y: 0 }}
-                          exit={{ opacity: 0, y: 10 }}
-                          className="absolute bottom-full left-0 right-0 mb-2 bg-white border rounded-xl shadow-xl z-40 p-4 space-y-3"
-                          style={{ maxHeight: '280px', overflowY: 'auto' }}
-                        >
-                          <div className="flex justify-between items-center">
-                            <span>Adults</span>
-                            <div className="flex gap-4">
-                              <button onClick={() => setAdults(Math.max(1, adults-1))} className="w-8 h-8 rounded-full bg-gray-100 hover:bg-[#2d568e] hover:text-white transition">-</button>
-                              <span className="w-8 text-center font-semibold">{adults}</span>
-                              <button onClick={() => setAdults(adults+1)} className="w-8 h-8 rounded-full bg-gray-100 hover:bg-[#2d568e] hover:text-white transition">+</button>
+                    
+                    {/* Modal-style dropdown that appears centered */}
+                    {showGuestDropdown && (
+                      <div className="fixed inset-0 z-[60] flex items-center justify-center" style={{ pointerEvents: 'auto' }}>
+                        <div 
+                          className="absolute inset-0 bg-black/50"
+                          onClick={() => setShowGuestDropdown(false)}
+                        />
+                        <div className="relative bg-white rounded-2xl shadow-2xl w-[90%] max-w-sm p-5 space-y-4">
+                          <div className="flex justify-between items-center mb-2">
+                            <h3 className="text-lg font-semibold text-gray-800">Select Guests</h3>
+                            <button 
+                              onClick={() => setShowGuestDropdown(false)}
+                              className="text-gray-400 hover:text-gray-600"
+                            >
+                              <X size={20} />
+                            </button>
+                          </div>
+                          
+                          <div className="flex justify-between items-center py-3 border-b">
+                            <div>
+                              <span className="font-medium">Adults</span>
+                              <p className="text-xs text-gray-400">Age 13+</p>
+                            </div>
+                            <div className="flex gap-4 items-center">
+                              <button onClick={() => setAdults(Math.max(1, adults-1))} className="w-8 h-8 rounded-full bg-gray-100 hover:bg-[#2d568e] hover:text-white transition text-lg">-</button>
+                              <span className="w-8 text-center font-semibold text-lg">{adults}</span>
+                              <button onClick={() => setAdults(adults+1)} className="w-8 h-8 rounded-full bg-gray-100 hover:bg-[#2d568e] hover:text-white transition text-lg">+</button>
                             </div>
                           </div>
-                          <div className="flex justify-between items-center">
-                            <span>Children <span className="text-xs text-green-600">(10% off)</span></span>
-                            <div className="flex gap-4">
-                              <button onClick={() => setChildren(Math.max(0, children-1))} className="w-8 h-8 rounded-full bg-gray-100 hover:bg-[#2d568e] hover:text-white transition">-</button>
-                              <span className="w-8 text-center font-semibold">{children}</span>
-                              <button onClick={() => setChildren(children+1)} className="w-8 h-8 rounded-full bg-gray-100 hover:bg-[#2d568e] hover:text-white transition">+</button>
+                          
+                          <div className="flex justify-between items-center py-3 border-b">
+                            <div>
+                              <span className="font-medium">Children</span>
+                              <p className="text-xs text-green-600">10% off</p>
+                            </div>
+                            <div className="flex gap-4 items-center">
+                              <button onClick={() => setChildren(Math.max(0, children-1))} className="w-8 h-8 rounded-full bg-gray-100 hover:bg-[#2d568e] hover:text-white transition text-lg">-</button>
+                              <span className="w-8 text-center font-semibold text-lg">{children}</span>
+                              <button onClick={() => setChildren(children+1)} className="w-8 h-8 rounded-full bg-gray-100 hover:bg-[#2d568e] hover:text-white transition text-lg">+</button>
                             </div>
                           </div>
-                          <div className="flex justify-between items-center">
-                            <span>Infants <span className="text-xs text-green-600">(20% off)</span></span>
-                            <div className="flex gap-4">
-                              <button onClick={() => setInfants(Math.max(0, infants-1))} className="w-8 h-8 rounded-full bg-gray-100 hover:bg-[#2d568e] hover:text-white transition">-</button>
-                              <span className="w-8 text-center font-semibold">{infants}</span>
-                              <button onClick={() => setInfants(infants+1)} className="w-8 h-8 rounded-full bg-gray-100 hover:bg-[#2d568e] hover:text-white transition">+</button>
+                          
+                          <div className="flex justify-between items-center py-3 border-b">
+                            <div>
+                              <span className="font-medium">Infants</span>
+                              <p className="text-xs text-green-600">20% off</p>
+                            </div>
+                            <div className="flex gap-4 items-center">
+                              <button onClick={() => setInfants(Math.max(0, infants-1))} className="w-8 h-8 rounded-full bg-gray-100 hover:bg-[#2d568e] hover:text-white transition text-lg">-</button>
+                              <span className="w-8 text-center font-semibold text-lg">{infants}</span>
+                              <button onClick={() => setInfants(infants+1)} className="w-8 h-8 rounded-full bg-gray-100 hover:bg-[#2d568e] hover:text-white transition text-lg">+</button>
                             </div>
                           </div>
-                          <div className="flex justify-between items-center">
-                            <span>Seniors <span className="text-xs text-green-600">(20% off)</span></span>
-                            <div className="flex gap-4">
-                              <button onClick={() => setSeniors(Math.max(0, seniors-1))} className="w-8 h-8 rounded-full bg-gray-100 hover:bg-[#2d568e] hover:text-white transition">-</button>
-                              <span className="w-8 text-center font-semibold">{seniors}</span>
-                              <button onClick={() => setSeniors(seniors+1)} className="w-8 h-8 rounded-full bg-gray-100 hover:bg-[#2d568e] hover:text-white transition">+</button>
+                          
+                          <div className="flex justify-between items-center py-3 border-b">
+                            <div>
+                              <span className="font-medium">Seniors</span>
+                              <p className="text-xs text-green-600">20% off</p>
+                            </div>
+                            <div className="flex gap-4 items-center">
+                              <button onClick={() => setSeniors(Math.max(0, seniors-1))} className="w-8 h-8 rounded-full bg-gray-100 hover:bg-[#2d568e] hover:text-white transition text-lg">-</button>
+                              <span className="w-8 text-center font-semibold text-lg">{seniors}</span>
+                              <button onClick={() => setSeniors(seniors+1)} className="w-8 h-8 rounded-full bg-gray-100 hover:bg-[#2d568e] hover:text-white transition text-lg">+</button>
                             </div>
                           </div>
-                          <button onClick={() => setShowGuestDropdown(false)} className="w-full bg-[#2d568e] text-white py-2 rounded-lg mt-2 hover:bg-[#1e3a5f] transition">Apply</button>
-                        </motion.div>
-                      )}
-                    </AnimatePresence>
+                          
+                          <button 
+                            onClick={() => setShowGuestDropdown(false)} 
+                            className="w-full bg-[#2d568e] text-white py-3 rounded-xl font-semibold mt-3 hover:bg-[#1e3a5f] transition"
+                          >
+                            Apply
+                          </button>
+                        </div>
+                      </div>
+                    )}
                   </div>
 
                   {/* Promo Code */}
