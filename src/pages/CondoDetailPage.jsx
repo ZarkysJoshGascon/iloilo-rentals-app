@@ -508,7 +508,7 @@ export default function CondoDetailPage() {
         </div>
       </div>
 
-      {/* MOBILE BOOKING DRAWER - NO DUPLICATE BUMP OR PRICE */}
+      {/* MOBILE BOOKING DRAWER - ONLY ONE BAR AT THE BOTTOM WITH DRAG HANDLE */}
       <div className="lg:hidden fixed inset-0 z-50 pointer-events-none">
         <AnimatePresence>
           {isDrawerOpen && (
@@ -524,15 +524,22 @@ export default function CondoDetailPage() {
         </AnimatePresence>
 
         <div className="absolute bottom-0 left-0 right-0 pointer-events-auto">
-          {/* Collapsed Booking Bar - NO BUMP */}
+          {/* ONLY ONE BOOKING BAR - WITH DRAG HANDLE */}
           <button
             onClick={() => setIsDrawerOpen(!isDrawerOpen)}
             className="w-full bg-white rounded-t-2xl shadow-xl transition-all active:scale-[0.99]"
             style={{ boxShadow: '0 -8px 30px rgba(0,0,0,0.12)' }}
           >
-            {/* NO BUMP HERE - REMOVED */}
+            {/* Drag handle */}
+            <div className="flex justify-center pt-3 pb-1">
+              <motion.div 
+                animate={{ y: isDrawerOpen ? 0 : [0, -3, 0] }}
+                transition={{ repeat: isDrawerOpen ? 0 : Infinity, duration: 1.5 }}
+                className="w-10 h-1 bg-gray-300 rounded-full"
+              />
+            </div>
             
-            <div className="px-5 pb-5 pt-4">
+            <div className="px-5 pb-5 pt-2">
               <div className="flex items-center justify-between mb-3">
                 <div className="flex flex-col items-start">
                   <span className="text-xs text-gray-500 uppercase tracking-wide">Total Price</span>
@@ -569,7 +576,7 @@ export default function CondoDetailPage() {
             </div>
           </button>
 
-          {/* Expanded Drawer Content - NO DUPLICATE BUMP, NO DUPLICATE PRICE */}
+          {/* Drawer Content - Slides up */}
           <AnimatePresence>
             {isDrawerOpen && (
               <motion.div
@@ -588,8 +595,7 @@ export default function CondoDetailPage() {
                 className="bg-white rounded-t-2xl shadow-2xl max-h-[70vh] overflow-y-auto"
               >
                 <div className="p-5 space-y-4">
-                  {/* NO DRAG HANDLE INSIDE - REMOVED */}
-                  {/* NO DUPLICATE PRICE - REMOVED */}
+                  {/* No duplicate drag handle inside */}
                   
                   {/* Date Pickers */}
                   <div className="grid grid-cols-2 gap-3">
