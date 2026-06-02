@@ -508,7 +508,7 @@ export default function CondoDetailPage() {
         </div>
       </div>
 
-      {/* MOBILE BOOKING DRAWER - ONLY ONE BAR AT THE BOTTOM WITH DRAG HANDLE */}
+      {/* MOBILE BOOKING DRAWER - ONLY DRAWER CONTENT, NO TOP BAR */}
       <div className="lg:hidden fixed inset-0 z-50 pointer-events-none">
         <AnimatePresence>
           {isDrawerOpen && (
@@ -524,59 +524,7 @@ export default function CondoDetailPage() {
         </AnimatePresence>
 
         <div className="absolute bottom-0 left-0 right-0 pointer-events-auto">
-          {/* ONLY ONE BOOKING BAR - WITH DRAG HANDLE */}
-          <button
-            onClick={() => setIsDrawerOpen(!isDrawerOpen)}
-            className="w-full bg-white rounded-t-2xl shadow-xl transition-all active:scale-[0.99]"
-            style={{ boxShadow: '0 -8px 30px rgba(0,0,0,0.12)' }}
-          >
-            {/* Drag handle */}
-            <div className="flex justify-center pt-3 pb-1">
-              <motion.div 
-                animate={{ y: isDrawerOpen ? 0 : [0, -3, 0] }}
-                transition={{ repeat: isDrawerOpen ? 0 : Infinity, duration: 1.5 }}
-                className="w-10 h-1 bg-gray-300 rounded-full"
-              />
-            </div>
-            
-            <div className="px-5 pb-5 pt-2">
-              <div className="flex items-center justify-between mb-3">
-                <div className="flex flex-col items-start">
-                  <span className="text-xs text-gray-500 uppercase tracking-wide">Total Price</span>
-                  <div className="flex items-baseline gap-1">
-                    <span className="text-2xl font-bold text-[#2d568e]">{formatPrice(finalTotal)}</span>
-                    <span className="text-xs text-gray-400">PHP</span>
-                  </div>
-                </div>
-                <div className="flex flex-col items-end">
-                  <span className="text-xs text-gray-500">{nights} night{nights !== 1 ? 's' : ''}</span>
-                  <span className="text-sm text-gray-600">{totalGuests} guest{totalGuests !== 1 ? 's' : ''}</span>
-                </div>
-              </div>
-              
-              <div className="border-t border-gray-100 my-3"></div>
-              
-              <div className="flex items-center justify-between">
-                <div className="flex items-center gap-1">
-                  <span className="text-sm text-gray-500">₱{formatPrice(basePricePerNight)}</span>
-                  <span className="text-xs text-gray-400">/night</span>
-                </div>
-                <div className="flex items-center gap-2">
-                  <span className="text-sm font-medium text-[#2d568e]">
-                    {isDrawerOpen ? 'Close' : 'View Details'}
-                  </span>
-                  <motion.div
-                    animate={{ rotate: isDrawerOpen ? 180 : 0 }}
-                    transition={{ duration: 0.3 }}
-                  >
-                    <ChevronUp size={18} className="text-[#2d568e]" />
-                  </motion.div>
-                </div>
-              </div>
-            </div>
-          </button>
-
-          {/* Drawer Content - Slides up */}
+          {/* DRAWER CONTENT ONLY - NO TOP BAR */}
           <AnimatePresence>
             {isDrawerOpen && (
               <motion.div
@@ -592,11 +540,17 @@ export default function CondoDetailPage() {
                     setIsDrawerOpen(false)
                   }
                 }}
-                className="bg-white rounded-t-2xl shadow-2xl max-h-[70vh] overflow-y-auto"
+                className="bg-white rounded-t-2xl shadow-2xl max-h-[85vh] overflow-y-auto"
               >
-                <div className="p-5 space-y-4">
-                  {/* No duplicate drag handle inside */}
-                  
+                {/* Drag handle at top of drawer */}
+                <div className="flex justify-center pt-3 pb-1">
+                  <div className="w-12 h-1 bg-gray-300 rounded-full" />
+                </div>
+                <div className="text-center text-xs text-gray-400 pb-2">
+                  Drag down to close
+                </div>
+                
+                <div className="px-5 pb-5 space-y-4">
                   {/* Date Pickers */}
                   <div className="grid grid-cols-2 gap-3">
                     <div className="relative z-20">
