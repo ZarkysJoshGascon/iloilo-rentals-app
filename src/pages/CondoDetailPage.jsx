@@ -150,6 +150,9 @@ export default function CondoDetailPage() {
   const [promoDiscount, setPromoDiscount] = useState(0)
   const [termsError, setTermsError] = useState(false)
   
+  // Mobile drawer state
+  const [isDrawerOpen, setIsDrawerOpen] = useState(false)
+  
   const [validationErrors, setValidationErrors] = useState({
     firstName: '',
     lastName: '',
@@ -421,93 +424,55 @@ export default function CondoDetailPage() {
             </div>
           </div>
 
-          {/* RIGHT SIDE - COMPLETELY STATIC - NO SCROLLING - REMOVED children discount and cancellation text */}
-          <div className="w-1/3 bg-white shadow-xl flex flex-col h-full overflow-hidden pt-25">
-            <motion.div 
-              initial={{ x: 50, opacity: 0 }}
-              animate={{ x: 0, opacity: 1 }}
-              transition={{ duration: 0.5 }}
-              className="h-full overflow-hidden"
-            >
-              <div className="h-full overflow-y-auto p-6 space-y-5">
-                <motion.div 
-                  initial={{ scale: 0.9, opacity: 0 }}
-                  animate={{ scale: 1, opacity: 1 }}
-                  transition={{ delay: 0.1 }}
-                  className="text-center pb-4 border-b"
-                >
-                  <div className="text-4xl font-bold text-[#2d568e]">{formatPrice(basePricePerNight)}<span className="text-sm text-gray-400">/night</span></div>
-                </motion.div>
-                
-                <div className="grid grid-cols-2 gap-3">
-                  <div className="relative z-20">
-                    <DatePicker 
-                      selected={startDate} 
-                      onChange={(date) => setStartDate(date)} 
-                      minDate={new Date()} 
-                      dateFormat="MMM dd, yyyy" 
-                      customInput={<CustomDateInput label="CHECK-IN" />} 
-                      popperPlacement="bottom-start" 
-                    />
-                  </div>
-                  <div className="relative z-10">
-                    <DatePicker 
-                      selected={endDate} 
-                      onChange={(date) => setEndDate(date)} 
-                      minDate={startDate} 
-                      dateFormat="MMM dd, yyyy" 
-                      customInput={<CustomDateInput label="CHECK-OUT" />} 
-                      popperPlacement="bottom-start" 
-                    />
-                  </div>
-                </div>
-
-                <div className="flex justify-between text-sm text-gray-500">
-                  <span>{nights} nights</span>
-                  <span>{totalGuests} guests</span>
-                </div>
-
-                <div className="relative">
-                  <button onClick={() => setShowGuestDropdown(!showGuestDropdown)} className="w-full bg-gray-50 rounded-xl p-3 text-left flex justify-between">
-                    <span>{getGuestDisplayText()}</span>
-                    <ChevronDown size={18} className={`transition ${showGuestDropdown ? 'rotate-180' : ''}`} />
-                  </button>
-                  {showGuestDropdown && (
-                    <div className="absolute top-full left-0 right-0 mt-2 bg-white border rounded-xl shadow-xl z-30 p-4 space-y-3">
-                      <div className="flex justify-between"><span>Adults</span><div className="flex gap-4"><button onClick={() => setAdults(Math.max(1, adults-1))} className="w-8 h-8 rounded-full bg-gray-100">-</button><span>{adults}</span><button onClick={() => setAdults(adults+1)} className="w-8 h-8 rounded-full bg-gray-100">+</button></div></div>
-                      <div className="flex justify-between"><span>Children (10% off)</span><div className="flex gap-4"><button onClick={() => setChildren(Math.max(0, children-1))} className="w-8 h-8 rounded-full bg-gray-100">-</button><span>{children}</span><button onClick={() => setChildren(children+1)} className="w-8 h-8 rounded-full bg-gray-100">+</button></div></div>
-                      <div className="flex justify-between"><span>Infants (20% off)</span><div className="flex gap-4"><button onClick={() => setInfants(Math.max(0, infants-1))} className="w-8 h-8 rounded-full bg-gray-100">-</button><span>{infants}</span><button onClick={() => setInfants(infants+1)} className="w-8 h-8 rounded-full bg-gray-100">+</button></div></div>
-                      <div className="flex justify-between"><span>Seniors (20% off)</span><div className="flex gap-4"><button onClick={() => setSeniors(Math.max(0, seniors-1))} className="w-8 h-8 rounded-full bg-gray-100">-</button><span>{seniors}</span><button onClick={() => setSeniors(seniors+1)} className="w-8 h-8 rounded-full bg-gray-100">+</button></div></div>
-                      <button onClick={() => setShowGuestDropdown(false)} className="w-full bg-[#2d568e] text-white py-2 rounded-lg">Apply</button>
-                    </div>
-                  )}
-                </div>
-
-                <div className="flex gap-2">
-                  <input type="text" placeholder="Promo Code" className="flex-1 bg-gray-50 rounded-xl p-3" value={promoCode} onChange={(e) => setPromoCode(e.target.value)} />
-                  <button onClick={applyPromo} className="px-4 bg-gray-100 rounded-xl hover:bg-[#2d568e] hover:text-white transition">Apply</button>
-                </div>
-
-                <div className="space-y-2 pt-2 border-t">
-                  <div className="flex justify-between"><span>Nightly avg</span><span>{formatPrice(effectiveNightlyRate)}</span></div>
-                  <div className="flex justify-between"><span>{formatPrice(effectiveNightlyRate)} × {nights}</span><span>{formatPrice(subtotal)}</span></div>
-                  <div className="flex justify-between"><span>Service fee (5%)</span><span>{formatPrice(serviceFee)}</span></div>
-                  {promoApplied && <div className="flex justify-between text-green-600"><span>Discount</span><span>-{formatPrice(promoDiscount)}</span></div>}
-                  <div className="flex justify-between font-bold text-xl pt-2 border-t"><span>Total</span><span className="text-[#2d568e]">{formatPrice(finalTotal)}</span></div>
-                </div>
-
-                {/* THESE TWO LINES WERE REMOVED FROM HERE - Children discount and Cancellation policy moved to modal */}
-                
-                <button onClick={handleBookNowClick} className="w-full bg-[#2d568e] text-white py-3 rounded-xl font-semibold hover:bg-[#1e3a5f] transition shadow-lg">
-                  {user ? 'Reserve Now' : 'Sign in to Book'}
-                </button>
+          {/* RIGHT SIDE - DESKTOP BOOKING SIDEBAR */}
+          <div className="w-1/3 bg-white shadow-xl flex flex-col h-full overflow-hidden pt-16">
+            <div className="flex-1 overflow-y-auto p-6 space-y-5">
+              <div className="text-center pb-4 border-b">
+                <div className="text-4xl font-bold text-[#2d568e]">{formatPrice(basePricePerNight)}<span className="text-sm text-gray-400">/night</span></div>
               </div>
-            </motion.div>
+              
+              <div className="grid grid-cols-2 gap-3">
+                <div className="relative z-20"><DatePicker selected={startDate} onChange={(date) => setStartDate(date)} minDate={new Date()} dateFormat="MMM dd, yyyy" customInput={<CustomDateInput label="CHECK-IN" />} popperPlacement="bottom-start" /></div>
+                <div className="relative z-10"><DatePicker selected={endDate} onChange={(date) => setEndDate(date)} minDate={startDate} dateFormat="MMM dd, yyyy" customInput={<CustomDateInput label="CHECK-OUT" />} popperPlacement="bottom-start" /></div>
+              </div>
+
+              <div className="flex justify-between text-sm text-gray-500"><span>{nights} nights</span><span>{totalGuests} guests</span></div>
+
+              <div className="relative">
+                <button onClick={() => setShowGuestDropdown(!showGuestDropdown)} className="w-full bg-gray-50 rounded-xl p-3 text-left flex justify-between">
+                  <span>{getGuestDisplayText()}</span>
+                  <ChevronDown size={18} className={`transition ${showGuestDropdown ? 'rotate-180' : ''}`} />
+                </button>
+                {showGuestDropdown && (
+                  <div className="absolute top-full left-0 right-0 mt-2 bg-white border rounded-xl shadow-xl z-30 p-4 space-y-3">
+                    <div className="flex justify-between"><span>Adults</span><div className="flex gap-4"><button onClick={() => setAdults(Math.max(1, adults-1))} className="w-8 h-8 rounded-full bg-gray-100">-</button><span>{adults}</span><button onClick={() => setAdults(adults+1)} className="w-8 h-8 rounded-full bg-gray-100">+</button></div></div>
+                    <div className="flex justify-between"><span>Children (10% off)</span><div className="flex gap-4"><button onClick={() => setChildren(Math.max(0, children-1))} className="w-8 h-8 rounded-full bg-gray-100">-</button><span>{children}</span><button onClick={() => setChildren(children+1)} className="w-8 h-8 rounded-full bg-gray-100">+</button></div></div>
+                    <div className="flex justify-between"><span>Infants (20% off)</span><div className="flex gap-4"><button onClick={() => setInfants(Math.max(0, infants-1))} className="w-8 h-8 rounded-full bg-gray-100">-</button><span>{infants}</span><button onClick={() => setInfants(infants+1)} className="w-8 h-8 rounded-full bg-gray-100">+</button></div></div>
+                    <div className="flex justify-between"><span>Seniors (20% off)</span><div className="flex gap-4"><button onClick={() => setSeniors(Math.max(0, seniors-1))} className="w-8 h-8 rounded-full bg-gray-100">-</button><span>{seniors}</span><button onClick={() => setSeniors(seniors+1)} className="w-8 h-8 rounded-full bg-gray-100">+</button></div></div>
+                    <button onClick={() => setShowGuestDropdown(false)} className="w-full bg-[#2d568e] text-white py-2 rounded-lg">Apply</button>
+                  </div>
+                )}
+              </div>
+
+              <div className="flex gap-2"><input type="text" placeholder="Promo Code" className="flex-1 bg-gray-50 rounded-xl p-3" value={promoCode} onChange={(e) => setPromoCode(e.target.value)} /><button onClick={applyPromo} className="px-4 bg-gray-100 rounded-xl hover:bg-[#2d568e] hover:text-white transition">Apply</button></div>
+
+              <div className="space-y-2 pt-2 border-t">
+                <div className="flex justify-between"><span>Nightly avg</span><span>{formatPrice(effectiveNightlyRate)}</span></div>
+                <div className="flex justify-between"><span>{formatPrice(effectiveNightlyRate)} × {nights}</span><span>{formatPrice(subtotal)}</span></div>
+                <div className="flex justify-between"><span>Service fee (5%)</span><span>{formatPrice(serviceFee)}</span></div>
+                {promoApplied && <div className="flex justify-between text-green-600"><span>Discount</span><span>-{formatPrice(promoDiscount)}</span></div>}
+                <div className="flex justify-between font-bold text-xl pt-2 border-t"><span>Total</span><span className="text-[#2d568e]">{formatPrice(finalTotal)}</span></div>
+              </div>
+
+              <button onClick={handleBookNowClick} className="w-full bg-[#2d568e] text-white py-3 rounded-xl font-semibold hover:bg-[#1e3a5f] transition shadow-lg">
+                {user ? 'Reserve Now' : 'Sign in to Book'}
+              </button>
+            </div>
           </div>
         </div>
 
-        {/* MOBILE LAYOUT */}
-        <div className="lg:hidden w-full h-full overflow-y-auto pt-16">
+        {/* MOBILE LAYOUT - WITH SLIDE-UP DRAWER */}
+        <div className="lg:hidden w-full h-full overflow-y-auto">
           <ImageGallery images={allImages} title={condo.title} />
           
           <div className="px-4 py-6 pb-32">
@@ -542,26 +507,179 @@ export default function CondoDetailPage() {
               <div className="bg-gray-100 h-48 rounded-xl flex items-center justify-center"><MapPin size={24} className="text-gray-400" /><span className="ml-2 text-gray-500 text-sm">{condo.location}</span></div>
             </ExpandableSection>
           </div>
-
-          {/* MOBILE BOOKING SECTION - FIXED AT BOTTOM */}
-          <div className="fixed bottom-0 left-0 right-0 bg-white shadow-xl rounded-t-2xl z-40">
-            <div className="p-4 space-y-3">
-              <div className="flex justify-between items-center">
-                <div className="text-2xl font-bold text-[#2d568e]">{formatPrice(basePricePerNight)}<span className="text-xs text-gray-400">/night</span></div>
-                <button onClick={handleBookNowClick} className="bg-[#2d568e] text-white px-6 py-2 rounded-xl font-semibold hover:bg-[#1e3a5f] transition">
-                  {user ? 'Reserve Now' : 'Sign in to Book'}
-                </button>
-              </div>
-              <div className="flex justify-between text-xs text-gray-500">
-                <span>{nights} nights</span>
-                <span>{totalGuests} guests</span>
-              </div>
-            </div>
-          </div>
         </div>
       </div>
 
-      {/* MODAL - ADDED children discount and cancellation policy here */}
+      {/* MOBILE SLIDE-UP DRAWER FOR BOOKING */}
+      <div className="lg:hidden">
+        {/* Drawer Toggle Button */}
+        <button
+          onClick={() => setIsDrawerOpen(!isDrawerOpen)}
+          className="fixed bottom-4 left-4 right-4 bg-[#2d568e] text-white py-4 rounded-xl shadow-lg z-50 flex items-center justify-between px-6"
+        >
+          <div className="flex flex-col items-start">
+            <span className="text-xs opacity-80">Total</span>
+            <span className="text-xl font-bold">{formatPrice(finalTotal)}</span>
+          </div>
+          <div className="flex flex-col items-end">
+            <span className="text-xs opacity-80">{nights} night{nights !== 1 ? 's' : ''}</span>
+            <div className="flex items-center gap-1">
+              <span className="text-sm">{isDrawerOpen ? 'Tap to close ↑' : 'Tap to book ↓'}</span>
+              <ChevronUp size={16} className={`transition-transform duration-300 ${isDrawerOpen ? 'rotate-180' : ''}`} />
+            </div>
+          </div>
+        </button>
+
+        {/* Slide-up Drawer */}
+        <AnimatePresence>
+          {isDrawerOpen && (
+            <motion.div
+              initial={{ y: '100%' }}
+              animate={{ y: 0 }}
+              exit={{ y: '100%' }}
+              transition={{ type: 'spring', damping: 25, stiffness: 300 }}
+              className="fixed bottom-0 left-0 right-0 bg-white rounded-t-2xl shadow-2xl z-50 max-h-[80vh] overflow-y-auto"
+            >
+              <div className="p-5 space-y-4">
+                {/* Drag handle */}
+                <div className="flex justify-center">
+                  <div className="w-12 h-1 bg-gray-300 rounded-full"></div>
+                </div>
+                
+                <div className="text-center pb-2">
+                  <div className="text-2xl font-bold text-[#2d568e]">{formatPrice(basePricePerNight)}<span className="text-sm text-gray-400">/night</span></div>
+                </div>
+                
+                {/* Date Pickers */}
+                <div className="grid grid-cols-2 gap-3">
+                  <div className="relative z-20">
+                    <DatePicker 
+                      selected={startDate} 
+                      onChange={(date) => setStartDate(date)} 
+                      minDate={new Date()} 
+                      dateFormat="MMM dd, yyyy" 
+                      customInput={<CustomDateInput label="CHECK-IN" />} 
+                    />
+                  </div>
+                  <div className="relative z-10">
+                    <DatePicker 
+                      selected={endDate} 
+                      onChange={(date) => setEndDate(date)} 
+                      minDate={startDate} 
+                      dateFormat="MMM dd, yyyy" 
+                      customInput={<CustomDateInput label="CHECK-OUT" />} 
+                    />
+                  </div>
+                </div>
+
+                <div className="flex justify-between text-sm">
+                  <span>{nights} nights</span>
+                  <span>{totalGuests} guests</span>
+                </div>
+
+                {/* Guest Dropdown */}
+                <div className="relative">
+                  <button onClick={() => setShowGuestDropdown(!showGuestDropdown)} className="w-full bg-gray-50 rounded-xl p-3 text-left flex justify-between">
+                    <span>{getGuestDisplayText()}</span>
+                    <ChevronDown size={18} className={`transition ${showGuestDropdown ? 'rotate-180' : ''}`} />
+                  </button>
+                  <AnimatePresence>
+                    {showGuestDropdown && (
+                      <motion.div 
+                        initial={{ opacity: 0, y: -10 }}
+                        animate={{ opacity: 1, y: 0 }}
+                        exit={{ opacity: 0, y: -10 }}
+                        className="absolute bottom-full left-0 right-0 mb-2 bg-white border rounded-xl shadow-xl z-30 p-4 space-y-3"
+                      >
+                        <div className="flex justify-between items-center">
+                          <span>Adults</span>
+                          <div className="flex gap-4">
+                            <button onClick={() => setAdults(Math.max(1, adults-1))} className="w-8 h-8 rounded-full bg-gray-100">-</button>
+                            <span className="w-8 text-center">{adults}</span>
+                            <button onClick={() => setAdults(adults+1)} className="w-8 h-8 rounded-full bg-gray-100">+</button>
+                          </div>
+                        </div>
+                        <div className="flex justify-between items-center">
+                          <span>Children <span className="text-xs text-green-600">(10% off)</span></span>
+                          <div className="flex gap-4">
+                            <button onClick={() => setChildren(Math.max(0, children-1))} className="w-8 h-8 rounded-full bg-gray-100">-</button>
+                            <span className="w-8 text-center">{children}</span>
+                            <button onClick={() => setChildren(children+1)} className="w-8 h-8 rounded-full bg-gray-100">+</button>
+                          </div>
+                        </div>
+                        <div className="flex justify-between items-center">
+                          <span>Infants <span className="text-xs text-green-600">(20% off)</span></span>
+                          <div className="flex gap-4">
+                            <button onClick={() => setInfants(Math.max(0, infants-1))} className="w-8 h-8 rounded-full bg-gray-100">-</button>
+                            <span className="w-8 text-center">{infants}</span>
+                            <button onClick={() => setInfants(infants+1)} className="w-8 h-8 rounded-full bg-gray-100">+</button>
+                          </div>
+                        </div>
+                        <div className="flex justify-between items-center">
+                          <span>Seniors <span className="text-xs text-green-600">(20% off)</span></span>
+                          <div className="flex gap-4">
+                            <button onClick={() => setSeniors(Math.max(0, seniors-1))} className="w-8 h-8 rounded-full bg-gray-100">-</button>
+                            <span className="w-8 text-center">{seniors}</span>
+                            <button onClick={() => setSeniors(seniors+1)} className="w-8 h-8 rounded-full bg-gray-100">+</button>
+                          </div>
+                        </div>
+                        <button onClick={() => setShowGuestDropdown(false)} className="w-full bg-[#2d568e] text-white py-2 rounded-lg mt-2">Apply</button>
+                      </motion.div>
+                    )}
+                  </AnimatePresence>
+                </div>
+
+                {/* Promo Code */}
+                <div className="flex gap-2">
+                  <input type="text" placeholder="Promo Code" className="flex-1 bg-gray-50 rounded-xl p-3 text-sm" value={promoCode} onChange={(e) => setPromoCode(e.target.value)} />
+                  <button onClick={applyPromo} className="px-4 bg-gray-100 rounded-xl hover:bg-[#2d568e] hover:text-white transition">Apply</button>
+                </div>
+
+                {/* Price Breakdown */}
+                <div className="space-y-2 pt-2 border-t">
+                  <div className="flex justify-between text-sm">
+                    <span>Nightly avg</span>
+                    <span>{formatPrice(effectiveNightlyRate)}</span>
+                  </div>
+                  <div className="flex justify-between text-sm">
+                    <span>{formatPrice(effectiveNightlyRate)} × {nights} nights</span>
+                    <span>{formatPrice(subtotal)}</span>
+                  </div>
+                  <div className="flex justify-between text-sm">
+                    <span>Service fee (5%)</span>
+                    <span>{formatPrice(serviceFee)}</span>
+                  </div>
+                  {promoApplied && (
+                    <div className="flex justify-between text-green-600 text-sm">
+                      <span>Discount</span>
+                      <span>-{formatPrice(promoDiscount)}</span>
+                    </div>
+                  )}
+                  <div className="flex justify-between font-bold text-lg pt-2 border-t">
+                    <span>Total</span>
+                    <span className="text-[#2d568e]">{formatPrice(finalTotal)}</span>
+                  </div>
+                </div>
+
+                {/* Reserve Button */}
+                <button onClick={handleBookNowClick} className="w-full bg-[#2d568e] text-white py-3 rounded-xl font-semibold hover:bg-[#1e3a5f] transition">
+                  {user ? 'Reserve Now' : 'Sign in to Book'}
+                </button>
+                
+                {/* Close drawer button */}
+                <button 
+                  onClick={() => setIsDrawerOpen(false)}
+                  className="w-full text-gray-400 text-sm py-2"
+                >
+                  Close
+                </button>
+              </div>
+            </motion.div>
+          )}
+        </AnimatePresence>
+      </div>
+
+      {/* MODAL */}
       <AnimatePresence>
         {showBookingForm && (
           <div className="fixed inset-0 z-[99999] flex items-center justify-center">
@@ -653,17 +771,9 @@ export default function CondoDetailPage() {
                     </div>
                   </div>
 
-                  {/* Children discount info - ADDED TO MODAL */}
                   <div className="mt-3 p-3 bg-blue-50 rounded-lg">
                     <p className="text-xs text-blue-700 text-center">
                       Children 10% off • Infants & Seniors 20% off
-                    </p>
-                  </div>
-
-                  {/* Cancellation policy - ADDED TO MODAL near terms */}
-                  <div className="mt-2 p-2 bg-gray-50 rounded-lg">
-                    <p className="text-xs text-gray-600 text-center">
-                      {getCancellationText()}
                     </p>
                   </div>
 
@@ -673,6 +783,13 @@ export default function CondoDetailPage() {
                       I agree to the <Link to="/terms" target="_blank" className="text-[#2d568e] font-semibold hover:underline">Terms and Conditions</Link> and <Link to="/privacy" target="_blank" className="text-[#2d568e] font-semibold hover:underline">Privacy Policy</Link>
                     </label>
                   </div>
+
+                  <div className="mt-2 p-2 bg-gray-50 rounded-lg">
+                    <p className="text-xs text-gray-600 text-center">
+                      {getCancellationText()}
+                    </p>
+                  </div>
+                  
                   {termsError && <p className="text-red-500 text-xs mt-1">You must agree to the Terms & Conditions</p>}
                 </div>
                 
