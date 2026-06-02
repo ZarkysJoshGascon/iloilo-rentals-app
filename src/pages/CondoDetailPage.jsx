@@ -150,7 +150,6 @@ export default function CondoDetailPage() {
   const [promoDiscount, setPromoDiscount] = useState(0)
   const [termsError, setTermsError] = useState(false)
   
-  // Mobile drawer state
   const [isDrawerOpen, setIsDrawerOpen] = useState(false)
   
   const [validationErrors, setValidationErrors] = useState({
@@ -396,10 +395,10 @@ export default function CondoDetailPage() {
       {/* Main content */}
       <div className="fixed inset-0 bg-gray-50 flex overflow-hidden">
         
-        {/* DESKTOP LAYOUT - Only visible on large screens */}
+        {/* DESKTOP LAYOUT */}
         <div className="hidden lg:flex w-full h-full">
           
-          {/* LEFT SIDE - ONLY THIS SCROLLS */}
+          {/* LEFT SIDE */}
           <div className="w-2/3 h-full overflow-y-auto scrollable-content pt-16">
             <ImageGallery images={allImages} title={condo.title} />
             <div className="max-w-3xl mx-auto px-6 py-8 pb-16">
@@ -424,7 +423,7 @@ export default function CondoDetailPage() {
             </div>
           </div>
 
-          {/* RIGHT SIDE - DESKTOP BOOKING SIDEBAR */}
+          {/* RIGHT SIDE - DESKTOP BOOKING */}
           <div className="w-1/3 bg-white shadow-xl flex flex-col h-full overflow-hidden pt-16">
             <div className="flex-1 overflow-y-auto p-6 space-y-5">
               <div className="text-center pb-4 border-b">
@@ -471,7 +470,7 @@ export default function CondoDetailPage() {
           </div>
         </div>
 
-        {/* MOBILE LAYOUT - Content only (no booking sidebar) */}
+        {/* MOBILE LAYOUT - Content only */}
         <div className="lg:hidden w-full h-full overflow-y-auto pb-32">
           <ImageGallery images={allImages} title={condo.title} />
           
@@ -510,9 +509,9 @@ export default function CondoDetailPage() {
         </div>
       </div>
 
-            {/* MOBILE SLIDE-UP DRAWER - With drag to dismiss and click outside to close */}
-      <div className="md:hidden fixed inset-0 z-50 pointer-events-none">
-        {/* Backdrop overlay - click to close */}
+      {/* MOBILE BOOKING DRAWER */}
+      <div className="lg:hidden fixed inset-0 z-50 pointer-events-none">
+        {/* Backdrop overlay */}
         <AnimatePresence>
           {isDrawerOpen && (
             <motion.div
@@ -526,182 +525,213 @@ export default function CondoDetailPage() {
           )}
         </AnimatePresence>
 
-        {/* Sticky bottom bar - Always visible */}
-        <div 
-          className="absolute bottom-0 left-0 right-0 bg-white shadow-xl rounded-t-2xl border-t border-gray-100 pointer-events-auto"
-          style={{ boxShadow: '0 -4px 20px rgba(0,0,0,0.1)' }}
-        >
+        {/* Booking Bar - Looks like a card */}
+        <div className="absolute bottom-0 left-0 right-0 pointer-events-auto">
           <button
             onClick={() => setIsDrawerOpen(!isDrawerOpen)}
-            className="w-full p-4 flex items-center justify-between hover:bg-gray-50 transition-colors"
+            className="w-full bg-white rounded-t-2xl shadow-xl transition-all active:scale-[0.99]"
+            style={{ boxShadow: '0 -8px 30px rgba(0,0,0,0.12)' }}
           >
-            <div className="flex flex-col items-start">
-              <span className="text-xs text-gray-500">Total Price</span>
-              <span className="text-xl font-bold text-[#2d568e]">{formatPrice(finalTotal)}</span>
+            {/* Arrow bump indicator */}
+            <div className="flex justify-center pt-3 pb-1">
+              <motion.div 
+                animate={{ y: isDrawerOpen ? 0 : [0, -3, 0] }}
+                transition={{ repeat: isDrawerOpen ? 0 : Infinity, duration: 1.5 }}
+                className="w-10 h-1 bg-gray-300 rounded-full"
+              />
             </div>
-            <div className="flex flex-col items-end">
-              <span className="text-xs text-gray-500">{nights} night{nights !== 1 ? 's' : ''}</span>
-              <div className="flex items-center gap-1 mt-1">
-                <span className="text-sm text-[#2d568e] font-medium">{isDrawerOpen ? 'Close ↑' : 'Book Now ↓'}</span>
+            
+            <div className="px-5 pb-5 pt-2">
+              <div className="flex items-center justify-between mb-3">
+                <div className="flex flex-col items-start">
+                  <span className="text-xs text-gray-500 uppercase tracking-wide">Total Price</span>
+                  <div className="flex items-baseline gap-1">
+                    <span className="text-2xl font-bold text-[#2d568e]">{formatPrice(finalTotal)}</span>
+                    <span className="text-xs text-gray-400">PHP</span>
+                  </div>
+                </div>
+                <div className="flex flex-col items-end">
+                  <span className="text-xs text-gray-500">{nights} night{nights !== 1 ? 's' : ''}</span>
+                  <span className="text-sm text-gray-600">{totalGuests} guest{totalGuests !== 1 ? 's' : ''}</span>
+                </div>
+              </div>
+              
+              <div className="border-t border-gray-100 my-3"></div>
+              
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-1">
+                  <span className="text-sm text-gray-500">₱{formatPrice(basePricePerNight)}</span>
+                  <span className="text-xs text-gray-400">/night</span>
+                </div>
+                <div className="flex items-center gap-2">
+                  <span className="text-sm font-medium text-[#2d568e]">
+                    {isDrawerOpen ? 'Close' : 'View Details'}
+                  </span>
+                  <motion.div
+                    animate={{ rotate: isDrawerOpen ? 180 : 0 }}
+                    transition={{ duration: 0.3 }}
+                  >
+                    <ChevronUp size={18} className="text-[#2d568e]" />
+                  </motion.div>
+                </div>
               </div>
             </div>
           </button>
-        </div>
 
-        {/* Slide-up Drawer - With drag to dismiss */}
-        <AnimatePresence>
-          {isDrawerOpen && (
-            <motion.div
-              initial={{ y: '100%' }}
-              animate={{ y: 0 }}
-              exit={{ y: '100%' }}
-              transition={{ type: 'spring', damping: 25, stiffness: 300 }}
-              drag="y"
-              dragConstraints={{ top: 0 }}
-              dragElastic={{ top: 0, bottom: 0.2 }}
-              onDragEnd={(event, info) => {
-                if (info.offset.y > 100) {
-                  setIsDrawerOpen(false)
-                }
-              }}
-              className="absolute bottom-0 left-0 right-0 bg-white rounded-t-2xl shadow-2xl max-h-[70vh] overflow-y-auto pointer-events-auto"
-              style={{ bottom: '0px' }}
-            >
-              <div className="p-5 space-y-4">
-                {/* Drag handle - pull down to close */}
-                <div className="flex justify-center">
-                  <div 
-                    className="w-12 h-1 bg-gray-300 rounded-full cursor-grab active:cursor-grabbing"
-                    onMouseDown={(e) => e.preventDefault()}
-                  />
-                </div>
-                <div className="text-center text-xs text-gray-400 pb-1">
-                  Drag down to close
-                </div>
-                
-                <div className="text-center pb-2">
-                  <div className="text-2xl font-bold text-[#2d568e]">{formatPrice(basePricePerNight)}<span className="text-sm text-gray-400">/night</span></div>
-                </div>
-                
-                {/* Date Pickers */}
-                <div className="grid grid-cols-2 gap-3">
-                  <div className="relative z-20">
-                    <DatePicker 
-                      selected={startDate} 
-                      onChange={(date) => setStartDate(date)} 
-                      minDate={new Date()} 
-                      dateFormat="MMM dd, yyyy" 
-                      customInput={<CustomDateInput label="CHECK-IN" />} 
-                    />
+          {/* Drawer Content */}
+          <AnimatePresence>
+            {isDrawerOpen && (
+              <motion.div
+                initial={{ y: '100%' }}
+                animate={{ y: 0 }}
+                exit={{ y: '100%' }}
+                transition={{ type: 'spring', damping: 25, stiffness: 300 }}
+                drag="y"
+                dragConstraints={{ top: 0 }}
+                dragElastic={{ top: 0, bottom: 0.2 }}
+                onDragEnd={(event, info) => {
+                  if (info.offset.y > 100) {
+                    setIsDrawerOpen(false)
+                  }
+                }}
+                className="bg-white rounded-t-2xl shadow-2xl max-h-[70vh] overflow-y-auto"
+              >
+                <div className="p-5 space-y-4">
+                  {/* Drag handle */}
+                  <div className="flex justify-center">
+                    <div className="w-12 h-1 bg-gray-300 rounded-full" />
                   </div>
-                  <div className="relative z-10">
-                    <DatePicker 
-                      selected={endDate} 
-                      onChange={(date) => setEndDate(date)} 
-                      minDate={startDate} 
-                      dateFormat="MMM dd, yyyy" 
-                      customInput={<CustomDateInput label="CHECK-OUT" />} 
-                    />
+                  <div className="text-center text-xs text-gray-400 pb-1">
+                    Drag down to close
                   </div>
-                </div>
-
-                <div className="flex justify-between text-sm">
-                  <span>{nights} nights</span>
-                  <span>{totalGuests} guests</span>
-                </div>
-
-                {/* Guest Dropdown */}
-                <div className="relative">
-                  <button onClick={() => setShowGuestDropdown(!showGuestDropdown)} className="w-full bg-gray-50 rounded-xl p-3 text-left flex justify-between">
-                    <span>{getGuestDisplayText()}</span>
-                    <ChevronDown size={18} className={`transition ${showGuestDropdown ? 'rotate-180' : ''}`} />
-                  </button>
-                  <AnimatePresence>
-                    {showGuestDropdown && (
-                      <motion.div 
-                        initial={{ opacity: 0, y: -10 }}
-                        animate={{ opacity: 1, y: 0 }}
-                        exit={{ opacity: 0, y: -10 }}
-                        className="absolute bottom-full left-0 right-0 mb-2 bg-white border rounded-xl shadow-xl z-30 p-4 space-y-3"
-                      >
-                        <div className="flex justify-between items-center">
-                          <span>Adults</span>
-                          <div className="flex gap-4">
-                            <button onClick={() => setAdults(Math.max(1, adults-1))} className="w-8 h-8 rounded-full bg-gray-100">-</button>
-                            <span className="w-8 text-center">{adults}</span>
-                            <button onClick={() => setAdults(adults+1)} className="w-8 h-8 rounded-full bg-gray-100">+</button>
-                          </div>
-                        </div>
-                        <div className="flex justify-between items-center">
-                          <span>Children <span className="text-xs text-green-600">(10% off)</span></span>
-                          <div className="flex gap-4">
-                            <button onClick={() => setChildren(Math.max(0, children-1))} className="w-8 h-8 rounded-full bg-gray-100">-</button>
-                            <span className="w-8 text-center">{children}</span>
-                            <button onClick={() => setChildren(children+1)} className="w-8 h-8 rounded-full bg-gray-100">+</button>
-                          </div>
-                        </div>
-                        <div className="flex justify-between items-center">
-                          <span>Infants <span className="text-xs text-green-600">(20% off)</span></span>
-                          <div className="flex gap-4">
-                            <button onClick={() => setInfants(Math.max(0, infants-1))} className="w-8 h-8 rounded-full bg-gray-100">-</button>
-                            <span className="w-8 text-center">{infants}</span>
-                            <button onClick={() => setInfants(infants+1)} className="w-8 h-8 rounded-full bg-gray-100">+</button>
-                          </div>
-                        </div>
-                        <div className="flex justify-between items-center">
-                          <span>Seniors <span className="text-xs text-green-600">(20% off)</span></span>
-                          <div className="flex gap-4">
-                            <button onClick={() => setSeniors(Math.max(0, seniors-1))} className="w-8 h-8 rounded-full bg-gray-100">-</button>
-                            <span className="w-8 text-center">{seniors}</span>
-                            <button onClick={() => setSeniors(seniors+1)} className="w-8 h-8 rounded-full bg-gray-100">+</button>
-                          </div>
-                        </div>
-                        <button onClick={() => setShowGuestDropdown(false)} className="w-full bg-[#2d568e] text-white py-2 rounded-lg mt-2">Apply</button>
-                      </motion.div>
-                    )}
-                  </AnimatePresence>
-                </div>
-
-                {/* Promo Code */}
-                <div className="flex gap-2">
-                  <input type="text" placeholder="Promo Code" className="flex-1 bg-gray-50 rounded-xl p-3 text-sm" value={promoCode} onChange={(e) => setPromoCode(e.target.value)} />
-                  <button onClick={applyPromo} className="px-4 bg-gray-100 rounded-xl hover:bg-[#2d568e] hover:text-white transition">Apply</button>
-                </div>
-
-                {/* Price Breakdown */}
-                <div className="space-y-2 pt-2 border-t">
-                  <div className="flex justify-between text-sm">
-                    <span>Nightly avg</span>
-                    <span>{formatPrice(effectiveNightlyRate)}</span>
+                  
+                  <div className="text-center pb-2">
+                    <div className="text-2xl font-bold text-[#2d568e]">{formatPrice(basePricePerNight)}<span className="text-sm text-gray-400">/night</span></div>
                   </div>
-                  <div className="flex justify-between text-sm">
-                    <span>{formatPrice(effectiveNightlyRate)} × {nights} nights</span>
-                    <span>{formatPrice(subtotal)}</span>
-                  </div>
-                  <div className="flex justify-between text-sm">
-                    <span>Service fee (5%)</span>
-                    <span>{formatPrice(serviceFee)}</span>
-                  </div>
-                  {promoApplied && (
-                    <div className="flex justify-between text-green-600 text-sm">
-                      <span>Discount</span>
-                      <span>-{formatPrice(promoDiscount)}</span>
+                  
+                  {/* Date Pickers */}
+                  <div className="grid grid-cols-2 gap-3">
+                    <div className="relative z-20">
+                      <DatePicker 
+                        selected={startDate} 
+                        onChange={(date) => setStartDate(date)} 
+                        minDate={new Date()} 
+                        dateFormat="MMM dd, yyyy" 
+                        customInput={<CustomDateInput label="CHECK-IN" />} 
+                      />
                     </div>
-                  )}
-                  <div className="flex justify-between font-bold text-lg pt-2 border-t">
-                    <span>Total</span>
-                    <span className="text-[#2d568e]">{formatPrice(finalTotal)}</span>
+                    <div className="relative z-10">
+                      <DatePicker 
+                        selected={endDate} 
+                        onChange={(date) => setEndDate(date)} 
+                        minDate={startDate} 
+                        dateFormat="MMM dd, yyyy" 
+                        customInput={<CustomDateInput label="CHECK-OUT" />} 
+                      />
+                    </div>
                   </div>
-                </div>
 
-                {/* Reserve Button */}
-                <button onClick={handleBookNowClick} className="w-full bg-[#2d568e] text-white py-3 rounded-xl font-semibold hover:bg-[#1e3a5f] transition">
-                  {user ? 'Reserve Now' : 'Sign in to Book'}
-                </button>
-              </div>
-            </motion.div>
-          )}
-        </AnimatePresence>
+                  <div className="flex justify-between text-sm">
+                    <span>{nights} nights</span>
+                    <span>{totalGuests} guests</span>
+                  </div>
+
+                  {/* Guest Dropdown - Opens UPWARD */}
+                  <div className="relative">
+                    <button 
+                      onClick={() => setShowGuestDropdown(!showGuestDropdown)} 
+                      className="w-full bg-gray-50 rounded-xl p-3 text-left flex justify-between"
+                    >
+                      <span>{getGuestDisplayText()}</span>
+                      <ChevronDown size={18} className={`transition ${showGuestDropdown ? 'rotate-180' : ''}`} />
+                    </button>
+                    <AnimatePresence>
+                      {showGuestDropdown && (
+                        <motion.div 
+                          initial={{ opacity: 0, y: 10 }}
+                          animate={{ opacity: 1, y: 0 }}
+                          exit={{ opacity: 0, y: 10 }}
+                          className="absolute bottom-full left-0 right-0 mb-2 bg-white border rounded-xl shadow-xl z-30 p-4 space-y-3"
+                        >
+                          <div className="flex justify-between items-center">
+                            <span>Adults</span>
+                            <div className="flex gap-4">
+                              <button onClick={() => setAdults(Math.max(1, adults-1))} className="w-8 h-8 rounded-full bg-gray-100">-</button>
+                              <span className="w-8 text-center">{adults}</span>
+                              <button onClick={() => setAdults(adults+1)} className="w-8 h-8 rounded-full bg-gray-100">+</button>
+                            </div>
+                          </div>
+                          <div className="flex justify-between items-center">
+                            <span>Children <span className="text-xs text-green-600">(10% off)</span></span>
+                            <div className="flex gap-4">
+                              <button onClick={() => setChildren(Math.max(0, children-1))} className="w-8 h-8 rounded-full bg-gray-100">-</button>
+                              <span className="w-8 text-center">{children}</span>
+                              <button onClick={() => setChildren(children+1)} className="w-8 h-8 rounded-full bg-gray-100">+</button>
+                            </div>
+                          </div>
+                          <div className="flex justify-between items-center">
+                            <span>Infants <span className="text-xs text-green-600">(20% off)</span></span>
+                            <div className="flex gap-4">
+                              <button onClick={() => setInfants(Math.max(0, infants-1))} className="w-8 h-8 rounded-full bg-gray-100">-</button>
+                              <span className="w-8 text-center">{infants}</span>
+                              <button onClick={() => setInfants(infants+1)} className="w-8 h-8 rounded-full bg-gray-100">+</button>
+                            </div>
+                          </div>
+                          <div className="flex justify-between items-center">
+                            <span>Seniors <span className="text-xs text-green-600">(20% off)</span></span>
+                            <div className="flex gap-4">
+                              <button onClick={() => setSeniors(Math.max(0, seniors-1))} className="w-8 h-8 rounded-full bg-gray-100">-</button>
+                              <span className="w-8 text-center">{seniors}</span>
+                              <button onClick={() => setSeniors(seniors+1)} className="w-8 h-8 rounded-full bg-gray-100">+</button>
+                            </div>
+                          </div>
+                          <button onClick={() => setShowGuestDropdown(false)} className="w-full bg-[#2d568e] text-white py-2 rounded-lg mt-2">Apply</button>
+                        </motion.div>
+                      )}
+                    </AnimatePresence>
+                  </div>
+
+                  {/* Promo Code */}
+                  <div className="flex gap-2">
+                    <input type="text" placeholder="Promo Code" className="flex-1 bg-gray-50 rounded-xl p-3 text-sm" value={promoCode} onChange={(e) => setPromoCode(e.target.value)} />
+                    <button onClick={applyPromo} className="px-4 bg-gray-100 rounded-xl hover:bg-[#2d568e] hover:text-white transition">Apply</button>
+                  </div>
+
+                  {/* Price Breakdown */}
+                  <div className="space-y-2 pt-2 border-t">
+                    <div className="flex justify-between text-sm">
+                      <span>Nightly avg</span>
+                      <span>{formatPrice(effectiveNightlyRate)}</span>
+                    </div>
+                    <div className="flex justify-between text-sm">
+                      <span>{formatPrice(effectiveNightlyRate)} × {nights} nights</span>
+                      <span>{formatPrice(subtotal)}</span>
+                    </div>
+                    <div className="flex justify-between text-sm">
+                      <span>Service fee (5%)</span>
+                      <span>{formatPrice(serviceFee)}</span>
+                    </div>
+                    {promoApplied && (
+                      <div className="flex justify-between text-green-600 text-sm">
+                        <span>Discount</span>
+                        <span>-{formatPrice(promoDiscount)}</span>
+                      </div>
+                    )}
+                    <div className="flex justify-between font-bold text-lg pt-2 border-t">
+                      <span>Total</span>
+                      <span className="text-[#2d568e]">{formatPrice(finalTotal)}</span>
+                    </div>
+                  </div>
+
+                  {/* Reserve Button */}
+                  <button onClick={handleBookNowClick} className="w-full bg-[#2d568e] text-white py-3 rounded-xl font-semibold hover:bg-[#1e3a5f] transition">
+                    {user ? 'Reserve Now' : 'Sign in to Book'}
+                  </button>
+                </div>
+              </motion.div>
+            )}
+          </AnimatePresence>
+        </div>
       </div>
 
       {/* MODAL */}
@@ -748,6 +778,7 @@ export default function CondoDetailPage() {
                 </div>
                 
                 <div className="flex-1 overflow-y-auto p-5">
+                  {/* Personal Information */}
                   <div>
                     <h3 className="text-md font-semibold text-[#2d568e] mb-3">Personal Information</h3>
                     <div className="grid grid-cols-2 gap-3">
@@ -770,6 +801,7 @@ export default function CondoDetailPage() {
                     </div>
                   </div>
 
+                  {/* Booking Summary */}
                   <div className="mt-5">
                     <h3 className="text-md font-semibold text-[#2d568e] mb-2">Booking Summary</h3>
                     <div className="bg-gradient-to-br from-[#2d568e]/5 to-white rounded-xl border border-[#2d568e]/20 overflow-hidden">
@@ -797,9 +829,7 @@ export default function CondoDetailPage() {
                   </div>
 
                   <div className="mt-3 p-3 bg-blue-50 rounded-lg">
-                    <p className="text-xs text-blue-700 text-center">
-                      Children 10% off • Infants & Seniors 20% off
-                    </p>
+                    <p className="text-xs text-blue-700 text-center">Children 10% off • Infants & Seniors 20% off</p>
                   </div>
 
                   <div className="flex items-start gap-2 pt-2 mt-2">
@@ -810,9 +840,7 @@ export default function CondoDetailPage() {
                   </div>
 
                   <div className="mt-2 p-2 bg-gray-50 rounded-lg">
-                    <p className="text-xs text-gray-600 text-center">
-                      {getCancellationText()}
-                    </p>
+                    <p className="text-xs text-gray-600 text-center">{getCancellationText()}</p>
                   </div>
                   
                   {termsError && <p className="text-red-500 text-xs mt-1">You must agree to the Terms & Conditions</p>}
