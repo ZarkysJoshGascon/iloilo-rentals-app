@@ -33,6 +33,10 @@ export default function Navbar() {
   }, [])
 
   useEffect(() => {
+    window.dispatchEvent(new CustomEvent('mobileMenuToggle', { detail: { isOpen: mobileMenuOpen } }))
+  }, [mobileMenuOpen])
+
+  useEffect(() => {
     supabase.auth.getSession().then(({ data: { session } }) => {
       setUser(session?.user ?? null)
     })
@@ -67,10 +71,8 @@ export default function Navbar() {
 
   return (
     <nav 
-      className={`shadow-2xl sticky top-0 transition-all duration-300 ${
-        isModalOpen ? 'opacity-0 pointer-events-none' : ''
-      }`}
-      style={{ backgroundColor: '#2d568e', zIndex: isModalOpen ? 1 : 50 }}
+      className="shadow-2xl sticky top-0 transition-all duration-300 z-40"
+      style={{ backgroundColor: '#2d568e' }}
     >
       <div className="px-4 sm:px-6 lg:px-8">
         <div className="flex justify-between items-center py-4 md:py-5">

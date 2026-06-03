@@ -168,7 +168,29 @@ export default function CondosPage() {
           )}
         </motion.div>
 
-        {condos.length === 0 ? (
+        {/* Show skeleton ONLY while searching AND there are no existing condos */}
+        {isSearching && condos.length === 0 && (
+          <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-8 mb-8">
+            {[1, 2, 3].map((i) => (
+              <div key={i} className="bg-white rounded-2xl overflow-hidden shadow-sm animate-pulse">
+                <div className="h-64 bg-gray-200"></div>
+                <div className="p-5 space-y-3">
+                  <div className="h-5 bg-gray-200 rounded w-3/4"></div>
+                  <div className="h-4 bg-gray-200 rounded w-1/2"></div>
+                  <div className="flex gap-4">
+                    <div className="h-4 bg-gray-200 rounded w-12"></div>
+                    <div className="h-4 bg-gray-200 rounded w-12"></div>
+                    <div className="h-4 bg-gray-200 rounded w-12"></div>
+                  </div>
+                  <div className="h-10 bg-gray-200 rounded-xl"></div>
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+
+        {/* No results message - only show when not searching */}
+        {!isSearching && condos.length === 0 && (
           <motion.div 
             initial={{ opacity: 0, scale: 0.95 }}
             animate={{ opacity: 1, scale: 1 }}
@@ -185,34 +207,15 @@ export default function CondosPage() {
               Clear filters
             </motion.button>
           </motion.div>
-        ) : (
-          <>
-            {isSearching && (
-              <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-8 mb-8">
-                {[1, 2, 3].map((i) => (
-                  <div key={i} className="bg-white rounded-2xl overflow-hidden shadow-sm animate-pulse">
-                    <div className="h-64 bg-gray-200"></div>
-                    <div className="p-5 space-y-3">
-                      <div className="h-5 bg-gray-200 rounded w-3/4"></div>
-                      <div className="h-4 bg-gray-200 rounded w-1/2"></div>
-                      <div className="flex gap-4">
-                        <div className="h-4 bg-gray-200 rounded w-12"></div>
-                        <div className="h-4 bg-gray-200 rounded w-12"></div>
-                        <div className="h-4 bg-gray-200 rounded w-12"></div>
-                      </div>
-                      <div className="h-10 bg-gray-200 rounded-xl"></div>
-                    </div>
-                  </div>
-                ))}
-              </div>
-            )}
-            
-            <div className={`grid md:grid-cols-2 lg:grid-cols-3 gap-8 transition-opacity duration-300 ${isSearching ? 'opacity-50' : 'opacity-100'}`}>
-              {condos.map((condo, index) => (
-                <ModernCondoCard key={condo.id} condo={condo} index={index} />
-              ))}
-            </div>
-          </>
+        )}
+
+        {/* Condos grid - shown when results exist */}
+        {condos.length > 0 && (
+          <div className={`grid md:grid-cols-2 lg:grid-cols-3 gap-8 transition-opacity duration-300 ${isSearching ? 'opacity-50' : 'opacity-100'}`}>
+            {condos.map((condo) => (
+              <ModernCondoCard key={condo.id} condo={condo} />
+            ))}
+          </div>
         )}
       </div>
     </motion.div>

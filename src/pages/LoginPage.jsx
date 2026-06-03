@@ -9,7 +9,6 @@ export default function LoginPage() {
   const [isLoading, setIsLoading] = useState(false)
   const [showWarning, setShowWarning] = useState(false)
 
-  // Check if already logged in
   useEffect(() => {
     const checkSession = async () => {
       const { data } = await supabase.auth.getSession()
@@ -20,20 +19,14 @@ export default function LoginPage() {
     checkSession()
   }, [navigate])
 
-  // Detect if user is in an embedded browser
   useEffect(() => {
     const ua = navigator.userAgent || navigator.vendor || window.opera
-    
     const isEmbedded = (
-      ua.includes('FBAN') ||      // Facebook App
-      ua.includes('FBAV') ||      // Facebook App
-      ua.includes('Instagram') || // Instagram
-      ua.includes('Messenger') || // Messenger
-      ua.includes('WhatsApp') ||  // WhatsApp
-      ua.includes('Twitter') ||   // Twitter
-      ua.includes('LinkedIn')     // LinkedIn
+      ua.includes('FBAN') || ua.includes('FBAV') ||
+      ua.includes('Instagram') || ua.includes('Messenger') ||
+      ua.includes('WhatsApp') || ua.includes('Twitter') ||
+      ua.includes('LinkedIn')
     )
-    
     setShowWarning(isEmbedded)
   }, [])
 
@@ -43,15 +36,11 @@ export default function LoginPage() {
       const { error } = await supabase.auth.signInWithOAuth({
         provider: 'google',
         options: {
-          queryParams: {
-            prompt: 'select_account',
-          },
+          queryParams: { prompt: 'select_account' },
           redirectTo: `${window.location.origin}`
         }
       })
-      
       if (error) throw error
-      
     } catch (error) {
       console.error('Login error:', error)
       alert('Login failed. Please try again.')
@@ -59,35 +48,37 @@ export default function LoginPage() {
     }
   }
 
-  // This triggers the native "Open in Safari/Chrome" dialog on iOS
-  // and "Open with" dialog on Android
   const openInExternalBrowser = () => {
     const currentUrl = window.location.href
-    
-    // Create a temporary anchor element
-    const link = document.createElement('a')
-    link.href = currentUrl
-    link.target = '_blank'
-    link.rel = 'noopener noreferrer'
-    
-    // Append to body, click, then remove
-    document.body.appendChild(link)
-    link.click()
-    document.body.removeChild(link)
+    if (navigator.share) {
+      navigator.share({
+        title: 'Iloilo Rentals',
+        text: 'Please open this link in your external browser to sign in:',
+        url: currentUrl
+      }).catch(() => {
+        prompt('Copy this URL and open in your browser:', currentUrl)
+      })
+    } 
+    else if (/iPhone|iPad|iPod/.test(navigator.userAgent)) {
+      prompt('Copy this link and open in Safari:', currentUrl)
+    }
+    else {
+      const link = document.createElement('a')
+      link.href = currentUrl
+      link.target = '_blank'
+      link.rel = 'noopener noreferrer'
+      document.body.appendChild(link)
+      link.click()
+      document.body.removeChild(link)
+    }
   }
 
-  // Animation variants
   const containerVariants = {
     hidden: { opacity: 0, scale: 0.9 },
     visible: { 
       opacity: 1, 
       scale: 1,
-      transition: { 
-        duration: 0.5,
-        type: "spring",
-        stiffness: 200,
-        damping: 20
-      }
+      transition: { duration: 0.5, type: "spring", stiffness: 200, damping: 20 }
     }
   }
 
@@ -96,48 +87,28 @@ export default function LoginPage() {
     visible: { 
       scale: 1, 
       rotate: 0,
-      transition: { 
-        duration: 0.5, 
-        type: "spring",
-        stiffness: 260,
-        damping: 20
-      }
+      transition: { duration: 0.5, type: "spring", stiffness: 260, damping: 20 }
     }
   }
 
   const titleVariants = {
     hidden: { opacity: 0, y: -30 },
-    visible: { 
-      opacity: 1, 
-      y: 0,
-      transition: { delay: 0.2, duration: 0.5 }
-    }
+    visible: { opacity: 1, y: 0, transition: { delay: 0.2, duration: 0.5 } }
   }
 
   const subtitleVariants = {
     hidden: { opacity: 0 },
-    visible: { 
-      opacity: 1,
-      transition: { delay: 0.3, duration: 0.5 }
-    }
+    visible: { opacity: 1, transition: { delay: 0.3, duration: 0.5 } }
   }
 
   const dividerVariants = {
     hidden: { width: 0, opacity: 0 },
-    visible: { 
-      width: "100%", 
-      opacity: 1,
-      transition: { delay: 0.4, duration: 0.6 }
-    }
+    visible: { width: "100%", opacity: 1, transition: { delay: 0.4, duration: 0.6 } }
   }
 
   const buttonVariants = {
     hidden: { opacity: 0, y: 20 },
-    visible: { 
-      opacity: 1, 
-      y: 0,
-      transition: { delay: 0.5, duration: 0.5 }
-    },
+    visible: { opacity: 1, y: 0, transition: { delay: 0.5, duration: 0.5 } },
     hover: { 
       scale: 1.02,
       borderColor: "#2d568e",
@@ -149,10 +120,7 @@ export default function LoginPage() {
 
   const featuresVariants = {
     hidden: { opacity: 0 },
-    visible: { 
-      opacity: 1,
-      transition: { delay: 0.6, staggerChildren: 0.1 }
-    }
+    visible: { opacity: 1, transition: { delay: 0.6, staggerChildren: 0.1 } }
   }
 
   const featureItemVariants = {
@@ -162,38 +130,24 @@ export default function LoginPage() {
 
   const footerVariants = {
     hidden: { opacity: 0 },
-    visible: { 
-      opacity: 1,
-      transition: { delay: 0.7, duration: 0.5 }
-    }
+    visible: { opacity: 1, transition: { delay: 0.7, duration: 0.5 } }
   }
 
   return (
     <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-[#2d568e]/5 via-white to-[#2d568e]/10 overflow-hidden">
-      
-      {/* Decorative background elements with floating animation */}
       <div className="absolute inset-0 overflow-hidden pointer-events-none">
         <motion.div 
-          animate={{ 
-            y: [0, -20, 0],
-            x: [0, 10, 0],
-          }}
+          animate={{ y: [0, -20, 0], x: [0, 10, 0] }}
           transition={{ repeat: Infinity, duration: 8, ease: "easeInOut" }}
           className="absolute -top-40 -right-40 w-80 h-80 bg-[#2d568e]/10 rounded-full blur-3xl"
         />
         <motion.div 
-          animate={{ 
-            y: [0, 20, 0],
-            x: [0, -10, 0],
-          }}
+          animate={{ y: [0, 20, 0], x: [0, -10, 0] }}
           transition={{ repeat: Infinity, duration: 10, ease: "easeInOut" }}
           className="absolute -bottom-40 -left-40 w-80 h-80 bg-[#2d568e]/10 rounded-full blur-3xl"
         />
         <motion.div 
-          animate={{ 
-            scale: [1, 1.2, 1],
-            opacity: [0.3, 0.5, 0.3]
-          }}
+          animate={{ scale: [1, 1.2, 1], opacity: [0.3, 0.5, 0.3] }}
           transition={{ repeat: Infinity, duration: 6, ease: "easeInOut" }}
           className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-96 h-96 bg-[#2d568e]/5 rounded-full blur-3xl"
         />
@@ -207,7 +161,6 @@ export default function LoginPage() {
         className="relative bg-white rounded-2xl shadow-2xl max-w-md w-full mx-4 p-8 md:p-10 transition-all duration-500"
       >
         
-        {/* Warning for embedded browsers */}
         {showWarning && (
           <motion.div 
             initial={{ opacity: 0, y: -10 }}
@@ -242,7 +195,6 @@ export default function LoginPage() {
           </motion.div>
         )}
         
-        {/* Logo Section */}
         <div className="flex justify-center mb-6">
           <motion.div 
             variants={logoVariants}
@@ -267,7 +219,6 @@ export default function LoginPage() {
           </motion.div>
         </div>
         
-        {/* Title */}
         <motion.h1 
           variants={titleVariants}
           className="text-3xl md:text-4xl font-bold text-center bg-gradient-to-r from-[#2d568e] to-[#1e3a5f] bg-clip-text text-transparent mb-3"
@@ -289,7 +240,6 @@ export default function LoginPage() {
           in Iloilo City
         </motion.p>
         
-        {/* Divider */}
         <div className="relative mb-8">
           <motion.div 
             variants={dividerVariants}
@@ -309,7 +259,6 @@ export default function LoginPage() {
           </div>
         </div>
         
-        {/* Google Sign In Button - Disabled in embedded browser */}
         <motion.button
           variants={buttonVariants}
           initial="hidden"
@@ -369,7 +318,6 @@ export default function LoginPage() {
           )}
         </motion.button>
         
-        {/* Features list */}
         <motion.div 
           variants={featuresVariants}
           initial="hidden"
@@ -392,7 +340,6 @@ export default function LoginPage() {
           </div>
         </motion.div>
         
-        {/* Footer with Terms and Privacy links */}
         <motion.p 
           variants={footerVariants}
           initial="hidden"

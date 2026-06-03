@@ -1,8 +1,9 @@
 import { useState, useEffect } from 'react'
+import { createPortal } from 'react-dom'
 import { useParams, useNavigate, Link } from 'react-router-dom'
 import { motion, AnimatePresence } from 'framer-motion'
 import { supabase } from '../lib/supabase'
-import { Calendar, Users, MapPin, Bed, Bath, Square, Wifi, Coffee, Car, Wind, Shield, X, Info, Clock, CheckCircle, AlertCircle, ChevronLeft, ChevronRight, Star, Calendar as CalendarIcon, Check, ChevronDown, ChevronUp, ExternalLink } from 'lucide-react'
+import { Calendar, Users, MapPin, Bed, Bath, Square, Wifi, Coffee, Car, Wind, Shield, X, Info, Clock, CheckCircle, AlertCircle, ChevronLeft, ChevronRight, Star, Calendar as CalendarIcon, Check, ChevronDown, ChevronUp, ExternalLink, Loader2 } from 'lucide-react'
 import { differenceInDays, format } from 'date-fns'
 import toast from 'react-hot-toast'
 import { useCurrency } from '../context/CurrencyContext'
@@ -143,14 +144,17 @@ export default function CondoDetailPage() {
   const [promoCode, setPromoCode] = useState('')
   const [cancellationPolicy, setCancellationPolicy] = useState('moderate')
   const [showBookingForm, setShowBookingForm] = useState(false)
-  const [showGuestDropdown, setShowGuestDropdown] = useState(false)
+  const [isSubmitting, setIsSubmitting] = useState(false)
+  
+  const [showGuestDropdownDesktop, setShowGuestDropdownDesktop] = useState(false)
+  const [showGuestDropdownMobile, setShowGuestDropdownMobile] = useState(false)
+  
   const [guestInfo, setGuestInfo] = useState({ firstName: '', lastName: '', phone: '' })
   const [acceptedTerms, setAcceptedTerms] = useState(false)
   const [promoApplied, setPromoApplied] = useState(false)
   const [promoDiscount, setPromoDiscount] = useState(0)
   const [termsError, setTermsError] = useState(false)
   
-  // Mobile bottom sheet state
   const [isDrawerOpen, setIsDrawerOpen] = useState(false)
   
   const [validationErrors, setValidationErrors] = useState({
@@ -159,76 +163,61 @@ export default function CondoDetailPage() {
     phone: ''
   })
 
+  const [modalContainer] = useState(() => {
+    let div = document.getElementById('modal-root')
+    if (!div) {
+      div = document.createElement('div')
+      div.id = 'modal-root'
+      document.body.appendChild(div)
+    }
+    return div
+  })
+
   const validateName = (name, fieldName) => {
-    if (!name || !name.trim()) {
-      return `${fieldName} is required`
-    }
-    if (name.length < 2) {
-      return `${fieldName} must be at least 2 characters`
-    }
-    if (/[0-9]/.test(name)) {
-      return `${fieldName} cannot contain numbers`
-    }
+    if (!name || !name.trim()) return `${fieldName} is required`
+    if (name.length < 2) return `${fieldName} must be at least 2 characters`
+    if (/[0-9]/.test(name)) return `${fieldName} cannot contain numbers`
     return ''
   }
 
   const validatePhilippinePhone = (phone) => {
-    if (!phone || !phone.trim()) {
-      return 'Phone number is required'
-    }
-    
+    if (!phone || !phone.trim()) return 'Phone number is required'
     let cleaned = phone.replace(/[\s\-\(\)]/g, '')
-    
     let isValid = false
     let displayError = 'Enter a valid Philippine mobile number (e.g., 09123456789 or +639123456789)'
-    
     if (cleaned.startsWith('+63')) {
       const numberPart = cleaned.substring(1)
-      if (numberPart.length === 12 && numberPart.startsWith('63')) {
-        isValid = true
-      }
+      if (numberPart.length === 12 && numberPart.startsWith('63')) isValid = true
     }
-    else if (cleaned.startsWith('09') && cleaned.length === 11) {
-      isValid = true
-    }
-    else if (cleaned.startsWith('63') && cleaned.length === 12) {
-      isValid = true
-    }
+    else if (cleaned.startsWith('09') && cleaned.length === 11) isValid = true
+    else if (cleaned.startsWith('63') && cleaned.length === 12) isValid = true
     else if (cleaned.length === 10 && /^\d{10}$/.test(cleaned)) {
       displayError = 'Please include "09" at the beginning (e.g., 09' + cleaned + ')'
     }
-    
-    if (!isValid) {
-      return displayError
-    }
-    
-    return ''
+    return isValid ? '' : displayError
   }
 
   const handleGuestInfoChange = (field, value) => {
     setGuestInfo(prev => ({ ...prev, [field]: value }))
     setTermsError(false)
-    
     let error = ''
-    if (field === 'firstName') {
-      error = validateName(value, 'First name')
-    } else if (field === 'lastName') {
-      error = validateName(value, 'Last name')
-    } else if (field === 'phone') {
-      error = validatePhilippinePhone(value)
-    }
-    
+    if (field === 'firstName') error = validateName(value, 'First name')
+    else if (field === 'lastName') error = validateName(value, 'Last name')
+    else if (field === 'phone') error = validatePhilippinePhone(value)
     setValidationErrors(prev => ({ ...prev, [field]: error }))
   }
 
   useEffect(() => {
     if (showBookingForm) {
       document.body.classList.add('modal-open')
+      window.dispatchEvent(new CustomEvent('modalStateChange', { detail: { isOpen: true } }))
     } else {
       document.body.classList.remove('modal-open')
+      window.dispatchEvent(new CustomEvent('modalStateChange', { detail: { isOpen: false } }))
     }
     return () => {
       document.body.classList.remove('modal-open')
+      window.dispatchEvent(new CustomEvent('modalStateChange', { detail: { isOpen: false } }))
     }
   }, [showBookingForm])
 
@@ -236,9 +225,7 @@ export default function CondoDetailPage() {
     const styleElement = document.createElement('style')
     styleElement.innerHTML = customDatePickerStyles
     document.head.appendChild(styleElement)
-    return () => {
-      document.head.removeChild(styleElement)
-    }
+    return () => document.head.removeChild(styleElement)
   }, [])
 
   useEffect(() => {
@@ -262,7 +249,6 @@ export default function CondoDetailPage() {
         .select('*')
         .eq('id', id)
         .single()
-      
       if (fetchError) throw fetchError
       if (!data) throw new Error('Condo not found')
       setCondo(data)
@@ -294,6 +280,14 @@ export default function CondoDetailPage() {
   let serviceFee = subtotal * 0.05
   let total = subtotal + serviceFee
 
+  useEffect(() => {
+    if (promoApplied) {
+      setPromoApplied(false)
+      setPromoDiscount(0)
+      setPromoCode('')
+    }
+  }, [total])
+
   const applyPromo = () => {
     if (promoCode.toLowerCase() === 'welcome10') {
       setPromoDiscount(total * 0.1)
@@ -308,7 +302,7 @@ export default function CondoDetailPage() {
     }
   }
 
-  const finalTotal = total - promoDiscount
+  const finalTotal = Math.max(0, total - promoDiscount)
 
   const getCancellationText = () => {
     if (cancellationPolicy === 'moderate') return "Cancel 14 days before for 50% refund"
@@ -347,6 +341,7 @@ export default function CondoDetailPage() {
       return
     }
     
+    setIsSubmitting(true)
     try {
       const bookingData = {
         condo_id: id, user_id: user.id,
@@ -369,6 +364,8 @@ export default function CondoDetailPage() {
     } catch (err) {
       console.error('Booking error:', err)
       toast.error('Reservation failed')
+    } finally {
+      setIsSubmitting(false)
     }
   }
 
@@ -382,21 +379,85 @@ export default function CondoDetailPage() {
   }
 
   const CustomDateInput = ({ value, onClick, label }) => (
-    <div onClick={onClick} className="bg-gradient-to-br from-[#2d568e]/5 to-white rounded-xl p-3 cursor-pointer hover:from-[#2d568e]/10 transition border border-[#2d568e]/20 text-center">
+    <div onClick={onClick} className="w-full bg-gradient-to-br from-[#2d568e]/5 to-white rounded-xl p-3 cursor-pointer hover:from-[#2d568e]/10 transition border border-[#2d568e]/20 text-center">
       <div className="text-xs text-[#2d568e] font-semibold">{label}</div>
-      <div className="font-bold text-gray-800">{value}</div>
+      <div className="font-bold text-gray-800 truncate">{value}</div>
     </div>
   )
 
   if (loading) return <div className="min-h-screen flex items-center justify-center"><div className="animate-spin rounded-full h-12 w-12 border-b-2 border-[#2d568e]"></div></div>
   if (error || !condo) return <div className="min-h-screen flex items-center justify-center">Condo not found</div>
 
+  const bookingModal = showBookingForm && createPortal(
+    <div className="fixed inset-0 z-[99999] flex items-center justify-center">
+      <div className="absolute inset-0 backdrop-blur-md bg-black/30" onClick={() => setShowBookingForm(false)} />
+      <motion.div initial={{ scale: 0.9, opacity: 0, y: 20 }} animate={{ scale: 1, opacity: 1, y: 0 }} exit={{ scale: 0.9, opacity: 0, y: 20 }} className="relative w-full max-w-md mx-4">
+        <div className="bg-white rounded-2xl overflow-hidden shadow-2xl flex flex-col mt-20" style={{ maxHeight: '85vh' }}>
+          <div className="bg-gradient-to-r from-[#2d568e] to-[#1e3a5f] text-white p-4 flex-shrink-0">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-3">
+                <div className="bg-white/20 rounded-full p-2">
+                  <img src="/Iloilo_rentals_img.png" alt="Logo" className="w-8 h-8 object-contain" onError={(e) => { e.target.style.display = 'none'; if (e.target.nextSibling) e.target.nextSibling.style.display = 'flex' }} />
+                  <div className="hidden w-8 h-8 bg-white/20 rounded-full items-center justify-center text-white font-bold text-sm">IR</div>
+                </div>
+                <div><h2 className="text-lg font-bold">Complete Your Reservation</h2><p className="text-xs text-white/80">{condo?.title}</p></div>
+              </div>
+              <button onClick={() => setShowBookingForm(false)} className="hover:bg-white/20 p-2 rounded-full transition-all"><X size={20} /></button>
+            </div>
+          </div>
+          <div className="flex-1 overflow-y-auto p-5">
+            <div>
+              <h3 className="text-md font-semibold text-[#2d568e] mb-3">Personal Information</h3>
+              <div className="grid grid-cols-2 gap-3">
+                <div><input type="text" placeholder="First Name" className={`border rounded-xl p-2.5 text-sm w-full ${validationErrors.firstName ? 'border-red-500 bg-red-50' : 'border-gray-200'}`} value={guestInfo.firstName} onChange={(e) => handleGuestInfoChange('firstName', e.target.value)} onKeyDown={(e) => {if (e.key >= '0' && e.key <= '9') e.preventDefault()}} />{validationErrors.firstName && <p className="text-red-500 text-xs mt-1">{validationErrors.firstName}</p>}</div>
+                <div><input type="text" placeholder="Last Name" className={`border rounded-xl p-2.5 text-sm w-full ${validationErrors.lastName ? 'border-red-500 bg-red-50' : 'border-gray-200'}`} value={guestInfo.lastName} onChange={(e) => handleGuestInfoChange('lastName', e.target.value)} onKeyDown={(e) => {if (e.key >= '0' && e.key <= '9') e.preventDefault()}} />{validationErrors.lastName && <p className="text-red-500 text-xs mt-1">{validationErrors.lastName}</p>}</div>
+              </div>
+              <div className="mt-3 bg-gray-50 rounded-xl p-3"><div className="text-xs text-gray-500">Email Address</div><div className="font-medium text-gray-800 text-sm">{user?.email}</div></div>
+              <div className="mt-3"><input type="tel" placeholder="Philippine Mobile Number" className={`border rounded-xl p-2.5 text-sm w-full ${validationErrors.phone ? 'border-red-500 bg-red-50' : 'border-gray-200'}`} value={guestInfo.phone} onChange={(e) => {const value = e.target.value; const phoneRegex = /^[0-9+\-\s()]*$/; if (phoneRegex.test(value)) handleGuestInfoChange('phone', value)}} />{validationErrors.phone && <p className="text-red-500 text-xs mt-1">{validationErrors.phone}</p>}</div>
+            </div>
+            <div className="mt-5">
+              <h3 className="text-md font-semibold text-[#2d568e] mb-2">Booking Summary</h3>
+              <div className="bg-gradient-to-br from-[#2d568e]/5 to-white rounded-xl border border-[#2d568e]/20 overflow-hidden">
+                <div className="p-4 max-h-48 overflow-y-auto">
+                  <div className="space-y-2">
+                    <div className="flex justify-between py-2 border-b border-gray-100"><span className="text-gray-600 text-sm">Check-in</span><span className="font-semibold text-sm">{format(startDate, 'MMM dd, yyyy')}</span></div>
+                    <div className="flex justify-between py-2 border-b border-gray-100"><span className="text-gray-600 text-sm">Check-out</span><span className="font-semibold text-sm">{format(endDate, 'MMM dd, yyyy')}</span></div>
+                    <div className="flex justify-between py-2 border-b border-gray-100"><span className="text-gray-600 text-sm">Total nights</span><span className="font-semibold text-sm">{nights} night{nights !== 1 ? 's' : ''}</span></div>
+                    <div className="flex justify-between py-2 border-b border-gray-100"><span className="text-gray-600 text-sm">Guests</span><span className="font-semibold text-sm">{getGuestDisplayText()}</span></div>
+                    <div className="pt-2">
+                      <div className="flex justify-between py-1 text-xs"><span className="text-gray-500">Nightly rate (avg)</span><span>{formatPrice(effectiveNightlyRate)}</span></div>
+                      <div className="flex justify-between py-1 text-xs"><span className="text-gray-500">{formatPrice(effectiveNightlyRate)} × {nights} nights</span><span>{formatPrice(subtotal)}</span></div>
+                      <div className="flex justify-between py-1 text-xs"><span className="text-gray-500">Service fee (5%)</span><span>{formatPrice(serviceFee)}</span></div>
+                      {promoApplied && <div className="flex justify-between py-1 text-xs text-green-600"><span>Promo discount</span><span>-{formatPrice(promoDiscount)}</span></div>}
+                    </div>
+                  </div>
+                </div>
+                <div className="border-t border-gray-200 bg-white/50 p-4"><div className="flex justify-between"><span className="font-bold">Total Amount</span><span className="text-xl font-bold text-[#2d568e]">{formatPrice(finalTotal)}</span></div></div>
+              </div>
+            </div>
+            <div className="mt-3 p-3 bg-blue-50 rounded-lg"><p className="text-xs text-blue-700 text-center">Children 10% off • Infants & Seniors 20% off</p></div>
+            <div className="flex items-start gap-2 pt-2 mt-2">
+              <input type="checkbox" id="terms" checked={acceptedTerms} onChange={(e) => {setAcceptedTerms(e.target.checked); setTermsError(false)}} className={`w-4 h-4 mt-0.5 cursor-pointer ${termsError ? 'ring-2 ring-red-500' : ''}`} />
+              <label className={`text-xs ${termsError ? 'text-red-600' : 'text-gray-600'}`}>I agree to the <Link to="/terms" target="_blank" className="text-[#2d568e] font-semibold hover:underline">Terms and Conditions</Link> and <Link to="/privacy" target="_blank" className="text-[#2d568e] font-semibold hover:underline">Privacy Policy</Link></label>
+            </div>
+            <div className="mt-2 p-2 bg-gray-50 rounded-lg"><p className="text-xs text-gray-600 text-center">{getCancellationText()}</p></div>
+            {termsError && <p className="text-red-500 text-xs mt-1">You must agree to the Terms & Conditions</p>}
+          </div>
+          <div className="p-4 border-t border-gray-100 bg-gray-50">
+            <button onClick={handleBookNow} disabled={isSubmitting} className="w-full bg-[#2d568e] text-white py-3 rounded-xl font-semibold hover:bg-[#1e3a5f] transition-all disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2">
+              {isSubmitting ? <><Loader2 size={18} className="animate-spin" /> Processing...</> : 'Confirm Reservation'}
+            </button>
+          </div>
+        </div>
+      </motion.div>
+    </div>,
+    modalContainer
+  )
+
   return (
     <div className="fixed inset-0 bg-gray-50 flex overflow-hidden">
-      
-      {/* DESKTOP LAYOUT (≥ 1024px) - Unchanged */}
+      {/* DESKTOP LAYOUT (≥ 1024px) */}
       <div className="hidden lg:flex w-full h-full">
-        
         {/* LEFT SIDE - SCROLLABLE */}
         <div className="w-2/3 h-full overflow-y-auto scrollable-content pt-16">
           <ImageGallery images={allImages} title={condo.title} />
@@ -422,7 +483,7 @@ export default function CondoDetailPage() {
           </div>
         </div>
 
-        {/* RIGHT SIDE - DESKTOP BOOKING SIDEBAR (Unchanged) */}
+        {/* RIGHT SIDE - STATIC (NO SCROLL) */}
         <div className="w-1/3 bg-white shadow-xl flex flex-col h-full overflow-hidden pt-16">
           <div className="flex-1 overflow-y-auto p-6 space-y-5">
             <div className="text-center pb-4 border-b">
@@ -430,24 +491,24 @@ export default function CondoDetailPage() {
             </div>
             
             <div className="grid grid-cols-2 gap-3">
-              <div className="relative z-20"><DatePicker selected={startDate} onChange={(date) => setStartDate(date)} minDate={new Date()} dateFormat="MMM dd, yyyy" customInput={<CustomDateInput label="CHECK-IN" />} popperPlacement="bottom-start" /></div>
-              <div className="relative z-10"><DatePicker selected={endDate} onChange={(date) => setEndDate(date)} minDate={startDate} dateFormat="MMM dd, yyyy" customInput={<CustomDateInput label="CHECK-OUT" />} popperPlacement="bottom-start" /></div>
+              <div className="relative z-20 w-full"><DatePicker selected={startDate} onChange={(date) => setStartDate(date)} minDate={new Date()} dateFormat="MMM dd, yyyy" customInput={<CustomDateInput label="CHECK-IN" />} popperPlacement="bottom-start" /></div>
+              <div className="relative z-10 w-full"><DatePicker selected={endDate} onChange={(date) => setEndDate(date)} minDate={startDate} dateFormat="MMM dd, yyyy" customInput={<CustomDateInput label="CHECK-OUT" />} popperPlacement="bottom-start" /></div>
             </div>
 
             <div className="flex justify-between text-sm text-gray-500"><span>{nights} nights</span><span>{totalGuests} guests</span></div>
 
             <div className="relative">
-              <button onClick={() => setShowGuestDropdown(!showGuestDropdown)} className="w-full bg-gray-50 rounded-xl p-3 text-left flex justify-between">
+              <button onClick={() => setShowGuestDropdownDesktop(!showGuestDropdownDesktop)} className="w-full bg-gray-50 rounded-xl p-3 text-left flex justify-between">
                 <span>{getGuestDisplayText()}</span>
-                <ChevronDown size={18} className={`transition ${showGuestDropdown ? 'rotate-180' : ''}`} />
+                <ChevronDown size={18} className={`transition ${showGuestDropdownDesktop ? 'rotate-180' : ''}`} />
               </button>
-              {showGuestDropdown && (
+              {showGuestDropdownDesktop && (
                 <div className="absolute top-full left-0 right-0 mt-2 bg-white border rounded-xl shadow-xl z-30 p-4 space-y-3">
                   <div className="flex justify-between"><span>Adults</span><div className="flex gap-4"><button onClick={() => setAdults(Math.max(1, adults-1))} className="w-8 h-8 rounded-full bg-gray-100">-</button><span>{adults}</span><button onClick={() => setAdults(adults+1)} className="w-8 h-8 rounded-full bg-gray-100">+</button></div></div>
                   <div className="flex justify-between"><span>Children (10% off)</span><div className="flex gap-4"><button onClick={() => setChildren(Math.max(0, children-1))} className="w-8 h-8 rounded-full bg-gray-100">-</button><span>{children}</span><button onClick={() => setChildren(children+1)} className="w-8 h-8 rounded-full bg-gray-100">+</button></div></div>
                   <div className="flex justify-between"><span>Infants (20% off)</span><div className="flex gap-4"><button onClick={() => setInfants(Math.max(0, infants-1))} className="w-8 h-8 rounded-full bg-gray-100">-</button><span>{infants}</span><button onClick={() => setInfants(infants+1)} className="w-8 h-8 rounded-full bg-gray-100">+</button></div></div>
                   <div className="flex justify-between"><span>Seniors (20% off)</span><div className="flex gap-4"><button onClick={() => setSeniors(Math.max(0, seniors-1))} className="w-8 h-8 rounded-full bg-gray-100">-</button><span>{seniors}</span><button onClick={() => setSeniors(seniors+1)} className="w-8 h-8 rounded-full bg-gray-100">+</button></div></div>
-                  <button onClick={() => setShowGuestDropdown(false)} className="w-full bg-[#2d568e] text-white py-2 rounded-lg">Apply</button>
+                  <button onClick={() => setShowGuestDropdownDesktop(false)} className="w-full bg-[#2d568e] text-white py-2 rounded-lg">Apply</button>
                 </div>
               )}
             </div>
@@ -472,10 +533,9 @@ export default function CondoDetailPage() {
         </div>
       </div>
 
-      {/* MOBILE LAYOUT - Content only */}
+      {/* MOBILE LAYOUT - Bottom sheet (unchanged) */}
       <div className="lg:hidden w-full h-full overflow-y-auto pb-32">
         <ImageGallery images={allImages} title={condo.title} />
-        
         <div className="px-4 py-6">
           <div className="flex flex-wrap items-center gap-2 mb-2">
             <h1 className="text-2xl font-bold text-gray-900">{condo.title}</h1>
@@ -510,150 +570,48 @@ export default function CondoDetailPage() {
         </div>
       </div>
 
-            {/* MOBILE BOTTOM SHEET - Fixed for iPhone safe area */}
+      {/* MOBILE BOTTOM SHEET - keep same as before (abbreviated for brevity, but you had it) */}
       <div className="lg:hidden fixed bottom-0 left-0 right-0 z-50" style={{ paddingBottom: 'env(safe-area-inset-bottom)' }}>
-        {/* Blur backdrop when drawer is open */}
         <AnimatePresence>
           {isDrawerOpen && (
-            <motion.div
-              initial={{ opacity: 0 }}
-              animate={{ opacity: 1 }}
-              exit={{ opacity: 0 }}
-              className="fixed inset-0 bg-black/50 backdrop-blur-sm"
-              onClick={() => setIsDrawerOpen(false)}
-              style={{ zIndex: 40 }}
-            />
+            <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="fixed inset-0 bg-black/50 backdrop-blur-sm" onClick={() => setIsDrawerOpen(false)} style={{ zIndex: 40 }} />
           )}
         </AnimatePresence>
-
-        {/* Bottom Sheet - Always visible with booking summary ONLY */}
-        <motion.div
-          animate={{ y: isDrawerOpen ? -400 : 0 }}
-          transition={{ type: 'spring', damping: 25, stiffness: 300 }}
-          className="absolute bottom-0 left-0 right-0 bg-white rounded-t-2xl shadow-2xl"
-          style={{ zIndex: 50 }}
-        >
-          {/* Drag Handle */}
-          <div className="flex justify-center pt-3 pb-2">
-            <div className="w-12 h-1 bg-gray-300 rounded-full" />
-          </div>
-
-          {/* Always Visible Booking Summary - NO PEEK OF OTHER CONTENT */}
-          <div 
-            className="px-5 pb-5 cursor-pointer"
-            onClick={() => setIsDrawerOpen(!isDrawerOpen)}
-          >
+        <motion.div animate={{ y: isDrawerOpen ? -400 : 0 }} transition={{ type: 'spring', damping: 25, stiffness: 300 }} className="absolute bottom-0 left-0 right-0 bg-white rounded-t-2xl shadow-2xl" style={{ zIndex: 50 }}>
+          <div className="flex justify-center pt-3 pb-2"><div className="w-12 h-1 bg-gray-300 rounded-full" /></div>
+          <div className="px-5 pb-5 cursor-pointer" onClick={() => setIsDrawerOpen(!isDrawerOpen)}>
             <div className="flex items-center justify-between mb-3">
-              <div>
-                <span className="text-xs text-gray-500 uppercase tracking-wide">Total Price</span>
-                <div className="text-2xl font-bold text-[#2d568e]">{formatPrice(finalTotal)}</div>
-              </div>
-              <div className="text-right">
-                <div className="text-sm text-gray-600">{nights} night{nights !== 1 ? 's' : ''}</div>
-                <div className="text-xs text-gray-400">{totalGuests} guest{totalGuests !== 1 ? 's' : ''}</div>
-              </div>
+              <div><span className="text-xs text-gray-500 uppercase tracking-wide">Total Price</span><div className="text-2xl font-bold text-[#2d568e]">{formatPrice(finalTotal)}</div></div>
+              <div className="text-right"><div className="text-sm text-gray-600">{nights} night{nights !== 1 ? 's' : ''}</div><div className="text-xs text-gray-400">{totalGuests} guest{totalGuests !== 1 ? 's' : ''}</div></div>
             </div>
-            <div className="flex items-center justify-between">
-              <div className="text-sm text-gray-500">
-                ₱{formatPrice(basePricePerNight)} <span className="text-xs">/night</span>
-              </div>
-              <div className="flex items-center gap-1 text-xs text-[#2d568e]">
-                {isDrawerOpen ? 'Tap to close ↑' : 'Tap for details ↓'}
-              </div>
-            </div>
+            <div className="flex items-center justify-between"><div className="text-sm text-gray-500">₱{formatPrice(basePricePerNight)} <span className="text-xs">/night</span></div><div className="flex items-center gap-1 text-xs text-[#2d568e]">{isDrawerOpen ? 'Tap to close ↑' : 'Tap for details ↓'}</div></div>
           </div>
         </motion.div>
-
-        {/* Full Booking Drawer - Opens from bottom when tapped */}
         <AnimatePresence>
           {isDrawerOpen && (
-            <motion.div
-              initial={{ y: '100%' }}
-              animate={{ y: 0 }}
-              exit={{ y: '100%' }}
-              transition={{ type: 'spring', damping: 25, stiffness: 300 }}
-              drag="y"
-              dragConstraints={{ top: 0 }}
-              dragElastic={{ top: 0, bottom: 0.2 }}
-              onDragEnd={(event, info) => {
-                if (info.offset.y > 100) {
-                  setIsDrawerOpen(false)
-                }
-              }}
-              className="fixed bottom-0 left-0 right-0 bg-white rounded-t-2xl shadow-2xl z-50"
-              style={{ maxHeight: '85vh', overflowY: 'auto' }}
-            >
-              {/* Drag Handle for the expanded drawer */}
-              <div className="flex justify-center pt-3 pb-1 sticky top-0 bg-white">
-                <div className="w-12 h-1 bg-gray-300 rounded-full" />
-              </div>
-              <div className="text-center text-xs text-gray-400 pb-2">
-                Drag down to close
-              </div>
-              
+            <motion.div initial={{ y: '100%' }} animate={{ y: 0 }} exit={{ y: '100%' }} transition={{ type: 'spring', damping: 25, stiffness: 300 }} drag="y" dragConstraints={{ top: 0 }} dragElastic={{ top: 0, bottom: 0.2 }} onDragEnd={(event, info) => { if (info.offset.y > 100) setIsDrawerOpen(false) }} className="fixed bottom-0 left-0 right-0 bg-white rounded-t-2xl shadow-2xl z-50" style={{ maxHeight: '85vh', overflowY: 'auto' }}>
+              <div className="flex justify-center pt-3 pb-1 sticky top-0 bg-white"><div className="w-12 h-1 bg-gray-300 rounded-full" /></div>
+              <div className="text-center text-xs text-gray-400 pb-2">Drag down to close</div>
               <div className="px-5 pb-8 space-y-4">
-                <div className="text-center pb-2">
-                  <div className="text-3xl font-bold text-[#2d568e]">{formatPrice(basePricePerNight)}<span className="text-sm text-gray-400">/night</span></div>
-                </div>
-                
-                {/* Date Pickers */}
+                <div className="text-center pb-2"><div className="text-3xl font-bold text-[#2d568e]">{formatPrice(basePricePerNight)}<span className="text-sm text-gray-400">/night</span></div></div>
                 <div className="grid grid-cols-2 gap-3">
-                  <div className="relative z-20">
-                    <DatePicker 
-                      selected={startDate} 
-                      onChange={(date) => setStartDate(date)} 
-                      minDate={new Date()} 
-                      dateFormat="MMM dd, yyyy" 
-                      customInput={<CustomDateInput label="CHECK-IN" />} 
-                    />
-                  </div>
-                  <div className="relative z-10">
-                    <DatePicker 
-                      selected={endDate} 
-                      onChange={(date) => setEndDate(date)} 
-                      minDate={startDate} 
-                      dateFormat="MMM dd, yyyy" 
-                      customInput={<CustomDateInput label="CHECK-OUT" />} 
-                    />
-                  </div>
+                  <div className="relative z-20 w-full"><DatePicker selected={startDate} onChange={(date) => setStartDate(date)} minDate={new Date()} dateFormat="MMM dd, yyyy" customInput={<CustomDateInput label="CHECK-IN" />} /></div>
+                  <div className="relative z-10 w-full"><DatePicker selected={endDate} onChange={(date) => setEndDate(date)} minDate={startDate} dateFormat="MMM dd, yyyy" customInput={<CustomDateInput label="CHECK-OUT" />} /></div>
                 </div>
-
-                <div className="flex justify-between text-sm text-gray-500">
-                  <span>{nights} nights</span>
-                  <span>{totalGuests} guests</span>
-                </div>
-
-                {/* Guest Dropdown */}
+                <div className="flex justify-between text-sm text-gray-500"><span>{nights} nights</span><span>{totalGuests} guests</span></div>
                 <div className="relative">
-                  <button onClick={() => setShowGuestDropdown(!showGuestDropdown)} className="w-full bg-gray-50 rounded-xl p-3 text-left flex justify-between">
-                    <span>{getGuestDisplayText()}</span>
-                    <ChevronDown size={18} className={`transition ${showGuestDropdown ? 'rotate-180' : ''}`} />
-                  </button>
+                  <button onClick={() => setShowGuestDropdownMobile(!showGuestDropdownMobile)} className="w-full bg-gray-50 rounded-xl p-3 text-left flex justify-between"><span>{getGuestDisplayText()}</span><ChevronDown size={18} className={`transition ${showGuestDropdownMobile ? 'rotate-180' : ''}`} /></button>
                   <AnimatePresence>
-                    {showGuestDropdown && (
-                      <motion.div 
-                        initial={{ opacity: 0, y: -10 }}
-                        animate={{ opacity: 1, y: 0 }}
-                        exit={{ opacity: 0, y: -10 }}
-                        className="absolute top-full left-0 right-0 mt-2 bg-white border rounded-xl shadow-xl z-30 p-4 space-y-3"
-                      >
-                        <div className="flex justify-between"><span>Adults</span><div className="flex gap-4"><button onClick={() => setAdults(Math.max(1, adults-1))} className="w-8 h-8 rounded-full bg-gray-100">-</button><span>{adults}</span><button onClick={() => setAdults(adults+1)} className="w-8 h-8 rounded-full bg-gray-100">+</button></div></div>
-                        <div className="flex justify-between"><span>Children (10% off)</span><div className="flex gap-4"><button onClick={() => setChildren(Math.max(0, children-1))} className="w-8 h-8 rounded-full bg-gray-100">-</button><span>{children}</span><button onClick={() => setChildren(children+1)} className="w-8 h-8 rounded-full bg-gray-100">+</button></div></div>
-                        <div className="flex justify-between"><span>Infants (20% off)</span><div className="flex gap-4"><button onClick={() => setInfants(Math.max(0, infants-1))} className="w-8 h-8 rounded-full bg-gray-100">-</button><span>{infants}</span><button onClick={() => setInfants(infants+1)} className="w-8 h-8 rounded-full bg-gray-100">+</button></div></div>
-                        <div className="flex justify-between"><span>Seniors (20% off)</span><div className="flex gap-4"><button onClick={() => setSeniors(Math.max(0, seniors-1))} className="w-8 h-8 rounded-full bg-gray-100">-</button><span>{seniors}</span><button onClick={() => setSeniors(seniors+1)} className="w-8 h-8 rounded-full bg-gray-100">+</button></div></div>
-                        <button onClick={() => setShowGuestDropdown(false)} className="w-full bg-[#2d568e] text-white py-2 rounded-lg">Apply</button>
-                      </motion.div>
-                    )}
+                    {showGuestDropdownMobile && (<motion.div initial={{ opacity: 0, y: -10 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -10 }} className="absolute top-full left-0 right-0 mt-2 bg-white border rounded-xl shadow-xl z-30 p-4 space-y-3">
+                      <div className="flex justify-between"><span>Adults</span><div className="flex gap-4"><button onClick={() => setAdults(Math.max(1, adults-1))} className="w-8 h-8 rounded-full bg-gray-100">-</button><span>{adults}</span><button onClick={() => setAdults(adults+1)} className="w-8 h-8 rounded-full bg-gray-100">+</button></div></div>
+                      <div className="flex justify-between"><span>Children (10% off)</span><div className="flex gap-4"><button onClick={() => setChildren(Math.max(0, children-1))} className="w-8 h-8 rounded-full bg-gray-100">-</button><span>{children}</span><button onClick={() => setChildren(children+1)} className="w-8 h-8 rounded-full bg-gray-100">+</button></div></div>
+                      <div className="flex justify-between"><span>Infants (20% off)</span><div className="flex gap-4"><button onClick={() => setInfants(Math.max(0, infants-1))} className="w-8 h-8 rounded-full bg-gray-100">-</button><span>{infants}</span><button onClick={() => setInfants(infants+1)} className="w-8 h-8 rounded-full bg-gray-100">+</button></div></div>
+                      <div className="flex justify-between"><span>Seniors (20% off)</span><div className="flex gap-4"><button onClick={() => setSeniors(Math.max(0, seniors-1))} className="w-8 h-8 rounded-full bg-gray-100">-</button><span>{seniors}</span><button onClick={() => setSeniors(seniors+1)} className="w-8 h-8 rounded-full bg-gray-100">+</button></div></div>
+                      <button onClick={() => setShowGuestDropdownMobile(false)} className="w-full bg-[#2d568e] text-white py-2 rounded-lg">Apply</button>
+                    </motion.div>)}
                   </AnimatePresence>
                 </div>
-
-                {/* Promo Code */}
-                <div className="flex gap-2">
-                  <input type="text" placeholder="Promo Code" className="flex-1 bg-gray-50 rounded-xl p-3" value={promoCode} onChange={(e) => setPromoCode(e.target.value)} />
-                  <button onClick={applyPromo} className="px-4 bg-gray-100 rounded-xl hover:bg-[#2d568e] hover:text-white transition">Apply</button>
-                </div>
-
-                {/* Price Breakdown */}
+                <div className="flex gap-2"><input type="text" placeholder="Promo Code" className="flex-1 bg-gray-50 rounded-xl p-3" value={promoCode} onChange={(e) => setPromoCode(e.target.value)} /><button onClick={applyPromo} className="px-4 bg-gray-100 rounded-xl hover:bg-[#2d568e] hover:text-white transition">Apply</button></div>
                 <div className="space-y-2 pt-2 border-t">
                   <div className="flex justify-between"><span>Nightly avg</span><span>{formatPrice(effectiveNightlyRate)}</span></div>
                   <div className="flex justify-between"><span>{formatPrice(effectiveNightlyRate)} × {nights}</span><span>{formatPrice(subtotal)}</span></div>
@@ -661,138 +619,16 @@ export default function CondoDetailPage() {
                   {promoApplied && <div className="flex justify-between text-green-600"><span>Discount</span><span>-{formatPrice(promoDiscount)}</span></div>}
                   <div className="flex justify-between font-bold text-xl pt-2 border-t"><span>Total</span><span className="text-[#2d568e]">{formatPrice(finalTotal)}</span></div>
                 </div>
-
                 <div className="text-center text-xs text-gray-500 bg-blue-50 p-2 rounded-lg">Children 10% off • Infants & Seniors 20% off</div>
                 <div className="text-center text-xs text-gray-500 bg-gray-50 p-2 rounded-lg">{getCancellationText()}</div>
-
-                {/* Reserve Button */}
-                <button onClick={handleBookNowClick} className="w-full bg-[#2d568e] text-white py-3 rounded-xl font-semibold hover:bg-[#1e3a5f] transition shadow-lg mb-4">
-                  {user ? 'Reserve Now' : 'Sign in to Book'}
-                </button>
+                <button onClick={handleBookNowClick} className="w-full bg-[#2d568e] text-white py-3 rounded-xl font-semibold hover:bg-[#1e3a5f] transition shadow-lg mb-4">{user ? 'Reserve Now' : 'Sign in to Book'}</button>
               </div>
             </motion.div>
           )}
         </AnimatePresence>
       </div>
 
-      {/* BOOKING MODAL - Same as before */}  
-      <AnimatePresence>
-        {showBookingForm && (
-          <div className="fixed inset-0 z-[99999] flex items-center justify-center">
-            <div 
-              className="absolute inset-0 backdrop-blur-md bg-black/30"
-              onClick={() => setShowBookingForm(false)}
-            />
-            <motion.div 
-              initial={{ scale: 0.9, opacity: 0, y: 20 }}
-              animate={{ scale: 1, opacity: 1, y: 0 }}
-              exit={{ scale: 0.9, opacity: 0, y: 20 }}
-              className="relative w-full max-w-md mx-4"
-            >
-              <div className="bg-white rounded-2xl overflow-hidden shadow-2xl flex flex-col mt-20" style={{ maxHeight: '85vh' }}>
-                <div className="bg-gradient-to-r from-[#2d568e] to-[#1e3a5f] text-white p-4 flex-shrink-0">
-                  <div className="flex items-center justify-between">
-                    <div className="flex items-center gap-3">
-                      <div className="bg-white/20 rounded-full p-2">
-                        <img 
-                          src="/Iloilo_rentals_img.png" 
-                          alt="Iloilo Rentals Logo" 
-                          className="w-8 h-8 object-contain"
-                          onError={(e) => {
-                            e.target.style.display = 'none'
-                            if (e.target.nextSibling) {
-                              e.target.nextSibling.style.display = 'flex'
-                            }
-                          }}
-                        />
-                        <div className="hidden w-8 h-8 bg-white/20 rounded-full items-center justify-center text-white font-bold text-sm">IR</div>
-                      </div>
-                      <div>
-                        <h2 className="text-lg font-bold">Complete Your Reservation</h2>
-                        <p className="text-xs text-white/80">{condo?.title}</p>
-                      </div>
-                    </div>
-                    <button onClick={() => setShowBookingForm(false)} className="hover:bg-white/20 p-2 rounded-full transition-all">
-                      <X size={20} />
-                    </button>
-                  </div>
-                </div>
-                
-                <div className="flex-1 overflow-y-auto p-5">
-                  <div>
-                    <h3 className="text-md font-semibold text-[#2d568e] mb-3">Personal Information</h3>
-                    <div className="grid grid-cols-2 gap-3">
-                      <div>
-                        <input type="text" placeholder="First Name" className={`border rounded-xl p-2.5 text-sm w-full ${validationErrors.firstName ? 'border-red-500 bg-red-50' : 'border-gray-200'}`} value={guestInfo.firstName} onChange={(e) => handleGuestInfoChange('firstName', e.target.value)} onKeyDown={(e) => {if (e.key >= '0' && e.key <= '9') e.preventDefault()}} />
-                        {validationErrors.firstName && <p className="text-red-500 text-xs mt-1">{validationErrors.firstName}</p>}
-                      </div>
-                      <div>
-                        <input type="text" placeholder="Last Name" className={`border rounded-xl p-2.5 text-sm w-full ${validationErrors.lastName ? 'border-red-500 bg-red-50' : 'border-gray-200'}`} value={guestInfo.lastName} onChange={(e) => handleGuestInfoChange('lastName', e.target.value)} onKeyDown={(e) => {if (e.key >= '0' && e.key <= '9') e.preventDefault()}} />
-                        {validationErrors.lastName && <p className="text-red-500 text-xs mt-1">{validationErrors.lastName}</p>}
-                      </div>
-                    </div>
-                    <div className="mt-3 bg-gray-50 rounded-xl p-3">
-                      <div className="text-xs text-gray-500">Email Address</div>
-                      <div className="font-medium text-gray-800 text-sm">{user?.email}</div>
-                    </div>
-                    <div className="mt-3">
-                      <input type="tel" placeholder="Philippine Mobile Number" className={`border rounded-xl p-2.5 text-sm w-full ${validationErrors.phone ? 'border-red-500 bg-red-50' : 'border-gray-200'}`} value={guestInfo.phone} onChange={(e) => {const value = e.target.value; const phoneRegex = /^[0-9+\-\s()]*$/; if (phoneRegex.test(value)) handleGuestInfoChange('phone', value)}} />
-                      {validationErrors.phone && <p className="text-red-500 text-xs mt-1">{validationErrors.phone}</p>}
-                    </div>
-                  </div>
-
-                  <div className="mt-5">
-                    <h3 className="text-md font-semibold text-[#2d568e] mb-2">Booking Summary</h3>
-                    <div className="bg-gradient-to-br from-[#2d568e]/5 to-white rounded-xl border border-[#2d568e]/20 overflow-hidden">
-                      <div className="p-4 max-h-48 overflow-y-auto">
-                        <div className="space-y-2">
-                          <div className="flex justify-between py-2 border-b border-gray-100"><span className="text-gray-600 text-sm">Check-in</span><span className="font-semibold text-sm">{format(startDate, 'MMM dd, yyyy')}</span></div>
-                          <div className="flex justify-between py-2 border-b border-gray-100"><span className="text-gray-600 text-sm">Check-out</span><span className="font-semibold text-sm">{format(endDate, 'MMM dd, yyyy')}</span></div>
-                          <div className="flex justify-between py-2 border-b border-gray-100"><span className="text-gray-600 text-sm">Total nights</span><span className="font-semibold text-sm">{nights} night{nights !== 1 ? 's' : ''}</span></div>
-                          <div className="flex justify-between py-2 border-b border-gray-100"><span className="text-gray-600 text-sm">Guests</span><span className="font-semibold text-sm">{getGuestDisplayText()}</span></div>
-                          <div className="pt-2">
-                            <div className="flex justify-between py-1 text-xs"><span className="text-gray-500">Nightly rate (avg)</span><span>{formatPrice(effectiveNightlyRate)}</span></div>
-                            <div className="flex justify-between py-1 text-xs"><span className="text-gray-500">{formatPrice(effectiveNightlyRate)} × {nights} nights</span><span>{formatPrice(subtotal)}</span></div>
-                            <div className="flex justify-between py-1 text-xs"><span className="text-gray-500">Service fee (5%)</span><span>{formatPrice(serviceFee)}</span></div>
-                            {promoApplied && <div className="flex justify-between py-1 text-xs text-green-600"><span>Promo discount</span><span>-{formatPrice(promoDiscount)}</span></div>}
-                          </div>
-                        </div>
-                      </div>
-                      <div className="border-t border-gray-200 bg-white/50 p-4">
-                        <div className="flex justify-between">
-                          <span className="font-bold">Total Amount</span>
-                          <span className="text-xl font-bold text-[#2d568e]">{formatPrice(finalTotal)}</span>
-                        </div>
-                      </div>
-                    </div>
-                  </div>
-
-                  <div className="mt-3 p-3 bg-blue-50 rounded-lg">
-                    <p className="text-xs text-blue-700 text-center">Children 10% off • Infants & Seniors 20% off</p>
-                  </div>
-
-                  <div className="flex items-start gap-2 pt-2 mt-2">
-                    <input type="checkbox" id="terms" checked={acceptedTerms} onChange={(e) => {setAcceptedTerms(e.target.checked); setTermsError(false)}} className={`w-4 h-4 mt-0.5 cursor-pointer ${termsError ? 'ring-2 ring-red-500' : ''}`} />
-                    <label className={`text-xs ${termsError ? 'text-red-600' : 'text-gray-600'}`}>
-                      I agree to the <Link to="/terms" target="_blank" className="text-[#2d568e] font-semibold hover:underline">Terms and Conditions</Link> and <Link to="/privacy" target="_blank" className="text-[#2d568e] font-semibold hover:underline">Privacy Policy</Link>
-                    </label>
-                  </div>
-
-                  <div className="mt-2 p-2 bg-gray-50 rounded-lg">
-                    <p className="text-xs text-gray-600 text-center">{getCancellationText()}</p>
-                  </div>
-                  
-                  {termsError && <p className="text-red-500 text-xs mt-1">You must agree to the Terms & Conditions</p>}
-                </div>
-                
-                <div className="p-4 border-t border-gray-100 bg-gray-50">
-                  <button onClick={handleBookNow} className="w-full bg-[#2d568e] text-white py-3 rounded-xl font-semibold hover:bg-[#1e3a5f] transition-all">Confirm Reservation</button>
-                </div>
-              </div>
-            </motion.div>
-          </div>
-        )}
-      </AnimatePresence>
+      {bookingModal}
     </div>
   )
 }

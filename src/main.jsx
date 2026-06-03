@@ -2,8 +2,9 @@ import { StrictMode } from 'react'
 import { createRoot } from 'react-dom/client'
 import { BrowserRouter } from 'react-router-dom'
 import './index.css'
-import App from './App.jsx'  // This imports the default export
+import App from './App.jsx'
 import { CurrencyProvider } from './context/CurrencyContext'
+import ErrorBoundary from './components/ErrorBoundary'
 
 if ('scrollRestoration' in history) {
   history.scrollRestoration = 'manual'
@@ -11,10 +12,12 @@ if ('scrollRestoration' in history) {
 
 createRoot(document.getElementById('root')).render(
   <StrictMode>
-    <BrowserRouter>
-      <CurrencyProvider>
-        <App />  {/* This uses the default export */}
-      </CurrencyProvider>
-    </BrowserRouter>
+    <ErrorBoundary>
+      <BrowserRouter>
+        <CurrencyProvider>
+          <App />
+        </CurrencyProvider>
+      </BrowserRouter>
+    </ErrorBoundary>
   </StrictMode>,
 )
