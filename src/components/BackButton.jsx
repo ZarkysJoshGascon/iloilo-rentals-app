@@ -1,11 +1,12 @@
 import { useNavigate, useLocation } from 'react-router-dom'
 import { ArrowLeft } from 'lucide-react'
-import { useEffect, useState } from 'react'
+import { useEffect, useState, useCallback } from 'react'
 
 export default function BackButton() {
   const navigate = useNavigate()
   const location = useLocation()
   const [showBackButton, setShowBackButton] = useState(true)
+  const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false)
 
   useEffect(() => {
     // Show back button on all pages EXCEPT home page
@@ -13,43 +14,57 @@ export default function BackButton() {
     setShowBackButton(!isHomePage)
   }, [location.pathname])
 
-  // Hide back button when mobile menu is open
+  // Listen for mobile menu state from DOM changes
   useEffect(() => {
     const checkMobileMenu = () => {
-      // Look for the mobile menu div (it appears when hamburger is clicked)
+      // Look for the mobile menu div
       const mobileMenu = document.querySelector('.md\\:hidden.bg-\\[\\#2d568e\\]')
-      const backButton = document.querySelector('.fixed.top-20.left-4.z-50')
       
-      if (mobileMenu && backButton) {
-        // Check if mobile menu is visible (has content and is not hidden)
-        const isMenuVisible = mobileMenu.children.length > 0 && window.getComputedStyle(mobileMenu).display !== 'none'
+      if (mobileMenu) {
+        // Check if mobile menu is visible
+        const isVisible = window.getComputedStyle(mobileMenu).display !== 'none' && 
+                          mobileMenu.children.length > 0 &&
+                          mobileMenu.classList.contains('block')
         
-        if (isMenuVisible) {
-          backButton.style.display = 'none'
-        } else if (showBackButton && location.pathname !== '/') {
-          backButton.style.display = 'flex'
-        }
+        setIsMobileMenuOpen(isVisible)
+      } else {
+        setIsMobileMenuOpen(false)
       }
     }
 
-    // Check when menu might change (on click, resize, etc.)
+    // Create a MutationObserver to watch for DOM changes
+    const observer = new MutationObserver(() => {
+      checkMobileMenu()
+    })
+
+    // Start observing the document body for changes
+    observer.observe(document.body, {
+      childList: true,
+      subtree: true,
+      attributes: true,
+      attributeFilter: ['class', 'style']
+    })
+
+    // Initial check
+    checkMobileMenu()
+
+    // Also check on click events (for hamburger button)
     const handleClick = () => {
       setTimeout(checkMobileMenu, 50)
     }
     
     window.addEventListener('click', handleClick)
     window.addEventListener('resize', checkMobileMenu)
-    
-    // Initial check
-    checkMobileMenu()
-    
+
     return () => {
+      observer.disconnect()
       window.removeEventListener('click', handleClick)
       window.removeEventListener('resize', checkMobileMenu)
     }
-  }, [showBackButton, location.pathname])
+  }, [])
 
-  if (!showBackButton) return null
+  // Don't show back button when mobile menu is open OR on home page
+  if (!showBackButton || isMobileMenuOpen) return null
 
   return (
     <button
