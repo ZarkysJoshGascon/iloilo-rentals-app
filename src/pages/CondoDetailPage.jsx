@@ -675,7 +675,7 @@ export default function CondoDetailPage() {
         </AnimatePresence>
       </div>
 
-      {/* BOOKING MODAL - Same as before */}
+      {/* BOOKING MODAL - Same as before */}  
       <AnimatePresence>
         {showBookingForm && (
           <div className="fixed inset-0 z-[99999] flex items-center justify-center">
@@ -689,7 +689,7 @@ export default function CondoDetailPage() {
               exit={{ scale: 0.9, opacity: 0, y: 20 }}
               className="relative w-full max-w-md mx-4"
             >
-              <div className="bg-white rounded-2xl overflow-hidden shadow-2xl flex flex-col" style={{ maxHeight: '85vh' }}>
+              <div className="bg-white rounded-2xl overflow-hidden shadow-2xl flex flex-col mt-20" style={{ maxHeight: '85vh' }}>
                 <div className="bg-gradient-to-r from-[#2d568e] to-[#1e3a5f] text-white p-4 flex-shrink-0">
                   <div className="flex items-center justify-between">
                     <div className="flex items-center gap-3">
