@@ -9,11 +9,23 @@ export default function LoginPage() {
   const [isLoading, setIsLoading] = useState(false)
   const [showWarning, setShowWarning] = useState(false)
 
+  // Check if already logged in and redirect based on role
   useEffect(() => {
     const checkSession = async () => {
-      const { data } = await supabase.auth.getSession()
-      if (data.session) {
-        navigate('/')
+      const { data: { session } } = await supabase.auth.getSession()
+      if (session?.user) {
+        // Determine if user is admin
+        const { data: adminData } = await supabase
+          .from('admin_users')
+          .select('user_id')
+          .eq('user_id', session.user.id)
+          .maybeSingle()
+        
+        if (adminData) {
+          navigate('/admin')
+        } else {
+          navigate('/')
+        }
       }
     }
     checkSession()
@@ -37,7 +49,7 @@ export default function LoginPage() {
         provider: 'google',
         options: {
           queryParams: { prompt: 'select_account' },
-          redirectTo: `${window.location.origin}`
+          redirectTo: `${window.location.origin}/login`  // ← FIXED: redirect to /login
         }
       })
       if (error) throw error
@@ -73,6 +85,8 @@ export default function LoginPage() {
     }
   }
 
+  // Animation variants (keep all your existing variants here – omitted for brevity, but you must include them)
+  // ... (copy your existing variants from your current LoginPage)
   const containerVariants = {
     hidden: { opacity: 0, scale: 0.9 },
     visible: { 
@@ -81,7 +95,6 @@ export default function LoginPage() {
       transition: { duration: 0.5, type: "spring", stiffness: 200, damping: 20 }
     }
   }
-
   const logoVariants = {
     hidden: { scale: 0, rotate: -180 },
     visible: { 
@@ -90,22 +103,18 @@ export default function LoginPage() {
       transition: { duration: 0.5, type: "spring", stiffness: 260, damping: 20 }
     }
   }
-
   const titleVariants = {
     hidden: { opacity: 0, y: -30 },
     visible: { opacity: 1, y: 0, transition: { delay: 0.2, duration: 0.5 } }
   }
-
   const subtitleVariants = {
     hidden: { opacity: 0 },
     visible: { opacity: 1, transition: { delay: 0.3, duration: 0.5 } }
   }
-
   const dividerVariants = {
     hidden: { width: 0, opacity: 0 },
     visible: { width: "100%", opacity: 1, transition: { delay: 0.4, duration: 0.6 } }
   }
-
   const buttonVariants = {
     hidden: { opacity: 0, y: 20 },
     visible: { opacity: 1, y: 0, transition: { delay: 0.5, duration: 0.5 } },
@@ -117,17 +126,14 @@ export default function LoginPage() {
     },
     tap: { scale: 0.98 }
   }
-
   const featuresVariants = {
     hidden: { opacity: 0 },
     visible: { opacity: 1, transition: { delay: 0.6, staggerChildren: 0.1 } }
   }
-
   const featureItemVariants = {
     hidden: { opacity: 0, x: -10 },
     visible: { opacity: 1, x: 0 }
   }
-
   const footerVariants = {
     hidden: { opacity: 0 },
     visible: { opacity: 1, transition: { delay: 0.7, duration: 0.5 } }
@@ -160,7 +166,6 @@ export default function LoginPage() {
         whileHover={{ scale: 1.02 }}
         className="relative bg-white rounded-2xl shadow-2xl max-w-md w-full mx-4 p-8 md:p-10 transition-all duration-500"
       >
-        
         {showWarning && (
           <motion.div 
             initial={{ opacity: 0, y: -10 }}
@@ -180,7 +185,6 @@ export default function LoginPage() {
                 </p>
               </div>
             </div>
-            
             <button
               onClick={openInExternalBrowser}
               className="mt-3 w-full bg-amber-500 hover:bg-amber-600 text-white font-semibold py-3 px-4 rounded-lg transition-all flex items-center justify-center gap-2 text-sm"
@@ -188,7 +192,6 @@ export default function LoginPage() {
               <ExternalLink size={16} />
               Open in External Browser
             </button>
-            
             <p className="text-xs text-amber-600 text-center mt-3">
               Your phone will ask which browser to use
             </p>

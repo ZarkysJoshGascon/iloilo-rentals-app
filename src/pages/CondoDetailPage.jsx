@@ -533,7 +533,7 @@ export default function CondoDetailPage() {
         </div>
       </div>
 
-      {/* MOBILE LAYOUT - Bottom sheet (unchanged) */}
+      {/* MOBILE LAYOUT - Content only */}
       <div className="lg:hidden w-full h-full overflow-y-auto pb-32">
         <ImageGallery images={allImages} title={condo.title} />
         <div className="px-4 py-6">
@@ -570,7 +570,7 @@ export default function CondoDetailPage() {
         </div>
       </div>
 
-      {/* MOBILE BOTTOM SHEET - keep same as before (abbreviated for brevity, but you had it) */}
+      {/* MOBILE BOTTOM SHEET - Fixed for iPhone safe area */}
       <div className="lg:hidden fixed bottom-0 left-0 right-0 z-50" style={{ paddingBottom: 'env(safe-area-inset-bottom)' }}>
         <AnimatePresence>
           {isDrawerOpen && (
@@ -592,7 +592,8 @@ export default function CondoDetailPage() {
             <motion.div initial={{ y: '100%' }} animate={{ y: 0 }} exit={{ y: '100%' }} transition={{ type: 'spring', damping: 25, stiffness: 300 }} drag="y" dragConstraints={{ top: 0 }} dragElastic={{ top: 0, bottom: 0.2 }} onDragEnd={(event, info) => { if (info.offset.y > 100) setIsDrawerOpen(false) }} className="fixed bottom-0 left-0 right-0 bg-white rounded-t-2xl shadow-2xl z-50" style={{ maxHeight: '85vh', overflowY: 'auto' }}>
               <div className="flex justify-center pt-3 pb-1 sticky top-0 bg-white"><div className="w-12 h-1 bg-gray-300 rounded-full" /></div>
               <div className="text-center text-xs text-gray-400 pb-2">Drag down to close</div>
-              <div className="px-5 pb-8 space-y-4">
+              {/* FIX: added safe area padding to bottom content */}
+              <div className="px-5 space-y-4" style={{ paddingBottom: 'calc(2rem + env(safe-area-inset-bottom))' }}>
                 <div className="text-center pb-2"><div className="text-3xl font-bold text-[#2d568e]">{formatPrice(basePricePerNight)}<span className="text-sm text-gray-400">/night</span></div></div>
                 <div className="grid grid-cols-2 gap-3">
                   <div className="relative z-20 w-full"><DatePicker selected={startDate} onChange={(date) => setStartDate(date)} minDate={new Date()} dateFormat="MMM dd, yyyy" customInput={<CustomDateInput label="CHECK-IN" />} /></div>

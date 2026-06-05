@@ -4,7 +4,7 @@ import { MemoryRouter } from 'react-router-dom'
 import React from 'react'
 import BackButton from '../components/BackButton'
 
-// Mock MutationObserver to prevent it from interfering
+// Mock MutationObserver to prevent it from interfering with the test
 beforeEach(() => {
   global.MutationObserver = class {
     observe() {}
@@ -43,10 +43,10 @@ describe('BackButton', () => {
     )
     expect(screen.getByRole('button')).toBeDefined()
     
-    // Dispatch event
+    // Dispatch the custom event
     window.dispatchEvent(new CustomEvent('mobileMenuToggle', { detail: { isOpen: true } }))
     
-    // Wait for state to update
+    // Wait for the button to be removed from the DOM
     await waitFor(() => {
       expect(screen.queryByRole('button')).toBeNull()
     })

@@ -13,13 +13,15 @@ import ContactPage from './pages/ContactPage'
 import MyBookingsPage from './pages/MyBookingsPage'
 import PrivacyPolicyPage from './pages/PrivacyPolicyPage'
 import TermsPage from './pages/TermsPage'
+import AdminDashboard from './pages/AdminDashboard'   // ← fixed: from pages, not components
+import AdminRoute from './components/AdminRoute'
 
 function App() {
   const location = useLocation()
   const hideFooter = location.pathname.includes('/condo/')
+  const isAdminRoute = location.pathname === '/admin'
 
   useEffect(() => {
-    // Reset body styles on navigation to fix back button freeze
     document.documentElement.style.overflow = ''
     document.body.style.overflow = ''
     document.body.style.position = ''
@@ -29,8 +31,8 @@ function App() {
 
   return (
     <div className="min-h-screen bg-gray-50 flex flex-col">
-      <Navbar />
-      <BackButton />
+      {!isAdminRoute && <Navbar />}
+      {!isAdminRoute && <BackButton />}
       <main className="flex-grow">
         <Routes>
           <Route path="/" element={<HomePage />} />
@@ -42,9 +44,17 @@ function App() {
           <Route path="/my-bookings" element={<MyBookingsPage />} />
           <Route path="/privacy" element={<PrivacyPolicyPage />} />
           <Route path="/terms" element={<TermsPage />} />
+          <Route 
+            path="/admin" 
+            element={
+              <AdminRoute>
+                <AdminDashboard />
+              </AdminRoute>
+            } 
+          />
         </Routes>
       </main>
-      {!hideFooter && <Footer />}
+      {!hideFooter && !isAdminRoute && <Footer />}
       <Toaster position="top-right" />
     </div>
   )
