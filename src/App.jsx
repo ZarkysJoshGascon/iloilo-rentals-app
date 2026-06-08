@@ -13,11 +13,9 @@ import ContactPage from './pages/ContactPage'
 import MyBookingsPage from './pages/MyBookingsPage'
 import PrivacyPolicyPage from './pages/PrivacyPolicyPage'
 import TermsPage from './pages/TermsPage'
-import AdminDashboard from './pages/AdminDashboard'   // ← fixed: from pages, not components
-import AdminRoute from './components/AdminRoute'
 import ListPropertyPage from './pages/ListPropertyPage'
-
-// Inside <Routes>:
+import AdminDashboard from './pages/AdminDashboard'
+import AdminRoute from './components/AdminRoute'
 
 function App() {
   const location = useLocation()

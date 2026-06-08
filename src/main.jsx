@@ -1,6 +1,6 @@
 import { StrictMode } from 'react'
 import { createRoot } from 'react-dom/client'
-import { BrowserRouter } from 'react-router-dom'
+import { BrowserRouter } from 'react-router-dom'   // ← change from HashRouter to BrowserRouter
 import './index.css'
 import App from './App.jsx'
 import { CurrencyProvider } from './context/CurrencyContext'
@@ -13,7 +13,7 @@ if ('scrollRestoration' in history) {
 createRoot(document.getElementById('root')).render(
   <StrictMode>
     <ErrorBoundary>
-      <BrowserRouter>
+      <BrowserRouter>           {/* ← BrowserRouter, not HashRouter */}
         <CurrencyProvider>
           <App />
         </CurrencyProvider>
