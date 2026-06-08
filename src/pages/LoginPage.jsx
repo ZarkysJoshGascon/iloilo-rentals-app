@@ -9,23 +9,47 @@ export default function LoginPage() {
   const [isLoading, setIsLoading] = useState(false)
   const [showWarning, setShowWarning] = useState(false)
 
-  // Check if already logged in and redirect based on role
   useEffect(() => {
     const checkSession = async () => {
       const { data: { session } } = await supabase.auth.getSession()
       if (session?.user) {
-        // Determine if user is admin
+        // Ensure user profile exists (with avatar)
+        const avatarUrl = session.user.user_metadata?.avatar_url || null
+        const fullName = session.user.user_metadata?.full_name || ''
+        const firstName = fullName.split(' ')[0] || ''
+        const lastName = fullName.split(' ').slice(1).join(' ') || ''
+
+        // Upsert user profile (insert or update)
+        await supabase.from('user_profiles').upsert({
+          id: session.user.id,
+          avatar_url: avatarUrl,
+          // you can also store name if needed
+        }, { onConflict: 'id' })
+
+        // Ensure a lead exists only if not already present
+        const { data: existingLead } = await supabase
+          .from('leads')
+          .select('id')
+          .eq('email', session.user.email)
+          .maybeSingle()
+        if (!existingLead) {
+          await supabase.from('leads').insert({
+            email: session.user.email,
+            first_name: firstName,
+            last_name: lastName,
+            notes: 'Auto-created from user sign-in',
+            status: 'new'
+          })
+        }
+
+        // Check admin
         const { data: adminData } = await supabase
           .from('admin_users')
           .select('user_id')
           .eq('user_id', session.user.id)
           .maybeSingle()
-        
-        if (adminData) {
-          navigate('/admin')
-        } else {
-          navigate('/')
-        }
+        if (adminData) navigate('/admin')
+        else navigate('/')
       }
     }
     checkSession()
@@ -49,7 +73,7 @@ export default function LoginPage() {
         provider: 'google',
         options: {
           queryParams: { prompt: 'select_account' },
-          redirectTo: `${window.location.origin}/login`  // ← FIXED: redirect to /login
+          redirectTo: `${window.location.origin}/login`
         }
       })
       if (error) throw error
@@ -85,8 +109,7 @@ export default function LoginPage() {
     }
   }
 
-  // Animation variants (keep all your existing variants here – omitted for brevity, but you must include them)
-  // ... (copy your existing variants from your current LoginPage)
+  // Animation variants (same as your original – keep them)
   const containerVariants = {
     hidden: { opacity: 0, scale: 0.9 },
     visible: { 

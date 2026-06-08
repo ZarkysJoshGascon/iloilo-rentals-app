@@ -1,5 +1,5 @@
 import { supabase } from '../lib/supabase'
-import { useNavigate, useLocation } from 'react-router-dom'
+import { useNavigate } from 'react-router-dom'
 import { LayoutDashboard, Users, CalendarDays, DoorOpen, LogOut } from 'lucide-react'
 import toast from 'react-hot-toast'
 

@@ -33,10 +33,6 @@ export default function Navbar() {
   }, [])
 
   useEffect(() => {
-    window.dispatchEvent(new CustomEvent('mobileMenuToggle', { detail: { isOpen: mobileMenuOpen } }))
-  }, [mobileMenuOpen])
-
-  useEffect(() => {
     supabase.auth.getSession().then(({ data: { session } }) => {
       setUser(session?.user ?? null)
     })
@@ -70,10 +66,7 @@ export default function Navbar() {
   }
 
   return (
-    <nav 
-      className="shadow-2xl sticky top-0 transition-all duration-300 z-40"
-      style={{ backgroundColor: '#2d568e' }}
-    >
+    <nav className="shadow-2xl sticky top-0 transition-all duration-300 z-40" style={{ backgroundColor: '#2d568e' }}>
       <div className="px-4 sm:px-6 lg:px-8">
         <div className="flex justify-between items-center py-4 md:py-5">
           <div className="flex-shrink-0">
@@ -85,6 +78,7 @@ export default function Navbar() {
             <Link to="/about" className={getLinkClass('/about')}>About Us</Link>
             <Link to="/contact" className={getLinkClass('/contact')}>Contact Us</Link>
             {user && <Link to="/my-bookings" className={getLinkClass('/my-bookings')}>My Bookings</Link>}
+            {user && <Link to="/list-property" className={getLinkClass('/list-property')}>List My Property</Link>}
           </div>
           
           <div className="hidden md:flex items-center gap-3">
@@ -113,6 +107,7 @@ export default function Navbar() {
           <Link to="/about" onClick={() => setMobileMenuOpen(false)} className="block py-2 text-base text-white/80 hover:text-white">About Us</Link>
           <Link to="/contact" onClick={() => setMobileMenuOpen(false)} className="block py-2 text-base text-white/80 hover:text-white">Contact Us</Link>
           {user && <Link to="/my-bookings" onClick={() => setMobileMenuOpen(false)} className="block py-2 text-base text-white/80 hover:text-white">My Bookings</Link>}
+          {user && <Link to="/list-property" onClick={() => setMobileMenuOpen(false)} className="block py-2 text-base text-white/80 hover:text-white">List My Property</Link>}
           <div className="pt-3 border-t border-white/10">
             <select value={currency} onChange={(e) => changeCurrency(e.target.value)} className="w-full bg-white/10 text-white px-3 py-2 rounded-lg mb-3">
               {Object.entries(CURRENCIES).map(([code, { symbol }]) => (<option key={code} value={code} className="text-gray-900">{code} ({symbol})</option>))}

@@ -15,6 +15,9 @@ import PrivacyPolicyPage from './pages/PrivacyPolicyPage'
 import TermsPage from './pages/TermsPage'
 import AdminDashboard from './pages/AdminDashboard'   // ← fixed: from pages, not components
 import AdminRoute from './components/AdminRoute'
+import ListPropertyPage from './pages/ListPropertyPage'
+
+// Inside <Routes>:
 
 function App() {
   const location = useLocation()
@@ -44,6 +47,7 @@ function App() {
           <Route path="/my-bookings" element={<MyBookingsPage />} />
           <Route path="/privacy" element={<PrivacyPolicyPage />} />
           <Route path="/terms" element={<TermsPage />} />
+          <Route path="/list-property" element={<ListPropertyPage />} />
           <Route 
             path="/admin" 
             element={
