@@ -37,6 +37,7 @@ export default function ListPropertyPage() {
     }
     setUser(user)
   }
+  
 
   const handleChange = (e) => {
     const { name, value, type, checked } = e.target
