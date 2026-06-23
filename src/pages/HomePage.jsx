@@ -1,9 +1,9 @@
-import { useEffect, useState, useRef } from 'react'
+import { useEffect, useState, useRef, useCallback } from 'react'
 import { Link } from 'react-router-dom'
 import { motion, useScroll, useTransform } from 'framer-motion'
 import { supabase } from '../lib/supabase'
 import ModernCondoCard from '../components/ModernCondoCard'
-import { ChevronRight, Sparkles, Shield, Clock, MapPin } from 'lucide-react'
+import { ChevronRight, Shield, Clock, MapPin } from 'lucide-react'
 
 export default function HomePage() {
   const [featuredCondos, setFeaturedCondos] = useState([])
@@ -29,17 +29,13 @@ export default function HomePage() {
   const heroOpacity = useTransform(scrollYProgress, [0, 0.5], [1, 0])
   const heroScale = useTransform(scrollYProgress, [0, 0.5], [1, 0.8])
 
-  useEffect(() => {
-    fetchFeaturedCondos()
-    fetchStats()
-  }, [])
-
-  async function fetchFeaturedCondos() {
+  // -------- data fetching functions (defined before effects) --------
+  const fetchFeaturedCondos = useCallback(async () => {
     const { data } = await supabase.from('condos').select('*').limit(3)
     if (data) setFeaturedCondos(data)
-  }
+  }, [])
 
-  async function fetchStats() {
+  const fetchStats = useCallback(async () => {
     const { count: bookingCount } = await supabase.from('bookings').select('*', { count: 'exact', head: true })
     const { count: condoCount } = await supabase.from('condos').select('*', { count: 'exact', head: true })
     
@@ -48,7 +44,14 @@ export default function HomePage() {
       condos: condoCount || 0,
       rating: 4.8
     })
-  }
+  }, [])
+
+  // -------- effects --------
+  useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    fetchFeaturedCondos()
+    fetchStats()
+  }, [fetchFeaturedCondos, fetchStats])
 
   useEffect(() => {
     const interval = setInterval(() => {
@@ -59,7 +62,7 @@ export default function HomePage() {
       }, 500)
     }, 5000)
     return () => clearInterval(interval)
-  }, [])
+  }, [heroImages.length])
 
   return (
     <div ref={targetRef}>

@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useState, useCallback } from 'react'
 import { supabase } from '../lib/supabase'
 import { format } from 'date-fns'
 import { Mail, Phone, Calendar, Plus, Send } from 'lucide-react'
@@ -10,19 +10,14 @@ export default function LeadDetail({ leadId }) {
   const [newInteraction, setNewInteraction] = useState({ type: 'note', content: '' })
   const [loading, setLoading] = useState(true)
 
-  useEffect(() => {
-    if (leadId) {
-      fetchLead()
-      fetchInteractions()
-    }
-  }, [leadId])
+  // -------- data fetching functions (defined before effects) --------
 
-  const fetchLead = async () => {
+  const fetchLead = useCallback(async () => {
     const { data } = await supabase.from('leads').select('*').eq('id', leadId).single()
     setLead(data)
-  }
+  }, [leadId])
 
-  const fetchInteractions = async () => {
+  const fetchInteractions = useCallback(async () => {
     const { data } = await supabase
       .from('interactions')
       .select('*')
@@ -30,7 +25,19 @@ export default function LeadDetail({ leadId }) {
       .order('created_at', { ascending: false })
     setInteractions(data || [])
     setLoading(false)
-  }
+  }, [leadId])
+
+  // -------- effect --------
+
+  useEffect(() => {
+    if (leadId) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect
+      fetchLead()
+      fetchInteractions()
+    }
+  }, [leadId, fetchLead, fetchInteractions])
+
+  // -------- interaction handler --------
 
   const addInteraction = async () => {
     if (!newInteraction.content.trim()) {
@@ -54,6 +61,8 @@ export default function LeadDetail({ leadId }) {
   const sendEmail = () => {
     window.location.href = `mailto:${lead.email}?subject=Regarding your inquiry&body=Hello ${lead.first_name || ''},`
   }
+
+  // -------- render --------
 
   if (loading) return <div className="text-center py-20 text-gray-500 dark:text-gray-400">Loading...</div>
   if (!lead) return <div className="text-center py-20 text-gray-500 dark:text-gray-400">Lead not found</div>

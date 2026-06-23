@@ -1,7 +1,7 @@
+import { useState } from 'react'
 import { Link, useNavigate, useLocation } from 'react-router-dom'
-import { supabase } from '../lib/supabase'
-import { useEffect, useState } from 'react'
 import { useCurrency } from '../context/CurrencyContext'
+import { useAuth } from '../context/AuthContext'
 import { Menu, X } from 'lucide-react'
 
 const CURRENCIES = {
@@ -17,36 +17,14 @@ const CURRENCIES = {
 }
 
 export default function Navbar() {
-  const [user, setUser] = useState(null)
+  const { user, signOut } = useAuth()
   const { currency, changeCurrency } = useCurrency()
   const navigate = useNavigate()
   const location = useLocation()
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false)
-  const [isModalOpen, setIsModalOpen] = useState(false)
-
-  useEffect(() => {
-    const handleModalState = (event) => {
-      setIsModalOpen(event.detail.isOpen)
-    }
-    window.addEventListener('modalStateChange', handleModalState)
-    return () => window.removeEventListener('modalStateChange', handleModalState)
-  }, [])
-
-  useEffect(() => {
-    supabase.auth.getSession().then(({ data: { session } }) => {
-      setUser(session?.user ?? null)
-    })
-    
-    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
-      setUser(session?.user ?? null)
-    })
-    
-    return () => subscription.unsubscribe()
-  }, [])
 
   const handleLogout = async () => {
-    await supabase.auth.signOut()
-    setUser(null)
+    await signOut()
     navigate('/')
     setMobileMenuOpen(false)
   }

@@ -2,12 +2,13 @@ import { useState, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { supabase } from '../lib/supabase'
 import { motion } from 'framer-motion'
-import { Upload, X, Plus, Loader2 } from 'lucide-react'
+import { Upload, X, Loader2 } from 'lucide-react'
 import toast from 'react-hot-toast'
+import { useAuth } from '../context/AuthContext'
 
 export default function ListPropertyPage() {
   const navigate = useNavigate()
-  const [user, setUser] = useState(null)
+  const { user, loading: authLoading } = useAuth()
   const [loading, setLoading] = useState(false)
   const [uploading, setUploading] = useState(false)
   const [formData, setFormData] = useState({
@@ -25,19 +26,11 @@ export default function ListPropertyPage() {
   const [amenityInput, setAmenityInput] = useState('')
 
   useEffect(() => {
-    checkUser()
-  }, [])
-
-  async function checkUser() {
-    const { data: { user } } = await supabase.auth.getUser()
-    if (!user) {
+    if (!authLoading && !user) {
       toast.error('Please sign in to list a property')
       navigate('/login')
-      return
     }
-    setUser(user)
-  }
-  
+  }, [authLoading, user, navigate])
 
   const handleChange = (e) => {
     const { name, value, type, checked } = e.target
@@ -96,7 +89,6 @@ export default function ListPropertyPage() {
     if (!user) return
     setLoading(true)
     try {
-      // First, create a new condo record without images
       const { data: condo, error: condoError } = await supabase
         .from('condos')
         .insert({
@@ -110,19 +102,16 @@ export default function ListPropertyPage() {
           amenities: formData.amenities,
           description: formData.description,
           owner_id: user.id,
-          // generate a random code for the condo (optional)
-          code: Math.random().toString(36).substring(2, 8).toUpperCase()
+          code: crypto.randomUUID().split('-')[0].toUpperCase().slice(0, 6)
         })
         .select()
         .single()
 
       if (condoError) throw condoError
 
-      // Upload images (if any)
       const imageFiles = document.getElementById('image-input').files
       const imageUrls = await uploadImages(imageFiles)
       if (imageUrls.length > 0) {
-        // Update the condo with image URLs
         await supabase
           .from('condos')
           .update({ images: imageUrls })
@@ -157,27 +146,15 @@ export default function ListPropertyPage() {
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1">Property Title *</label>
-                <input
-                  type="text"
-                  name="title"
-                  required
-                  value={formData.title}
-                  onChange={handleChange}
+                <input type="text" name="title" required value={formData.title} onChange={handleChange}
                   className="w-full border border-gray-300 rounded-lg px-3 py-2 focus:ring-2 focus:ring-[#2d568e] focus:border-transparent"
-                  placeholder="e.g., Luxury Studio at Megaworld"
-                />
+                  placeholder="e.g., Luxury Studio at Megaworld" />
               </div>
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1">Location *</label>
-                <input
-                  type="text"
-                  name="location"
-                  required
-                  value={formData.location}
-                  onChange={handleChange}
+                <input type="text" name="location" required value={formData.location} onChange={handleChange}
                   className="w-full border border-gray-300 rounded-lg px-3 py-2 focus:ring-2 focus:ring-[#2d568e] focus:border-transparent"
-                  placeholder="e.g., Megaworld, Iloilo City"
-                />
+                  placeholder="e.g., Megaworld, Iloilo City" />
               </div>
             </div>
 
@@ -214,13 +191,8 @@ export default function ListPropertyPage() {
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-1">Amenities</label>
               <div className="flex gap-2">
-                <input
-                  type="text"
-                  value={amenityInput}
-                  onChange={(e) => setAmenityInput(e.target.value)}
-                  placeholder="e.g., WiFi, Parking, Pool"
-                  className="flex-1 border border-gray-300 rounded-lg px-3 py-2"
-                />
+                <input type="text" value={amenityInput} onChange={(e) => setAmenityInput(e.target.value)}
+                  placeholder="e.g., WiFi, Parking, Pool" className="flex-1 border border-gray-300 rounded-lg px-3 py-2" />
                 <button type="button" onClick={addAmenity} className="bg-gray-200 hover:bg-gray-300 px-4 rounded-lg transition">Add</button>
               </div>
               <div className="flex flex-wrap gap-2 mt-2">
@@ -238,22 +210,16 @@ export default function ListPropertyPage() {
               <label className="block text-sm font-medium text-gray-700 mb-1">Property Images</label>
               <div className="border-2 border-dashed border-gray-300 rounded-lg p-4 text-center">
                 <input type="file" id="image-input" multiple accept="image/*" className="hidden" />
-                <button
-                  type="button"
-                  onClick={() => document.getElementById('image-input').click()}
-                  className="bg-gray-100 hover:bg-gray-200 px-4 py-2 rounded-lg inline-flex items-center gap-2"
-                >
+                <button type="button" onClick={() => document.getElementById('image-input').click()}
+                  className="bg-gray-100 hover:bg-gray-200 px-4 py-2 rounded-lg inline-flex items-center gap-2">
                   <Upload size={18} /> Select Images
                 </button>
                 {uploading && <p className="text-sm text-gray-500 mt-2">Uploading...</p>}
               </div>
             </div>
 
-            <button
-              type="submit"
-              disabled={loading || uploading}
-              className="w-full bg-[#2d568e] text-white py-3 rounded-xl font-semibold hover:bg-[#1e3a5f] transition disabled:opacity-50 flex items-center justify-center gap-2"
-            >
+            <button type="submit" disabled={loading || uploading}
+              className="w-full bg-[#2d568e] text-white py-3 rounded-xl font-semibold hover:bg-[#1e3a5f] transition disabled:opacity-50 flex items-center justify-center gap-2">
               {loading ? <><Loader2 size={18} className="animate-spin" /> Processing...</> : 'List Property'}
             </button>
           </form>

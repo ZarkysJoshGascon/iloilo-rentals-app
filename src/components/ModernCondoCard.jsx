@@ -3,25 +3,14 @@ import { motion } from 'framer-motion'
 import { Link } from 'react-router-dom'
 import { MapPin, Users, Bed, Bath, Star, Heart, Eye } from 'lucide-react'
 import { useCurrency } from '../context/CurrencyContext'
+import { getCondoImages } from '../utils/condoImages'
 
 export default function ModernCondoCard({ condo }) {
   const { formatPrice } = useCurrency()
   const [currentImageIndex, setCurrentImageIndex] = useState(0)
   const [fade, setFade] = useState(true)
-  const [isHovered, setIsHovered] = useState(false)
   const [isLiked, setIsLiked] = useState(false)
-  
-  const getCondoImages = (condoCode) => {
-    if (!condoCode) return []
-    const STORAGE_URL = 'https://mlksustamjaxfpolazgw.supabase.co/storage/v1/object/public/condo-images/'
-    return [
-      `${STORAGE_URL}${condoCode}_1.jpg`,
-      `${STORAGE_URL}${condoCode}_2.jpg`,
-      `${STORAGE_URL}${condoCode}_3.jpg`,
-      `${STORAGE_URL}${condoCode}_4.jpg`,
-      `${STORAGE_URL}${condoCode}_5.jpg`
-    ]
-  }
+  // Removed unused isHovered state
   
   const condoImages = condo?.code ? getCondoImages(condo.code) : []
   const allImages = condoImages.length > 0 ? condoImages : [condo.images?.[0] || 'https://images.unsplash.com/photo-1560448204-e02f11c3d0e2?w=600&h=400&fit=crop']
@@ -47,8 +36,6 @@ export default function ModernCondoCard({ condo }) {
       transition={{ duration: 0.5 }}
       whileHover={{ y: -8 }}
       className="relative group"
-      onMouseEnter={() => setIsHovered(true)}
-      onMouseLeave={() => setIsHovered(false)}
     >
       <Link to={`/condo/${condo.id}`} className="block">
         <div className="bg-white rounded-2xl overflow-hidden shadow-lg hover:shadow-2xl transition-all duration-500 transform hover:-translate-y-2">

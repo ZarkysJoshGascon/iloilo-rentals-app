@@ -1,4 +1,4 @@
-import { createContext, useContext, useState, useEffect } from 'react'
+import { createContext, useContext, useState } from 'react'
 
 const EXCHANGE_RATES = {
   PHP: 1,
@@ -27,15 +27,11 @@ const CURRENCY_SYMBOLS = {
 const CurrencyContext = createContext()
 
 export function CurrencyProvider({ children }) {
-  const [currency, setCurrency] = useState('PHP')
-  const [updateTrigger, setUpdateTrigger] = useState(0)
-
-  useEffect(() => {
+  const [currency, setCurrency] = useState(() => {
     const saved = localStorage.getItem('preferredCurrency')
-    if (saved && EXCHANGE_RATES[saved]) {
-      setCurrency(saved)
-    }
-  }, [])
+    return (saved && EXCHANGE_RATES[saved]) ? saved : 'PHP'
+  })
+  const [updateTrigger, setUpdateTrigger] = useState(0)
 
   const changeCurrency = (newCurrency) => {
     setCurrency(newCurrency)
@@ -47,8 +43,14 @@ export function CurrencyProvider({ children }) {
   const formatPrice = (phpAmount) => {
     const rate = EXCHANGE_RATES[currency] || 1
     const symbol = CURRENCY_SYMBOLS[currency] || '₱'
-    const converted = Math.round(phpAmount * rate)
-    return `${symbol}${converted.toLocaleString()}`
+    const converted = phpAmount * rate
+    // Round to nearest 0.01 then format intelligently
+    const rounded = Math.round(converted * 100) / 100
+    // If whole number, show as integer; otherwise two decimals
+    const display = rounded % 1 === 0
+      ? Math.round(rounded).toLocaleString()
+      : rounded.toFixed(2).replace(/\B(?=(\d{3})+(?!\d))/g, ',')
+    return `${symbol}${display}`
   }
 
   return (
@@ -58,6 +60,7 @@ export function CurrencyProvider({ children }) {
   )
 }
 
+// eslint-disable-next-line react-refresh/only-export-components
 export function useCurrency() {
   const context = useContext(CurrencyContext)
   if (!context) {

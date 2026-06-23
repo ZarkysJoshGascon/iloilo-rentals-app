@@ -1,9 +1,10 @@
 import { StrictMode } from 'react'
 import { createRoot } from 'react-dom/client'
-import { BrowserRouter } from 'react-router-dom'   // ← change from HashRouter to BrowserRouter
+import { BrowserRouter } from 'react-router-dom'
 import './index.css'
 import App from './App.jsx'
 import { CurrencyProvider } from './context/CurrencyContext'
+import { AuthProvider } from './context/AuthContext'
 import ErrorBoundary from './components/ErrorBoundary'
 
 if ('scrollRestoration' in history) {
@@ -13,11 +14,13 @@ if ('scrollRestoration' in history) {
 createRoot(document.getElementById('root')).render(
   <StrictMode>
     <ErrorBoundary>
-      <BrowserRouter>           {/* ← BrowserRouter, not HashRouter */}
-        <CurrencyProvider>
-          <App />
-        </CurrencyProvider>
-      </BrowserRouter>
+      <AuthProvider>
+        <BrowserRouter>
+          <CurrencyProvider>
+            <App />
+          </CurrencyProvider>
+        </BrowserRouter>
+      </AuthProvider>
     </ErrorBoundary>
   </StrictMode>,
 )

@@ -1,28 +1,25 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useCallback } from 'react'
 import { createPortal } from 'react-dom'
 import { useParams, useNavigate, Link } from 'react-router-dom'
-import { motion, AnimatePresence } from 'framer-motion'
+import { motion } from 'framer-motion'
 import { supabase } from '../lib/supabase'
-import { Calendar, Users, MapPin, Bed, Bath, Square, Wifi, Coffee, Car, Wind, Shield, X, Info, Clock, CheckCircle, AlertCircle, ChevronLeft, ChevronRight, Star, Calendar as CalendarIcon, Check, ChevronDown, ChevronUp, ExternalLink, Loader2 } from 'lucide-react'
+import {
+  Users, MapPin, Bed, Bath, Square,
+  Wifi, Shield, X, Clock, CheckCircle, AlertCircle,
+  ChevronDown, ChevronUp, Loader2
+} from 'lucide-react'
 import { differenceInDays, format } from 'date-fns'
 import toast from 'react-hot-toast'
 import { useCurrency } from '../context/CurrencyContext'
+import { useAuth } from '../context/AuthContext'
 import DatePicker from 'react-datepicker'
 import ImageGallery from '../components/ImageGallery'
 import "react-datepicker/dist/react-datepicker.css"
+import { getCondoImages } from '../utils/condoImages'
 
-const getCondoImages = (condoCode) => {
-  if (!condoCode) return []
-  const STORAGE_URL = 'https://mlksustamjaxfpolazgw.supabase.co/storage/v1/object/public/condo-images/'
-  return [
-    `${STORAGE_URL}${condoCode}_1.jpg`,
-    `${STORAGE_URL}${condoCode}_2.jpg`,
-    `${STORAGE_URL}${condoCode}_3.jpg`,
-    `${STORAGE_URL}${condoCode}_4.jpg`,
-    `${STORAGE_URL}${condoCode}_5.jpg`
-  ]
-}
-
+/* ------------------------------------------------------------------ */
+/*  Date‑picker styles                                                */
+/* ------------------------------------------------------------------ */
 const customDatePickerStyles = `
   .react-datepicker-popper {
     z-index: 100 !important;
@@ -96,7 +93,10 @@ const customDatePickerStyles = `
   }
 `
 
-const ExpandableSection = ({ title, icon: Icon, children, defaultOpen = false }) => {
+/* ------------------------------------------------------------------ */
+/*  ExpandableSection                                                  */
+/* ------------------------------------------------------------------ */
+function ExpandableSection({ title, icon: Icon, children, defaultOpen = false }) {
   const [isOpen, setIsOpen] = useState(defaultOpen)
   return (
     <div className="border border-gray-200 rounded-xl mb-3 overflow-hidden bg-white">
@@ -115,54 +115,69 @@ const ExpandableSection = ({ title, icon: Icon, children, defaultOpen = false })
   )
 }
 
+/* ------------------------------------------------------------------ */
+/*  CustomDateInput                                                    */
+/* ------------------------------------------------------------------ */
+function CustomDateInput({ value, onClick, label }) {
+  return (
+    <div onClick={onClick} className="w-full bg-gradient-to-br from-[#2d568e]/5 to-white rounded-xl p-3 cursor-pointer hover:from-[#2d568e]/10 transition border border-[#2d568e]/20 text-center">
+      <div className="text-xs text-[#2d568e] font-semibold">{label}</div>
+      <div className="font-bold text-gray-800 truncate">{value}</div>
+    </div>
+  )
+}
+
+/* ------------------------------------------------------------------ */
+/*  Main Component                                                     */
+/* ------------------------------------------------------------------ */
 export default function CondoDetailPage() {
   const { id } = useParams()
   const navigate = useNavigate()
   const { formatPrice } = useCurrency()
+  const { user } = useAuth()
+
+  /* ---------- state ---------- */
   const [condo, setCondo] = useState(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState(null)
-  const [user, setUser] = useState(null)
-  
+
   const [startDate, setStartDate] = useState(new Date())
   const [endDate, setEndDate] = useState(() => {
     const tomorrow = new Date()
     tomorrow.setDate(tomorrow.getDate() + 1)
     return tomorrow
   })
-  
+
   const [adults, setAdults] = useState(2)
   const [children, setChildren] = useState(0)
   const [infants, setInfants] = useState(0)
   const [seniors, setSeniors] = useState(0)
-  
+
   const ADULT_RATE = 1.0
   const CHILD_RATE = 0.9
   const INFANT_RATE = 0.8
   const SENIOR_RATE = 0.8
-  
+
   const [promoCode, setPromoCode] = useState('')
   const [cancellationPolicy, setCancellationPolicy] = useState('moderate')
   const [showBookingForm, setShowBookingForm] = useState(false)
   const [isSubmitting, setIsSubmitting] = useState(false)
-  
+
   const [showGuestDropdownDesktop, setShowGuestDropdownDesktop] = useState(false)
-  const [showGuestDropdownMobile, setShowGuestDropdownMobile] = useState(false)
-  
+
   const [guestInfo, setGuestInfo] = useState({ firstName: '', lastName: '', phone: '' })
   const [acceptedTerms, setAcceptedTerms] = useState(false)
   const [promoApplied, setPromoApplied] = useState(false)
   const [promoDiscount, setPromoDiscount] = useState(0)
   const [termsError, setTermsError] = useState(false)
-  
-  const [isDrawerOpen, setIsDrawerOpen] = useState(false)
-  
+
   const [validationErrors, setValidationErrors] = useState({
     firstName: '',
     lastName: '',
     phone: ''
   })
 
+  /* modal container */
   const [modalContainer] = useState(() => {
     let div = document.getElementById('modal-root')
     if (!div) {
@@ -173,20 +188,7 @@ export default function CondoDetailPage() {
     return div
   })
 
-  // Pre‑fill guest info from Google user metadata when modal opens
-  useEffect(() => {
-    if (user && showBookingForm) {
-      const fullName = user.user_metadata?.full_name || ''
-      const firstName = fullName.split(' ')[0] || ''
-      const lastName = fullName.split(' ').slice(1).join(' ') || ''
-      setGuestInfo(prev => ({
-        ...prev,
-        firstName: firstName || prev.firstName,
-        lastName: lastName || prev.lastName,
-      }))
-    }
-  }, [user, showBookingForm])
-
+  /* ---------- helpers ---------- */
   const validateName = (name, fieldName) => {
     if (!name || !name.trim()) return `${fieldName} is required`
     if (name.length < 2) return `${fieldName} must be at least 2 characters`
@@ -196,65 +198,18 @@ export default function CondoDetailPage() {
 
   const validatePhilippinePhone = (phone) => {
     if (!phone || !phone.trim()) return 'Phone number is required'
-    let cleaned = phone.replace(/[\s\-\(\)]/g, '')
-    let isValid = false
-    let displayError = 'Enter a valid Philippine mobile number (e.g., 09123456789 or +639123456789)'
-    if (cleaned.startsWith('+63')) {
-      const numberPart = cleaned.substring(1)
-      if (numberPart.length === 12 && numberPart.startsWith('63')) isValid = true
+    const cleaned = phone.replace(/[\s\-()]/g, '')
+    if (cleaned.startsWith('+63') && cleaned.length === 13 && cleaned.startsWith('+63')) return ''
+    if (cleaned.startsWith('09') && cleaned.length === 11) return ''
+    if (cleaned.startsWith('63') && cleaned.length === 12) return ''
+    if (cleaned.length === 10 && /^\d{10}$/.test(cleaned)) {
+      return 'Please include "09" at the beginning (e.g., 09' + cleaned + ')'
     }
-    else if (cleaned.startsWith('09') && cleaned.length === 11) isValid = true
-    else if (cleaned.startsWith('63') && cleaned.length === 12) isValid = true
-    else if (cleaned.length === 10 && /^\d{10}$/.test(cleaned)) {
-      displayError = 'Please include "09" at the beginning (e.g., 09' + cleaned + ')'
-    }
-    return isValid ? '' : displayError
+    return 'Enter a valid Philippine mobile number (e.g., 09123456789 or +639123456789)'
   }
 
-  const handleGuestInfoChange = (field, value) => {
-    setGuestInfo(prev => ({ ...prev, [field]: value }))
-    setTermsError(false)
-    let error = ''
-    if (field === 'firstName') error = validateName(value, 'First name')
-    else if (field === 'lastName') error = validateName(value, 'Last name')
-    else if (field === 'phone') error = validatePhilippinePhone(value)
-    setValidationErrors(prev => ({ ...prev, [field]: error }))
-  }
-
-  useEffect(() => {
-    if (showBookingForm) {
-      document.body.classList.add('modal-open')
-      window.dispatchEvent(new CustomEvent('modalStateChange', { detail: { isOpen: true } }))
-    } else {
-      document.body.classList.remove('modal-open')
-      window.dispatchEvent(new CustomEvent('modalStateChange', { detail: { isOpen: false } }))
-    }
-    return () => {
-      document.body.classList.remove('modal-open')
-      window.dispatchEvent(new CustomEvent('modalStateChange', { detail: { isOpen: false } }))
-    }
-  }, [showBookingForm])
-
-  useEffect(() => {
-    const styleElement = document.createElement('style')
-    styleElement.innerHTML = customDatePickerStyles
-    document.head.appendChild(styleElement)
-    return () => document.head.removeChild(styleElement)
-  }, [])
-
-  useEffect(() => {
-    fetchCondoDetails()
-    checkUser()
-  }, [id])
-
-  async function checkUser() {
-    try {
-      const { data: { user } } = await supabase.auth.getUser()
-      setUser(user)
-    } catch (err) { console.error('Auth error:', err) }
-  }
-
-  async function fetchCondoDetails() {
+  /* ---------- data fetching ---------- */
+  const fetchCondoDetails = useCallback(async () => {
     try {
       setLoading(true)
       setError(null)
@@ -272,15 +227,63 @@ export default function CondoDetailPage() {
     } finally {
       setLoading(false)
     }
-  }
+  }, [id])
 
+  /* ---------- effects that do NOT depend on derived values ---------- */
+  // Pre‑fill guest info from Google metadata when modal opens
+  useEffect(() => {
+    if (user && showBookingForm) {
+      const fullName = user.user_metadata?.full_name || ''
+      const firstName = fullName.split(' ')[0] || ''
+      const lastName = fullName.split(' ').slice(1).join(' ') || ''
+      // eslint-disable-next-line react-hooks/set-state-in-effect
+      setGuestInfo(prev => ({
+        ...prev,
+        firstName: firstName || prev.firstName,
+        lastName: lastName || prev.lastName,
+      }))
+    }
+  }, [user, showBookingForm])
+
+  // Modal open/close side effects
+  useEffect(() => {
+    if (showBookingForm) {
+      document.body.classList.add('modal-open')
+      window.dispatchEvent(new CustomEvent('modalStateChange', { detail: { isOpen: true } }))
+    } else {
+      document.body.classList.remove('modal-open')
+      window.dispatchEvent(new CustomEvent('modalStateChange', { detail: { isOpen: false } }))
+    }
+    return () => {
+      document.body.classList.remove('modal-open')
+      window.dispatchEvent(new CustomEvent('modalStateChange', { detail: { isOpen: false } }))
+    }
+  }, [showBookingForm])
+
+  // Inject date‑picker styles
+  useEffect(() => {
+    const styleElement = document.createElement('style')
+    styleElement.innerHTML = customDatePickerStyles
+    document.head.appendChild(styleElement)
+    return () => document.head.removeChild(styleElement)
+  }, [])
+
+  // Initial data load
+  useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    fetchCondoDetails()
+  }, [fetchCondoDetails])
+
+  /* ---------- derived values ---------- */
   const condoImages = condo?.code ? getCondoImages(condo.code) : []
-  const allImages = condoImages.length > 0 ? condoImages : [condo?.images?.[0] || 'https://images.unsplash.com/photo-1560448204-e02f11c3d0e2?w=1200']
-  
+  const allImages = condoImages.length > 0
+    ? condoImages
+    : [condo?.images?.[0] || 'https://images.unsplash.com/photo-1560448204-e02f11c3d0e2?w=1200']
+
   const totalGuests = adults + children + seniors
   const nights = startDate && endDate ? differenceInDays(endDate, startDate) : 0
   const basePricePerNight = condo?.price_per_night || 0
-  
+
   const calculateNightlyRate = () => {
     const adultTotal = adults * basePricePerNight * ADULT_RATE
     const childTotal = children * basePricePerNight * CHILD_RATE
@@ -288,19 +291,32 @@ export default function CondoDetailPage() {
     const seniorTotal = seniors * basePricePerNight * SENIOR_RATE
     return adultTotal + childTotal + infantTotal + seniorTotal
   }
-  
-  const effectiveNightlyRate = calculateNightlyRate()
-  let subtotal = nights * effectiveNightlyRate
-  let serviceFee = subtotal * 0.05
-  let total = subtotal + serviceFee
 
+  const effectiveNightlyRate = calculateNightlyRate()
+  const subtotal = nights * effectiveNightlyRate
+  const serviceFee = subtotal * 0.05
+  const total = subtotal + serviceFee
+
+  /* ---------- effect that depends on `total` ---------- */
   useEffect(() => {
     if (promoApplied) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect
       setPromoApplied(false)
       setPromoDiscount(0)
       setPromoCode('')
     }
-  }, [total])
+  }, [total])  // eslint-disable-line react-hooks/exhaustive-deps
+
+  /* ---------- handlers ---------- */
+  const handleGuestInfoChange = (field, value) => {
+    setGuestInfo(prev => ({ ...prev, [field]: value }))
+    setTermsError(false)
+    let error = ''
+    if (field === 'firstName') error = validateName(value, 'First name')
+    else if (field === 'lastName') error = validateName(value, 'Last name')
+    else if (field === 'phone') error = validatePhilippinePhone(value)
+    setValidationErrors(prev => ({ ...prev, [field]: error }))
+  }
 
   const applyPromo = () => {
     if (promoCode.toLowerCase() === 'welcome10') {
@@ -337,39 +353,47 @@ export default function CondoDetailPage() {
     const firstNameError = validateName(guestInfo.firstName, 'First name')
     const lastNameError = validateName(guestInfo.lastName, 'Last name')
     const phoneError = validatePhilippinePhone(guestInfo.phone)
-    
+
     setValidationErrors({
       firstName: firstNameError,
       lastName: lastNameError,
       phone: phoneError
     })
-    
+
     if (!acceptedTerms) {
       setTermsError(true)
       toast.error('Please accept the Terms & Conditions')
       return
     }
-    
+
     if (firstNameError || lastNameError || phoneError) {
       toast.error('Please fix the errors in the form')
       return
     }
-    
+
     setIsSubmitting(true)
     try {
-      // Get user's avatar URL from Google metadata
       const avatarUrl = user?.user_metadata?.avatar_url || null
-
       const bookingData = {
-        condo_id: id, user_id: user.id,
+        condo_id: id,
+        user_id: user.id,
         guest_name: `${guestInfo.firstName} ${guestInfo.lastName}`,
-        guest_email: user.email, guest_phone: guestInfo.phone,
-        start_date: format(startDate, 'yyyy-MM-dd'), end_date: format(endDate, 'yyyy-MM-dd'),
-        adults, children, infants, seniors,
+        guest_email: user.email,
+        guest_phone: guestInfo.phone,
+        start_date: format(startDate, 'yyyy-MM-dd'),
+        end_date: format(endDate, 'yyyy-MM-dd'),
+        adults,
+        children,
+        infants,
+        seniors,
         promo_code: promoApplied ? promoCode : null,
-        promo_discount: promoDiscount, cancellation_policy: cancellationPolicy,
-        subtotal, service_fee: serviceFee, total_amount: finalTotal, status: 'pending',
-        avatar_url: avatarUrl   // <-- store the Google profile image
+        promo_discount: promoDiscount,
+        cancellation_policy: cancellationPolicy,
+        subtotal,
+        service_fee: serviceFee,
+        total_amount: finalTotal,
+        status: 'pending',
+        avatar_url: avatarUrl
       }
       const { error: insertError } = await supabase.from('bookings').insert(bookingData)
       if (insertError) throw insertError
@@ -396,16 +420,11 @@ export default function CondoDetailPage() {
     return parts.join(', ') || 'Select guests'
   }
 
-  const CustomDateInput = ({ value, onClick, label }) => (
-    <div onClick={onClick} className="w-full bg-gradient-to-br from-[#2d568e]/5 to-white rounded-xl p-3 cursor-pointer hover:from-[#2d568e]/10 transition border border-[#2d568e]/20 text-center">
-      <div className="text-xs text-[#2d568e] font-semibold">{label}</div>
-      <div className="font-bold text-gray-800 truncate">{value}</div>
-    </div>
-  )
-
+  /* ---------- loading / error states ---------- */
   if (loading) return <div className="min-h-screen flex items-center justify-center"><div className="animate-spin rounded-full h-12 w-12 border-b-2 border-[#2d568e]"></div></div>
   if (error || !condo) return <div className="min-h-screen flex items-center justify-center">Condo not found</div>
 
+  /* ---------- booking modal (portal) ---------- */
   const bookingModal = showBookingForm && createPortal(
     <div className="fixed inset-0 z-[99999] flex items-center justify-center">
       <div className="absolute inset-0 backdrop-blur-md bg-black/30" onClick={() => setShowBookingForm(false)} />
@@ -472,6 +491,7 @@ export default function CondoDetailPage() {
     modalContainer
   )
 
+  /* ---------- main render ---------- */
   return (
     <div className="fixed inset-0 bg-gray-50 flex overflow-hidden">
       {/* DESKTOP LAYOUT (≥ 1024px) */}
@@ -551,7 +571,7 @@ export default function CondoDetailPage() {
         </div>
       </div>
 
-      {/* MOBILE LAYOUT - Bottom sheet (unchanged – keep your existing mobile code) */}
+      {/* MOBILE LAYOUT */}
       <div className="lg:hidden w-full h-full overflow-y-auto pb-32">
         <ImageGallery images={allImages} title={condo.title} />
         <div className="px-4 py-6">
@@ -586,12 +606,16 @@ export default function CondoDetailPage() {
             <div className="bg-gray-100 h-48 rounded-xl flex items-center justify-center"><MapPin size={24} className="text-gray-400" /><span className="ml-2 text-gray-500 text-sm">{condo.location}</span></div>
           </ExpandableSection>
         </div>
-      </div>
 
-      {/* MOBILE BOTTOM SHEET - keep your existing code (same as before) */}
-      <div className="lg:hidden fixed bottom-0 left-0 right-0 z-50" style={{ paddingBottom: 'env(safe-area-inset-bottom)' }}>
-        {/* ... your existing mobile bottom sheet JSX ... */}
-        {/* (I'm not duplicating the entire 200 lines here; keep what you have) */}
+        {/* MOBILE BOTTOM BAR – Reserve button */}
+        <div className="lg:hidden fixed bottom-0 left-0 right-0 z-40 bg-white/95 backdrop-blur-md border-t border-gray-200 px-4 py-3" style={{ paddingBottom: 'env(safe-area-inset-bottom, 16px)' }}>
+          <button
+            onClick={handleBookNowClick}
+            className="w-full bg-[#2d568e] text-white py-3 rounded-xl font-semibold text-base shadow-lg hover:bg-[#1e3a5f] transition"
+          >
+            {user ? 'Reserve Now' : 'Sign in to Book'}
+          </button>
+        </div>
       </div>
 
       {bookingModal}

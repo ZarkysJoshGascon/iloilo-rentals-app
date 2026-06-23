@@ -1,6 +1,6 @@
 import { useState } from 'react'
-import { supabase } from '../lib/supabase'
 import { useNavigate } from 'react-router-dom'
+import { useAuth } from '../context/AuthContext'
 import { 
   Users, CalendarDays, DoorOpen, LogOut,
   ChevronLeft, ChevronRight
@@ -10,9 +10,10 @@ import toast from 'react-hot-toast'
 export default function AdminSidebar({ activeTab, setActiveTab }) {
   const navigate = useNavigate()
   const [collapsed, setCollapsed] = useState(false)
+  const { signOut } = useAuth()
 
   const handleSignOut = async () => {
-    await supabase.auth.signOut()
+    await signOut()
     toast.success('Signed out')
     navigate('/')
   }

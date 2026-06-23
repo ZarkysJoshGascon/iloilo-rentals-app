@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useCallback } from 'react'
 import LeadsList from '../components/LeadsList'
 import LeadDetail from '../components/LeadDetail'
 import BookingsList from '../components/BookingsList'
@@ -6,24 +6,20 @@ import CalendarView from '../components/CalendarView'
 import AdminSidebar from '../components/AdminSidebar'
 import { Moon, Sun, Users, CalendarDays, DoorOpen, LayoutDashboard, LogOut } from 'lucide-react'
 import { useTheme } from '../context/ThemeContext'
+import { useAuth } from '../context/AuthContext'
 import { supabase } from '../lib/supabase'
 import { useNavigate } from 'react-router-dom'
 
 export default function AdminDashboard() {
+  const { user, signOut } = useAuth()
   const [selectedLeadId, setSelectedLeadId] = useState(null)
   const [activeTab, setActiveTab] = useState('bookings')
-  const [searchTerm, setSearchTerm] = useState('')
   const [adminUser, setAdminUser] = useState(null)
   const [showProfileMenu, setShowProfileMenu] = useState(false)
   const { isDark, toggleTheme } = useTheme()
   const navigate = useNavigate()
 
-  useEffect(() => {
-    fetchAdminProfile()
-  }, [])
-
-  const fetchAdminProfile = async () => {
-    const { data: { user } } = await supabase.auth.getUser()
+  const fetchAdminProfile = useCallback(() => {
     if (user) {
       setAdminUser({
         name: user.user_metadata?.full_name || user.email?.split('@')[0] || 'Admin',
@@ -31,10 +27,14 @@ export default function AdminDashboard() {
         avatar: user.user_metadata?.avatar_url || null
       })
     }
-  }
+  }, [user])
+
+  useEffect(() => {
+    fetchAdminProfile()
+  }, [fetchAdminProfile])
 
   const handleSignOut = async () => {
-    await supabase.auth.signOut()
+    await signOut()
     navigate('/')
   }
 
@@ -46,17 +46,6 @@ export default function AdminDashboard() {
       default: return 'Dashboard'
     }
   }
-
-  const getTabIcon = () => {
-    switch(activeTab) {
-      case 'leads': return Users
-      case 'bookings': return CalendarDays
-      case 'calendar': return DoorOpen
-      default: return LayoutDashboard
-    }
-  }
-
-  const TabIcon = getTabIcon()
 
   return (
     <div className="h-screen flex flex-col bg-[#d4deec] dark:bg-gray-900 overflow-hidden transition-colors duration-300">
@@ -144,7 +133,10 @@ export default function AdminDashboard() {
             {/* Title Header - stays fixed */}
             <div className="border-b border-gray-200 dark:border-gray-700 px-6 py-4 flex items-center gap-3 flex-shrink-0">
               <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-[#2d568e] to-[#1e3a5f] flex items-center justify-center shadow-md">
-                <TabIcon size={20} className="text-white" />
+                {activeTab === 'leads' && <Users size={20} className="text-white" />}
+                {activeTab === 'bookings' && <CalendarDays size={20} className="text-white" />}
+                {activeTab === 'calendar' && <DoorOpen size={20} className="text-white" />}
+                {activeTab !== 'leads' && activeTab !== 'bookings' && activeTab !== 'calendar' && <LayoutDashboard size={20} className="text-white" />}
               </div>
               <div>
                 <h2 className="text-lg font-semibold text-gray-800 dark:text-gray-100">{getTabTitle()}</h2>
@@ -161,7 +153,7 @@ export default function AdminDashboard() {
               {activeTab === 'leads' && (
                 <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
                   <div className="lg:col-span-1">
-                    <LeadsList onSelectLead={setSelectedLeadId} selectedId={selectedLeadId} searchTerm={searchTerm} />
+                    <LeadsList onSelectLead={setSelectedLeadId} selectedId={selectedLeadId} searchTerm="" />
                   </div>
                   <div className="lg:col-span-2">
                     {selectedLeadId ? (
@@ -178,7 +170,7 @@ export default function AdminDashboard() {
                 </div>
               )}
 
-              {activeTab === 'bookings' && <BookingsList searchTerm={searchTerm} />}
+              {activeTab === 'bookings' && <BookingsList searchTerm="" />}
 
               {activeTab === 'calendar' && <CalendarView />}
             </div>

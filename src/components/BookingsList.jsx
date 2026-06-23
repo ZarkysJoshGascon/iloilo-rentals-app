@@ -2,32 +2,14 @@ import React, { useEffect, useState } from 'react'
 import { supabase } from '../lib/supabase'
 import { format } from 'date-fns'
 import {
-  Check, X, Trash2, AlertTriangle, ChevronDown, ChevronRight,
-  Mail, Phone, Search, ArrowUpDown, RefreshCw, Calendar,
-  Users, DollarSign, Home, Clock, Eye, Building2, User, Baby, PersonStanding, Hash
+  Check, X, Trash2, AlertTriangle, ChevronDown,
+  Mail, Search, ArrowUpDown, RefreshCw, Calendar,
+  Users, DollarSign, Clock, Building2, User, Baby, PersonStanding, Hash
 } from 'lucide-react'
 import { useCurrency } from '../context/CurrencyContext'
 import toast from 'react-hot-toast'
 import { motion, AnimatePresence } from 'framer-motion'
-
-const AVATAR_PALETTES = [
-  ['#EAF3DE', '#3B6D11'],
-  ['#E6F1FB', '#185FA5'],
-  ['#FAEEDA', '#854F0B'],
-  ['#EEEDFE', '#3C3489'],
-  ['#FBEAF0', '#993556'],
-  ['#FFF4E6', '#B45309'],
-  ['#F0FDF4', '#166534'],
-  ['#FEF2F2', '#991B1B'],
-  ['#F3E8FF', '#6B21A8'],
-  ['#ECFEFF', '#155E75'],
-]
-function avatarColors(name) {
-  return AVATAR_PALETTES[name.charCodeAt(0) % AVATAR_PALETTES.length]
-}
-function initials(name) {
-  return name.split(' ').map(w => w[0]).join('').slice(0, 2).toUpperCase()
-}
+import { avatarColors, initials } from '../utils/avatar'
 
 const TruncateTooltip = ({ text, maxLength = 20, className = '' }) => {
   const [showFull, setShowFull] = useState(false)
@@ -53,7 +35,7 @@ const TruncateTooltip = ({ text, maxLength = 20, className = '' }) => {
   )
 }
 
-function SummaryCards({ totalCount, pendingCount, confirmedCount, totalRevenue, rejectedCount, conflictCount, formatPrice }) {
+function SummaryCards({ totalCount, pendingCount, confirmedCount, totalRevenue, conflictCount, formatPrice }) {
   const cards = [
     {
       label: 'Total Bookings', value: totalCount, sub: `${confirmedCount} confirmed · ${pendingCount} pending`,
@@ -182,10 +164,12 @@ export default function BookingsList({ searchTerm: externalSearchTerm = '' }) {
     finally { setLoading(false) }
   }
 
+  // eslint-disable-next-line react-hooks/set-state-in-effect
   useEffect(() => {
     fetchBookings()
     const sub = supabase.channel('bookings-realtime').on('postgres_changes', { event: '*', schema: 'public', table: 'bookings' }, fetchBookings).subscribe()
     return () => sub.unsubscribe()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [sortBy])
 
   const handleConfirmAction = async () => {
@@ -204,7 +188,7 @@ export default function BookingsList({ searchTerm: externalSearchTerm = '' }) {
         toast.success(`Booking ${booking.booking_code} ${newStatus}`)
       }
       fetchBookings()
-    } catch (err) { toast.error('Failed to update booking') }
+    } catch { toast.error('Failed to update booking') }
     finally { setActionLoading(null) }
   }
 
@@ -270,10 +254,8 @@ export default function BookingsList({ searchTerm: externalSearchTerm = '' }) {
 
   return (
     <div className="flex flex-col flex-1 min-h-0 space-y-5">
-      {/* Summary Cards */}
-      <SummaryCards totalCount={totalCount} pendingCount={pendingCount} confirmedCount={confirmedCount} totalRevenue={totalRevenue} rejectedCount={rejectedCount} conflictCount={conflictCount} formatPrice={formatPrice} />
+      <SummaryCards totalCount={totalCount} pendingCount={pendingCount} confirmedCount={confirmedCount} totalRevenue={totalRevenue} conflictCount={conflictCount} formatPrice={formatPrice} />
 
-      {/* Search and Sort Bar */}
       <div className="bg-white dark:bg-gray-800 rounded-xl border border-gray-100 dark:border-gray-700 p-4 flex-shrink-0">
         <div className="flex flex-col sm:flex-row gap-3">
           <div className="relative flex-1">
@@ -292,12 +274,8 @@ export default function BookingsList({ searchTerm: externalSearchTerm = '' }) {
         </div>
       </div>
 
-      {/* TABLE - takes remaining height */}
       <div className="bg-white dark:bg-gray-800 rounded-xl border border-gray-100 dark:border-gray-700 overflow-hidden shadow-sm flex flex-col flex-1 min-h-0">
-        
-        {/* STICKY: Status Tabs + Column Headers - stays below "Bookings Management" title */}
         <div className="sticky top-0 z-20 bg-white dark:bg-gray-800 border-b border-gray-100 dark:border-gray-700 flex-shrink-0">
-          {/* Status Tabs */}
           <div className="px-4 py-3 flex gap-1.5 overflow-x-auto">
             {tabs.map(tab => (
               <button key={tab.id} onClick={() => setActiveGroup(tab.id)} className={`relative flex items-center gap-2 px-4 py-2 rounded-xl font-semibold text-sm transition-all duration-200 whitespace-nowrap ${activeGroup === tab.id ? 'bg-gray-100 dark:bg-gray-700 shadow-sm text-gray-900 dark:text-gray-100' : 'text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-700/50'}`}>
@@ -305,7 +283,6 @@ export default function BookingsList({ searchTerm: externalSearchTerm = '' }) {
               </button>
             ))}
           </div>
-          {/* Column Headers */}
           <div className="bg-gray-50/80 dark:bg-gray-700/80 backdrop-blur-sm border-y border-gray-100 dark:border-gray-700">
             <div className="flex items-center px-5 py-3 text-xs font-bold text-gray-500 dark:text-gray-400 uppercase tracking-wider">
               <div className="w-[300px] flex-shrink-0">Guest</div><div className="flex-1 min-w-0">Booking Details</div><div className="w-[200px] flex-shrink-0 hidden md:block">Unit</div><div className="flex-shrink-0 hidden lg:block" style={{width: '180px'}}>Dates</div><div className="w-[120px] flex-shrink-0 text-right">Amount</div><div className="w-[150px] flex-shrink-0 text-center">Actions</div>
@@ -313,7 +290,6 @@ export default function BookingsList({ searchTerm: externalSearchTerm = '' }) {
           </div>
         </div>
 
-        {/* SCROLLABLE: Table Body */}
         <div className="flex-1 overflow-y-auto">
           {filteredBookings.length === 0 ? (
             <div className="flex items-center justify-center min-h-[300px]"><div className="text-center py-16"><div className="w-16 h-16 rounded-2xl bg-gray-100 dark:bg-gray-700 flex items-center justify-center mx-auto mb-4"><Calendar size={28} className="text-gray-400 dark:text-gray-500" /></div><p className="text-base font-semibold text-gray-500 dark:text-gray-400">No bookings found</p><p className="text-sm text-gray-400 dark:text-gray-500 mt-1">Try adjusting your search or filters</p></div></div>

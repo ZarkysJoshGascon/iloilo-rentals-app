@@ -3,35 +3,21 @@ import { useNavigate } from 'react-router-dom'
 import { motion, AnimatePresence } from 'framer-motion'
 import { supabase } from '../lib/supabase'
 import { format } from 'date-fns'
-import { Calendar, MapPin, Users, ChevronRight, Clock, AlertCircle, CheckCircle, XCircle, X, ChevronLeft, ChevronRight as ChevronRightIcon, Trash2, Ban } from 'lucide-react'
+import { MapPin, ChevronRight, Clock, AlertCircle, CheckCircle, XCircle, Ban } from 'lucide-react'
 import { useCurrency } from '../context/CurrencyContext'
+import { useAuth } from '../context/AuthContext'
 import toast from 'react-hot-toast'
+import { getCondoImage } from '../utils/condoImages'
 
 export default function MyBookingsPage() {
+  const { user, loading: authLoading } = useAuth()
   const [bookings, setBookings] = useState([])
   const [loading, setLoading] = useState(true)
-  const [user, setUser] = useState(null)
   const navigate = useNavigate()
   const { formatPrice } = useCurrency()
-  
-  const [modalOpen, setModalOpen] = useState(false)
-  const [currentImageIndex, setCurrentImageIndex] = useState(0)
-  const [currentCondoImages, setCurrentCondoImages] = useState([])
-  const [currentCondoTitle, setCurrentCondoTitle] = useState('')
   const [cancellingId, setCancellingId] = useState(null)
 
-  useEffect(() => {
-    checkUser()
-  }, [])
-
-  async function checkUser() {
-    const { data: { user } } = await supabase.auth.getUser()
-    if (!user) { navigate('/login'); return }
-    setUser(user)
-    fetchBookings(user.id)
-  }
-
-  async function fetchBookings(userId) {
+  const fetchBookings = async (userId) => {
     try {
       const { data, error } = await supabase
         .from('bookings')
@@ -48,6 +34,17 @@ export default function MyBookingsPage() {
     }
   }
 
+  useEffect(() => {
+    if (!authLoading && !user) {
+      navigate('/login')
+      return
+    }
+    if (user) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect
+      fetchBookings(user.id)
+    }
+  }, [authLoading, user, navigate])
+
   const cancelBooking = async (bookingId) => {
     if (!confirm('Are you sure you want to cancel this booking?')) return
     setCancellingId(bookingId)
@@ -59,8 +56,7 @@ export default function MyBookingsPage() {
         .eq('user_id', user.id)
       if (error) throw error
       toast.success('Booking cancelled successfully')
-      // Update local state
-      setBookings(prev => prev.map(booking => 
+      setBookings(prev => prev.map(booking =>
         booking.id === bookingId ? { ...booking, status: 'cancelled' } : booking
       ))
     } catch (error) {
@@ -81,46 +77,34 @@ export default function MyBookingsPage() {
     }
   }
 
-  const getCondoImage = (condo) => {
-    if (!condo) return null
-    if (condo.images?.[0]) return condo.images[0]
-    if (condo.code) return `https://mlksustamjaxfpolazgw.supabase.co/storage/v1/object/public/condo-images/${condo.code}_1.jpg`
-    return null
-  }
-
   const totalGuests = (booking) => (booking.adults || 0) + (booking.children || 0) + (booking.seniors || 0)
 
   const pageVariants = {
     hidden: { opacity: 0 },
     visible: { opacity: 1, transition: { duration: 0.5 } }
   }
-
   const headerVariants = {
     hidden: { opacity: 0, y: -30 },
     visible: { opacity: 1, y: 0, transition: { duration: 0.5 } }
   }
-
   const emptyStateVariants = {
     hidden: { opacity: 0, scale: 0.9 },
     visible: { opacity: 1, scale: 1, transition: { duration: 0.5, type: "spring", stiffness: 200 } }
   }
-
   const bookingCardVariants = {
     hidden: { opacity: 0, x: -30 },
     visible: (index) => ({ opacity: 1, x: 0, transition: { duration: 0.4, delay: index * 0.1 } }),
     hover: { scale: 1.01, boxShadow: "0 20px 25px -5px rgba(0,0,0,0.1), 0 10px 10px -5px rgba(0,0,0,0.04)", transition: { duration: 0.2 } }
   }
-
   const cancelButtonVariants = {
     tap: { scale: 0.8 },
     hover: { scale: 1.1, color: "#dc2626" }
   }
-
   const viewDetailsVariants = {
     hover: { x: 5, color: "#1e3a5f" }
   }
 
-  if (loading) {
+  if (loading || authLoading) {
     return (
       <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="min-h-screen flex items-center justify-center">
         <div className="text-center">
@@ -144,7 +128,8 @@ export default function MyBookingsPage() {
             <motion.div animate={{ y: [0, -10, 0], transition: { repeat: Infinity, duration: 2, repeatDelay: 1 } }} className="text-5xl md:text-6xl mb-4">📅</motion.div>
             <h2 className="text-xl md:text-2xl font-semibold text-gray-700 mb-2">No Bookings Yet</h2>
             <p className="text-gray-500 mb-6 text-sm md:text-base">You haven't made any condo reservations yet.</p>
-            <motion.button whileHover={{ scale: 1.05 }} whileTap={{ scale: 0.98 }} onClick={() => navigate('/condos')} className="bg-[#2d568e] text-white px-6 py-3 rounded-xl font-semibold hover:bg-[#1e3a5f] transition-all">Browse Condos</motion.button>
+            <motion.button whileHover={{ scale: 1.05 }} whileTap={{ scale: 0.98 }} onClick={() => navigate('/condos')}
+              className="bg-[#2d568e] text-white px-6 py-3 rounded-xl font-semibold hover:bg-[#1e3a5f] transition-all">Browse Condos</motion.button>
           </motion.div>
         ) : (
           <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ delay: 0.2 }} className="space-y-4">
@@ -154,13 +139,15 @@ export default function MyBookingsPage() {
                 const StatusIcon = statusConfig.icon
                 const condo = booking.condos
                 const imageUrl = getCondoImage(condo)
-                
+
                 return (
-                  <motion.div key={booking.id} variants={bookingCardVariants} initial="hidden" animate="visible" whileHover="hover" custom={index} exit={{ opacity: 0, x: -100, transition: { duration: 0.3 } }} className="bg-white rounded-2xl shadow-md overflow-hidden">
+                  <motion.div key={booking.id} variants={bookingCardVariants} initial="hidden" animate="visible" whileHover="hover" custom={index}
+                    exit={{ opacity: 0, x: -100, transition: { duration: 0.3 } }} className="bg-white rounded-2xl shadow-md overflow-hidden">
                     <div className="flex flex-col sm:flex-row">
                       <motion.div whileHover={{ scale: 1.02 }} className="sm:w-32 md:w-48 h-40 sm:h-auto bg-gray-200 cursor-pointer group relative overflow-hidden">
                         {imageUrl ? (
-                          <motion.img whileHover={{ scale: 1.1 }} transition={{ duration: 0.3 }} src={imageUrl} alt={condo?.title} className="w-full h-full object-cover" onError={(e) => { e.target.src = 'https://via.placeholder.com/400x300?text=No+Image' }} />
+                          <motion.img whileHover={{ scale: 1.1 }} transition={{ duration: 0.3 }} src={imageUrl} alt={condo?.title}
+                            className="w-full h-full object-cover" onError={(e) => { e.target.src = 'https://via.placeholder.com/400x300?text=No+Image' }} />
                         ) : (
                           <div className="w-full h-full bg-gradient-to-br from-[#2d568e] to-[#1e3a5f] flex items-center justify-center text-white">
                             <motion.div animate={{ rotate: [0, 10, -10, 0] }} transition={{ repeat: Infinity, duration: 3, repeatDelay: 2 }} className="text-4xl">🏢</motion.div>
@@ -182,9 +169,12 @@ export default function MyBookingsPage() {
                               <StatusIcon size={12} /> {statusConfig.text}
                             </motion.span>
                             {statusConfig.canCancel && (
-                              <motion.button variants={cancelButtonVariants} whileTap="tap" whileHover="hover" onClick={() => cancelBooking(booking.id)} disabled={cancellingId === booking.id} className="text-red-600 hover:text-red-800 p-1">
+                              <motion.button variants={cancelButtonVariants} whileTap="tap" whileHover="hover"
+                                onClick={() => cancelBooking(booking.id)} disabled={cancellingId === booking.id}
+                                className="text-red-600 hover:text-red-800 p-1">
                                 {cancellingId === booking.id ? (
-                                  <motion.div animate={{ rotate: 360 }} transition={{ duration: 0.5, repeat: Infinity }} className="w-4 h-4 border-2 border-red-600 border-t-transparent rounded-full" />
+                                  <motion.div animate={{ rotate: 360 }} transition={{ duration: 0.5, repeat: Infinity }}
+                                    className="w-4 h-4 border-2 border-red-600 border-t-transparent rounded-full" />
                                 ) : (
                                   <Ban size={16} />
                                 )}
@@ -193,16 +183,19 @@ export default function MyBookingsPage() {
                           </div>
                         </div>
                         
-                        <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ delay: 0.1 + index * 0.05 }} className="grid grid-cols-2 md:grid-cols-4 gap-3 md:gap-4 mb-3 md:mb-4">
+                        <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ delay: 0.1 + index * 0.05 }}
+                          className="grid grid-cols-2 md:grid-cols-4 gap-3 md:gap-4 mb-3 md:mb-4">
                           <motion.div whileHover={{ y: -2 }} className="bg-gray-50 p-2 rounded-lg"><div className="text-xs text-gray-500 mb-1">CHECK-IN</div><div className="font-semibold text-xs md:text-sm">{format(new Date(booking.start_date), 'MMM dd, yyyy')}</div></motion.div>
                           <motion.div whileHover={{ y: -2 }} className="bg-gray-50 p-2 rounded-lg"><div className="text-xs text-gray-500 mb-1">CHECK-OUT</div><div className="font-semibold text-xs md:text-sm">{format(new Date(booking.end_date), 'MMM dd, yyyy')}</div></motion.div>
                           <motion.div whileHover={{ y: -2 }} className="bg-gray-50 p-2 rounded-lg"><div className="text-xs text-gray-500 mb-1">GUESTS</div><div className="font-semibold text-xs md:text-sm">{totalGuests(booking)}</div></motion.div>
                           <motion.div whileHover={{ y: -2 }} className="bg-gray-50 p-2 rounded-lg"><div className="text-xs text-gray-500 mb-1">TOTAL</div><motion.div whileHover={{ scale: 1.05 }} className="font-semibold text-[#2d568e] text-xs md:text-sm">{formatPrice(booking.total_amount || 0)}</motion.div></motion.div>
                         </motion.div>
                         
-                        <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ delay: 0.2 + index * 0.05 }} className="text-xs text-gray-400 mb-2 md:mb-3">Booked on {format(new Date(booking.created_at), 'MMM dd, yyyy')}</motion.div>
+                        <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ delay: 0.2 + index * 0.05 }}
+                          className="text-xs text-gray-400 mb-2 md:mb-3">Booked on {format(new Date(booking.created_at), 'MMM dd, yyyy')}</motion.div>
                         
-                        <motion.button variants={viewDetailsVariants} whileHover="hover" onClick={() => navigate(`/condo/${booking.condo_id}`)} className="flex items-center gap-1 text-[#2d568e] hover:underline text-xs md:text-sm">
+                        <motion.button variants={viewDetailsVariants} whileHover="hover" onClick={() => navigate(`/condo/${booking.condo_id}`)}
+                          className="flex items-center gap-1 text-[#2d568e] hover:underline text-xs md:text-sm">
                           View Property Details <ChevronRight size={14} className="transition-transform group-hover:translate-x-1" />
                         </motion.button>
                       </div>

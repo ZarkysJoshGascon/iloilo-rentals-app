@@ -1,5 +1,5 @@
 import { motion } from 'framer-motion'
-import { FileText, Home, Shield, AlertCircle, Scale, Globe, Edit, Users, ExternalLink, Lock } from 'lucide-react'
+import { FileText, Home, Shield, AlertCircle, Scale, Globe, Edit, Users} from 'lucide-react'
 
 export default function TermsPage() {
   const fadeInUp = {

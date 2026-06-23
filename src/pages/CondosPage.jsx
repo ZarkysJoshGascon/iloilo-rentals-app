@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useState, useCallback } from 'react'
 import { motion } from 'framer-motion'
 import { supabase } from '../lib/supabase'
 import { Search, Loader2 } from 'lucide-react'
@@ -35,7 +35,8 @@ export default function CondosPage() {
     return () => clearTimeout(timer)
   }, [priceRange])
 
-  async function fetchCondos() {
+  // fetchCondos defined BEFORE the effect, wrapped in useCallback
+  const fetchCondos = useCallback(async () => {
     setIsSearching(true)
     setLoading(true)
     
@@ -52,11 +53,12 @@ export default function CondosPage() {
     setCondos(data || [])
     setLoading(false)
     setTimeout(() => setIsSearching(false), 300)
-  }
+  }, [debouncedSearch, debouncedPriceRange])
 
   useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     fetchCondos()
-  }, [debouncedSearch, debouncedPriceRange])
+  }, [fetchCondos])
 
   const handleClearFilters = () => {
     setSearch('')
