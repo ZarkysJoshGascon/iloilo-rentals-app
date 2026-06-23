@@ -44,7 +44,7 @@ export default function Navbar() {
   }
 
   return (
-    <nav className="shadow-2xl sticky top-0 transition-all duration-300 z-40" style={{ backgroundColor: '#2d568e' }}>
+    <nav className="shadow-2xl sticky top-0 transition-all duration-300 z-40 hidden md:block" style={{ backgroundColor: '#2d568e' }}>
       <div className="px-4 sm:px-6 lg:px-8">
         <div className="flex justify-between items-center py-4 md:py-5">
           <div className="flex-shrink-0">

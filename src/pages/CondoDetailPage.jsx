@@ -177,6 +177,9 @@ export default function CondoDetailPage() {
     phone: ''
   })
 
+  // new state for mobile booking sheet
+  const [showMobileSheet, setShowMobileSheet] = useState(false)
+
   /* modal container */
   const [modalContainer] = useState(() => {
     let div = document.getElementById('modal-root')
@@ -607,15 +610,116 @@ export default function CondoDetailPage() {
           </ExpandableSection>
         </div>
 
-        {/* MOBILE BOTTOM BAR – Reserve button */}
-        <div className="lg:hidden fixed bottom-0 left-0 right-0 z-40 bg-white/95 backdrop-blur-md border-t border-gray-200 px-4 py-3" style={{ paddingBottom: 'env(safe-area-inset-bottom, 16px)' }}>
+        {/* MOBILE BOTTOM BAR – opens the booking sheet */}
+        <div className="lg:hidden fixed bottom-16 left-0 right-0 z-40 bg-white/95 backdrop-blur-md border-t border-gray-200 px-4 py-3 safe-area-bottom">
           <button
-            onClick={handleBookNowClick}
+            onClick={() => {
+              if (!user) {
+                toast.error('Please sign in to book')
+                navigate(`/login?redirect=/condo/${id}`)
+                return
+              }
+              setShowMobileSheet(true)
+            }}
             className="w-full bg-[#2d568e] text-white py-3 rounded-xl font-semibold text-base shadow-lg hover:bg-[#1e3a5f] transition"
           >
             {user ? 'Reserve Now' : 'Sign in to Book'}
           </button>
         </div>
+
+        {/* MOBILE BOOKING SHEET (slide‑up) */}
+        {showMobileSheet && (
+          <div className="fixed inset-0 z-50 flex items-end justify-center">
+            <div className="absolute inset-0 bg-black/40 backdrop-blur-sm" onClick={() => setShowMobileSheet(false)} />
+            <motion.div
+              initial={{ y: '100%' }}
+              animate={{ y: 0 }}
+              exit={{ y: '100%' }}
+              transition={{ type: 'spring', damping: 25, stiffness: 300 }}
+              className="relative w-full bg-white rounded-t-3xl max-h-[85vh] overflow-y-auto shadow-2xl safe-area-bottom"
+            >
+              <div className="sticky top-0 bg-white px-6 pt-6 pb-4 border-b border-gray-100 rounded-t-3xl">
+                <div className="flex items-center justify-between">
+                  <h2 className="text-xl font-bold text-[#2d568e]">Customize your stay</h2>
+                  <button onClick={() => setShowMobileSheet(false)} className="p-2 hover:bg-gray-100 rounded-full">
+                    <X size={20} className="text-gray-500" />
+                  </button>
+                </div>
+              </div>
+
+              <div className="px-6 py-5 space-y-5">
+                {/* Price header */}
+                <div className="text-center pb-4 border-b">
+                  <div className="text-4xl font-bold text-[#2d568e]">
+                    {formatPrice(basePricePerNight)}
+                    <span className="text-sm text-gray-400">/night</span>
+                  </div>
+                </div>
+
+                {/* Dates */}
+                <div className="grid grid-cols-2 gap-3">
+                  <div className="relative z-20 w-full">
+                    <DatePicker selected={startDate} onChange={(date) => setStartDate(date)} minDate={new Date()} dateFormat="MMM dd, yyyy" customInput={<CustomDateInput label="CHECK-IN" />} popperPlacement="bottom-start" />
+                  </div>
+                  <div className="relative z-10 w-full">
+                    <DatePicker selected={endDate} onChange={(date) => setEndDate(date)} minDate={startDate} dateFormat="MMM dd, yyyy" customInput={<CustomDateInput label="CHECK-OUT" />} popperPlacement="bottom-start" />
+                  </div>
+                </div>
+
+                <div className="flex justify-between text-sm text-gray-500">
+                  <span>{nights} nights</span>
+                  <span>{totalGuests} guests</span>
+                </div>
+
+                {/* Guests */}
+                <div className="relative">
+                  <button onClick={() => setShowGuestDropdownDesktop(!showGuestDropdownDesktop)} className="w-full bg-gray-50 rounded-xl p-3 text-left flex justify-between">
+                    <span>{getGuestDisplayText()}</span>
+                    <ChevronDown size={18} className={`transition ${showGuestDropdownDesktop ? 'rotate-180' : ''}`} />
+                  </button>
+                  {showGuestDropdownDesktop && (
+                    <div className="absolute top-full left-0 right-0 mt-2 bg-white border rounded-xl shadow-xl z-30 p-4 space-y-3">
+                      <div className="flex justify-between"><span>Adults</span><div className="flex gap-4"><button onClick={() => setAdults(Math.max(1, adults-1))} className="w-8 h-8 rounded-full bg-gray-100">-</button><span>{adults}</span><button onClick={() => setAdults(adults+1)} className="w-8 h-8 rounded-full bg-gray-100">+</button></div></div>
+                      <div className="flex justify-between"><span>Children (10% off)</span><div className="flex gap-4"><button onClick={() => setChildren(Math.max(0, children-1))} className="w-8 h-8 rounded-full bg-gray-100">-</button><span>{children}</span><button onClick={() => setChildren(children+1)} className="w-8 h-8 rounded-full bg-gray-100">+</button></div></div>
+                      <div className="flex justify-between"><span>Infants (20% off)</span><div className="flex gap-4"><button onClick={() => setInfants(Math.max(0, infants-1))} className="w-8 h-8 rounded-full bg-gray-100">-</button><span>{infants}</span><button onClick={() => setInfants(infants+1)} className="w-8 h-8 rounded-full bg-gray-100">+</button></div></div>
+                      <div className="flex justify-between"><span>Seniors (20% off)</span><div className="flex gap-4"><button onClick={() => setSeniors(Math.max(0, seniors-1))} className="w-8 h-8 rounded-full bg-gray-100">-</button><span>{seniors}</span><button onClick={() => setSeniors(seniors+1)} className="w-8 h-8 rounded-full bg-gray-100">+</button></div></div>
+                      <button onClick={() => setShowGuestDropdownDesktop(false)} className="w-full bg-[#2d568e] text-white py-2 rounded-lg">Apply</button>
+                    </div>
+                  )}
+                </div>
+
+                {/* Promo */}
+                <div className="flex gap-2">
+                  <input type="text" placeholder="Promo Code" className="flex-1 bg-gray-50 rounded-xl p-3" value={promoCode} onChange={(e) => setPromoCode(e.target.value)} />
+                  <button onClick={applyPromo} className="px-4 bg-gray-100 rounded-xl hover:bg-[#2d568e] hover:text-white transition">Apply</button>
+                </div>
+
+                {/* Price breakdown */}
+                <div className="space-y-2 pt-2 border-t">
+                  <div className="flex justify-between"><span>Nightly avg</span><span>{formatPrice(effectiveNightlyRate)}</span></div>
+                  <div className="flex justify-between"><span>{formatPrice(effectiveNightlyRate)} × {nights}</span><span>{formatPrice(subtotal)}</span></div>
+                  <div className="flex justify-between"><span>Service fee (5%)</span><span>{formatPrice(serviceFee)}</span></div>
+                  {promoApplied && <div className="flex justify-between text-green-600"><span>Discount</span><span>-{formatPrice(promoDiscount)}</span></div>}
+                  <div className="flex justify-between font-bold text-xl pt-2 border-t"><span>Total</span><span className="text-[#2d568e]">{formatPrice(finalTotal)}</span></div>
+                </div>
+
+                <div className="text-center text-xs text-gray-500 bg-blue-50 p-2 rounded-lg">Children 10% off • Infants & Seniors 20% off</div>
+                <div className="text-center text-xs text-gray-500 bg-gray-50 p-2 rounded-lg">{getCancellationText()}</div>
+
+                {/* Reserve button */}
+                <button
+                  onClick={() => {
+                    setShowMobileSheet(false)
+                    handleBookNowClick()
+                  }}
+                  className="w-full bg-[#2d568e] text-white py-3 rounded-xl font-semibold text-base shadow-lg hover:bg-[#1e3a5f] transition"
+                >
+                  {user ? 'Reserve Now' : 'Sign in to Book'}
+                </button>
+              </div>
+            </motion.div>
+          </div>
+        )}
       </div>
 
       {bookingModal}
