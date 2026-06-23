@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useState, useCallback } from 'react'
 import { supabase } from '../lib/supabase'
 import { format } from 'date-fns'
 import { Search, Mail, Phone } from 'lucide-react'
@@ -17,11 +17,8 @@ export default function LeadsList({ onSelectLead, selectedId }) {
   const [search, setSearch] = useState('')
   const [statusFilter, setStatusFilter] = useState('')
 
-  useEffect(() => {
-    fetchLeads()
-  }, [search, statusFilter])
-
-  const fetchLeads = async () => {
+  // -------- fetchLeads defined BEFORE the effect --------
+  const fetchLeads = useCallback(async () => {
     setLoading(true)
     let query = supabase.from('leads').select('*').order('created_at', { ascending: false })
     if (search) query = query.ilike('email', `%${search}%`)
@@ -29,7 +26,13 @@ export default function LeadsList({ onSelectLead, selectedId }) {
     const { data } = await query
     setLeads(data || [])
     setLoading(false)
-  }
+  }, [search, statusFilter])
+
+  // -------- effect --------
+  useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    fetchLeads()
+  }, [fetchLeads])
 
   const updateStatus = async (id, newStatus) => {
     await supabase.from('leads').update({ status: newStatus }).eq('id', id)

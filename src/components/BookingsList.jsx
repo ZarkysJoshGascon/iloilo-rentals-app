@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react'
+import React, { useEffect, useState, useCallback } from 'react'
 import { supabase } from '../lib/supabase'
 import { format } from 'date-fns'
 import {
@@ -143,12 +143,12 @@ export default function BookingsList({ searchTerm: externalSearchTerm = '' }) {
   const { formatPrice } = useCurrency()
   const effectiveSearch = externalSearchTerm || searchText
 
-  const fetchConfirmedBookings = async () => {
+  const fetchConfirmedBookings = useCallback(async () => {
     const { data, error } = await supabase.from('bookings').select('id, condo_id, start_date, end_date, status').eq('status', 'confirmed')
     if (!error) setConfirmedBookings(data || [])
-  }
+  }, [])
 
-  const fetchBookings = async () => {
+  const fetchBookings = useCallback(async () => {
     setLoading(true)
     try {
       let query = supabase.from('bookings').select('*, condos:condo_id(code, title, location, images, status)')
@@ -162,15 +162,14 @@ export default function BookingsList({ searchTerm: externalSearchTerm = '' }) {
       await fetchConfirmedBookings()
     } catch (err) { console.error(err); toast.error('Failed to load bookings') }
     finally { setLoading(false) }
-  }
+  }, [sortBy, fetchConfirmedBookings])
 
-  // eslint-disable-next-line react-hooks/set-state-in-effect
   useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     fetchBookings()
     const sub = supabase.channel('bookings-realtime').on('postgres_changes', { event: '*', schema: 'public', table: 'bookings' }, fetchBookings).subscribe()
     return () => sub.unsubscribe()
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [sortBy])
+  }, [fetchBookings])
 
   const handleConfirmAction = async () => {
     const { booking, action } = modalConfig

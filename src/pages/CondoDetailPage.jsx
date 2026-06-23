@@ -574,8 +574,11 @@ export default function CondoDetailPage() {
         </div>
       </div>
 
-      {/* MOBILE LAYOUT */}
-      <div className="lg:hidden w-full h-full overflow-y-auto pb-32">
+            {/* MOBILE LAYOUT */}
+      <div
+        className="lg:hidden w-full h-full overflow-y-auto pb-40"
+        style={{ touchAction: 'pan-y' }}
+      >
         <ImageGallery images={allImages} title={condo.title} />
         <div className="px-4 py-6">
           <div className="flex flex-wrap items-center gap-2 mb-2">
@@ -610,8 +613,8 @@ export default function CondoDetailPage() {
           </ExpandableSection>
         </div>
 
-        {/* MOBILE BOTTOM BAR – opens the booking sheet */}
-        <div className="lg:hidden fixed bottom-16 left-0 right-0 z-40 bg-white/95 backdrop-blur-md border-t border-gray-200 px-4 py-3 safe-area-bottom">
+        {/* MOBILE BOTTOM BAR – opens the booking sheet, positioned above the bottom nav */}
+        <div className="lg:hidden fixed bottom-[4.5rem] left-0 right-0 z-40 bg-white/95 backdrop-blur-md border-t border-gray-200 px-4 py-3 safe-area-bottom">
           <button
             onClick={() => {
               if (!user) {

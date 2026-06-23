@@ -1,5 +1,5 @@
 import { motion } from 'framer-motion'
-import { Shield, Eye, Database, Share2, Globe, UserCheck, Clock, Lock, ExternalLink, Users, Edit, AlertCircle } from 'lucide-react'
+import { Shield, Eye, Database, Share2, Globe, UserCheck, Clock,  ExternalLink, Users, Edit, AlertCircle } from 'lucide-react'
 
 export default function PrivacyPolicyPage() {
   const fadeInUp = {

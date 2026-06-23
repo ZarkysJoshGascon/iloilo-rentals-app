@@ -10,6 +10,7 @@ export default function AdminRoute({ children }) {
   useEffect(() => {
     if (authLoading) return
     if (!user) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect
       setIsAdmin(false)
       return
     }

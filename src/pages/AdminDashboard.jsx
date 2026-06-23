@@ -7,7 +7,6 @@ import AdminSidebar from '../components/AdminSidebar'
 import { Moon, Sun, Users, CalendarDays, DoorOpen, LayoutDashboard, LogOut } from 'lucide-react'
 import { useTheme } from '../context/ThemeContext'
 import { useAuth } from '../context/AuthContext'
-import { supabase } from '../lib/supabase'
 import { useNavigate } from 'react-router-dom'
 
 export default function AdminDashboard() {
@@ -30,6 +29,7 @@ export default function AdminDashboard() {
   }, [user])
 
   useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     fetchAdminProfile()
   }, [fetchAdminProfile])
 

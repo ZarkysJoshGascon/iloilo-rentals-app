@@ -147,8 +147,8 @@ function AddEventModal({ isOpen, onClose, condo, eventType, onSave, startDate: i
   const [saving, setSaving] = useState(false)
 
   // Update local state when modal is opened with new dates
-  // eslint-disable-next-line react-hooks/set-state-in-effect
   useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     if (initialStart) { setStartDate(initialStart); setSingleDate(initialStart) }
     if (initialEnd) setEndDate(initialEnd)
   }, [initialStart, initialEnd])
@@ -398,7 +398,7 @@ export default function CalendarView() {
   const monthRefs = useRef({})
   const ticking = useRef(false)
 
-  /* ---------- functions (defined before effects to avoid hoisting issues) ---------- */
+  /* ---------- functions (defined before effects) ---------- */
 
   const fetchData = useCallback(async () => {
     setLoading(true)
@@ -411,7 +411,6 @@ export default function CalendarView() {
     setCondos(condosRes.data || [])
     setBookings(bookingsRes.data || [])
     setEvents(eventsRes.data || [])
-    // Set first condo as default if none selected
     if (!selectedCondo && condosRes.data?.length > 0) {
       setSelectedCondo(condosRes.data[0])
     }
@@ -455,6 +454,7 @@ export default function CalendarView() {
 
   // Initial data fetch
   useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     fetchData()
     fetchHolidays()
   }, [fetchData, fetchHolidays])
