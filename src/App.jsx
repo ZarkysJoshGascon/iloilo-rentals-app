@@ -1,6 +1,7 @@
 import { Routes, Route, useLocation } from 'react-router-dom'
 import { useEffect } from 'react'
 import { Toaster } from 'react-hot-toast'
+import { ThemeProvider } from './context/ThemeContext'
 import Navbar from './components/Navbar'
 import Footer from './components/Footer'
 import BackButton from './components/BackButton'
@@ -31,34 +32,36 @@ function App() {
   }, [location.pathname])
 
   return (
-    <div className="min-h-screen bg-gray-50 flex flex-col">
-      {!isAdminRoute && <Navbar />}
-      {!isAdminRoute && <BackButton />}
-      <main className="flex-grow">
-        <Routes>
-          <Route path="/" element={<HomePage />} />
-          <Route path="/condos" element={<CondosPage />} />
-          <Route path="/condo/:id" element={<CondoDetailPage />} />
-          <Route path="/login" element={<LoginPage />} />
-          <Route path="/about" element={<AboutPage />} />
-          <Route path="/contact" element={<ContactPage />} />
-          <Route path="/my-bookings" element={<MyBookingsPage />} />
-          <Route path="/privacy" element={<PrivacyPolicyPage />} />
-          <Route path="/terms" element={<TermsPage />} />
-          <Route path="/list-property" element={<ListPropertyPage />} />
-          <Route 
-            path="/admin" 
-            element={
-              <AdminRoute>
-                <AdminDashboard />
-              </AdminRoute>
-            } 
-          />
-        </Routes>
-      </main>
-      {!hideFooter && !isAdminRoute && <Footer />}
-      <Toaster position="top-right" />
-    </div>
+    <ThemeProvider>
+      <div className="min-h-screen bg-gray-50 flex flex-col">
+        {!isAdminRoute && <Navbar />}
+        {!isAdminRoute && <BackButton />}
+        <main className="flex-grow">
+          <Routes>
+            <Route path="/" element={<HomePage />} />
+            <Route path="/condos" element={<CondosPage />} />
+            <Route path="/condo/:id" element={<CondoDetailPage />} />
+            <Route path="/login" element={<LoginPage />} />
+            <Route path="/about" element={<AboutPage />} />
+            <Route path="/contact" element={<ContactPage />} />
+            <Route path="/my-bookings" element={<MyBookingsPage />} />
+            <Route path="/privacy" element={<PrivacyPolicyPage />} />
+            <Route path="/terms" element={<TermsPage />} />
+            <Route path="/list-property" element={<ListPropertyPage />} />
+            <Route 
+              path="/admin" 
+              element={
+                <AdminRoute>
+                  <AdminDashboard />
+                </AdminRoute>
+              } 
+            />
+          </Routes>
+        </main>
+        {!hideFooter && !isAdminRoute && <Footer />}
+        <Toaster position="top-right" />
+      </div>
+    </ThemeProvider>
   )
 }
 

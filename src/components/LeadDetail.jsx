@@ -55,19 +55,19 @@ export default function LeadDetail({ leadId }) {
     window.location.href = `mailto:${lead.email}?subject=Regarding your inquiry&body=Hello ${lead.first_name || ''},`
   }
 
-  if (loading) return <div className="text-center py-20">Loading...</div>
-  if (!lead) return <div className="text-center py-20">Lead not found</div>
+  if (loading) return <div className="text-center py-20 text-gray-500 dark:text-gray-400">Loading...</div>
+  if (!lead) return <div className="text-center py-20 text-gray-500 dark:text-gray-400">Lead not found</div>
 
   return (
     <div className="space-y-6">
       <div>
-        <h2 className="text-2xl font-bold text-gray-900">{lead.first_name} {lead.last_name}</h2>
-        <div className="flex flex-wrap gap-4 mt-2 text-sm text-gray-600">
+        <h2 className="text-2xl font-bold text-gray-900 dark:text-gray-100">{lead.first_name} {lead.last_name}</h2>
+        <div className="flex flex-wrap gap-4 mt-2 text-sm text-gray-600 dark:text-gray-400">
           <div className="flex items-center gap-1"><Mail size={14} /> {lead.email}</div>
           {lead.phone && <div className="flex items-center gap-1"><Phone size={14} /> {lead.phone}</div>}
           <div className="flex items-center gap-1"><Calendar size={14} /> Lead since {format(new Date(lead.created_at), 'MMM dd, yyyy')}</div>
         </div>
-        {lead.notes && <p className="mt-3 text-gray-700 bg-gray-50 p-3 rounded-lg text-sm">{lead.notes}</p>}
+        {lead.notes && <p className="mt-3 text-gray-700 dark:text-gray-300 bg-gray-50 dark:bg-gray-700 p-3 rounded-lg text-sm">{lead.notes}</p>}
       </div>
 
       <div className="flex gap-3">
@@ -76,11 +76,11 @@ export default function LeadDetail({ leadId }) {
         </button>
       </div>
 
-      <div className="border-t pt-4">
-        <h3 className="font-semibold text-gray-800 mb-3 flex items-center gap-2"><Plus size={16} /> Add Interaction</h3>
+      <div className="border-t border-gray-200 dark:border-gray-700 pt-4">
+        <h3 className="font-semibold text-gray-800 dark:text-gray-100 mb-3 flex items-center gap-2"><Plus size={16} /> Add Interaction</h3>
         <div className="flex gap-3">
           <select
-            className="border rounded-lg p-2 text-sm"
+            className="border border-gray-200 dark:border-gray-600 rounded-lg p-2 text-sm bg-white dark:bg-gray-700 dark:text-gray-100"
             value={newInteraction.type}
             onChange={(e) => setNewInteraction({ ...newInteraction, type: e.target.value })}
           >
@@ -91,7 +91,7 @@ export default function LeadDetail({ leadId }) {
           <input
             type="text"
             placeholder="e.g., Called customer, left voicemail..."
-            className="flex-1 border rounded-lg p-2 text-sm"
+            className="flex-1 border border-gray-200 dark:border-gray-600 rounded-lg p-2 text-sm bg-white dark:bg-gray-700 dark:text-gray-100 dark:placeholder-gray-400"
             value={newInteraction.content}
             onChange={(e) => setNewInteraction({ ...newInteraction, content: e.target.value })}
             onKeyPress={(e) => e.key === 'Enter' && addInteraction()}
@@ -102,20 +102,20 @@ export default function LeadDetail({ leadId }) {
         </div>
       </div>
 
-      <div className="border-t pt-4">
-        <h3 className="font-semibold text-gray-800 mb-3">Interaction History</h3>
+      <div className="border-t border-gray-200 dark:border-gray-700 pt-4">
+        <h3 className="font-semibold text-gray-800 dark:text-gray-100 mb-3">Interaction History</h3>
         <div className="space-y-3 max-h-80 overflow-y-auto">
           {interactions.length === 0 ? (
-            <div className="text-center text-gray-400 py-6">No interactions yet</div>
+            <div className="text-center text-gray-400 dark:text-gray-500 py-6">No interactions yet</div>
           ) : (
             interactions.map(interaction => (
               <div key={interaction.id} className="border-l-4 border-[#2d568e] pl-3 py-2">
-                <div className="flex items-center gap-2 text-xs text-gray-500">
+                <div className="flex items-center gap-2 text-xs text-gray-500 dark:text-gray-400">
                   <span className="capitalize font-semibold">{interaction.type}</span>
                   <span>•</span>
                   <span>{format(new Date(interaction.created_at), 'MMM dd, h:mm a')}</span>
                 </div>
-                <p className="text-sm text-gray-700 mt-1">{interaction.content}</p>
+                <p className="text-sm text-gray-700 dark:text-gray-300 mt-1">{interaction.content}</p>
               </div>
             ))
           )}
