@@ -343,7 +343,7 @@ export default function CondoDetailPage() {
   const handleBookNowClick = () => {
     if (!user) {
       toast.error('Please sign in to book')
-      navigate('/login')
+      navigate(`/login?redirect=/condo/${id}`)
       return
     }
     setShowBookingForm(true)
