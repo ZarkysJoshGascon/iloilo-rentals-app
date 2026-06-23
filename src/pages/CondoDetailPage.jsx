@@ -177,7 +177,6 @@ export default function CondoDetailPage() {
     phone: ''
   })
 
-  // new state for mobile booking sheet
   const [showMobileSheet, setShowMobileSheet] = useState(false)
 
   /* modal container */
@@ -232,8 +231,8 @@ export default function CondoDetailPage() {
     }
   }, [id])
 
-  /* ---------- effects that do NOT depend on derived values ---------- */
-  // Pre‑fill guest info from Google metadata when modal opens
+  /* ---------- effects ---------- */
+  // Pre‑fill guest info when modal opens
   useEffect(() => {
     if (user && showBookingForm) {
       const fullName = user.user_metadata?.full_name || ''
@@ -248,7 +247,7 @@ export default function CondoDetailPage() {
     }
   }, [user, showBookingForm])
 
-  // Modal open/close side effects
+  // Booking modal open/close side effects
   useEffect(() => {
     if (showBookingForm) {
       document.body.classList.add('modal-open')
@@ -262,6 +261,18 @@ export default function CondoDetailPage() {
       window.dispatchEvent(new CustomEvent('modalStateChange', { detail: { isOpen: false } }))
     }
   }, [showBookingForm])
+
+  // Mobile booking sheet – lock background scroll
+  useEffect(() => {
+    if (showMobileSheet) {
+      document.body.classList.add('modal-open')
+    } else {
+      document.body.classList.remove('modal-open')
+    }
+    return () => {
+      document.body.classList.remove('modal-open')
+    }
+  }, [showMobileSheet])
 
   // Inject date‑picker styles
   useEffect(() => {
@@ -574,7 +585,7 @@ export default function CondoDetailPage() {
         </div>
       </div>
 
-            {/* MOBILE LAYOUT */}
+      {/* MOBILE LAYOUT */}
       <div
         className="lg:hidden w-full h-full overflow-y-auto pb-40"
         style={{ touchAction: 'pan-y' }}
@@ -613,8 +624,8 @@ export default function CondoDetailPage() {
           </ExpandableSection>
         </div>
 
-        {/* MOBILE BOTTOM BAR – opens the booking sheet, positioned above the bottom nav */}
-        <div className="lg:hidden fixed bottom-[4.5rem] left-0 right-0 z-40 bg-white/95 backdrop-blur-md border-t border-gray-200 px-4 py-3 safe-area-bottom">
+        {/* MOBILE RESERVE BUTTON – positioned above bottom nav, higher z-index */}
+        <div className="lg:hidden fixed bottom-[4.5rem] left-0 right-0 z-50 bg-white/95 backdrop-blur-md border-t border-gray-200 px-4 py-3 safe-area-bottom">
           <button
             onClick={() => {
               if (!user) {
@@ -630,7 +641,7 @@ export default function CondoDetailPage() {
           </button>
         </div>
 
-        {/* MOBILE BOOKING SHEET (slide‑up) */}
+        {/* MOBILE BOOKING SHEET (slide‑up) – background scroll locked */}
         {showMobileSheet && (
           <div className="fixed inset-0 z-50 flex items-end justify-center">
             <div className="absolute inset-0 bg-black/40 backdrop-blur-sm" onClick={() => setShowMobileSheet(false)} />
