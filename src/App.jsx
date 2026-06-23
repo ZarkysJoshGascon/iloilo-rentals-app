@@ -4,7 +4,6 @@ import { Toaster } from 'react-hot-toast'
 import { ThemeProvider } from './context/ThemeContext'
 import Navbar from './components/Navbar'
 import Footer from './components/Footer'
-import BackButton from './components/BackButton'
 import MobileBottomNav from './components/MobileBottomNav'
 import HomePage from './pages/HomePage'
 import CondosPage from './pages/CondosPage'
@@ -36,7 +35,6 @@ function App() {
     <ThemeProvider>
       <div className="min-h-screen bg-gray-50 flex flex-col">
         {!isAdminRoute && <Navbar />}
-        {!isAdminRoute && <BackButton />}
         <main className="flex-grow">
           <Routes>
             <Route path="/" element={<HomePage />} />

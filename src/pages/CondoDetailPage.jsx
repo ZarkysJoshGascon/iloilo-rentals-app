@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, useRef } from 'react'
 import { createPortal } from 'react-dom'
 import { useParams, useNavigate, Link } from 'react-router-dom'
 import { motion } from 'framer-motion'
@@ -6,7 +6,7 @@ import { supabase } from '../lib/supabase'
 import {
   Users, MapPin, Bed, Bath, Square,
   Wifi, Shield, X, Clock, CheckCircle, AlertCircle,
-  ChevronDown, ChevronUp, Loader2
+  ChevronDown, ChevronUp, Loader2, Eye
 } from 'lucide-react'
 import { differenceInDays, format } from 'date-fns'
 import toast from 'react-hot-toast'
@@ -18,7 +18,7 @@ import "react-datepicker/dist/react-datepicker.css"
 import { getCondoImages } from '../utils/condoImages'
 
 /* ------------------------------------------------------------------ */
-/*  Date‑picker styles                                                */
+/*  Date‑picker styles + animations                                   */
 /* ------------------------------------------------------------------ */
 const customDatePickerStyles = `
   .react-datepicker-popper {
@@ -90,6 +90,51 @@ const customDatePickerStyles = `
   .scrollable-content::-webkit-scrollbar-thumb {
     background: #2d568e;
     border-radius: 4px;
+  }
+  
+  @media (max-width: 1023px) {
+    .mobile-scroll-container {
+      -webkit-overflow-scrolling: touch;
+      scrollbar-width: thin;
+      scrollbar-color: #2d568e #f1f1f1;
+    }
+    .mobile-scroll-container::-webkit-scrollbar {
+      width: 8px;
+      height: 8px;
+    }
+    .mobile-scroll-container::-webkit-scrollbar-track {
+      background: #f1f1f1;
+      border-radius: 8px;
+    }
+    .mobile-scroll-container::-webkit-scrollbar-thumb {
+      background: #2d568e;
+      border-radius: 8px;
+      border: 2px solid #f1f1f1;
+    }
+  }
+
+  /* Bounce for scroll hint */
+  @keyframes bounce-down {
+    0%, 100% { transform: translateY(0); opacity: 1; }
+    50% { transform: translateY(8px); opacity: 0.8; }
+  }
+  .animate-bounce-down {
+    animation: bounce-down 1s ease-in-out infinite;
+  }
+
+  /* Breathing for Reserve button – 2s expand / 2s shrink */
+  @keyframes breathing {
+    0%, 100% {
+      transform: scale(1);
+      box-shadow: 0 4px 6px -1px rgba(0,0,0,0.1);
+    }
+    50% {
+      transform: scale(1.06);
+      box-shadow: 0 12px 24px -4px rgba(45,86,142,0.6);
+    }
+  }
+  .animate-breathing {
+    animation: breathing 4s ease-in-out infinite;
   }
 `
 
@@ -178,6 +223,10 @@ export default function CondoDetailPage() {
   })
 
   const [showMobileSheet, setShowMobileSheet] = useState(false)
+
+  // Mobile scroll hint state – now uses a threshold for smooth fade
+  const [showScrollHint, setShowScrollHint] = useState(true)
+  const mobileContainerRef = useRef(null)
 
   /* modal container */
   const [modalContainer] = useState(() => {
@@ -354,15 +403,6 @@ export default function CondoDetailPage() {
     return "Non-refundable"
   }
 
-  const handleBookNowClick = () => {
-    if (!user) {
-      toast.error('Please sign in to book')
-      navigate(`/login?redirect=/condo/${id}`)
-      return
-    }
-    setShowBookingForm(true)
-  }
-
   const handleBookNow = async () => {
     const firstNameError = validateName(guestInfo.firstName, 'First name')
     const lastNameError = validateName(guestInfo.lastName, 'Last name')
@@ -433,6 +473,34 @@ export default function CondoDetailPage() {
     if (seniors > 0) parts.push(`${seniors} Senior${seniors > 1 ? 's' : ''}`)
     return parts.join(', ') || 'Select guests'
   }
+
+  /* ------------------------------------------------------------------ */
+  /*  The ONE Reserve‑button logic                                       */
+  /* ------------------------------------------------------------------ */
+  const handleReserveBarClick = () => {
+    if (!user) {
+      toast.error('Please sign in to book')
+      navigate(`/login?redirect=/condo/${id}`)
+      return
+    }
+
+    if (showMobileSheet) {
+      // Sheet is open → close it and proceed to booking form
+      setShowMobileSheet(false)
+      setShowBookingForm(true)
+    } else {
+      // Sheet is closed → open it
+      setShowMobileSheet(true)
+    }
+  }
+
+  /* ---------- Mobile scroll listener (smooth fade) ---------- */
+  const handleMobileScroll = useCallback((e) => {
+    const scrollTop = e.target.scrollTop
+    // Show hint when near top (≤ 60px), hide after scrolling a bit (≥ 160px)
+    // In between, the transition will handle the fade
+    setShowScrollHint(scrollTop <= 60)
+  }, [])
 
   /* ---------- loading / error states ---------- */
   if (loading) return <div className="min-h-screen flex items-center justify-center"><div className="animate-spin rounded-full h-12 w-12 border-b-2 border-[#2d568e]"></div></div>
@@ -578,7 +646,7 @@ export default function CondoDetailPage() {
             <div className="text-center text-xs text-gray-500 bg-blue-50 p-2 rounded-lg">Children 10% off • Infants & Seniors 20% off</div>
             <div className="text-center text-xs text-gray-500 bg-gray-50 p-2 rounded-lg">{getCancellationText()}</div>
             
-            <button onClick={handleBookNowClick} className="w-full bg-[#2d568e] text-white py-3 rounded-xl font-semibold hover:bg-[#1e3a5f] transition shadow-lg">
+            <button onClick={() => { if(!user) { toast.error('Please sign in to book'); navigate(`/login?redirect=/condo/${id}`); return; } setShowBookingForm(true); }} className="w-full bg-[#2d568e] text-white py-3 rounded-xl font-semibold hover:bg-[#1e3a5f] transition shadow-lg">
               {user ? 'Reserve Now' : 'Sign in to Book'}
             </button>
           </div>
@@ -587,17 +655,35 @@ export default function CondoDetailPage() {
 
       {/* MOBILE LAYOUT */}
       <div
-        className="lg:hidden w-full h-full overflow-y-auto pb-40"
+        ref={mobileContainerRef}
+        className="lg:hidden w-full h-full overflow-y-auto pb-20 mobile-scroll-container"
         style={{ touchAction: 'pan-y' }}
+        onScroll={handleMobileScroll}
       >
-        <ImageGallery images={allImages} title={condo.title} />
-        <div className="px-4 py-6">
-          <div className="flex flex-wrap items-center gap-2 mb-2">
-            <h1 className="text-2xl font-bold text-gray-900">{condo.title}</h1>
-            {condo.code && <span className="bg-[#2d568e] text-white px-2 py-0.5 rounded-full text-xs">{condo.code}</span>}
+        {/* Mobile image container – taller, with solid white details card */}
+        <div className="relative max-h-[78vh] overflow-hidden">
+          <ImageGallery images={allImages} title={condo.title} />
+
+          {/* "Tap to view photos" indicator */}
+          <div className="absolute top-4 right-4 z-10 bg-black/50 backdrop-blur-sm text-white text-xs px-3 py-1.5 rounded-full flex items-center gap-1.5 pointer-events-none">
+            <Eye size={14} />
+            <span>Tap to view photos</span>
           </div>
-          <div className="flex items-center gap-1 text-gray-500 mb-4"><MapPin size={14} /><span className="text-sm">{condo.location}</span></div>
           
+          {/* SOLID WHITE card with details */}
+          <div className="absolute bottom-0 left-0 right-0 bg-white px-5 py-4 border-t border-gray-200">
+            <div className="flex flex-wrap items-center gap-2 mb-1">
+              <h1 className="text-xl font-bold text-gray-900 line-clamp-1">{condo.title}</h1>
+              {condo.code && <span className="bg-[#2d568e] text-white px-2 py-0.5 rounded-full text-xs">{condo.code}</span>}
+            </div>
+            <div className="flex items-center gap-1 text-gray-500 text-sm">
+              <MapPin size={14} className="flex-shrink-0" />
+              <span className="truncate">{condo.location}</span>
+            </div>
+          </div>
+        </div>
+
+        <div className="px-4 py-6">
           <div className="grid grid-cols-4 gap-2 mb-6">
             <div className="bg-white rounded-lg p-2 text-center shadow-sm"><Bed className="text-[#2d568e] mx-auto mb-1" size={16} /><p className="text-lg font-bold">{condo.bedroom_count}</p><p className="text-xs text-gray-500">Beds</p></div>
             <div className="bg-white rounded-lg p-2 text-center shadow-sm"><Bath className="text-[#2d568e] mx-auto mb-1" size={16} /><p className="text-lg font-bold">{condo.bathroom_count}</p><p className="text-xs text-gray-500">Baths</p></div>
@@ -623,118 +709,140 @@ export default function CondoDetailPage() {
             <div className="bg-gray-100 h-48 rounded-xl flex items-center justify-center"><MapPin size={24} className="text-gray-400" /><span className="ml-2 text-gray-500 text-sm">{condo.location}</span></div>
           </ExpandableSection>
         </div>
+      </div>
 
-        {/* MOBILE RESERVE BUTTON – positioned above bottom nav, higher z-index */}
-        <div className="lg:hidden fixed bottom-[4.5rem] left-0 right-0 z-50 bg-white/95 backdrop-blur-md border-t border-gray-200 px-4 py-3 safe-area-bottom">
-          <button
-            onClick={() => {
-              if (!user) {
-                toast.error('Please sign in to book')
-                navigate(`/login?redirect=/condo/${id}`)
-                return
-              }
-              setShowMobileSheet(true)
-            }}
-            className="w-full bg-[#2d568e] text-white py-3 rounded-xl font-semibold text-base shadow-lg hover:bg-[#1e3a5f] transition"
-          >
-            {user ? 'Reserve Now' : 'Sign in to Book'}
-          </button>
+      {/* --- BOTTOM AREA: Smooth‑fade hint + Breathing Reserve bar --- */}
+      <div className="lg:hidden fixed bottom-16 left-0 right-0 z-50">
+        {/* Hint with gradient (bottom solid, top clear) and smooth opacity transition */}
+        <div
+          className={`transition-opacity duration-500 ${
+            showScrollHint ? 'opacity-100' : 'opacity-0'
+          }`}
+        >
+          <div className="bg-gradient-to-t from-white via-white/20 to-transparent rounded-t-xl px-4 py-2 text-center text-xs text-gray-500">
+            <span className="inline-flex items-center gap-1 animate-bounce-down">
+              Scroll for details <ChevronDown size={14} />
+            </span>
+          </div>
         </div>
 
-        {/* MOBILE BOOKING SHEET (slide‑up) – background scroll locked */}
-        {showMobileSheet && (
-          <div className="fixed inset-0 z-50 flex items-end justify-center">
-            <div className="absolute inset-0 bg-black/40 backdrop-blur-sm" onClick={() => setShowMobileSheet(false)} />
-            <motion.div
-              initial={{ y: '100%' }}
-              animate={{ y: 0 }}
-              exit={{ y: '100%' }}
-              transition={{ type: 'spring', damping: 25, stiffness: 300 }}
-              className="relative w-full bg-white rounded-t-3xl max-h-[85vh] overflow-y-auto shadow-2xl safe-area-bottom"
-            >
-              <div className="sticky top-0 bg-white px-6 pt-6 pb-4 border-b border-gray-100 rounded-t-3xl">
-                <div className="flex items-center justify-between">
-                  <h2 className="text-xl font-bold text-[#2d568e]">Customize your stay</h2>
-                  <button onClick={() => setShowMobileSheet(false)} className="p-2 hover:bg-gray-100 rounded-full">
-                    <X size={20} className="text-gray-500" />
-                  </button>
-                </div>
-              </div>
+        {/* Solid white Reserve bar with breathing button */}
+        <div className="bg-white border-t border-gray-200 px-4 py-3 shadow-[0_-4px_6px_-1px_rgba(0,0,0,0.05)] rounded-b-xl">
+          <button
+            onClick={handleReserveBarClick}
+            className="w-full bg-[#2d568e] text-white py-3 rounded-xl font-semibold text-base shadow-lg hover:bg-[#1e3a5f] transition-colors duration-200 animate-breathing"
+          >
+            {!user ? 'Sign in to Book' : showMobileSheet ? 'Proceed to Booking' : 'Reserve Now'}
+          </button>
+        </div>
+      </div>
 
-              <div className="px-6 py-5 space-y-5">
-                {/* Price header */}
-                <div className="text-center pb-4 border-b">
-                  <div className="text-4xl font-bold text-[#2d568e]">
-                    {formatPrice(basePricePerNight)}
-                    <span className="text-sm text-gray-400">/night</span>
-                  </div>
-                </div>
+      {/* --- BOOKING DETAILS SHEET (RESERVATION DETAILS) --- */}
+      {showMobileSheet && (
+        <>
+          {/* Dark overlay with blur – sits behind the sheet but above page content */}
+          <div
+            className="fixed inset-0 z-30 bg-black/40 backdrop-blur-sm"
+            onClick={() => setShowMobileSheet(false)}
+          />
 
-                {/* Dates */}
-                <div className="grid grid-cols-2 gap-3">
-                  <div className="relative z-20 w-full">
-                    <DatePicker selected={startDate} onChange={(date) => setStartDate(date)} minDate={new Date()} dateFormat="MMM dd, yyyy" customInput={<CustomDateInput label="CHECK-IN" />} popperPlacement="bottom-start" />
-                  </div>
-                  <div className="relative z-10 w-full">
-                    <DatePicker selected={endDate} onChange={(date) => setEndDate(date)} minDate={startDate} dateFormat="MMM dd, yyyy" customInput={<CustomDateInput label="CHECK-OUT" />} popperPlacement="bottom-start" />
-                  </div>
-                </div>
-
-                <div className="flex justify-between text-sm text-gray-500">
-                  <span>{nights} nights</span>
-                  <span>{totalGuests} guests</span>
-                </div>
-
-                {/* Guests */}
-                <div className="relative">
-                  <button onClick={() => setShowGuestDropdownDesktop(!showGuestDropdownDesktop)} className="w-full bg-gray-50 rounded-xl p-3 text-left flex justify-between">
-                    <span>{getGuestDisplayText()}</span>
-                    <ChevronDown size={18} className={`transition ${showGuestDropdownDesktop ? 'rotate-180' : ''}`} />
-                  </button>
-                  {showGuestDropdownDesktop && (
-                    <div className="absolute top-full left-0 right-0 mt-2 bg-white border rounded-xl shadow-xl z-30 p-4 space-y-3">
-                      <div className="flex justify-between"><span>Adults</span><div className="flex gap-4"><button onClick={() => setAdults(Math.max(1, adults-1))} className="w-8 h-8 rounded-full bg-gray-100">-</button><span>{adults}</span><button onClick={() => setAdults(adults+1)} className="w-8 h-8 rounded-full bg-gray-100">+</button></div></div>
-                      <div className="flex justify-between"><span>Children (10% off)</span><div className="flex gap-4"><button onClick={() => setChildren(Math.max(0, children-1))} className="w-8 h-8 rounded-full bg-gray-100">-</button><span>{children}</span><button onClick={() => setChildren(children+1)} className="w-8 h-8 rounded-full bg-gray-100">+</button></div></div>
-                      <div className="flex justify-between"><span>Infants (20% off)</span><div className="flex gap-4"><button onClick={() => setInfants(Math.max(0, infants-1))} className="w-8 h-8 rounded-full bg-gray-100">-</button><span>{infants}</span><button onClick={() => setInfants(infants+1)} className="w-8 h-8 rounded-full bg-gray-100">+</button></div></div>
-                      <div className="flex justify-between"><span>Seniors (20% off)</span><div className="flex gap-4"><button onClick={() => setSeniors(Math.max(0, seniors-1))} className="w-8 h-8 rounded-full bg-gray-100">-</button><span>{seniors}</span><button onClick={() => setSeniors(seniors+1)} className="w-8 h-8 rounded-full bg-gray-100">+</button></div></div>
-                      <button onClick={() => setShowGuestDropdownDesktop(false)} className="w-full bg-[#2d568e] text-white py-2 rounded-lg">Apply</button>
-                    </div>
-                  )}
-                </div>
-
-                {/* Promo */}
-                <div className="flex gap-2">
-                  <input type="text" placeholder="Promo Code" className="flex-1 bg-gray-50 rounded-xl p-3" value={promoCode} onChange={(e) => setPromoCode(e.target.value)} />
-                  <button onClick={applyPromo} className="px-4 bg-gray-100 rounded-xl hover:bg-[#2d568e] hover:text-white transition">Apply</button>
-                </div>
-
-                {/* Price breakdown */}
-                <div className="space-y-2 pt-2 border-t">
-                  <div className="flex justify-between"><span>Nightly avg</span><span>{formatPrice(effectiveNightlyRate)}</span></div>
-                  <div className="flex justify-between"><span>{formatPrice(effectiveNightlyRate)} × {nights}</span><span>{formatPrice(subtotal)}</span></div>
-                  <div className="flex justify-between"><span>Service fee (5%)</span><span>{formatPrice(serviceFee)}</span></div>
-                  {promoApplied && <div className="flex justify-between text-green-600"><span>Discount</span><span>-{formatPrice(promoDiscount)}</span></div>}
-                  <div className="flex justify-between font-bold text-xl pt-2 border-t"><span>Total</span><span className="text-[#2d568e]">{formatPrice(finalTotal)}</span></div>
-                </div>
-
-                <div className="text-center text-xs text-gray-500 bg-blue-50 p-2 rounded-lg">Children 10% off • Infants & Seniors 20% off</div>
-                <div className="text-center text-xs text-gray-500 bg-gray-50 p-2 rounded-lg">{getCancellationText()}</div>
-
-                {/* Reserve button */}
-                <button
-                  onClick={() => {
-                    setShowMobileSheet(false)
-                    handleBookNowClick()
-                  }}
-                  className="w-full bg-[#2d568e] text-white py-3 rounded-xl font-semibold text-base shadow-lg hover:bg-[#1e3a5f] transition"
-                >
-                  {user ? 'Reserve Now' : 'Sign in to Book'}
+          {/* Sheet – fixed height, header fixed, body scrollable */}
+          <motion.div
+            initial={{ y: '100%' }}
+            animate={{ y: 0 }}
+            exit={{ y: '100%' }}
+            transition={{ type: 'spring', damping: 25, stiffness: 300 }}
+            className="fixed bottom-28 left-0 right-0 z-40 bg-white rounded-t-3xl max-h-[65vh] flex flex-col shadow-2xl"
+          >
+            {/* Fixed Header – never scrolls */}
+            <div className="flex-shrink-0 bg-white px-6 pt-6 pb-4 border-b border-gray-100 rounded-t-3xl z-10">
+              <div className="flex items-center justify-between">
+                <h2 className="text-xl font-bold text-[#2d568e]">Reservation Details</h2>
+                <button onClick={() => setShowMobileSheet(false)} className="p-2 hover:bg-gray-100 rounded-full">
+                  <X size={20} className="text-gray-500" />
                 </button>
               </div>
-            </motion.div>
-          </div>
-        )}
-      </div>
+            </div>
+
+            {/* Scrollable Body – always‑visible scrollbar */}
+            <div className="flex-1 overflow-y-auto px-6 py-5 space-y-5 mobile-scroll-container">
+              {/* Price header */}
+              <div className="text-center pb-4 border-b">
+                <div className="text-4xl font-bold text-[#2d568e]">
+                  {formatPrice(basePricePerNight)}
+                  <span className="text-sm text-gray-400">/night</span>
+                </div>
+              </div>
+
+              {/* Dates – fixed poppers */}
+              <div className="grid grid-cols-2 gap-3">
+                <div className="relative z-20 w-full">
+                  <DatePicker
+                    selected={startDate}
+                    onChange={(date) => setStartDate(date)}
+                    minDate={new Date()}
+                    dateFormat="MMM dd, yyyy"
+                    customInput={<CustomDateInput label="CHECK-IN" />}
+                    popperPlacement="bottom-start"
+                    popperProps={{ strategy: 'fixed' }}
+                  />
+                </div>
+                <div className="relative z-10 w-full">
+                  <DatePicker
+                    selected={endDate}
+                    onChange={(date) => setEndDate(date)}
+                    minDate={startDate}
+                    dateFormat="MMM dd, yyyy"
+                    customInput={<CustomDateInput label="CHECK-OUT" />}
+                    popperPlacement="bottom-start"
+                    popperProps={{ strategy: 'fixed' }}
+                  />
+                </div>
+              </div>
+
+              <div className="flex justify-between text-sm text-gray-500">
+                <span>{nights} nights</span>
+                <span>{totalGuests} guests</span>
+              </div>
+
+              {/* Guests */}
+              <div className="relative">
+                <button onClick={() => setShowGuestDropdownDesktop(!showGuestDropdownDesktop)} className="w-full bg-gray-50 rounded-xl p-3 text-left flex justify-between">
+                  <span>{getGuestDisplayText()}</span>
+                  <ChevronDown size={18} className={`transition ${showGuestDropdownDesktop ? 'rotate-180' : ''}`} />
+                </button>
+                {showGuestDropdownDesktop && (
+                  <div className="absolute top-full left-0 right-0 mt-2 bg-white border rounded-xl shadow-xl z-30 p-4 space-y-3">
+                    <div className="flex justify-between"><span>Adults</span><div className="flex gap-4"><button onClick={() => setAdults(Math.max(1, adults-1))} className="w-8 h-8 rounded-full bg-gray-100">-</button><span>{adults}</span><button onClick={() => setAdults(adults+1)} className="w-8 h-8 rounded-full bg-gray-100">+</button></div></div>
+                    <div className="flex justify-between"><span>Children (10% off)</span><div className="flex gap-4"><button onClick={() => setChildren(Math.max(0, children-1))} className="w-8 h-8 rounded-full bg-gray-100">-</button><span>{children}</span><button onClick={() => setChildren(children+1)} className="w-8 h-8 rounded-full bg-gray-100">+</button></div></div>
+                    <div className="flex justify-between"><span>Infants (20% off)</span><div className="flex gap-4"><button onClick={() => setInfants(Math.max(0, infants-1))} className="w-8 h-8 rounded-full bg-gray-100">-</button><span>{infants}</span><button onClick={() => setInfants(infants+1)} className="w-8 h-8 rounded-full bg-gray-100">+</button></div></div>
+                    <div className="flex justify-between"><span>Seniors (20% off)</span><div className="flex gap-4"><button onClick={() => setSeniors(Math.max(0, seniors-1))} className="w-8 h-8 rounded-full bg-gray-100">-</button><span>{seniors}</span><button onClick={() => setSeniors(seniors+1)} className="w-8 h-8 rounded-full bg-gray-100">+</button></div></div>
+                    <button onClick={() => setShowGuestDropdownDesktop(false)} className="w-full bg-[#2d568e] text-white py-2 rounded-lg">Apply</button>
+                  </div>
+                )}
+              </div>
+
+              {/* Promo */}
+              <div className="flex gap-2">
+                <input type="text" placeholder="Promo Code" className="flex-1 bg-gray-50 rounded-xl p-3" value={promoCode} onChange={(e) => setPromoCode(e.target.value)} />
+                <button onClick={applyPromo} className="px-4 bg-gray-100 rounded-xl hover:bg-[#2d568e] hover:text-white transition">Apply</button>
+              </div>
+
+              {/* Price breakdown */}
+              <div className="space-y-2 pt-2 border-t">
+                <div className="flex justify-between"><span>Nightly avg</span><span>{formatPrice(effectiveNightlyRate)}</span></div>
+                <div className="flex justify-between"><span>{formatPrice(effectiveNightlyRate)} × {nights}</span><span>{formatPrice(subtotal)}</span></div>
+                <div className="flex justify-between"><span>Service fee (5%)</span><span>{formatPrice(serviceFee)}</span></div>
+                {promoApplied && <div className="flex justify-between text-green-600"><span>Discount</span><span>-{formatPrice(promoDiscount)}</span></div>}
+                <div className="flex justify-between font-bold text-xl pt-2 border-t"><span>Total</span><span className="text-[#2d568e]">{formatPrice(finalTotal)}</span></div>
+              </div>
+
+              <div className="text-center text-xs text-gray-500 bg-blue-50 p-2 rounded-lg">Children 10% off • Infants & Seniors 20% off</div>
+              <div className="text-center text-xs text-gray-500 bg-gray-50 p-2 rounded-lg">{getCancellationText()}</div>
+            </div>
+          </motion.div>
+        </>
+      )}
 
       {bookingModal}
     </div>
