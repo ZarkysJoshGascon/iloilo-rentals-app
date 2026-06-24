@@ -224,7 +224,7 @@ export default function CondoDetailPage() {
 
   const [showMobileSheet, setShowMobileSheet] = useState(false)
 
-  // Mobile scroll hint state – now uses a threshold for smooth fade
+  // Mobile scroll hint state – uses a higher threshold for a longer fade
   const [showScrollHint, setShowScrollHint] = useState(true)
   const mobileContainerRef = useRef(null)
 
@@ -494,17 +494,25 @@ export default function CondoDetailPage() {
     }
   }
 
-  /* ---------- Mobile scroll listener (smooth fade) ---------- */
+  /* ---------- Mobile scroll listener (smooth fade with higher threshold) ---------- */
   const handleMobileScroll = useCallback((e) => {
     const scrollTop = e.target.scrollTop
-    // Show hint when near top (≤ 60px), hide after scrolling a bit (≥ 160px)
-    // In between, the transition will handle the fade
-    setShowScrollHint(scrollTop <= 60)
+    // Show hint when near top (≤ 200px), hide after scrolling further – transition takes care of the fade
+    setShowScrollHint(scrollTop <= 200)
   }, [])
 
   /* ---------- loading / error states ---------- */
-  if (loading) return <div className="min-h-screen flex items-center justify-center"><div className="animate-spin rounded-full h-12 w-12 border-b-2 border-[#2d568e]"></div></div>
-  if (error || !condo) return <div className="min-h-screen flex items-center justify-center">Condo not found</div>
+  if (loading) return (
+    <div className="min-h-screen flex items-center justify-center bg-gray-50">
+      <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-[#2d568e]"></div>
+    </div>
+  )
+
+  if (error || !condo) return (
+    <div className="min-h-screen flex items-center justify-center bg-gray-50">
+      <p className="text-gray-900">Condo not found</p>
+    </div>
+  )
 
   /* ---------- booking modal (portal) ---------- */
   const bookingModal = showBookingForm && createPortal(
@@ -604,7 +612,7 @@ export default function CondoDetailPage() {
         </div>
 
         {/* RIGHT SIDE - STATIC (NO SCROLL) */}
-        <div className="w-1/3 bg-white shadow-xl flex flex-col h-full overflow-hidden pt-16">
+        <div className="w-1/3 bg-white shadow-xl flex flex-col h-full overflow-hidden pt-20">
           <div className="flex-1 overflow-y-auto p-6 space-y-5">
             <div className="text-center pb-4 border-b">
               <div className="text-4xl font-bold text-[#2d568e]">{formatPrice(basePricePerNight)}<span className="text-sm text-gray-400">/night</span></div>
@@ -711,11 +719,11 @@ export default function CondoDetailPage() {
         </div>
       </div>
 
-      {/* --- BOTTOM AREA: Smooth‑fade hint + Breathing Reserve bar --- */}
+      {/* --- BOTTOM AREA: Smooth‑fade hint (lasts longer) + Breathing Reserve bar --- */}
       <div className="lg:hidden fixed bottom-16 left-0 right-0 z-50">
-        {/* Hint with gradient (bottom solid, top clear) and smooth opacity transition */}
+        {/* Hint with gradient (bottom solid, top clear) and 700ms fade transition */}
         <div
-          className={`transition-opacity duration-500 ${
+          className={`transition-opacity duration-700 ${
             showScrollHint ? 'opacity-100' : 'opacity-0'
           }`}
         >

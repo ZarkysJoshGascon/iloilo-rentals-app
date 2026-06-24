@@ -1,18 +1,79 @@
 @import "tailwindcss";
 
+/* Montserrat Bold as the default font */
+@layer base {
+  html {
+    font-family: 'Montserrat', sans-serif;
+    font-weight: 700;
+  }
+}
+
 @variant dark (&:where(.dark, .dark *));
 
 html {
   scroll-behavior: smooth;
+  scroll-snap-type: y mandatory;
 }
 
 body {
-  overflow-anchor: none;
+  background-color: #2d568e;
+  color: #1a202c;
 }
-
 body.modal-open {
   overflow: hidden;
 }
-.safe-area-bottom {
-  padding-bottom: env(safe-area-inset-bottom, 0px);
+
+.scrollable-content::-webkit-scrollbar {
+  width: 6px;
+}
+.scrollable-content::-webkit-scrollbar-track {
+  background: #f1f1f1;
+  border-radius: 4px;
+}
+.scrollable-content::-webkit-scrollbar-thumb {
+  background: #2d568e;
+  border-radius: 4px;
+}
+
+@media (max-width: 1023px) {
+  .mobile-scroll-container {
+    -webkit-overflow-scrolling: touch;
+    scrollbar-width: thin;
+    scrollbar-color: #2d568e #f1f1f1;
+  }
+  .mobile-scroll-container::-webkit-scrollbar {
+    width: 8px;
+    height: 8px;
+  }
+  .mobile-scroll-container::-webkit-scrollbar-track {
+    background: #f1f1f1;
+    border-radius: 8px;
+  }
+  .mobile-scroll-container::-webkit-scrollbar-thumb {
+    background: #2d568e;
+    border-radius: 8px;
+    border: 2px solid #f1f1f1;
+  }
+}
+
+@keyframes breathing {
+  0%, 100% {
+    transform: scale(1);
+    box-shadow: 0 4px 6px -1px rgba(0,0,0,0.1);
+  }
+  50% {
+    transform: scale(1.06);
+    box-shadow: 0 12px 24px -4px rgba(45,86,142,0.6);
+  }
+}
+.animate-breathing {
+  animation: breathing 4s ease-in-out infinite;
+}
+
+@keyframes bounce-down {
+  0%, 100% { transform: translateY(0); opacity: 1; }
+  50% { transform: translateY(8px); opacity: 0.8; }
+}
+.animate-bounce-down {
+  animation: bounce-down 1s ease-in-out infinite;
 }
