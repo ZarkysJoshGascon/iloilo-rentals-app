@@ -22,6 +22,7 @@ function App() {
   const location = useLocation()
   const hideFooter = location.pathname.includes('/condo/')
   const isAdminRoute = location.pathname === '/admin'
+  const isHomePage = location.pathname === '/'
 
   useEffect(() => {
     document.documentElement.style.overflow = ''
@@ -57,8 +58,8 @@ function App() {
             />
           </Routes>
         </main>
-        {!hideFooter && !isAdminRoute && <Footer />}
-        {!isAdminRoute && <MobileBottomNav />}
+        {!hideFooter && !isAdminRoute && !isHomePage && <Footer />}
+        {!isAdminRoute && !isHomePage && <MobileBottomNav />}
         <Toaster position="top-right" />
       </div>
     </ThemeProvider>

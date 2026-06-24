@@ -23,3 +23,11 @@ export default defineConfig({
     },
   },
 })
+export default defineConfig({
+  plugins: [react()],
+  server: {
+    headers: {
+      'Cache-Control': 'no-store',
+    },
+  },
+})

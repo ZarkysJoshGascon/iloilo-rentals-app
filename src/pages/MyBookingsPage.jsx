@@ -3,11 +3,43 @@ import { useNavigate } from 'react-router-dom'
 import { motion, AnimatePresence } from 'framer-motion'
 import { supabase } from '../lib/supabase'
 import { format } from 'date-fns'
-import { MapPin, ChevronRight, Clock, AlertCircle, CheckCircle, XCircle, Ban } from 'lucide-react'
+import { MapPin, ChevronRight, Clock, CheckCircle, XCircle, Ban, Calendar, ArrowRight } from 'lucide-react'
 import { useCurrency } from '../context/CurrencyContext'
 import { useAuth } from '../context/AuthContext'
 import toast from 'react-hot-toast'
 import { getCondoImage } from '../utils/condoImages'
+
+function SkeletonBookingCard() {
+  return (
+    <div className="bg-white rounded-2xl shadow-sm border border-gray-100 overflow-hidden animate-pulse">
+      <div className="flex flex-col sm:flex-row">
+        <div className="sm:w-48 h-48 sm:h-auto bg-gray-200" />
+        <div className="flex-1 p-5 space-y-3">
+          <div className="flex justify-between">
+            <div className="space-y-2">
+              <div className="h-5 bg-gray-200 rounded w-40" />
+              <div className="h-4 bg-gray-200 rounded w-24" />
+            </div>
+            <div className="h-6 bg-gray-200 rounded w-20" />
+          </div>
+          <div className="h-3 bg-gray-200 rounded w-32" />
+          <div className="grid grid-cols-3 gap-3">
+            <div className="h-16 bg-gray-100 rounded-xl" />
+            <div className="h-16 bg-gray-100 rounded-xl" />
+            <div className="h-16 bg-gray-100 rounded-xl" />
+          </div>
+          <div className="flex justify-between pt-3 border-t border-gray-100">
+            <div className="h-3 bg-gray-200 rounded w-24" />
+            <div className="flex gap-3">
+              <div className="h-7 bg-gray-200 rounded w-16" />
+              <div className="h-7 bg-gray-200 rounded w-16" />
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  )
+}
 
 export default function MyBookingsPage() {
   const { user, loading: authLoading } = useAuth()
@@ -16,195 +48,98 @@ export default function MyBookingsPage() {
   const navigate = useNavigate()
   const { formatPrice } = useCurrency()
   const [cancellingId, setCancellingId] = useState(null)
+  const [activeTab, setActiveTab] = useState('all')
 
   const fetchBookings = async (userId) => {
     try {
-      const { data, error } = await supabase
-        .from('bookings')
-        .select('*, condos:condo_id (title, location, images, code)')
-        .eq('user_id', userId)
-        .order('created_at', { ascending: false })
+      const { data, error } = await supabase.from('bookings').select('*, condos:condo_id (title, location, images, code)').eq('user_id', userId).order('created_at', { ascending: false })
       if (error) throw error
       setBookings(data || [])
-    } catch (error) {
-      console.error('Error fetching bookings:', error)
-      toast.error('Failed to load bookings')
-    } finally {
-      setLoading(false)
-    }
+    } catch (error) { toast.error('Failed to load bookings') }
+    finally { setLoading(false) }
   }
 
-  useEffect(() => {
-    if (!authLoading && !user) {
-      navigate('/login')
-      return
-    }
-    if (user) {
-      // eslint-disable-next-line react-hooks/set-state-in-effect
-      fetchBookings(user.id)
-    }
-  }, [authLoading, user, navigate])
+  useEffect(() => { if (!authLoading && !user) { navigate('/login'); return } if (user) fetchBookings(user.id) }, [authLoading, user, navigate])
 
   const cancelBooking = async (bookingId) => {
-    if (!confirm('Are you sure you want to cancel this booking?')) return
+    if (!confirm('Cancel this booking?')) return
     setCancellingId(bookingId)
     try {
-      const { error } = await supabase
-        .from('bookings')
-        .update({ status: 'cancelled' })
-        .eq('id', bookingId)
-        .eq('user_id', user.id)
+      const { error } = await supabase.from('bookings').update({ status: 'cancelled' }).eq('id', bookingId).eq('user_id', user.id)
       if (error) throw error
-      toast.success('Booking cancelled successfully')
-      setBookings(prev => prev.map(booking =>
-        booking.id === bookingId ? { ...booking, status: 'cancelled' } : booking
-      ))
-    } catch (error) {
-      console.error('Cancel error:', error)
-      toast.error('Failed to cancel booking')
-    } finally {
-      setCancellingId(null)
-    }
+      toast.success('Booking cancelled')
+      setBookings(prev => prev.map(b => b.id === bookingId ? { ...b, status: 'cancelled' } : b))
+    } catch { toast.error('Failed to cancel') }
+    finally { setCancellingId(null) }
   }
 
-  const getStatusConfig = (status) => {
+  const getStatusStyle = (status) => {
     switch (status) {
-      case 'pending': return { color: 'bg-yellow-100 text-yellow-800', icon: Clock, text: 'Pending Approval', canCancel: true }
-      case 'confirmed': return { color: 'bg-green-100 text-green-800', icon: CheckCircle, text: 'Confirmed', canCancel: true }
-      case 'cancelled': return { color: 'bg-red-100 text-red-800', icon: XCircle, text: 'Cancelled', canCancel: false }
-      case 'completed': return { color: 'bg-blue-100 text-blue-800', icon: CheckCircle, text: 'Completed', canCancel: false }
-      default: return { color: 'bg-gray-100 text-gray-800', icon: AlertCircle, text: status, canCancel: false }
+      case 'pending': return { bg: 'bg-amber-50 border-amber-200', text: 'text-amber-700', icon: Clock, label: 'Pending' }
+      case 'confirmed': return { bg: 'bg-emerald-50 border-emerald-200', text: 'text-emerald-700', icon: CheckCircle, label: 'Confirmed' }
+      case 'cancelled': return { bg: 'bg-red-50 border-red-200', text: 'text-red-700', icon: XCircle, label: 'Cancelled' }
+      default: return { bg: 'bg-gray-50 border-gray-200', text: 'text-gray-700', icon: Clock, label: status }
     }
   }
 
-  const totalGuests = (booking) => (booking.adults || 0) + (booking.children || 0) + (booking.seniors || 0)
-
-  const pageVariants = {
-    hidden: { opacity: 0 },
-    visible: { opacity: 1, transition: { duration: 0.5 } }
-  }
-  const headerVariants = {
-    hidden: { opacity: 0, y: -30 },
-    visible: { opacity: 1, y: 0, transition: { duration: 0.5 } }
-  }
-  const emptyStateVariants = {
-    hidden: { opacity: 0, scale: 0.9 },
-    visible: { opacity: 1, scale: 1, transition: { duration: 0.5, type: "spring", stiffness: 200 } }
-  }
-  const bookingCardVariants = {
-    hidden: { opacity: 0, x: -30 },
-    visible: (index) => ({ opacity: 1, x: 0, transition: { duration: 0.4, delay: index * 0.1 } }),
-    hover: { scale: 1.01, boxShadow: "0 20px 25px -5px rgba(0,0,0,0.1), 0 10px 10px -5px rgba(0,0,0,0.04)", transition: { duration: 0.2 } }
-  }
-  const cancelButtonVariants = {
-    tap: { scale: 0.8 },
-    hover: { scale: 1.1, color: "#dc2626" }
-  }
-  const viewDetailsVariants = {
-    hover: { x: 5, color: "#1e3a5f" }
-  }
-
-  if (loading || authLoading) {
-    return (
-      <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="min-h-screen flex items-center justify-center">
-        <div className="text-center">
-          <motion.div animate={{ rotate: 360 }} transition={{ duration: 1, repeat: Infinity, ease: "linear" }} className="rounded-full h-12 w-12 border-b-2 border-[#2d568e] mx-auto mb-4" />
-          <p className="text-gray-600">Loading your bookings...</p>
-        </div>
-      </motion.div>
-    )
-  }
+  const filteredBookings = activeTab === 'all' ? bookings : bookings.filter(b => b.status === activeTab)
+  const tabs = [{ id: 'all', label: 'All' },{ id: 'pending', label: 'Pending' },{ id: 'confirmed', label: 'Confirmed' },{ id: 'cancelled', label: 'Cancelled' }]
 
   return (
-    <motion.div variants={pageVariants} initial="hidden" animate="visible" className="min-h-screen bg-gray-50 py-6 md:py-12">
-      <div className="max-w-5xl mx-auto px-4">
-        <motion.div variants={headerVariants} className="mb-6 md:mb-8">
-          <h1 className="text-2xl md:text-3xl lg:text-4xl font-bold text-[#2d568e] mb-2">My Bookings</h1>
-          <p className="text-gray-500 text-sm md:text-base">View and manage your condo reservations</p>
-        </motion.div>
+    <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="min-h-screen bg-gray-50 pt-20">
+      <div className="max-w-4xl mx-auto px-4 py-8">
+        <div className="mb-8">
+          <div className="flex items-center gap-3 mb-3"><div className="w-10 h-10 bg-[#2d568e]/10 rounded-xl flex items-center justify-center"><Calendar size={20} className="text-[#2d568e]" /></div><div><h1 className="text-2xl font-bold text-[#2d568e]">My Bookings</h1><p className="text-gray-500 text-sm">Manage your reservations</p></div></div>
+          <div className="flex gap-2 bg-white rounded-xl p-1.5 border border-gray-100 shadow-sm w-fit">
+            {tabs.map(tab => (
+              <button key={tab.id} onClick={() => setActiveTab(tab.id)} className={`px-4 py-2 rounded-lg text-sm font-medium transition-all ${activeTab === tab.id ? 'bg-[#2d568e] text-white shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}>
+                {tab.label}{tab.id !== 'all' && <span className="ml-1.5 text-xs opacity-70">{bookings.filter(b => b.status === tab.id).length}</span>}
+              </button>
+            ))}
+          </div>
+        </div>
 
-        {bookings.length === 0 ? (
-          <motion.div variants={emptyStateVariants} initial="hidden" animate="visible" className="bg-white rounded-2xl shadow-lg p-8 md:p-12 text-center">
-            <motion.div animate={{ y: [0, -10, 0], transition: { repeat: Infinity, duration: 2, repeatDelay: 1 } }} className="text-5xl md:text-6xl mb-4">📅</motion.div>
-            <h2 className="text-xl md:text-2xl font-semibold text-gray-700 mb-2">No Bookings Yet</h2>
-            <p className="text-gray-500 mb-6 text-sm md:text-base">You haven't made any condo reservations yet.</p>
-            <motion.button whileHover={{ scale: 1.05 }} whileTap={{ scale: 0.98 }} onClick={() => navigate('/condos')}
-              className="bg-[#2d568e] text-white px-6 py-3 rounded-xl font-semibold hover:bg-[#1e3a5f] transition-all">Browse Condos</motion.button>
-          </motion.div>
-        ) : (
-          <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ delay: 0.2 }} className="space-y-4">
-            <AnimatePresence>
-              {bookings.map((booking, index) => {
-                const statusConfig = getStatusConfig(booking.status)
-                const StatusIcon = statusConfig.icon
-                const condo = booking.condos
-                const imageUrl = getCondoImage(condo)
+        {/* Skeleton loading */}
+        {loading && (
+          <div className="space-y-4">
+            {[1, 2, 3].map(i => <SkeletonBookingCard key={i} />)}
+          </div>
+        )}
 
-                return (
-                  <motion.div key={booking.id} variants={bookingCardVariants} initial="hidden" animate="visible" whileHover="hover" custom={index}
-                    exit={{ opacity: 0, x: -100, transition: { duration: 0.3 } }} className="bg-white rounded-2xl shadow-md overflow-hidden">
-                    <div className="flex flex-col sm:flex-row">
-                      <motion.div whileHover={{ scale: 1.02 }} className="sm:w-32 md:w-48 h-40 sm:h-auto bg-gray-200 cursor-pointer group relative overflow-hidden">
-                        {imageUrl ? (
-                          <motion.img whileHover={{ scale: 1.1 }} transition={{ duration: 0.3 }} src={imageUrl} alt={condo?.title}
-                            className="w-full h-full object-cover" onError={(e) => { e.target.src = 'https://via.placeholder.com/400x300?text=No+Image' }} />
-                        ) : (
-                          <div className="w-full h-full bg-gradient-to-br from-[#2d568e] to-[#1e3a5f] flex items-center justify-center text-white">
-                            <motion.div animate={{ rotate: [0, 10, -10, 0] }} transition={{ repeat: Infinity, duration: 3, repeatDelay: 2 }} className="text-4xl">🏢</motion.div>
-                          </div>
-                        )}
-                      </motion.div>
-                      
-                      <div className="flex-1 p-4 md:p-6">
-                        <div className="flex flex-wrap justify-between items-start gap-3">
-                          <div>
-                            <motion.h2 whileHover={{ x: 5 }} className="text-lg md:text-xl font-bold text-gray-900 mb-1">{condo?.title || 'Condo Unit'}</motion.h2>
-                            <div className="flex items-center gap-1 text-gray-500 mb-2">
-                              <MapPin size={14} className="md:hidden" /><MapPin size={16} className="hidden md:block" />
-                              <span className="text-xs md:text-sm">{condo?.location || 'Iloilo City'}</span>
-                            </div>
-                          </div>
-                          <div className="flex items-center gap-2">
-                            <motion.span whileHover={{ scale: 1.05 }} className={`px-2 py-1 rounded-full text-xs font-semibold flex items-center gap-1 ${statusConfig.color}`}>
-                              <StatusIcon size={12} /> {statusConfig.text}
-                            </motion.span>
-                            {statusConfig.canCancel && (
-                              <motion.button variants={cancelButtonVariants} whileTap="tap" whileHover="hover"
-                                onClick={() => cancelBooking(booking.id)} disabled={cancellingId === booking.id}
-                                className="text-red-600 hover:text-red-800 p-1">
-                                {cancellingId === booking.id ? (
-                                  <motion.div animate={{ rotate: 360 }} transition={{ duration: 0.5, repeat: Infinity }}
-                                    className="w-4 h-4 border-2 border-red-600 border-t-transparent rounded-full" />
-                                ) : (
-                                  <Ban size={16} />
-                                )}
-                              </motion.button>
-                            )}
-                          </div>
-                        </div>
-                        
-                        <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ delay: 0.1 + index * 0.05 }}
-                          className="grid grid-cols-2 md:grid-cols-4 gap-3 md:gap-4 mb-3 md:mb-4">
-                          <motion.div whileHover={{ y: -2 }} className="bg-gray-50 p-2 rounded-lg"><div className="text-xs text-gray-500 mb-1">CHECK-IN</div><div className="font-semibold text-xs md:text-sm">{format(new Date(booking.start_date), 'MMM dd, yyyy')}</div></motion.div>
-                          <motion.div whileHover={{ y: -2 }} className="bg-gray-50 p-2 rounded-lg"><div className="text-xs text-gray-500 mb-1">CHECK-OUT</div><div className="font-semibold text-xs md:text-sm">{format(new Date(booking.end_date), 'MMM dd, yyyy')}</div></motion.div>
-                          <motion.div whileHover={{ y: -2 }} className="bg-gray-50 p-2 rounded-lg"><div className="text-xs text-gray-500 mb-1">GUESTS</div><div className="font-semibold text-xs md:text-sm">{totalGuests(booking)}</div></motion.div>
-                          <motion.div whileHover={{ y: -2 }} className="bg-gray-50 p-2 rounded-lg"><div className="text-xs text-gray-500 mb-1">TOTAL</div><motion.div whileHover={{ scale: 1.05 }} className="font-semibold text-[#2d568e] text-xs md:text-sm">{formatPrice(booking.total_amount || 0)}</motion.div></motion.div>
-                        </motion.div>
-                        
-                        <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ delay: 0.2 + index * 0.05 }}
-                          className="text-xs text-gray-400 mb-2 md:mb-3">Booked on {format(new Date(booking.created_at), 'MMM dd, yyyy')}</motion.div>
-                        
-                        <motion.button variants={viewDetailsVariants} whileHover="hover" onClick={() => navigate(`/condo/${booking.condo_id}`)}
-                          className="flex items-center gap-1 text-[#2d568e] hover:underline text-xs md:text-sm">
-                          View Property Details <ChevronRight size={14} className="transition-transform group-hover:translate-x-1" />
-                        </motion.button>
+        {!loading && filteredBookings.length === 0 && (
+          <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-12 text-center">
+            <div className="w-16 h-16 bg-[#2d568e]/5 rounded-2xl flex items-center justify-center mx-auto mb-4"><Calendar size={28} className="text-[#2d568e]/40" /></div>
+            <h3 className="text-lg font-semibold text-gray-800 mb-1">No bookings found</h3>
+            <p className="text-gray-500 text-sm mb-6">{activeTab === 'all' ? "You haven't made any reservations yet." : `No ${activeTab} bookings.`}</p>
+            <button onClick={() => navigate('/condos')} className="bg-[#2d568e] text-white px-6 py-2.5 rounded-xl font-medium text-sm hover:bg-[#1e3a5f] transition inline-flex items-center gap-2">Browse Condos <ArrowRight size={16} /></button>
+          </div>
+        )}
+
+        {!loading && filteredBookings.length > 0 && (
+          <div className="space-y-4"><AnimatePresence>{filteredBookings.map((booking, idx) => {
+            const statusStyle = getStatusStyle(booking.status); const StatusIcon = statusStyle.icon; const condo = booking.condos; const imageUrl = getCondoImage(condo); const nights = Math.ceil((new Date(booking.end_date) - new Date(booking.start_date)) / (1000 * 60 * 60 * 24))
+            return (
+              <motion.div key={booking.id} initial={{ opacity: 0, y: 15 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: idx * 0.05 }} className="bg-white rounded-2xl shadow-sm border border-gray-100 overflow-hidden hover:shadow-md transition-shadow group">
+                <div className="flex flex-col sm:flex-row">
+                  <div className="sm:w-48 h-48 sm:h-auto relative overflow-hidden bg-gray-100">{imageUrl ? <img src={imageUrl} alt={condo?.title} className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500" /> : <div className="w-full h-full bg-gradient-to-br from-[#2d568e]/20 to-[#1e3a5f]/20 flex items-center justify-center"><Calendar size={32} className="text-[#2d568e]/40" /></div>}<div className={`absolute top-3 left-3 px-2.5 py-1 rounded-full text-xs font-medium border ${statusStyle.bg} ${statusStyle.text} flex items-center gap-1 backdrop-blur-sm`}><StatusIcon size={12} />{statusStyle.label}</div></div>
+                  <div className="flex-1 p-5 flex flex-col justify-between">
+                    <div>
+                      <div className="flex justify-between items-start gap-2 mb-2"><div><h3 className="font-semibold text-gray-900">{condo?.title || 'Condo Unit'}</h3><div className="flex items-center gap-1 text-gray-500 text-sm mt-0.5"><MapPin size={13} /><span>{condo?.location || 'Iloilo City'}</span></div></div><span className="text-lg font-bold text-[#2d568e]">{formatPrice(booking.total_amount || 0)}</span></div>
+                      <p className="text-xs text-gray-400 font-mono mb-3">#{booking.booking_code || 'N/A'}</p>
+                      <div className="grid grid-cols-3 gap-3 mb-3"><div className="bg-gray-50 rounded-xl p-2.5 text-center"><p className="text-xs text-gray-400 mb-0.5">Check-in</p><p className="text-sm font-semibold text-gray-800">{format(new Date(booking.start_date), 'MMM dd')}</p></div><div className="bg-gray-50 rounded-xl p-2.5 text-center"><p className="text-xs text-gray-400 mb-0.5">Check-out</p><p className="text-sm font-semibold text-gray-800">{format(new Date(booking.end_date), 'MMM dd')}</p></div><div className="bg-gray-50 rounded-xl p-2.5 text-center"><p className="text-xs text-gray-400 mb-0.5">Nights</p><p className="text-sm font-semibold text-gray-800">{nights}</p></div></div>
+                    </div>
+                    <div className="flex items-center justify-between pt-3 border-t border-gray-100">
+                      <span className="text-xs text-gray-400">Booked {format(new Date(booking.created_at), 'MMM dd, yyyy')}</span>
+                      <div className="flex items-center gap-3">
+                        {(booking.status === 'pending' || booking.status === 'confirmed') && <button onClick={() => cancelBooking(booking.id)} disabled={cancellingId === booking.id} className="text-xs text-red-600 hover:text-red-700 font-medium flex items-center gap-1.5 px-3 py-1.5 rounded-lg hover:bg-red-50 transition-colors">{cancellingId === booking.id ? <span className="w-3.5 h-3.5 border-2 border-red-500 border-t-transparent rounded-full animate-spin" /> : <Ban size={12} />}Cancel</button>}
+                        <button onClick={() => navigate(`/condo/${booking.condo_id}`)} className="text-xs text-[#2d568e] hover:text-[#1e3a5f] font-medium flex items-center gap-1 px-3 py-1.5 rounded-lg hover:bg-[#2d568e]/5 transition-colors">View Details <ChevronRight size={12} /></button>
                       </div>
                     </div>
-                  </motion.div>
-                )
-              })}
-            </AnimatePresence>
-          </motion.div>
+                  </div>
+                </div>
+              </motion.div>
+            )
+          })}</AnimatePresence></div>
         )}
       </div>
     </motion.div>
