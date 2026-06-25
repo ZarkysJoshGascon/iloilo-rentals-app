@@ -12,11 +12,7 @@ function SkeletonCard() {
       <div className="p-4 space-y-3">
         <div className="h-4 bg-gray-200 rounded w-3/4" />
         <div className="h-3 bg-gray-200 rounded w-1/2" />
-        <div className="flex gap-4 pt-1">
-          <div className="h-3 bg-gray-200 rounded w-12" />
-          <div className="h-3 bg-gray-200 rounded w-12" />
-          <div className="h-3 bg-gray-200 rounded w-12" />
-        </div>
+        <div className="flex gap-4 pt-1"><div className="h-3 bg-gray-200 rounded w-12" /><div className="h-3 bg-gray-200 rounded w-12" /><div className="h-3 bg-gray-200 rounded w-12" /></div>
         <div className="h-4 bg-gray-200 rounded w-1/3 mt-2" />
         <div className="h-9 bg-gray-200 rounded-lg mt-3" />
       </div>
@@ -50,7 +46,10 @@ export default function CondosPage() {
     setTimeout(() => setIsSearching(false), 300)
   }, [debouncedSearch, debouncedPriceRange])
 
-  useEffect(() => { fetchCondos() }, [fetchCondos])
+  useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    fetchCondos()
+  }, [fetchCondos])
 
   return (
     <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="min-h-screen bg-gray-50 pt-20">
@@ -75,14 +74,7 @@ export default function CondosPage() {
           )}
         </motion.div>
         <div className="mb-6 flex justify-between items-center"><p className="text-gray-500 text-sm">Found <span className="font-semibold text-[#2d568e]">{condos.length}</span> condos</p>{isSearching && <div className="flex items-center gap-2 text-sm text-gray-400"><Loader2 size={14} className="animate-spin" /><span>Refreshing...</span></div>}</div>
-        
-        {/* Skeleton grid while loading */}
-        {loading && (
-          <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-6 mb-8">
-            {[1,2,3,4,5,6].map(i => <SkeletonCard key={i} />)}
-          </div>
-        )}
-
+        {loading && <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-6 mb-8">{[1,2,3,4,5,6].map(i => <SkeletonCard key={i} />)}</div>}
         {!loading && condos.length === 0 && <div className="text-center py-16 bg-white rounded-2xl"><div className="text-6xl mb-4">🏢</div><p className="text-gray-500 text-lg">No condos found matching your criteria.</p><button onClick={() => { setSearch(''); setPriceRange(10000) }} className="mt-4 text-[#2d568e] hover:underline font-medium">Clear filters</button></div>}
         {condos.length > 0 && <div className={`grid md:grid-cols-2 lg:grid-cols-3 gap-6 transition-opacity duration-300 ${isSearching ? 'opacity-50' : 'opacity-100'}`}>{condos.map(condo => <ModernCondoCard key={condo.id} condo={condo} />)}</div>}
       </div>

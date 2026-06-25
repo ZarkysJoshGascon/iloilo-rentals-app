@@ -9,6 +9,9 @@ export default defineConfig({
       methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
       allowedHeaders: ['Content-Type', 'Authorization'],
     },
+    headers: {
+      'Cache-Control': 'no-store',
+    },
   },
   test: {
     globals: true,
@@ -20,14 +23,6 @@ export default defineConfig({
       provider: 'v8',
       reporter: ['text', 'json', 'html'],
       exclude: ['node_modules/', 'src/test/setup.js'],
-    },
-  },
-})
-export default defineConfig({
-  plugins: [react()],
-  server: {
-    headers: {
-      'Cache-Control': 'no-store',
     },
   },
 })

@@ -22,10 +22,10 @@ export default function ListPropertyPage() {
   const handleSubmit = async (e) => {
     e.preventDefault(); if (!user) return; setLoading(true)
     try {
-      const { data: condo, error: condoError } = await supabase.from('condos').insert({ ...formData, owner_id: user.id, code: crypto.randomUUID().split('-')[0].toUpperCase().slice(0, 6) }).select().single()
+      const { error: condoError } = await supabase.from('condos').insert({ ...formData, owner_id: user.id, code: crypto.randomUUID().split('-')[0].toUpperCase().slice(0, 6) }).select().single()
       if (condoError) throw condoError
       toast.success('Property listed!'); navigate('/condos')
-    } catch (error) { toast.error('Failed to list property.') }
+    } catch { toast.error('Failed to list property.') }
     finally { setLoading(false) }
   }
 
