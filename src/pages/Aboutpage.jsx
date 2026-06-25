@@ -6,8 +6,8 @@ export default function Aboutpage() {
   const staggerContainer = { hidden: { opacity: 0 }, visible: { opacity: 1, transition: { staggerChildren: 0.1 } } }
 
   return (
-    <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="min-h-screen bg-gray-50">
-      <div className="bg-gradient-to-br from-[#2d568e] to-[#1e3a5f] text-white pt-24 pb-16">
+    <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="min-h-screen bg-gray-50 pb-24 md:pb-0">
+      <div className="bg-gradient-to-br from-[#2d568e] to-[#1e3a5f] text-white pt-16 md:pt-24 pb-12 md:pb-16">
         <div className="max-w-6xl mx-auto px-4 text-center">
           <div className="w-16 h-16 bg-white/20 rounded-2xl flex items-center justify-center mx-auto mb-4 border border-white/20">
             <Shield size={28} className="text-white" />

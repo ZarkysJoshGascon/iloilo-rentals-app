@@ -612,7 +612,7 @@ export default function CondoDetailPage() {
         </div>
 
         {/* RIGHT SIDE - STATIC (NO SCROLL) */}
-        <div className="w-1/3 bg-white shadow-xl flex flex-col h-full overflow-hidden pt-10">
+        <div className="w-1/3 bg-white shadow-xl flex flex-col h-full overflow-hidden pt-20">
           <div className="flex-1 overflow-y-auto p-6 space-y-5">
             <div className="text-center pb-4 border-b">
               <div className="text-4xl font-bold text-[#2d568e]">{formatPrice(basePricePerNight)}<span className="text-sm text-gray-400">/night</span></div>

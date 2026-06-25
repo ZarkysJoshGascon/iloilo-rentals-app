@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useState, useRef } from 'react'
 import { useNavigate, useSearchParams } from 'react-router-dom'
 import { motion } from 'framer-motion'
 import { supabase } from '../lib/supabase'
@@ -11,8 +11,8 @@ export default function LoginPage() {
   const { user, loading: authLoading } = useAuth()
   const [isLoading, setIsLoading] = useState(false)
   const [showWarning, setShowWarning] = useState(false)
+  const warningChecked = useRef(false)
 
-  // If already logged in, handle user setup and redirection
   useEffect(() => {
     if (!authLoading && user) {
       const setupUser = async () => {
@@ -47,7 +47,6 @@ export default function LoginPage() {
           .eq('user_id', user.id)
           .maybeSingle()
 
-        // Redirect to original page if provided, else admin/home
         const redirect = searchParams.get('redirect')
         if (redirect) {
           navigate(redirect)
@@ -61,17 +60,18 @@ export default function LoginPage() {
     }
   }, [authLoading, user, navigate, searchParams])
 
-  // Detect embedded browser
   useEffect(() => {
-    const ua = navigator.userAgent || navigator.vendor || window.opera
-    const isEmbedded = (
-      ua.includes('FBAN') || ua.includes('FBAV') ||
-      ua.includes('Instagram') || ua.includes('Messenger') ||
-      ua.includes('WhatsApp') || ua.includes('Twitter') ||
-      ua.includes('LinkedIn')
-    )
-    // eslint-disable-next-line react-hooks/set-state-in-effect
-    setShowWarning(isEmbedded)
+    if (!warningChecked.current) {
+      warningChecked.current = true
+      const ua = navigator.userAgent || navigator.vendor || window.opera
+      const isEmbedded = (
+        ua.includes('FBAN') || ua.includes('FBAV') ||
+        ua.includes('Instagram') || ua.includes('Messenger') ||
+        ua.includes('WhatsApp') || ua.includes('Twitter') ||
+        ua.includes('LinkedIn')
+      )
+      setShowWarning(isEmbedded)
+    }
   }, [])
 
   const handleGoogleLogin = async () => {
@@ -170,7 +170,7 @@ export default function LoginPage() {
   }
 
   return (
-    <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-[#2d568e]/5 via-white to-[#2d568e]/10 overflow-hidden">
+    <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-[#2d568e]/5 via-white to-[#2d568e]/10 overflow-hidden pb-24 md:pb-0">
       <div className="absolute inset-0 overflow-hidden pointer-events-none">
         <motion.div 
           animate={{ y: [0, -20, 0], x: [0, 10, 0] }}
@@ -194,7 +194,7 @@ export default function LoginPage() {
         initial="hidden"
         animate="visible"
         whileHover={{ scale: 1.02 }}
-        className="relative bg-white rounded-2xl shadow-2xl max-w-md w-full mx-4 p-8 md:p-10 transition-all duration-500"
+        className="relative bg-white rounded-2xl shadow-2xl max-w-md w-full mx-4 p-6 md:p-10 transition-all duration-500"
       >
         {showWarning && (
           <motion.div 
@@ -228,7 +228,7 @@ export default function LoginPage() {
           </motion.div>
         )}
         
-        <div className="flex justify-center mb-6">
+        <div className="flex justify-center mb-4 md:mb-6">
           <motion.div 
             variants={logoVariants}
             className="bg-[#2d568e]/10 p-4 rounded-full transition-all duration-300 hover:bg-[#2d568e]/20 cursor-pointer"
@@ -238,7 +238,7 @@ export default function LoginPage() {
             <motion.img 
               src="/Iloilo_rentals_img.png" 
               alt="Iloilo Rentals Logo" 
-              className="w-20 h-20 object-contain"
+              className="w-16 h-16 md:w-20 md:h-20 object-contain"
               animate={{ rotate: [0, 5, -5, 0] }}
               transition={{ repeat: Infinity, duration: 4, repeatDelay: 3 }}
               onError={(e) => {
@@ -246,7 +246,7 @@ export default function LoginPage() {
                 e.target.nextSibling.style.display = 'flex'
               }}
             />
-            <div className="hidden w-20 h-20 bg-[#2d568e] rounded-full items-center justify-center">
+            <div className="hidden w-16 h-16 md:w-20 md:h-20 bg-[#2d568e] rounded-full items-center justify-center">
               <span className="text-white text-2xl font-bold">IR</span>
             </div>
           </motion.div>
@@ -254,26 +254,26 @@ export default function LoginPage() {
         
         <motion.h1 
           variants={titleVariants}
-          className="text-3xl md:text-4xl font-bold text-center bg-gradient-to-r from-[#2d568e] to-[#1e3a5f] bg-clip-text text-transparent mb-3"
+          className="text-2xl md:text-4xl font-bold text-center bg-gradient-to-r from-[#2d568e] to-[#1e3a5f] bg-clip-text text-transparent mb-3"
         >
           Iloilo Rentals
         </motion.h1>
         
         <motion.p 
           variants={subtitleVariants}
-          className="text-center text-gray-500 mb-2"
+          className="text-center text-gray-500 text-sm md:text-base mb-2"
         >
           Sign in to book your perfect stay
         </motion.p>
         
         <motion.p 
           variants={subtitleVariants}
-          className="text-center text-sm text-gray-400 mb-8"
+          className="text-center text-xs md:text-sm text-gray-400 mb-6 md:mb-8"
         >
           in Iloilo City
         </motion.p>
         
-        <div className="relative mb-8">
+        <div className="relative mb-6 md:mb-8">
           <motion.div 
             variants={dividerVariants}
             className="absolute inset-0 flex items-center"
@@ -355,7 +355,7 @@ export default function LoginPage() {
           variants={featuresVariants}
           initial="hidden"
           animate="visible"
-          className="mt-8 pt-6 border-t border-gray-100"
+          className="mt-6 md:mt-8 pt-6 border-t border-gray-100"
         >
           <div className="flex flex-col gap-2 text-center text-xs text-gray-400">
             <div className="flex justify-center gap-4">

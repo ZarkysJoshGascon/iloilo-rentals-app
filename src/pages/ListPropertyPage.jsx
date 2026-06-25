@@ -30,8 +30,8 @@ export default function ListPropertyPage() {
   }
 
   return (
-    <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="min-h-screen bg-gray-50 pt-20 pb-8">
-      <div className="max-w-2xl mx-auto px-4">
+    <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="min-h-screen bg-gray-50 pt-6 md:pt-20 pb-24 md:pb-8">
+      <div className="max-w-2xl mx-auto px-4 py-4 md:py-8">
         <div className="mb-6"><h1 className="text-2xl font-bold text-[#2d568e] mb-1">List Your Property</h1><p className="text-gray-500 text-sm">Add your condo to Iloilo Rentals</p></div>
         <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-6">
           <form onSubmit={handleSubmit} className="space-y-5">

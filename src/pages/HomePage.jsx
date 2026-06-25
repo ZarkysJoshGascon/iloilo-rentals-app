@@ -24,17 +24,20 @@ function SkeletonCard() {
   )
 }
 
+const getInitialMountKey = () => Date.now()
+
 export default function HomePage() {
   const navigate = useNavigate()
   const [featuredCondos, setFeaturedCondos] = useState([])
   const [loading, setLoading] = useState(true)
   const [heroHeight, setHeroHeight] = useState(window.innerHeight)
-  const [mountKey, setMountKey] = useState(Date.now())
+  const [mountKey, setMountKey] = useState(getInitialMountKey)
   const containerRef = useRef(null)
 
   useEffect(() => { 
     const h = () => setHeroHeight(window.innerHeight)
     window.addEventListener('resize', h)
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     setMountKey(Date.now())
     return () => window.removeEventListener('resize', h) 
   }, [])
@@ -98,10 +101,10 @@ export default function HomePage() {
         </div>
       </section>
 
-      {/* Snap container - transparent, above hero so it receives scroll */}
+      {/* Snap container */}
       <div ref={containerRef} className="fixed top-0 left-0 w-full h-full overflow-y-scroll snap-y snap-mandatory z-20" style={{ background: 'transparent' }}>
         
-        {/* Hero overlay - first snap section */}
+        {/* Hero overlay */}
         <div className="snap-start relative" style={{ height: `${heroHeight}px`, background: 'transparent' }}>
           <div className="absolute inset-0 flex items-center justify-center px-4">
             <div className="bg-white/80 backdrop-blur-xl rounded-3xl p-6 sm:p-8 md:p-10 lg:p-14 w-full max-w-5xl border border-gray-200 shadow-2xl">
@@ -136,7 +139,7 @@ export default function HomePage() {
                 </div>
               </div>
               
-              {/* Tagline - full width below the card content */}
+              {/* Tagline */}
               <div className="mt-6 md:mt-8 pt-5 md:pt-6 border-t border-gray-200">
                 <div className="flex flex-col sm:flex-row flex-wrap items-center justify-center gap-2 sm:gap-3 text-gray-600 text-xs sm:text-sm font-semibold">
                   <span>Join our free community</span>
@@ -150,13 +153,13 @@ export default function HomePage() {
           </div>
         </div>
 
-        {/* Featured Listings - second snap section, no nested scroll on mobile */}
+        {/* Featured Listings */}
         <section className="snap-start min-h-screen bg-white flex flex-col">
           <div className="flex-shrink-0 text-center px-6 pt-6 sm:pt-16 md:pt-20 pb-3 bg-white z-10 border-b border-gray-200">
             <h2 className="text-base font-medium text-gray-900">Featured Listings</h2>
             <p className="text-gray-500 text-xs mt-1 max-w-md mx-auto">Discover our most popular condo units in Iloilo City</p>
           </div>
-          <div className="flex-1 overflow-y-auto px-4 md:px-8 pb-24 sm:pb-4">
+          <div className="flex-1 overflow-y-auto px-4 md:px-8 pb-4">
             <div className="max-w-5xl mx-auto pt-4">
               {loading ? (
                 <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">{[1,2,3,4,5].map(i => <SkeletonCard key={i} />)}</div>
@@ -168,7 +171,7 @@ export default function HomePage() {
               )}
             </div>
           </div>
-          <div className="flex-shrink-0 px-4 sm:px-6 py-4 border-t border-gray-100 bg-white/90 backdrop-blur-sm">
+          <div className="flex-shrink-0 px-4 sm:px-6 py-4 pb-24 sm:pb-4 border-t border-gray-100 bg-white/90 backdrop-blur-sm">
             <div className="max-w-5xl mx-auto flex items-center justify-between">
               <p className="text-xs sm:text-sm text-gray-500 hidden sm:block">Find your perfect stay in Iloilo</p>
               <button onClick={() => navigate('/condos')} className="sm:ml-auto w-full sm:w-auto bg-[#2d568e] text-white px-6 py-3 rounded-xl font-semibold text-sm hover:bg-[#1e3a5f] transition-all duration-300 inline-flex items-center justify-center gap-2 shadow-lg shadow-[#2d568e]/20 hover:shadow-xl hover:shadow-[#2d568e]/30 group">View All Properties <ArrowRight size={18} className="group-hover:translate-x-1 transition-transform" /></button>
@@ -176,6 +179,7 @@ export default function HomePage() {
           </div>
         </section>
 
+        {/* Why Choose Us */}
         <section className="snap-start min-h-screen bg-white flex items-center">
           <div className="max-w-7xl mx-auto px-4 w-full py-8">
             <SlideUpSection className="text-center mb-6" delay={0.1}><h2 className="text-base font-medium text-gray-900">Why Choose Us</h2><p className="text-gray-500 text-xs mt-1.5 max-w-md mx-auto">Experience the difference with our premium service</p></SlideUpSection>
@@ -188,13 +192,18 @@ export default function HomePage() {
             </div>
           </div>
         </section>
+
+        {/* CTA */}
         <section className="snap-start min-h-screen bg-[#2d568e] flex items-center">
           <div className="max-w-7xl mx-auto px-4 w-full text-center py-8">
             <SlideUpSection delay={0.1}><h2 className="text-xl md:text-2xl font-bold text-white mb-3">Ready to Find Your Perfect Stay?</h2><p className="text-white/80 text-sm mb-6 max-w-2xl mx-auto">Book your premium condo today and experience the best of Iloilo City</p><button onClick={() => navigate('/condos')} className="bg-white text-[#2d568e] px-7 py-3 rounded-xl font-semibold text-sm hover:shadow-xl transition-all duration-300">Start Exploring</button></SlideUpSection>
           </div>
         </section>
+
+        {/* Footer */}
         <section className="snap-start min-h-screen bg-gray-800 flex items-center"><div className="w-full"><Footer /></div></section>
       </div>
+
       <style>{`@keyframes slide { 0% { transform: translateX(0); } 100% { transform: translateX(-50%); } } .animate-flow { animation: slide 80s linear infinite; }`}</style>
     </>
   )

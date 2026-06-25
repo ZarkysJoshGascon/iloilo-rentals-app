@@ -8,7 +8,11 @@
   }
 }
 
+/* Tailwind v4 dark mode variant */
 @variant dark (&:where(.dark, .dark *));
+
+/* Fallback: also add a custom variant if @variant doesn't work */
+@custom-variant dark (&:where(.dark, .dark *));
 
 html {
   scroll-behavior: smooth;
@@ -19,6 +23,13 @@ body {
   background-color: #2d568e;
   color: #1a202c;
 }
+
+/* Dark mode body */
+.dark body {
+  background-color: #111827;
+  color: #e5e7eb;
+}
+
 body.modal-open {
   overflow: hidden;
 }

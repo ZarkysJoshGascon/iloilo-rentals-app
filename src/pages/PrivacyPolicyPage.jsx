@@ -3,8 +3,8 @@ import { Shield, Eye, Database, Share2, Users, UserCheck } from 'lucide-react'
 
 export default function PrivacyPolicyPage() {
   return (
-    <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="min-h-screen bg-gray-50">
-      <motion.div initial={{ scale: 1.05, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} className="bg-gradient-to-br from-[#2d568e] to-[#1e3a5f] text-white pt-20 pb-12">
+    <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="min-h-screen bg-gray-50 pb-24 md:pb-0">
+      <motion.div initial={{ scale: 1.05, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} className="bg-gradient-to-br from-[#2d568e] to-[#1e3a5f] text-white pt-16 md:pt-20 pb-12">
         <div className="max-w-5xl mx-auto px-4 text-center">
           <motion.div initial={{ scale: 0 }} animate={{ scale: 1 }} transition={{ type: "spring", stiffness: 200 }} className="w-16 h-16 bg-white/10 rounded-2xl flex items-center justify-center mx-auto mb-4">
             <Shield size={28} className="text-white" />

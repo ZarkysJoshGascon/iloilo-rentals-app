@@ -14,14 +14,20 @@ export default function AdminRoute({ children }) {
       setIsAdmin(false)
       return
     }
+    
+    // Check admin_users table instead of user_profiles
     supabase
-      .from('user_profiles')
-      .select('role')
-      .eq('id', user.id)
-      .single()
+      .from('admin_users')
+      .select('user_id')
+      .eq('user_id', user.id)
+      .maybeSingle()
       .then(({ data, error }) => {
-        if (error) console.error('Profile error:', error)
-        setIsAdmin(data?.role === 'admin')
+        if (error) {
+          console.error('Admin check error:', error)
+          setIsAdmin(false)
+          return
+        }
+        setIsAdmin(!!data)
       })
   }, [user, authLoading])
 
