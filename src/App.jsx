@@ -4,7 +4,6 @@ import { Toaster } from 'react-hot-toast'
 import { ThemeProvider } from './context/ThemeContext'
 import Navbar from './components/Navbar'
 import Footer from './components/Footer'
-import MobileBottomNav from './components/MobileBottomNav'
 import HomePage from './pages/HomePage'
 import CondosPage from './pages/CondosPage'
 import CondoDetailPage from './pages/CondoDetailPage'
@@ -59,7 +58,6 @@ function App() {
           </Routes>
         </main>
         {!hideFooter && !isAdminRoute && !isHomePage && <Footer />}
-        {!isAdminRoute && !isHomePage && <MobileBottomNav />}
         <Toaster position="top-right" />
       </div>
     </ThemeProvider>
