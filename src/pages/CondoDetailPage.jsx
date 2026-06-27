@@ -618,7 +618,7 @@ export default function CondoDetailPage() {
               <div className="text-4xl font-bold text-[#2d568e]">{formatPrice(basePricePerNight)}<span className="text-sm text-gray-400">/night</span></div>
             </div>
             
-            <div className="grid grid-cols-2 gap-3">
+            <div className="grid~ grid-cols-2 gap-3">
               <div className="relative z-20 w-full"><DatePicker selected={startDate} onChange={(date) => setStartDate(date)} minDate={new Date()} dateFormat="MMM dd, yyyy" customInput={<CustomDateInput label="CHECK-IN" />} popperPlacement="bottom-start" /></div>
               <div className="relative z-10 w-full"><DatePicker selected={endDate} onChange={(date) => setEndDate(date)} minDate={startDate} dateFormat="MMM dd, yyyy" customInput={<CustomDateInput label="CHECK-OUT" />} popperPlacement="bottom-start" /></div>
             </div>

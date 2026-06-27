@@ -32,6 +32,7 @@ export default function HomePage() {
   const [loading, setLoading] = useState(true)
   const [heroHeight, setHeroHeight] = useState(window.innerHeight)
   const [mountKey, setMountKey] = useState(getInitialMountKey)
+  const [isScrolling, setIsScrolling] = useState(false)
   const containerRef = useRef(null)
 
   useEffect(() => { 
@@ -49,10 +50,23 @@ export default function HomePage() {
     'https://mlksustamjaxfpolazgw.supabase.co/storage/v1/object/public/hero-images/4.jpg',
     'https://mlksustamjaxfpolazgw.supabase.co/storage/v1/object/public/hero-images/5.jpg',
   ]
-  const flowImages = Array.from({ length: 10 }, () => [...heroImages]).flat()
+  const flowImages = Array.from({ length: 3 }, () => [...heroImages]).flat()
   const { scrollYProgress } = useScroll({ container: containerRef })
 
   useLayoutEffect(() => { if (containerRef.current) containerRef.current.scrollTop = 0 }, [])
+
+  useEffect(() => {
+    const container = containerRef.current
+    if (!container) return
+    let timeout
+    const handleScroll = () => {
+      setIsScrolling(true)
+      clearTimeout(timeout)
+      timeout = setTimeout(() => setIsScrolling(false), 200)
+    }
+    container.addEventListener('scroll', handleScroll, { passive: true })
+    return () => container.removeEventListener('scroll', handleScroll)
+  }, [])
 
   const easedExitProgress = useTransform(scrollYProgress, (v) => { const r = Math.min(Math.max(v * 4, 0), 1); return r * r })
 
@@ -73,15 +87,14 @@ export default function HomePage() {
 
   return (
     <>
-      {/* Hero Section - background only, behind the snap container */}
-      <section className="fixed top-0 left-0 w-full h-full overflow-hidden z-10" style={{ background: '#ffffff' }}>
+      <section className={`fixed top-0 left-0 w-full h-full overflow-hidden z-10 ${isScrolling ? 'scrolling' : ''}`} style={{ background: '#ffffff' }}>
         <div className="absolute inset-0 z-0">
           <div className="absolute top-0 left-0 w-full h-1/2 overflow-hidden">
             <motion.div style={{ x: topRowX }} className="w-max h-full">
               <div key={`top-flow-${mountKey}`} className="flex gap-4 h-full items-center animate-flow">
                 {flowImages.map((src, idx) => (
                   <div key={`top-${mountKey}-${idx}`} className="relative h-[95%] w-auto flex-shrink-0">
-                    <img src={src} alt="" className="h-full w-auto rounded-2xl object-cover shadow-2xl ring-1 ring-white/15" />
+                    <img src={src} alt="" className="h-full w-auto rounded-2xl object-cover shadow-2xl ring-1 ring-white/15" loading="lazy" />
                   </div>
                 ))}
               </div>
@@ -92,7 +105,7 @@ export default function HomePage() {
               <div key={`bottom-flow-${mountKey}`} className="flex gap-4 h-full items-center animate-flow" style={{ animationDirection: 'reverse' }}>
                 {flowImages.map((src, idx) => (
                   <div key={`bottom-${mountKey}-${idx}`} className="relative h-[95%] w-auto flex-shrink-0">
-                    <img src={src} alt="" className="h-full w-auto rounded-2xl object-cover shadow-2xl ring-1 ring-white/15" />
+                    <img src={src} alt="" className="h-full w-auto rounded-2xl object-cover shadow-2xl ring-1 ring-white/15" loading="lazy" />
                   </div>
                 ))}
               </div>
@@ -101,10 +114,8 @@ export default function HomePage() {
         </div>
       </section>
 
-      {/* Snap container */}
-      <div ref={containerRef} className="fixed top-0 left-0 w-full h-full overflow-y-scroll snap-y snap-mandatory z-20" style={{ background: 'transparent' }}>
+      <div ref={containerRef} className="fixed top-0 left-0 w-full h-full overflow-y-scroll snap-y snap-proximity z-20" style={{ background: 'transparent', scrollBehavior: 'smooth' }}>
         
-        {/* Hero overlay */}
         <div className="snap-start relative" style={{ height: `${heroHeight}px`, background: 'transparent' }}>
           <div className="absolute inset-0 flex items-center justify-center px-4">
             <div className="bg-white/80 backdrop-blur-xl rounded-3xl p-6 sm:p-8 md:p-10 lg:p-14 w-full max-w-5xl border border-gray-200 shadow-2xl">
@@ -123,23 +134,15 @@ export default function HomePage() {
                   </h1>
                   <p className="text-gray-500 text-sm sm:text-base md:text-lg mb-6 md:mb-8 max-w-xl leading-relaxed font-medium mx-auto md:mx-0">Connecting you to the best rentals in Iloilo</p>
                   <div className="flex flex-col sm:flex-row flex-wrap gap-3 md:gap-4 justify-center md:justify-start">
-                    <button 
-                      onClick={() => navigate('/condos')} 
-                      className="bg-[#2d568e] text-white px-5 sm:px-7 py-3 sm:py-4 rounded-2xl font-bold text-sm hover:bg-[#1e3a5f] transition-all duration-300 flex items-center justify-center gap-2 shadow-xl shadow-[#2d568e]/20 hover:scale-105 active:scale-95 w-full sm:w-auto"
-                    >
+                    <button onClick={() => navigate('/condos')} className="bg-[#2d568e] text-white px-5 sm:px-7 py-3 sm:py-4 rounded-2xl font-bold text-sm hover:bg-[#1e3a5f] transition-all duration-300 flex items-center justify-center gap-2 shadow-xl shadow-[#2d568e]/20 hover:scale-105 active:scale-95 w-full sm:w-auto">
                       <Search size={18} /> Explore Listings <ChevronRight size={18} />
                     </button>
-                    <button 
-                      onClick={() => navigate('/contact')} 
-                      className="border-2 border-[#2d568e] text-[#2d568e] px-5 sm:px-7 py-3 sm:py-4 rounded-2xl font-bold text-sm hover:bg-[#2d568e]/5 transition-all duration-300 hover:scale-105 active:scale-95 w-full sm:w-auto"
-                    >
+                    <button onClick={() => navigate('/contact')} className="border-2 border-[#2d568e] text-[#2d568e] px-5 sm:px-7 py-3 sm:py-4 rounded-2xl font-bold text-sm hover:bg-[#2d568e]/5 transition-all duration-300 hover:scale-105 active:scale-95 w-full sm:w-auto">
                       <Phone size={18} /> Contact Us
                     </button>
                   </div>
                 </div>
               </div>
-              
-              {/* Tagline */}
               <div className="mt-6 md:mt-8 pt-5 md:pt-6 border-t border-gray-200">
                 <div className="flex flex-col sm:flex-row flex-wrap items-center justify-center gap-2 sm:gap-3 text-gray-600 text-xs sm:text-sm font-semibold">
                   <span>Join our free community</span>
@@ -153,7 +156,6 @@ export default function HomePage() {
           </div>
         </div>
 
-        {/* Featured Listings */}
         <section className="snap-start min-h-screen bg-white flex flex-col">
           <div className="flex-shrink-0 text-center px-6 pt-6 sm:pt-16 md:pt-20 pb-3 bg-white z-10 border-b border-gray-200">
             <h2 className="text-base font-medium text-gray-900">Featured Listings</h2>
@@ -179,7 +181,6 @@ export default function HomePage() {
           </div>
         </section>
 
-        {/* Why Choose Us */}
         <section className="snap-start min-h-screen bg-white flex items-center">
           <div className="max-w-7xl mx-auto px-4 w-full py-8">
             <SlideUpSection className="text-center mb-6" delay={0.1}><h2 className="text-base font-medium text-gray-900">Why Choose Us</h2><p className="text-gray-500 text-xs mt-1.5 max-w-md mx-auto">Experience the difference with our premium service</p></SlideUpSection>
@@ -193,18 +194,20 @@ export default function HomePage() {
           </div>
         </section>
 
-        {/* CTA */}
         <section className="snap-start min-h-screen bg-[#2d568e] flex items-center">
           <div className="max-w-7xl mx-auto px-4 w-full text-center py-8">
             <SlideUpSection delay={0.1}><h2 className="text-xl md:text-2xl font-bold text-white mb-3">Ready to Find Your Perfect Stay?</h2><p className="text-white/80 text-sm mb-6 max-w-2xl mx-auto">Book your premium condo today and experience the best of Iloilo City</p><button onClick={() => navigate('/condos')} className="bg-white text-[#2d568e] px-7 py-3 rounded-xl font-semibold text-sm hover:shadow-xl transition-all duration-300">Start Exploring</button></SlideUpSection>
           </div>
         </section>
 
-        {/* Footer */}
         <section className="snap-start min-h-screen bg-gray-800 flex items-center"><div className="w-full"><Footer /></div></section>
       </div>
 
-      <style>{`@keyframes slide { 0% { transform: translateX(0); } 100% { transform: translateX(-50%); } } .animate-flow { animation: slide 80s linear infinite; }`}</style>
+      <style>{`
+        @keyframes slide { 0% { transform: translateX(0); } 100% { transform: translateX(-50%); } }
+        .animate-flow { animation: slide 80s linear infinite; will-change: transform; }
+        .scrolling .animate-flow { animation-play-state: paused; }
+      `}</style>
     </>
   )
 }
