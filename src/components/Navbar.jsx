@@ -1,3 +1,4 @@
+// Navbar.jsx
 import { useState, useEffect, useRef } from 'react'
 import { Link, useNavigate, useLocation } from 'react-router-dom'
 import { motion, AnimatePresence } from 'framer-motion'
@@ -41,6 +42,7 @@ export default function Navbar() {
 
   const isActive = (path) => {
     if (path === '/') return location.pathname === '/'
+    if (path === '/condos') return location.pathname === '/condos'
     return location.pathname.startsWith(path)
   }
 
@@ -51,12 +53,12 @@ export default function Navbar() {
       const navRect = navRef.current.getBoundingClientRect()
       const linkRect = activeLink.getBoundingClientRect()
       setIndicatorStyle({ left: linkRect.left - navRect.left, width: linkRect.width })
+    } else {
+      setIndicatorStyle({ left: 0, width: 0 })
     }
   }, [location.pathname, user])
 
-  // Reset avatar key when user changes - intentional mount effect
   useEffect(() => {
-    // eslint-disable-next-line react-hooks/set-state-in-effect
     setUserKey(prev => prev + 1)
   }, [user])
 
@@ -94,13 +96,14 @@ export default function Navbar() {
               />
               {desktopLinks.map((link) => {
                 const Icon = link.icon
+                const active = isActive(link.path)
                 return (
                   <Link
                     key={link.path}
                     to={link.path}
-                    data-active={isActive(link.path)}
+                    data-active={active}
                     className={`relative z-10 flex items-center gap-2 px-4 py-2.5 text-sm font-medium rounded-full transition-all duration-300 whitespace-nowrap ${
-                      isActive(link.path) ? 'text-[#1a3a5c]' : 'text-white/70 hover:text-white hover:bg-white/5'
+                      active ? 'text-[#1a3a5c]' : 'text-white/70 hover:text-white hover:bg-white/5'
                     }`}
                   >
                     <Icon size={15} />

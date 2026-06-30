@@ -2,12 +2,11 @@ import { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useAuth } from '../context/AuthContext'
 import { 
-  Users, CalendarDays, DoorOpen, LogOut, Building2, AlertTriangle,
-  ChevronLeft, ChevronRight
+  Users, CalendarDays, DoorOpen, LogOut, Building2,
+  ChevronLeft, ChevronRight, Paintbrush
 } from 'lucide-react'
 import { motion } from 'framer-motion'
 import toast from 'react-hot-toast'
-import { Paintbrush } from 'lucide-react'
 
 export default function AdminSidebar({ activeTab, setActiveTab }) {
   const navigate = useNavigate()
@@ -30,14 +29,11 @@ export default function AdminSidebar({ activeTab, setActiveTab }) {
 
   return (
     <div className={`bg-blue-50/70 dark:bg-gray-800/70 backdrop-blur-sm rounded-tl-xl shadow-md flex flex-col h-full transition-all duration-300 ${collapsed ? 'w-20' : 'w-56'}`}>
-      {/* Collapse button */}
       <div className="flex justify-end p-4 border-b border-blue-100/50 dark:border-gray-700/50">
         <button onClick={() => setCollapsed(!collapsed)} className="text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-200 transition-colors">
           {collapsed ? <ChevronRight size={20} /> : <ChevronLeft size={20} />}
         </button>
       </div>
-
-      {/* Navigation */}
       <nav className="flex-1 py-4 px-3 space-y-1 relative">
         {navItems.map((item) => (
           <button
@@ -61,8 +57,6 @@ export default function AdminSidebar({ activeTab, setActiveTab }) {
           </button>
         ))}
       </nav>
-
-      {/* Footer */}
       <div className="p-4 border-t border-blue-100/50 dark:border-gray-700/50">
         <button
           onClick={handleSignOut}

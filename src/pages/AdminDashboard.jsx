@@ -6,7 +6,7 @@ import CalendarView from '../components/CalendarView'
 import AdminListings from '../components/AdminListings'
 import AdminHousekeeping from '../components/AdminHousekeeping'
 import AdminSidebar from '../components/AdminSidebar'
-import { Moon, Sun, Users, CalendarDays, DoorOpen, LayoutDashboard, LogOut, Building2, AlertTriangle } from 'lucide-react'
+import { Moon, Sun, Users, CalendarDays, DoorOpen, LayoutDashboard, LogOut, Building2, Paintbrush } from 'lucide-react'
 import { useTheme } from '../context/ThemeContext'
 import { useAuth } from '../context/AuthContext'
 import { useNavigate } from 'react-router-dom'
@@ -71,8 +71,13 @@ function ListingsSkeleton() {
 function HousekeepingSkeleton() {
   return (
     <div className="space-y-4 animate-pulse">
-      <div className="h-10 bg-gray-200 dark:bg-gray-700 rounded-xl" />
-      {[1,2,3].map(i => <div key={i} className="bg-white dark:bg-gray-800 rounded-xl p-5 border border-gray-100 dark:border-gray-700 h-24" />)}
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+        {[1,2,3,4].map(i => <div key={i} className="bg-white dark:bg-gray-800 rounded-xl border border-gray-100 dark:border-gray-700 h-24" />)}
+      </div>
+      <div className="flex-1 flex gap-4">
+        <div className="w-72 bg-white dark:bg-gray-800 rounded-xl border border-gray-100 dark:border-gray-700 h-64" />
+        <div className="flex-1 bg-white dark:bg-gray-800 rounded-xl border border-gray-100 dark:border-gray-700 h-64" />
+      </div>
     </div>
   )
 }
@@ -115,7 +120,7 @@ export default function AdminDashboard() {
   const handleTabChange = (tab) => { setIsTransitioning(true); setActiveTab(tab); setTimeout(() => setIsTransitioning(false), 300) }
   const handleSignOut = async () => { await signOut(); navigate('/') }
 
-  const tabIcons = { leads: Users, bookings: CalendarDays, calendar: DoorOpen, listings: Building2, housekeeping: AlertTriangle }
+  const tabIcons = { leads: Users, bookings: CalendarDays, calendar: DoorOpen, listings: Building2, housekeeping: Paintbrush }
   const tabTitles = { leads: 'Leads Management', bookings: 'Bookings Management', calendar: 'Calendar', listings: 'Listings Management', housekeeping: 'Housekeeping' }
   const Icon = tabIcons[activeTab] || LayoutDashboard
 
