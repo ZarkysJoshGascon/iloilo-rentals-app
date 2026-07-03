@@ -117,9 +117,8 @@ function ConflictTooltip({ bookings, position }) {
 }
 
 /* ================================================================== */
-/*  MiniBarCalendar                                                     */
+/*  MiniBarCalendar – fixed highlight, original booking visible         */
 /* ================================================================== */
-
 function MiniBarCalendar({ bookings = [], condoId, highlightBooking, selectedStart, selectedEnd, onDateClick, onConflictClick, mode = 'interactive', showOnlyConfirmed = false, clickableOverPending = true }) {
   const [miniMonth, setMiniMonth] = useState(() => new Date())
   const [hoveredBooking, setHoveredBooking] = useState(null)
@@ -136,7 +135,7 @@ function MiniBarCalendar({ bookings = [], condoId, highlightBooking, selectedSta
   const pendingBars = condoBookings.filter(b => b.status === 'pending').map(b => ({ ...b, label: b.booking_code || (b.guest_name || 'Guest').split(' ')[0] }))
   const selectedBars = []
   const originalBars = []
-  
+
   if (highlightBooking && (!condoId || String(highlightBooking.condo_id) === String(condoId))) {
     const alreadyInConfirmed = confirmedBars.some(b => b.id === highlightBooking.id)
     const alreadyInPending = pendingBars.some(b => b.id === highlightBooking.id)
@@ -144,8 +143,15 @@ function MiniBarCalendar({ bookings = [], condoId, highlightBooking, selectedSta
       if (highlightBooking.status === 'confirmed') {
         confirmedBars.push({ ...highlightBooking, label: highlightBooking.booking_code || (highlightBooking.guest_name || 'Guest').split(' ')[0], isHighlighted: true })
       } else {
-        originalBars.push({ ...highlightBooking, label: highlightBooking.booking_code || (highlightBooking.guest_name || 'Guest').split(' ')[0], type: 'original' })
+        // Original booking shown as a semi‑transparent orange bar (dashed removed)
+        originalBars.push({ ...highlightBooking, label: highlightBooking.booking_code || (highlightBooking.guest_name || 'Guest').split(' ')[0], type: 'original', isHighlighted: true })
       }
+    } else {
+      // If already in list, just mark as highlighted
+      const existingConfirmed = confirmedBars.find(b => b.id === highlightBooking.id)
+      if (existingConfirmed) existingConfirmed.isHighlighted = true
+      const existingPending = pendingBars.find(b => b.id === highlightBooking.id)
+      if (existingPending) existingPending.isHighlighted = true
     }
   }
 
@@ -179,7 +185,7 @@ function MiniBarCalendar({ bookings = [], condoId, highlightBooking, selectedSta
 
   const isConfirmedDay = (day) => confirmedBars.some(bk => { const bS = new Date(bk.start_date), bE = new Date(bk.end_date); return day >= bS && day <= bE })
 
-  const renderBarsForWeek = (bars, color, zIdx, week, weekIdx, isDashed = false) => {
+  const renderBarsForWeek = (bars, color, zIdx, week, weekIdx, isOriginal = false) => {
     const ws = week[0], we = week[6]
     return bars.map((bk, barIdx) => {
       const bS = new Date(bk.start_date), bE = new Date(bk.end_date)
@@ -191,12 +197,26 @@ function MiniBarCalendar({ bookings = [], condoId, highlightBooking, selectedSta
       const isRealBooking = bk.id !== '__selected__' && bk.id !== '__newdates__' && bk.status !== 'selected' && bk.type !== 'original'
       return (
         <div key={`${bk.id || 'bar'}-w${weekIdx}-b${barIdx}`}
-          onMouseEnter={(e) => { if (isRealBooking) { setHoveredBooking(bk); setHoveredConflict(null); setHoverPos({ x: e.clientX, y: e.clientY }) } }}
-          onMouseMove={(e) => { if (isRealBooking) setHoverPos({ x: e.clientX, y: e.clientY }) }}
+          onMouseEnter={(e) => { if (isRealBooking || isOriginal) { setHoveredBooking(bk); setHoveredConflict(null); setHoverPos({ x: e.clientX, y: e.clientY }) } }}
+          onMouseMove={(e) => { if (isRealBooking || isOriginal) setHoverPos({ x: e.clientX, y: e.clientY }) }}
           onMouseLeave={() => { setHoveredBooking(null); setHoveredConflict(null) }}
           className="absolute flex items-center pointer-events-auto"
-          style={{ backgroundColor: isDashed ? 'transparent' : color.bg, height: 20, left: `${(sc / 7) * 100}%`, width: `${((ec - sc + 1) / 7) * 100}%`, top: '50%', transform: 'translateY(-50%)', borderRadius: stw && etw ? 4 : stw ? '4px 0 0 4px' : etw ? '0 4px 4px 0' : 0, border: isDashed ? '2px dashed #f97316' : bk.isHighlighted ? '2.5px solid #fff' : `2px solid ${color.border}`, boxShadow: bk.isHighlighted ? '0 0 6px rgba(5,150,105,0.5)' : 'none', marginLeft: stw ? 2 : 0, marginRight: etw ? 2 : 0, zIndex: isDashed ? 5 : zIdx, cursor: isRealBooking ? 'pointer' : 'default' }}>
-          {stw && <span className={`text-[9px] font-bold px-1.5 truncate leading-tight ${isDashed ? 'text-orange-600' : 'text-white drop-shadow-sm'}`}>{bk.label}</span>}
+          style={{
+            backgroundColor: isOriginal ? 'rgba(249,115,22,0.25)' : color.bg,
+            height: 20,
+            left: `${(sc / 7) * 100}%`,
+            width: `${((ec - sc + 1) / 7) * 100}%`,
+            top: '50%',
+            transform: 'translateY(-50%)',
+            borderRadius: stw && etw ? 4 : stw ? '4px 0 0 4px' : etw ? '0 4px 4px 0' : 0,
+            border: isOriginal ? '2px solid #f97316' : `2px solid ${color.border}`,
+            boxShadow: bk.isHighlighted ? '0 0 4px rgba(5,150,105,0.4)' : 'none',
+            marginLeft: stw ? 2 : 0,
+            marginRight: etw ? 2 : 0,
+            zIndex: isOriginal ? 15 : zIdx,
+            cursor: isRealBooking || isOriginal ? 'pointer' : 'default'
+          }}>
+          {stw && <span className={`text-[9px] font-bold px-1.5 truncate leading-tight ${isOriginal ? 'text-orange-700' : 'text-white drop-shadow-sm'}`}>{bk.label}</span>}
         </div>
       )
     })
@@ -243,7 +263,7 @@ function MiniBarCalendar({ bookings = [], condoId, highlightBooking, selectedSta
                 </div>
               )
             })}
-            {renderBarsForWeek(originalBars, { bg: 'transparent', border: '#f97316' }, 5, week, wi, true)}
+            {renderBarsForWeek(originalBars, { bg: 'rgba(249,115,22,0.25)', border: '#f97316' }, 15, week, wi, true)}
             {renderBarsForWeek(confirmedBars, { bg: 'rgba(5,150,105,0.35)', border: '#059669' }, 10, week, wi)}
             {renderBarsForWeek(pendingBars, { bg: 'rgba(249,115,22,0.30)', border: '#f97316' }, 20, week, wi)}
             {renderBarsForWeek(selectedBars, { bg: 'rgba(59,130,246,0.35)', border: '#3b82f6' }, 25, week, wi)}
@@ -254,7 +274,7 @@ function MiniBarCalendar({ bookings = [], condoId, highlightBooking, selectedSta
       <div className="flex items-center gap-3 mt-2 text-xs text-gray-600 dark:text-gray-400 flex-wrap">
         <span className="flex items-center gap-1"><span className="w-3 h-2 rounded-sm bg-emerald-500/35 border-2 border-emerald-600"></span> Confirmed</span>
         {!showOnlyConfirmed && <span className="flex items-center gap-1"><span className="w-3 h-2 rounded-sm bg-orange-500/30 border-2 border-orange-600"></span> Pending</span>}
-        {originalBars.length > 0 && <span className="flex items-center gap-1"><span className="w-3 h-2 rounded-sm border-2 border-dashed border-orange-500"></span> Original</span>}
+        {originalBars.length > 0 && <span className="flex items-center gap-1"><span className="w-3 h-2 rounded-sm bg-orange-500/25 border-2 border-orange-500"></span> Original</span>}
         {selectedBars.length > 0 && <span className="flex items-center gap-1"><span className="w-3 h-2 rounded-sm bg-blue-500/35 border-2 border-blue-600"></span> New</span>}
         {conflictBars.length > 0 && <span className="flex items-center gap-1"><span className="w-3 h-2 rounded-sm bg-red-500/40 border-2 border-red-500"></span> Conflict</span>}
       </div>
@@ -306,8 +326,7 @@ function BookingFormModal({ isOpen, onClose, onSave, condos, formatPrice, confir
 
   useEffect(() => {
     if (selectedCondo && nights > 0) {
-      const bp = selectedCondo.price_per_night || 0
-      setFormData(prev => ({ ...prev, total_amount: Math.round(nights * (formData.adults * bp + formData.children * bp * 0.9 + formData.infants * bp * 0.8 + formData.seniors * bp * 0.8) * 1.05) }))
+      const bp = selectedCondo.price_per_night || 0;      setFormData(prev => ({ ...prev, total_amount: Math.round(nights * (formData.adults * bp + formData.children * bp * 0.9 + formData.infants * bp * 0.8 + formData.seniors * bp * 0.8) * 1.05) }))
     } else { setFormData(prev => ({ ...prev, total_amount: 0 })) }
   }, [selectedCondo, nights, formData.adults, formData.children, formData.infants, formData.seniors])
 
@@ -491,7 +510,6 @@ export default function BookingsList({ searchTerm: externalSearchTerm = '' }) {
   const [modalConfig, setModalConfig] = useState({ isOpen: false, booking: null })
   const [selectedBooking, setSelectedBooking] = useState(null)
   const [showFilters, setShowFilters] = useState(false)
-  const [statusDropdownOpen, setStatusDropdownOpen] = useState(false)
   const [bookingFormOpen, setBookingFormOpen] = useState(false)
   const [editBooking, setEditBooking] = useState(null)
   const { formatPrice } = useCurrency()
@@ -508,6 +526,7 @@ export default function BookingsList({ searchTerm: externalSearchTerm = '' }) {
       else if (sortBy === 'oldest') q = q.order('created_at', { ascending: true })
       else if (sortBy === 'price_high') q = q.order('total_amount', { ascending: false })
       else if (sortBy === 'price_low') q = q.order('total_amount', { ascending: true })
+      else if (sortBy === 'units') q = q.order('condo_id', { ascending: true }).order('created_at', { ascending: false })
       const { data } = await q; setBookings(data || []); await fetchConfirmedBookings()
     } catch (err) { toast.error('Failed to load bookings') } finally { setLoading(false) }
   }, [sortBy, fetchConfirmedBookings])
@@ -544,37 +563,12 @@ export default function BookingsList({ searchTerm: externalSearchTerm = '' }) {
   const getNightsCount = (b) => Math.ceil((new Date(b.end_date) - new Date(b.start_date)) / 86400000)
   const getGuestSummary = (b) => { const p = []; if (b.adults > 0) p.push(`${b.adults}A`); if (b.children > 0) p.push(`${b.children}C`); if (b.infants > 0) p.push(`${b.infants}I`); if (b.seniors > 0) p.push(`${b.seniors}S`); return p.join('·') || '—' }
 
-  // ROW COLOR LOGIC:
-  // Confirmed → entire row green, white text
-  // Rejected → entire row red, white text
-  // Pending + conflict → red strip on left
-  // Pending + no conflict → green strip on left (good to confirm)
   const getRowStyle = (b, sel) => {
-    if (b.status === 'confirmed') return { 
-      bg: sel ? 'bg-emerald-600' : 'bg-emerald-500', 
-      text: 'text-white', subtext: 'text-white/90', muted: 'text-white/80', 
-      border: 'border-b border-emerald-400/50', strip: '' 
-    }
-    if (b.status === 'rejected') return { 
-      bg: sel ? 'bg-red-600' : 'bg-red-500', 
-      text: 'text-white', subtext: 'text-white/90', muted: 'text-white/80', 
-      border: 'border-b border-red-400/50', strip: '' 
-    }
-    if (b.status === 'pending' && hasOverlap(b)) return { 
-      bg: sel ? 'bg-red-50 dark:bg-red-900/10' : 'bg-white dark:bg-gray-800', 
-      text: 'text-gray-900 dark:text-gray-100', subtext: 'text-gray-700 dark:text-gray-300', muted: 'text-gray-600 dark:text-gray-400', 
-      border: 'border-b border-gray-100 dark:border-gray-700', strip: 'border-l-[5px] border-l-red-500' 
-    }
-    if (b.status === 'pending' && !hasOverlap(b)) return { 
-      bg: sel ? 'bg-emerald-50 dark:bg-emerald-900/10' : 'bg-white dark:bg-gray-800', 
-      text: 'text-gray-900 dark:text-gray-100', subtext: 'text-gray-700 dark:text-gray-300', muted: 'text-gray-600 dark:text-gray-400', 
-      border: 'border-b border-gray-100 dark:border-gray-700', strip: 'border-l-[5px] border-l-emerald-500' 
-    }
-    return { 
-      bg: sel ? 'bg-blue-50 dark:bg-blue-900/10' : 'bg-white dark:bg-gray-800', 
-      text: 'text-gray-900 dark:text-gray-100', subtext: 'text-gray-700 dark:text-gray-300', muted: 'text-gray-600 dark:text-gray-400', 
-      border: 'border-b border-gray-100 dark:border-gray-700', strip: '' 
-    }
+    if (b.status === 'confirmed') return { bg: sel ? 'bg-emerald-600' : 'bg-emerald-500', text: 'text-white', subtext: 'text-white/90', muted: 'text-white/80', border: 'border-b border-emerald-400/50', strip: '' }
+    if (b.status === 'rejected') return { bg: sel ? 'bg-red-600' : 'bg-red-500', text: 'text-white', subtext: 'text-white/90', muted: 'text-white/80', border: 'border-b border-red-400/50', strip: '' }
+    if (b.status === 'pending' && hasOverlap(b)) return { bg: sel ? 'bg-red-50 dark:bg-red-900/10' : 'bg-white dark:bg-gray-800', text: 'text-gray-900 dark:text-gray-100', subtext: 'text-gray-700 dark:text-gray-300', muted: 'text-gray-600 dark:text-gray-400', border: 'border-b border-gray-100 dark:border-gray-700', strip: 'border-l-[5px] border-l-red-500' }
+    if (b.status === 'pending' && !hasOverlap(b)) return { bg: sel ? 'bg-emerald-50 dark:bg-emerald-900/10' : 'bg-white dark:bg-gray-800', text: 'text-gray-900 dark:text-gray-100', subtext: 'text-gray-700 dark:text-gray-300', muted: 'text-gray-600 dark:text-gray-400', border: 'border-b border-gray-100 dark:border-gray-700', strip: 'border-l-[5px] border-l-emerald-500' }
+    return { bg: sel ? 'bg-blue-50 dark:bg-blue-900/10' : 'bg-white dark:bg-gray-800', text: 'text-gray-900 dark:text-gray-100', subtext: 'text-gray-700 dark:text-gray-300', muted: 'text-gray-600 dark:text-gray-400', border: 'border-b border-gray-100 dark:border-gray-700', strip: '' }
   }
 
   const groupConflicts = (cbs) => { const g = [], u = new Set(); for (const b of cbs) { if (u.has(b.id)) continue; const grp = [b]; u.add(b.id); for (const o of cbs) { if (u.has(o.id)) continue; if (String(o.condo_id) === String(b.condo_id) && new Date(b.start_date) <= new Date(o.end_date) && new Date(b.end_date) >= new Date(o.start_date)) { grp.push(o); u.add(o.id) } } g.push(grp) } return g }
@@ -585,7 +579,8 @@ export default function BookingsList({ searchTerm: externalSearchTerm = '' }) {
     if (activeGroup !== 'all') f = activeGroup === 'conflicts' ? f.filter(b => b.status === 'pending' && hasOverlap(b)) : f.filter(b => b.status === activeGroup)
     if (dateFrom) { const df = new Date(dateFrom); df.setHours(0,0,0,0); f = f.filter(b => new Date(b.created_at) >= df) }
     if (dateTo) { const dt = new Date(dateTo); dt.setHours(23,59,59,999); f = f.filter(b => new Date(b.created_at) <= dt) }
-    f.sort((a, b) => { const ac = a.status === 'pending' && hasOverlap(a), bc = b.status === 'pending' && hasOverlap(b); if (ac && !bc) return -1; if (!ac && bc) return 1; if (a.status === 'pending' && b.status !== 'pending') return -1; if (a.status !== 'pending' && b.status === 'pending') return 1; return new Date(b.created_at) - new Date(a.created_at) })
+    if (sortBy === 'units') { f.sort((a, b) => { const titleA = (a.condos?.title || '').toLowerCase(); const titleB = (b.condos?.title || '').toLowerCase(); if (titleA !== titleB) return titleA.localeCompare(titleB); return new Date(b.created_at) - new Date(a.created_at) }) }
+    else { f.sort((a, b) => { const ac = a.status === 'pending' && hasOverlap(a), bc = b.status === 'pending' && hasOverlap(b); if (ac && !bc) return -1; if (!ac && bc) return 1; if (a.status === 'pending' && b.status !== 'pending') return -1; if (a.status !== 'pending' && b.status === 'pending') return 1; return new Date(b.created_at) - new Date(a.created_at) }) }
     return f
   }
 
@@ -593,7 +588,7 @@ export default function BookingsList({ searchTerm: externalSearchTerm = '' }) {
   const stats = { total: bookings.length, pending: pc, confirmed: cc, rejected: rc, conflicts: coc, active: cc + pc }
   const statusOptions = [{ id: 'pending', label: 'To Accommodate', count: pc, dot: 'bg-orange-500' },{ id: 'all', label: 'All Bookings', count: bookings.length, dot: 'bg-gray-500' },{ id: 'conflicts', label: 'Conflicts', count: coc, dot: 'bg-red-500' },{ id: 'confirmed', label: 'Confirmed', count: cc, dot: 'bg-emerald-500' },{ id: 'rejected', label: 'Rejected', count: rc, dot: 'bg-gray-500' }]
   const filteredBookings = getFilteredBookings(); const showConflictGroups = activeGroup === 'conflicts'
-  const conflictGroups = showConflictGroups ? groupConflicts(filteredBookings) : []; const activeOption = statusOptions.find(o => o.id === activeGroup)
+  const conflictGroups = showConflictGroups ? groupConflicts(filteredBookings) : []
 
   if (loading) return (<div className="space-y-4 animate-pulse"><div className="grid grid-cols-2 lg:grid-cols-4 gap-4">{[1,2,3,4].map(i => <div key={i} className="bg-white dark:bg-gray-800 rounded-2xl p-5 border border-gray-100 dark:border-gray-700"><div className="h-8 bg-gray-200 dark:bg-gray-700 rounded w-12 mb-2" /><div className="h-4 bg-gray-200 dark:bg-gray-700 rounded w-24" /></div>)}</div><div className="bg-white dark:bg-gray-800 rounded-xl border border-gray-100 dark:border-gray-700 h-64" /></div>)
 
@@ -601,10 +596,34 @@ export default function BookingsList({ searchTerm: externalSearchTerm = '' }) {
     <div className="flex flex-col flex-1 min-h-0 space-y-4">
       <SummaryCards stats={stats} />
       <div className="flex items-center gap-3"><div className="relative flex-1"><Search size={18} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" /><input type="text" placeholder="Search guest, booking ID, unit or email..." value={searchText} onChange={e => setSearchText(e.target.value)} className="w-full pl-10 pr-4 py-3 border border-gray-300 dark:border-gray-600 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-100 bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100" /></div><button onClick={() => { setEditBooking(null); setBookingFormOpen(true) }} className="px-5 py-3 bg-[#2d568e] text-white rounded-xl font-semibold hover:bg-[#1e3a5f] transition-colors flex items-center gap-2"><Plus size={18} /> Add Booking</button></div>
+
+      {/* Pill navigation for status filter */}
       <div className="flex flex-wrap items-center gap-2">
-        <div className="relative"><button onClick={() => setStatusDropdownOpen(!statusDropdownOpen)} className="flex items-center gap-2 px-4 py-2.5 rounded-xl font-semibold border bg-white dark:bg-gray-800 border-gray-300 dark:border-gray-600 text-gray-800 dark:text-gray-200 hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors">{activeOption?.label || 'To Accommodate'}<span className="text-gray-500">({activeOption?.count})</span><ChevronDown size={16} className={`transition ${statusDropdownOpen ? 'rotate-180' : ''}`} /></button><AnimatePresence>{statusDropdownOpen && (<><div className="fixed inset-0 z-10" onClick={() => setStatusDropdownOpen(false)} /><motion.div initial={{ opacity: 0, y: -5 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -5 }} className="absolute left-0 top-full mt-1 w-52 bg-white dark:bg-gray-800 rounded-xl shadow-xl border border-gray-200 dark:border-gray-600 py-1 z-20">{statusOptions.map(opt => (<button key={opt.id} onClick={() => { setActiveGroup(opt.id); setStatusDropdownOpen(false) }} className={`w-full text-left px-4 py-2.5 font-medium flex items-center justify-between transition-colors ${activeGroup === opt.id ? 'bg-gray-50 dark:bg-gray-700' : 'hover:bg-gray-50 dark:hover:bg-gray-700'}`}><span className="flex items-center gap-2"><span className={`w-3 h-3 rounded-full ${opt.dot}`}></span>{opt.label}</span><span className="font-bold text-gray-500">{opt.count}</span></button>))}</motion.div></>)}</AnimatePresence></div>
+        <div className="relative flex bg-gray-100 dark:bg-gray-700/50 rounded-full p-1 gap-1">
+          <motion.div
+            className="absolute top-1 h-[calc(100%-8px)] bg-white dark:bg-gray-600 rounded-full shadow-sm z-0"
+            layoutId="bookingStatusPill"
+            transition={{ type: 'spring', stiffness: 380, damping: 30 }}
+          />
+          {statusOptions.map(opt => (
+            <button
+              key={opt.id}
+              onClick={() => setActiveGroup(opt.id)}
+              className={`relative z-10 flex items-center gap-2 px-4 py-2 rounded-full text-sm font-medium transition-colors duration-200 ${
+                activeGroup === opt.id
+                  ? 'text-gray-900 dark:text-gray-100'
+                  : 'text-gray-500 hover:text-gray-700 dark:hover:text-gray-300'
+              }`}
+            >
+              <span className={`w-2.5 h-2.5 rounded-full ${opt.dot}`} />
+              {opt.label}
+              <span className="text-gray-400">({opt.count})</span>
+            </button>
+          ))}
+        </div>
+
         <button onClick={() => setShowFilters(!showFilters)} className={`px-4 py-2.5 border rounded-lg flex items-center gap-2 font-medium transition-all ${showFilters || dateFrom || dateTo ? 'border-[#2d568e] bg-[#2d568e]/5 text-[#2d568e]' : 'border-gray-300 dark:border-gray-600 text-gray-700 dark:text-gray-300 bg-white dark:bg-gray-800'}`}><SlidersHorizontal size={16} /> Date Filter</button>
-        <div className="relative"><ArrowUpDown size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 pointer-events-none" /><select value={sortBy} onChange={e => setSortBy(e.target.value)} className="pl-9 pr-8 py-2.5 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-800 text-gray-800 dark:text-gray-200 focus:outline-none appearance-none cursor-pointer font-medium"><option value="latest">Latest first</option><option value="oldest">Oldest first</option><option value="price_high">Price ↓</option><option value="price_low">Price ↑</option></select></div>
+        <div className="relative"><ArrowUpDown size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 pointer-events-none" /><select value={sortBy} onChange={e => setSortBy(e.target.value)} className="pl-9 pr-8 py-2.5 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-800 text-gray-800 dark:text-gray-200 focus:outline-none appearance-none cursor-pointer font-medium"><option value="latest">Latest first</option><option value="oldest">Oldest first</option><option value="price_high">Price ↓</option><option value="price_low">Price ↑</option><option value="units">By Units</option></select></div>
         <button onClick={fetchBookings} className="p-2.5 border border-gray-300 dark:border-gray-600 rounded-lg text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-600 transition-all bg-white dark:bg-gray-800" title="Refresh"><RefreshCw size={16} /></button>
         <div className="hidden sm:flex items-center gap-4 ml-auto font-medium text-gray-700 dark:text-gray-300">
           <span className="flex items-center gap-1.5"><span className="w-3 h-3 rounded-full bg-emerald-500"></span> Confirmed</span>
@@ -612,9 +631,9 @@ export default function BookingsList({ searchTerm: externalSearchTerm = '' }) {
           <span className="flex items-center gap-1.5"><span className="w-3 h-3 rounded-full bg-red-500"></span> Conflict</span>
         </div>
       </div>
+
       <AnimatePresence>{showFilters && (<motion.div initial={{ height: 0, opacity: 0 }} animate={{ height: 'auto', opacity: 1 }} exit={{ height: 0, opacity: 0 }} className="overflow-hidden"><div className="flex flex-wrap items-center gap-3 p-4 bg-white dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-600"><label className="font-medium text-gray-700 dark:text-gray-300">Booked from:</label><input type="date" value={dateFrom} onChange={e => setDateFrom(e.target.value)} className="px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-gray-50 dark:bg-gray-700 text-gray-800 dark:text-gray-200 cursor-pointer" /><label className="font-medium text-gray-700 dark:text-gray-300">to:</label><input type="date" value={dateTo} onChange={e => setDateTo(e.target.value)} className="px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-gray-50 dark:bg-gray-700 text-gray-800 dark:text-gray-200 cursor-pointer" />{(dateFrom || dateTo) && <button onClick={() => { setDateFrom(''); setDateTo('') }} className="text-[#2d568e] font-medium hover:underline">Clear</button>}</div></motion.div>)}</AnimatePresence>
-      
-      {/* Table header */}
+
       <div className="hidden md:flex items-center px-4 py-3 bg-gray-100 dark:bg-gray-700 rounded-t-xl border border-gray-200 dark:border-gray-600 font-bold text-gray-700 dark:text-gray-300 uppercase tracking-wider">
         <div className="flex-[2] px-2">Unit / Location</div>
         <div className="flex-1 px-2">Booking ID</div>
@@ -625,23 +644,18 @@ export default function BookingsList({ searchTerm: externalSearchTerm = '' }) {
         <div className="flex-[0.8] text-center px-2">Actions</div>
         <div className="w-6"></div>
       </div>
-      
-      {/* Table body */}
+
       <div className="bg-white dark:bg-gray-800 rounded-b-xl border border-t-0 border-gray-200 dark:border-gray-700 overflow-hidden shadow-sm flex flex-col flex-1 min-h-0 -mt-2 md:mt-0">
         <div className="flex-1 overflow-y-auto">
           {filteredBookings.length === 0 ? (
-            <div className="flex items-center justify-center min-h-[200px]">
-              <div className="text-center py-12"><Calendar size={36} className="text-gray-300 mx-auto mb-3" /><p className="text-gray-700 dark:text-gray-300 font-semibold">No bookings found</p></div>
-            </div>
+            <div className="flex items-center justify-center min-h-[200px]"><div className="text-center py-12"><Calendar size={36} className="text-gray-300 mx-auto mb-3" /><p className="text-gray-700 dark:text-gray-300 font-semibold">No bookings found</p></div></div>
           ) : showConflictGroups ? (
             <div>{conflictGroups.map((group, gi) => (<div key={gi}><div className="px-4 py-2.5 bg-red-50 dark:bg-red-900/10 border-b border-red-200 dark:border-red-800"><p className="font-bold text-red-700 dark:text-red-300 flex items-center gap-2"><AlertTriangle size={16} /> Conflict Group {gi + 1} — {group[0]?.condos?.code || 'Unit'} ({group.length} booking{group.length !== 1 ? 's' : ''})</p></div>{group.map(booking => <BookingRow key={booking.id} {...{ booking, selectedBooking, hasOverlap, getNightsCount, getGuestSummary, getRowStyle, setSelectedBooking, handleQuickAction, openDeleteModal, handleEdit, actionLoading, formatPrice, confirmedBookings, getConflictingBookings, bookings, getAllOverlappingBookings }} />)}</div>))}</div>
           ) : (
             <div>{filteredBookings.map(booking => <BookingRow key={booking.id} {...{ booking, selectedBooking, hasOverlap, getNightsCount, getGuestSummary, getRowStyle, setSelectedBooking, handleQuickAction, openDeleteModal, handleEdit, actionLoading, formatPrice, confirmedBookings, getConflictingBookings, bookings, getAllOverlappingBookings }} />)}</div>
           )}
         </div>
-        <div className="flex-shrink-0 px-4 py-2.5 border-t border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-700/30">
-          <p className="font-medium text-gray-700 dark:text-gray-300">Showing {filteredBookings.length} of {bookings.length} bookings</p>
-        </div>
+        <div className="flex-shrink-0 px-4 py-2.5 border-t border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-700/30"><p className="font-medium text-gray-700 dark:text-gray-300">Showing {filteredBookings.length} of {bookings.length} bookings</p></div>
       </div>
       <ConfirmationModal isOpen={modalConfig.isOpen} onClose={closeModal} onConfirm={() => handleQuickAction(modalConfig.booking, 'delete')} booking={modalConfig.booking} formatPrice={formatPrice} />
       <BookingFormModal isOpen={bookingFormOpen} onClose={() => { setBookingFormOpen(false); setEditBooking(null) }} onSave={fetchBookings} condos={condos} formatPrice={formatPrice} confirmedBookings={confirmedBookings} editBooking={editBooking} />
@@ -676,15 +690,10 @@ function BookingRow({ booking, selectedBooking, hasOverlap, getNightsCount, getG
         {isSelected && (
           <motion.div ref={detailRef} initial={{ height: 0, opacity: 0 }} animate={{ height: 'auto', opacity: 1 }} exit={{ height: 0, opacity: 0 }} className="overflow-hidden bg-gray-50 dark:bg-gray-700/20 border-b border-gray-200 dark:border-gray-700">
             <div className="px-6 py-6">
-              <div className="flex flex-wrap items-start gap-5 mb-6 pb-5 border-b border-gray-200 dark:border-gray-700">
-                <div className="flex items-center gap-4 min-w-[220px]">
-                  {booking.avatar_url ? <img src={booking.avatar_url} alt="" className="w-14 h-14 rounded-xl object-cover ring-2 ring-white dark:ring-gray-700 shadow-sm" /> : <div style={{ background: avatarColors(booking.guest_name || '—')[0], color: avatarColors(booking.guest_name || '—')[1] }} className="w-14 h-14 rounded-xl flex items-center justify-center text-lg font-bold ring-2 ring-white dark:ring-gray-700 shadow-sm">{initials(booking.guest_name || '—')}</div>}
-                  <div><p className="text-lg font-bold text-gray-900 dark:text-gray-100">{booking.guest_name || '—'}</p><p className="text-sm text-gray-600 dark:text-gray-400 font-mono">{booking.booking_code}</p></div>
-                </div>
-                <div className="flex flex-wrap items-center gap-2">
-                  <div className="flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-white dark:bg-gray-700 border border-gray-200 dark:border-gray-600 font-semibold text-gray-800 dark:text-gray-200"><Hash size={12} /> {booking.booking_code}</div>
-                  <div className="flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-[#2d568e]/10 dark:bg-blue-900/20 border border-[#2d568e]/20 dark:border-blue-800 font-bold text-[#2d568e] dark:text-blue-400"><DollarSign size={12} /> {formatPrice(booking.total_amount)}</div>
-                  <div className="flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-white dark:bg-gray-700 border border-gray-200 dark:border-gray-600 font-semibold text-gray-800 dark:text-gray-200"><Users size={12} /> {getGuestSummary(booking)}</div>
+              <div className="flex flex-wrap items-start gap-4 mb-6 pb-5 border-b border-gray-200 dark:border-gray-700">
+                <div className="flex items-center gap-4">
+                  {booking.avatar_url ? <img src={booking.avatar_url} alt="" className="w-12 h-12 rounded-xl object-cover ring-2 ring-white dark:ring-gray-700 shadow-sm" /> : <div style={{ background: avatarColors(booking.guest_name || '—')[0], color: avatarColors(booking.guest_name || '—')[1] }} className="w-12 h-12 rounded-xl flex items-center justify-center text-base font-bold ring-2 ring-white dark:ring-gray-700 shadow-sm">{initials(booking.guest_name || '—')}</div>}
+                  <div><p className="text-lg font-bold text-gray-900 dark:text-gray-100">{booking.guest_name || '—'}</p></div>
                 </div>
               </div>
               <div className="mb-6">
@@ -699,7 +708,7 @@ function BookingRow({ booking, selectedBooking, hasOverlap, getNightsCount, getG
                     <div className="grid grid-cols-1 lg:grid-cols-5 gap-5">
                       <div className="lg:col-span-3"><MiniBarCalendar bookings={confirmedBookings} condoId={booking.condo_id} highlightBooking={booking} onConflictClick={() => setShowConflictModal(true)} mode="interactive" /></div>
                       <div className="lg:col-span-2 space-y-3">
-                        <div className="flex items-center justify-between"><p className="font-bold text-gray-700 dark:text-gray-300 uppercase tracking-wider">Conflicting</p><button onClick={() => { handleEdit(booking); setSelectedBooking(null) }} className="px-3 py-2 bg-orange-500 text-white rounded-lg font-semibold hover:bg-orange-600 transition-colors flex items-center gap-1"><Edit2 size={14} /> Change Dates</button></div>
+                        <div className="flex items-center justify-between"><p className="font-bold text-gray-700 dark:text-gray-300 uppercase tracking-wider">Conflicting</p><button onClick={() => { handleEdit(booking); setSelectedBooking(null) }} className="px-3 py-2 bg-orange-500 text-white rounded-lg font-semibold hover:bg-orange-600 transition-colors flex items-center gap-1"><Edit2 size={14} /> Modify</button></div>
                         <div className="space-y-2 max-h-[300px] overflow-y-auto">
                           {conflicts.map(cb => (
                             <div key={cb.id} className="bg-red-50 dark:bg-red-900/10 rounded-xl p-3 border border-red-100 dark:border-red-800/30">
@@ -723,7 +732,7 @@ function BookingRow({ booking, selectedBooking, hasOverlap, getNightsCount, getG
                   { icon: Phone, label: 'Phone', value: booking.guest_phone || '—' },
                   { icon: CalendarIcon, label: 'Check-in', value: format(new Date(booking.start_date), 'MMM d, yyyy') },
                   { icon: CalendarIcon, label: 'Check-out', value: format(new Date(booking.end_date), 'MMM d, yyyy') },
-                  { icon: Clock, label: 'Booked', value: format(new Date(booking.created_at), 'MMM d') },
+                  { icon: Clock, label: 'Booked', value: format(new Date(booking.created_at), 'MMM d, yyyy \'at\' h:mm a') },
                   { icon: MapPin, label: 'Location', value: booking.condos?.location || '—' },
                 ].map((item, idx) => (
                   <div key={idx} className="bg-white dark:bg-gray-700/30 rounded-xl p-3 border border-gray-200 dark:border-gray-600">
