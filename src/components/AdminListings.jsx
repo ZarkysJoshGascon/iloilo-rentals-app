@@ -1,6 +1,10 @@
 import { useEffect, useState, useCallback, useRef } from 'react'
 import { supabase } from '../lib/supabase'
-import { Plus, Edit2, Trash2, Building2, MapPin, Search, RefreshCw, Upload, X, User, Camera, Bed, Bath, Users as UsersIcon, Calendar } from 'lucide-react'
+import {
+  Plus, Edit2, Trash2, Building2, MapPin, Search, RefreshCw,
+  Upload, X, User, Camera, Bed, Bath, Users as UsersIcon,
+  Calendar, Download                     // ← added Download
+} from 'lucide-react'
 import { useCurrency } from '../context/CurrencyContext'
 import toast from 'react-hot-toast'
 import { motion, AnimatePresence } from 'framer-motion'
@@ -107,13 +111,46 @@ export default function AdminListings() {
   const navigateToCalendar = (condo) => window.dispatchEvent(new CustomEvent('navigateToCalendar', { detail: { condoId: condo.id } }))
   const handleDelete = async (condo) => { try { const { error } = await supabase.from('condos').delete().eq('id', condo.id); if (error) throw error; toast.success('Listing deleted'); fetchData() } catch { toast.error('Failed to delete listing') } }
   const filteredCondos = condos.filter(c => { const s = getCondoStatus(c).label.toLowerCase(); if (statusFilter !== 'all' && statusFilter !== s) return false; if (searchText) { const t = searchText.toLowerCase(); return (c.title || '').toLowerCase().includes(t) || (c.code || '').toLowerCase().includes(t) || (c.location || '').toLowerCase().includes(t) } return true })
+
+  // ---------- CSV Export ----------
+  const downloadCSV = () => {
+    if (filteredCondos.length === 0) { toast.error('No listings to export'); return }
+    const headers = ['Title', 'Code', 'Location', 'Bedrooms', 'Bathrooms', 'Max Guests', 'SqM', 'Price/Night', 'Status', 'Occupancy']
+    const rows = filteredCondos.map(c => [
+      c.title || '',
+      c.code || '',
+      c.location || '',
+      c.bedroom_count || '',
+      c.bathroom_count || '',
+      c.max_guests || '',
+      c.square_meters || '',
+      c.price_per_night || '',
+      c.status || '',
+      getCondoStatus(c).label
+    ])
+    const csvContent = [headers, ...rows].map(r => r.map(v => `"${String(v).replace(/"/g, '""')}"`).join(',')).join('\n')
+    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' })
+    const url = URL.createObjectURL(blob)
+    const a = document.createElement('a')
+    a.href = url; a.download = `listings_export_${new Date().toISOString().slice(0,10)}.csv`
+    a.click(); URL.revokeObjectURL(url)
+    toast.success('CSV exported')
+  }
+
   if (loading) return (<div className="space-y-4 animate-pulse"><div className="h-10 bg-gray-200 dark:bg-gray-700 rounded-xl" /><div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">{[1,2,3,4,5,6].map(i => <div key={i} className="bg-white dark:bg-gray-800 rounded-xl p-5 border border-gray-100 dark:border-gray-700 h-48" />)}</div></div>)
 
   return (
     <div className="flex flex-col flex-1 min-h-0 space-y-4">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div className="flex items-center gap-3"><div className="relative"><Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" /><input type="text" placeholder="Search listings..." value={searchText} onChange={e => setSearchText(e.target.value)} className="pl-10 pr-4 py-2.5 text-sm border border-gray-200 dark:border-gray-600 rounded-xl bg-white dark:bg-gray-800 dark:text-gray-100 w-64 focus:outline-none focus:ring-2 focus:ring-blue-100" /></div><select value={statusFilter} onChange={e => setStatusFilter(e.target.value)} className="px-3 py-2.5 text-sm border border-gray-200 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-800 dark:text-gray-100 cursor-pointer"><option value="all">All Status</option><option value="vacant">Vacant</option><option value="occupied">Occupied</option><option value="blocked">Blocked</option></select></div>
-        <div className="flex items-center gap-2"><button onClick={fetchData} className="px-3 py-2.5 border border-gray-200 dark:border-gray-600 rounded-lg text-gray-500 hover:bg-gray-100 dark:hover:bg-gray-600 transition-colors" title="Refresh"><RefreshCw size={16} /></button><button onClick={() => setFormModal({ isOpen: true, listing: null })} className="px-4 py-2.5 bg-[#2d568e] text-white rounded-xl text-sm font-semibold hover:bg-[#1e3a5f] transition-colors flex items-center gap-2"><Plus size={16} /> New Listing</button></div>
+        <div className="flex items-center gap-2">
+          {/* Export button */}
+          <button onClick={downloadCSV} className="px-3 py-2.5 border border-gray-200 dark:border-gray-600 rounded-lg text-gray-500 hover:bg-gray-100 dark:hover:bg-gray-600 transition-colors flex items-center gap-2" title="Download CSV">
+            <Download size={16} /> Export
+          </button>
+          <button onClick={fetchData} className="px-3 py-2.5 border border-gray-200 dark:border-gray-600 rounded-lg text-gray-500 hover:bg-gray-100 dark:hover:bg-gray-600 transition-colors" title="Refresh"><RefreshCw size={16} /></button>
+          <button onClick={() => setFormModal({ isOpen: true, listing: null })} className="px-4 py-2.5 bg-[#2d568e] text-white rounded-xl text-sm font-semibold hover:bg-[#1e3a5f] transition-colors flex items-center gap-2"><Plus size={16} /> New Listing</button>
+        </div>
       </div>
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">{filteredCondos.map(condo => { const status = getCondoStatus(condo); return (<div key={condo.id} id={`listing-${condo.id}`}><ListingCard condo={condo} status={status} onEdit={(c) => setFormModal({ isOpen: true, listing: c })} onCalendar={navigateToCalendar} /></div>) })}</div>
       {filteredCondos.length === 0 && <div className="text-center py-16"><Building2 size={40} className="text-gray-300 dark:text-gray-600 mx-auto mb-3" /><p className="text-sm font-semibold text-gray-500 dark:text-gray-400">No listings found</p></div>}
