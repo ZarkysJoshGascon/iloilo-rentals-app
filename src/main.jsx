@@ -5,7 +5,7 @@ import './index.css'
 import App from './App.jsx'
 import { CurrencyProvider } from './context/CurrencyContext'
 import { AuthProvider } from './context/AuthContext'
-import ErrorBoundary from './components/ErrorBoundary'
+import ErrorBoundary from './components/common/ErrorBoundary'
 
 if ('scrollRestoration' in history) {
   history.scrollRestoration = 'manual'
@@ -15,7 +15,12 @@ createRoot(document.getElementById('root')).render(
   <StrictMode>
     <ErrorBoundary>
       <AuthProvider>
-        <BrowserRouter>
+        <BrowserRouter
+          future={{
+            v7_startTransition: true,
+            v7_relativeSplatPath: true,
+          }}
+        >
           <CurrencyProvider>
             <App />
           </CurrencyProvider>

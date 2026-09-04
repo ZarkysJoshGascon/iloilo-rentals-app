@@ -2,20 +2,22 @@
   import { useEffect } from 'react'
   import { Toaster } from 'react-hot-toast'
   import { ThemeProvider } from './context/ThemeContext'
-  import Navbar from './components/Navbar'
-  import Footer from './components/Footer'
-  import HomePage from './pages/HomePage'
-  import CondosPage from './pages/CondosPage'
-  import CondoDetailPage from './pages/CondoDetailPage'
-  import LoginPage from './pages/LoginPage'
-  import AboutPage from './pages/Aboutpage'
-  import ContactPage from './pages/ContactPage'
-  import MyBookingsPage from './pages/MyBookingsPage'
-  import PrivacyPolicyPage from './pages/PrivacyPolicyPage'
-  import TermsPage from './pages/TermsPage'
-  import ListPropertyPage from './pages/ListPropertyPage'
-  import AdminDashboard from './pages/AdminDashboard'
-  import AdminRoute from './components/AdminRoute'
+import Navbar from './components/layout/Navbar'
+import Footer from './components/layout/Footer'
+import HomePage from './pages/public/HomePage'
+import CondosPage from './pages/public/CondosPage'
+import CondoDetailPage from './pages/public/CondoDetailPage'
+import LoginPage from './pages/public/LoginPage'
+import AboutPage from './pages/public/AboutPage'
+import ContactPage from './pages/public/ContactPage'
+import MyBookingsPage from './pages/public/MyBookingsPage'
+import PrivacyPolicyPage from './pages/public/PrivacyPolicyPage'
+import TermsPage from './pages/public/TermsPage'
+import ListPropertyPage from './pages/public/ListPropertyPage'
+import AdminDashboardPage from './pages/admin/AdminDashboardPage'
+import AdminRoute from './components/admin/AdminRoute'
+import PaymentSuccess from './pages/public/PaymentSuccess'
+
 
   function App() {
     const location = useLocation()
@@ -42,11 +44,13 @@
               <Route path="/privacy" element={<PrivacyPolicyPage />} />
               <Route path="/terms" element={<TermsPage />} />
               <Route path="/list-property" element={<ListPropertyPage />} />
+              <Route path="/payment/success" element={<PaymentSuccess />} />
+              <Route path="/payment/cancel" element={<PaymentSuccess />} />
               <Route 
                 path="/admin" 
                 element={
                   <AdminRoute>
-                    <AdminDashboard />
+                    <AdminDashboardPage />
                   </AdminRoute>
                 } 
               />

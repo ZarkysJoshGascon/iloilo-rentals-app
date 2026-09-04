@@ -60,7 +60,6 @@ export function CurrencyProvider({ children }) {
   )
 }
 
-// eslint-disable-next-line react-refresh/only-export-components
 export function useCurrency() {
   const context = useContext(CurrencyContext)
   if (!context) {
