@@ -25,7 +25,6 @@ serve(async (req) => {
 
     const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY)
 
-    // Get auth user
     const authHeader = req.headers.get('Authorization') || ''
     const token = authHeader.replace('Bearer ', '')
     const { data: { user }, error: authError } = await supabase.auth.getUser(token)
@@ -37,7 +36,6 @@ serve(async (req) => {
       })
     }
 
-    // Get payment record
     const { data: payment, error: paymentError } = await supabase
       .from('payments')
       .select('*')
@@ -46,24 +44,18 @@ serve(async (req) => {
       .single()
 
     if (paymentError || !payment) {
-      return new Response(JSON.stringify({ error: 'Payment not found' }), {
+      return new Response(JSON.stringify({ error: 'Payment record not found' }), {
         status: 404,
         headers: { ...corsHeaders, 'Content-Type': 'application/json' },
       })
     }
 
-    // 🆕 Check if already paid - return success instead of error
     if (payment.status === 'paid') {
-      return new Response(JSON.stringify({ 
-        success: true, 
-        alreadyPaid: true,
-        message: 'Payment already captured' 
-      }), {
+      return new Response(JSON.stringify({ success: true, alreadyPaid: true }), {
         headers: { ...corsHeaders, 'Content-Type': 'application/json' },
       })
     }
 
-    // Get PayPal access token
     const authResponse = await fetch(`${PAYPAL_API_URL}/v1/oauth2/token`, {
       method: 'POST',
       headers: {
@@ -76,48 +68,6 @@ serve(async (req) => {
     const authData = await authResponse.json()
     const accessToken = authData.access_token
 
-    // 🆕 First check order status
-    const orderStatusResponse = await fetch(`${PAYPAL_API_URL}/v2/checkout/orders/${orderId}`, {
-      method: 'GET',
-      headers: {
-        'Authorization': `Bearer ${accessToken}`,
-      },
-    })
-
-    const orderStatusData = await orderStatusResponse.json()
-    
-    // If already completed, just update database and return success
-    if (orderStatusData.status === 'COMPLETED') {
-      const captureId = orderStatusData.purchase_units?.[0]?.payments?.captures?.[0]?.id
-      
-      await supabase
-        .from('payments')
-        .update({
-          status: 'paid',
-          paypal_capture_id: captureId,
-          paid_at: new Date().toISOString(),
-        })
-        .eq('id', payment.id)
-
-      await supabase
-        .from('bookings')
-        .update({
-          payment_status: 'paid',
-          status: 'confirmed',
-          paid_at: new Date().toISOString(),
-        })
-        .eq('id', payment.booking_id)
-
-      return new Response(JSON.stringify({ 
-        success: true, 
-        status: 'COMPLETED',
-        captureId: captureId,
-      }), {
-        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-      })
-    }
-
-    // If not completed, try to capture
     const captureResponse = await fetch(`${PAYPAL_API_URL}/v2/checkout/orders/${orderId}/capture`, {
       method: 'POST',
       headers: {
@@ -129,29 +79,23 @@ serve(async (req) => {
     const captureData = await captureResponse.json()
 
     if (!captureResponse.ok) {
-      // 🆕 Check if it's already captured error
       if (captureData.name === 'UNPROCESSABLE_ENTITY' && 
-          captureData.details?.some(d => d.issue === 'ORDER_ALREADY_CAPTURED')) {
+          captureData.details?.some((d: any) => d.issue === 'ORDER_ALREADY_CAPTURED')) {
         
-        // Get the capture from order details instead
+        const orderStatusResponse = await fetch(`${PAYPAL_API_URL}/v2/checkout/orders/${orderId}`, {
+          headers: { 'Authorization': `Bearer ${accessToken}` },
+        })
+        const orderStatusData = await orderStatusResponse.json()
         const captureId = orderStatusData.purchase_units?.[0]?.payments?.captures?.[0]?.id
-        
+
         await supabase
           .from('payments')
-          .update({
-            status: 'paid',
-            paypal_capture_id: captureId,
-            paid_at: new Date().toISOString(),
-          })
+          .update({ status: 'paid', paypal_capture_id: captureId, paid_at: new Date().toISOString() })
           .eq('id', payment.id)
 
         await supabase
           .from('bookings')
-          .update({
-            payment_status: 'paid',
-            status: 'confirmed',
-            paid_at: new Date().toISOString(),
-          })
+          .update({ payment_status: 'paid', paid_at: new Date().toISOString() })
           .eq('id', payment.booking_id)
 
         return new Response(JSON.stringify({ success: true, status: 'COMPLETED' }), {
@@ -162,7 +106,6 @@ serve(async (req) => {
       throw new Error(captureData.message || 'Failed to capture payment')
     }
 
-    // Verify amount
     const capturedAmount = parseFloat(captureData.purchase_units?.[0]?.payments?.captures?.[0]?.amount?.value)
     const expectedAmount = parseFloat(payment.amount)
 
@@ -177,27 +120,20 @@ serve(async (req) => {
 
     await supabase
       .from('payments')
-      .update({
-        status: 'paid',
-        paypal_capture_id: captureId,
-        paid_at: new Date().toISOString(),
-      })
+      .update({ status: 'paid', paypal_capture_id: captureId, paid_at: new Date().toISOString() })
       .eq('id', payment.id)
 
+    // ✅ FIX: Update payment_status but NOT status (stays 'pending')
     await supabase
       .from('bookings')
-      .update({
+      .update({ 
         payment_status: 'paid',
-        status: 'confirmed',
         paid_at: new Date().toISOString(),
+        // status stays 'pending' - admin will confirm manually
       })
       .eq('id', payment.booking_id)
 
-    return new Response(JSON.stringify({ 
-      success: true, 
-      status: captureData.status,
-      captureId: captureId,
-    }), {
+    return new Response(JSON.stringify({ success: true, status: captureData.status, captureId }), {
       headers: { ...corsHeaders, 'Content-Type': 'application/json' },
     })
 

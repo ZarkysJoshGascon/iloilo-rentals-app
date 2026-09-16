@@ -76,6 +76,8 @@ export default function CondoDetailPage() {
   const [allCondos, setAllCondos] = useState([])
   const [showOtherListings, setShowOtherListings] = useState(false)
   const [currentId, setCurrentId] = useState(id)
+  const [validImages, setValidImages] = useState([])
+  const [imagesLoading, setImagesLoading] = useState(true)
 
   const [startDate, setStartDate] = useState(new Date())
   const [endDate, setEndDate] = useState(() => {
@@ -229,14 +231,64 @@ export default function CondoDetailPage() {
     return () => document.head.removeChild(styleElement)
   }, [])
 
-  const condoImages = condo?.code ? getCondoImages(condo.code) : []
-  const allImages = condoImages.length > 0 ? condoImages : [condo?.images?.[0] || 'https://images.unsplash.com/photo-1560448204-e02f11c3d0e2?w=1200']
-
+  // ============ FIXED IMAGE LOADING ============
   useEffect(() => {
-    if (allImages.length <= 1) return
-    const interval = setInterval(() => { setCurrentImageIndex(prev => (prev + 1) % allImages.length) }, 5000)
+    if (!condo) return
+    setImagesLoading(true)
+    
+    // Build candidate list: prioritize DB images, then fallback to storage URLs
+    const dbImages = condo.images && condo.images.length > 0 ? condo.images : []
+    const storageImages = condo.code ? getCondoImages(condo.code) : []
+    const candidates = dbImages.length > 0 ? dbImages : storageImages
+    
+    const fallback = 'https://images.unsplash.com/photo-1560448204-e02f11c3d0e2?w=1200'
+    
+    if (candidates.length === 0) {
+      setValidImages([fallback])
+      setImagesLoading(false)
+      return
+    }
+    
+    // Preload and filter out broken images
+    let cancelled = false
+    const checkImages = async () => {
+      const valid = []
+      await Promise.all(candidates.map(url => 
+        new Promise(resolve => {
+          const img = new Image()
+          img.onload = () => { if (!cancelled) valid.push(url); resolve() }
+          img.onerror = () => resolve()
+          img.src = url
+        })
+      ))
+      if (cancelled) return
+      // Preserve original order
+      const ordered = candidates.filter(url => valid.includes(url))
+      setValidImages(ordered.length > 0 ? ordered : [fallback])
+      setImagesLoading(false)
+    }
+    checkImages()
+    
+    return () => { cancelled = true }
+  }, [condo])
+
+  // Auto-rotate valid images
+  useEffect(() => {
+    if (validImages.length <= 1) return
+    const interval = setInterval(() => {
+      setCurrentImageIndex(prev => (prev + 1) % validImages.length)
+    }, 5000)
     return () => clearInterval(interval)
-  }, [allImages.length])
+  }, [validImages.length])
+
+  // Reset index if valid images change and index is out of bounds
+  useEffect(() => {
+    if (currentImageIndex >= validImages.length && validImages.length > 0) {
+      setCurrentImageIndex(0)
+    }
+  }, [validImages.length, currentImageIndex])
+
+  const allImages = validImages
 
   const nights = startDate && endDate ? differenceInDays(endDate, startDate) : 0
   const basePricePerNight = condo?.price_per_night || 0
@@ -287,7 +339,6 @@ export default function CondoDetailPage() {
     
     setIsSubmitting(true)
     try {
-      // Re-fetch condo for current price
       const { data: freshCondo, error: condoError } = await supabase
         .from('condos')
         .select('price_per_night')
@@ -335,7 +386,6 @@ export default function CondoDetailPage() {
       setAcceptedTerms(false)
       setTermsError(false)
       
-      // 🆕 Open PayPal payment modal
       setPaymentBooking(newBooking)
       
     } catch (error) {
@@ -352,8 +402,8 @@ export default function CondoDetailPage() {
     if (e.target === e.currentTarget) setFocused(prev => !prev)
   }
 
-  const prevImage = (e) => { e.stopPropagation(); setCurrentImageIndex(prev => (prev - 1 + allImages.length) % allImages.length) }
-  const nextImage = (e) => { e.stopPropagation(); setCurrentImageIndex(prev => (prev + 1) % allImages.length) }
+  const prevImage = (e) => { e.stopPropagation(); if (allImages.length > 0) setCurrentImageIndex(prev => (prev - 1 + allImages.length) % allImages.length) }
+  const nextImage = (e) => { e.stopPropagation(); if (allImages.length > 0) setCurrentImageIndex(prev => (prev + 1) % allImages.length) }
   const zoomIn = (e) => { e.stopPropagation(); setZoomLevel(prev => Math.min(prev + 0.5, 3)) }
   const zoomOut = (e) => { e.stopPropagation(); setZoomLevel(prev => Math.max(prev - 0.5, 1)) }
 
@@ -428,11 +478,18 @@ export default function CondoDetailPage() {
   return (
     <div className="fixed inset-0 z-40 flex overflow-hidden bg-black cursor-pointer" onClick={handleBackgroundClick}>
       <div className="absolute inset-0 overflow-hidden">
-        {allImages.map((img, idx) => (
-          <div key={idx} className="absolute inset-0 transition-all duration-700" style={{ opacity: idx === currentImageIndex ? 1 : 0, transform: `scale(${zoomLevel})`, transformOrigin: 'center center' }}>
-            <img src={img} alt="" className="w-full h-full object-cover" />
+        {imagesLoading ? (
+          <div className="absolute inset-0 flex items-center justify-center bg-black">
+            <motion.div animate={{ rotate: 360 }} transition={{ duration: 1, repeat: Infinity, ease: "linear" }}
+              className="rounded-full h-12 w-12 border-[3px] border-white/20 border-t-white" />
           </div>
-        ))}
+        ) : (
+          allImages.map((img, idx) => (
+            <div key={idx} className="absolute inset-0 transition-all duration-700" style={{ opacity: idx === currentImageIndex ? 1 : 0, transform: `scale(${zoomLevel})`, transformOrigin: 'center center' }}>
+              <img src={img} alt="" className="w-full h-full object-cover" />
+            </div>
+          ))
+        )}
         <div className={`absolute inset-0 bg-gradient-to-r from-black/80 via-black/30 to-transparent transition-opacity duration-500 ${focused ? 'opacity-100' : 'opacity-0'}`} />
         <div className="absolute inset-0 bg-gradient-to-t from-black/40 via-transparent to-transparent" />
       </div>
@@ -549,7 +606,6 @@ export default function CondoDetailPage() {
         )}
       </AnimatePresence>
 
-      {/* 🆕 PayPal Payment Modal */}
       {paymentBooking && (
         <PayPalPaymentModal 
           isOpen={!!paymentBooking}

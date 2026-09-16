@@ -1,18 +1,45 @@
 import { useEffect, useState, useCallback, useRef } from 'react'
 import { supabase } from "../../../lib/supabase";
-import { useCurrency } from "../../../context/CurrencyContext";import { format, differenceInDays, startOfMonth, endOfMonth, eachDayOfInterval, startOfWeek, endOfWeek, isSameDay, isSameMonth, addMonths, subMonths } from 'date-fns'
+import { useCurrency } from "../../../context/CurrencyContext";
+import { format, differenceInDays, startOfMonth, endOfMonth, eachDayOfInterval, startOfWeek, endOfWeek, isSameDay, isSameMonth, addMonths, subMonths } from 'date-fns'
 import {
   Check, X, Trash2, AlertTriangle, Edit2, CheckCircle,
   Search, ArrowUpDown, RefreshCw, Calendar,
   Building2, MapPin, Mail, Phone, Plus,
-  ChevronRight, SlidersHorizontal,  Ban, Clock,
-  ChevronDown, ChevronLeft,  Home,
-  CalendarIcon,  TrendingUp
+  ChevronRight, SlidersHorizontal, Ban, Clock,
+  ChevronDown, ChevronLeft, Home,
+  CalendarIcon, TrendingUp, ArrowLeftRight, Receipt, Globe, Send, Link2
 } from 'lucide-react'
 import toast from 'react-hot-toast'
 import { motion, AnimatePresence } from 'framer-motion'
 import { avatarColors, initials } from "../../../utils/avatar";
 import { logAudit } from '../../../lib/auditLog'
+
+// ============ SOURCE BADGE ============
+const SourceBadge = ({ source, channel }) => {
+  const sourceConfig = {
+    direct: { label: 'Direct', color: 'bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-300' },
+    airbnb: { label: 'Airbnb', color: 'bg-rose-100 text-rose-700 dark:bg-rose-900/30 dark:text-rose-300' },
+    booking: { label: 'Booking.com', color: 'bg-indigo-100 text-indigo-700 dark:bg-indigo-900/30 dark:text-indigo-300' },
+    agoda: { label: 'Agoda', color: 'bg-purple-100 text-purple-700 dark:bg-purple-900/30 dark:text-purple-300' },
+    expedia: { label: 'Expedia', color: 'bg-yellow-100 text-yellow-700 dark:bg-yellow-900/30 dark:text-yellow-300' },
+    ical: { label: channel || 'iCal', color: 'bg-cyan-100 text-cyan-700 dark:bg-cyan-900/30 dark:text-cyan-300' },
+    other: { label: channel || 'Other', color: 'bg-gray-100 text-gray-700 dark:bg-gray-700 dark:text-gray-300' },
+  }
+  const config = sourceConfig[source] || sourceConfig.other
+  return <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${config.color}`}>{config.label}</span>
+}
+
+// ============ PAYMENT BADGE ============
+const PaymentBadge = ({ status }) => {
+  if (status === 'paid') {
+    return <span className="px-2 py-0.5 rounded-full text-xs font-bold bg-emerald-100 dark:bg-emerald-900/30 text-emerald-700 dark:text-emerald-300">✓ PAID</span>
+  }
+  if (status === 'unpaid') {
+    return <span className="px-2 py-0.5 rounded-full text-xs font-bold bg-gray-100 dark:bg-gray-700 text-gray-500 dark:text-gray-400">UNPAID</span>
+  }
+  return null
+}
 
 const UnitImage = ({ condo }) => {
   const [imgError, setImgError] = useState(false)
@@ -53,12 +80,78 @@ const StatusDot = ({ status, hasConflict }) => {
   return null
 }
 
-const ActionDropdown = ({ booking, onConfirm, onReject, onDelete, onEdit, actionLoading, overlap }) => {
+// ============ ACTION DROPDOWN ============
+const ActionDropdown = ({ booking, onConfirm, onReject, onDelete, onEdit, onTransfer, actionLoading, overlap }) => {
   const [open, setOpen] = useState(false); const dropdownRef = useRef(null)
   useEffect(() => { if (!open) return; const h = (e) => { if (dropdownRef.current && !dropdownRef.current.contains(e.target)) setOpen(false) }; document.addEventListener('mousedown', h); return () => document.removeEventListener('mousedown', h) }, [open])
   const isPending = booking.status === 'pending'
   const isColored = booking.status === 'confirmed' || booking.status === 'rejected'
-  return (<div className="relative" ref={dropdownRef}><button onClick={(e) => { e.stopPropagation(); setOpen(!open) }} className={`px-3 py-1.5 text-xs font-semibold rounded-lg border transition-all flex items-center gap-1 ${isColored ? 'border-white/30 text-white/90 hover:bg-white/10' : 'border-gray-200 dark:border-gray-600 text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700'}`}>Manage <ChevronDown size={12} /></button><AnimatePresence>{open && (<><div className="fixed inset-0 z-40" onClick={() => setOpen(false)} /><motion.div initial={{ opacity: 0, scale: 0.95, y: -5 }} animate={{ opacity: 1, scale: 1, y: 0 }} exit={{ opacity: 0, scale: 0.95, y: -5 }} className="absolute right-0 top-full mt-1 w-44 bg-white dark:bg-gray-800 rounded-xl shadow-2xl border border-gray-200 dark:border-gray-600 py-1 z-50"><button onClick={(e) => { e.stopPropagation(); onEdit(booking); setOpen(false) }} className="w-full text-left px-3 py-2 text-sm font-medium text-gray-800 dark:text-gray-200 hover:bg-gray-50 dark:hover:bg-gray-700 flex items-center gap-2"><Edit2 size={14} /> Modify</button>{isPending && <><button onClick={(e) => { e.stopPropagation(); onConfirm(booking); setOpen(false) }} disabled={actionLoading === booking.id || overlap} className={`w-full text-left px-3 py-2 text-sm font-medium flex items-center gap-2 ${overlap ? 'text-gray-400 cursor-not-allowed' : 'text-emerald-600 dark:text-emerald-400 hover:bg-emerald-50 dark:hover:bg-emerald-900/30'}`}><Check size={14} /> Confirm</button><button onClick={(e) => { e.stopPropagation(); onReject(booking); setOpen(false) }} disabled={actionLoading === booking.id} className="w-full text-left px-3 py-2 text-sm font-medium text-red-600 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-900/30 flex items-center gap-2"><X size={14} /> Reject</button></>}<div className="border-t border-gray-100 dark:border-gray-700 my-1" /><button onClick={(e) => { e.stopPropagation(); onDelete(booking); setOpen(false) }} className="w-full text-left px-3 py-2 text-sm font-medium text-red-600 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-900/30 flex items-center gap-2"><Trash2 size={14} /> Delete</button></motion.div></>)}</AnimatePresence></div>)
+  const isIcal = booking.source === 'ical'
+  return (<div className="relative" ref={dropdownRef}><button onClick={(e) => { e.stopPropagation(); setOpen(!open) }} className={`px-3 py-1.5 text-xs font-semibold rounded-lg border transition-all flex items-center gap-1 ${isColored ? 'border-white/30 text-white/90 hover:bg-white/10' : 'border-gray-200 dark:border-gray-600 text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700'}`}>Manage <ChevronDown size={12} /></button><AnimatePresence>{open && (<><div className="fixed inset-0 z-40" onClick={() => setOpen(false)} /><motion.div initial={{ opacity: 0, scale: 0.95, y: -5 }} animate={{ opacity: 1, scale: 1, y: 0 }} exit={{ opacity: 0, scale: 0.95, y: -5 }} className="absolute right-0 top-full mt-1 w-48 bg-white dark:bg-gray-800 rounded-xl shadow-2xl border border-gray-200 dark:border-gray-600 py-1 z-50"><button onClick={(e) => { e.stopPropagation(); onEdit(booking); setOpen(false) }} className="w-full text-left px-3 py-2 text-sm font-medium text-gray-800 dark:text-gray-200 hover:bg-gray-50 dark:hover:bg-gray-700 flex items-center gap-2"><Edit2 size={14} /> Modify</button>{isPending && !isIcal && <><button onClick={(e) => { e.stopPropagation(); onConfirm(booking); setOpen(false) }} disabled={actionLoading === booking.id || overlap} className={`w-full text-left px-3 py-2 text-sm font-medium flex items-center gap-2 ${overlap ? 'text-gray-400 cursor-not-allowed' : 'text-emerald-600 dark:text-emerald-400 hover:bg-emerald-50 dark:hover:bg-emerald-900/30'}`}><Check size={14} /> Confirm</button><button onClick={(e) => { e.stopPropagation(); onTransfer(booking); setOpen(false) }} className="w-full text-left px-3 py-2 text-sm font-medium text-blue-600 dark:text-blue-400 hover:bg-blue-50 dark:hover:bg-blue-900/30 flex items-center gap-2"><ArrowLeftRight size={14} /> Transfer Unit</button><button onClick={(e) => { e.stopPropagation(); onReject(booking); setOpen(false) }} disabled={actionLoading === booking.id} className="w-full text-left px-3 py-2 text-sm font-medium text-red-600 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-900/30 flex items-center gap-2"><X size={14} /> Reject</button></>}<div className="border-t border-gray-100 dark:border-gray-700 my-1" /><button onClick={(e) => { e.stopPropagation(); onDelete(booking); setOpen(false) }} className="w-full text-left px-3 py-2 text-sm font-medium text-red-600 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-900/30 flex items-center gap-2"><Trash2 size={14} /> Delete</button></motion.div></>)}</AnimatePresence></div>)
+}
+
+// ============ TRANSFER MODAL ============
+function TransferModal({ isOpen, onClose, booking, condos, onTransfer }) {
+  const [selectedCondoId, setSelectedCondoId] = useState('')
+  const [transferring, setTransferring] = useState(false)
+  const availableCondos = condos.filter(c => c.id !== booking?.condo_id)
+
+  const handleTransfer = async () => {
+    if (!selectedCondoId) { toast.error('Select a condo'); return }
+    setTransferring(true)
+    try { await onTransfer(booking.id, selectedCondoId); onClose() } 
+    finally { setTransferring(false) }
+  }
+
+  if (!isOpen || !booking) return null
+
+  return (
+    <div className="fixed inset-0 z-[100001] flex items-center justify-center p-4">
+      <div className="absolute inset-0 bg-black/60" onClick={onClose} />
+      <div className="relative bg-white dark:bg-gray-800 rounded-2xl shadow-2xl max-w-lg w-full p-6">
+        <div className="flex items-center justify-between mb-4">
+          <div>
+            <h3 className="text-lg font-bold text-gray-900 dark:text-gray-100">Transfer Booking</h3>
+            <p className="text-sm text-gray-500">{booking.guest_name} · {booking.booking_code}</p>
+          </div>
+          <button onClick={onClose} className="p-2 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-full"><X size={20} /></button>
+        </div>
+        <p className="text-sm font-semibold text-gray-700 dark:text-gray-300 mb-2">Select new unit:</p>
+        <div className="space-y-2 max-h-64 overflow-y-auto">
+          {availableCondos.length === 0 ? (
+            <p className="text-sm text-gray-400 text-center py-6">No other units available</p>
+          ) : (
+            availableCondos.map(condo => (
+              <button key={condo.id} onClick={() => setSelectedCondoId(condo.id)}
+                className={`w-full flex items-center gap-3 p-3 rounded-xl border-2 transition-all ${selectedCondoId === condo.id ? 'border-blue-500 bg-blue-50 dark:bg-blue-900/20' : 'border-gray-200 dark:border-gray-600'}`}>
+                <div className="w-12 h-12 rounded-lg overflow-hidden flex-shrink-0 bg-gray-200 dark:bg-gray-600">
+                  {condo.images?.[0] ? (
+                    <img src={condo.images[0]} alt="" className="w-full h-full object-cover" />
+                  ) : condo.code ? (
+                    <img src={`https://mlksustamjaxfpolazgw.supabase.co/storage/v1/object/public/condo-images/${condo.code}_1.jpg`} alt="" className="w-full h-full object-cover" />
+                  ) : (
+                    <Building2 size={20} className="text-gray-400 m-auto mt-3" />
+                  )}
+                </div>
+                <div className="text-left flex-1">
+                  <p className="font-semibold text-sm text-gray-900 dark:text-gray-100">{condo.title}</p>
+                  <p className="text-xs text-gray-500 font-mono">{condo.code}</p>
+                </div>
+                {selectedCondoId === condo.id && <Check size={18} className="text-blue-500 flex-shrink-0" />}
+              </button>
+            ))
+          )}
+        </div>
+        <div className="flex gap-3 mt-4">
+          <button onClick={onClose} className="flex-1 py-2.5 border border-gray-300 dark:border-gray-600 rounded-xl font-semibold text-gray-700 dark:text-gray-300">Cancel</button>
+          <button onClick={handleTransfer} disabled={!selectedCondoId || transferring}
+            className="flex-1 py-2.5 bg-blue-500 text-white rounded-xl font-semibold disabled:opacity-50 hover:bg-blue-600">
+            {transferring ? 'Transferring...' : 'Transfer Booking'}
+          </button>
+        </div>
+      </div>
+    </div>
+  )
 }
 
 function useTooltipPos(pos) { const w = 300, h = 220, p = 12; return { left: Math.min(pos.x + p, window.innerWidth - w - p), top: pos.y + h + p > window.innerHeight ? pos.y - h - p : pos.y + p } }
@@ -117,7 +210,7 @@ function ConflictTooltip({ bookings, position }) {
 }
 
 /* ================================================================== */
-/*  MiniBarCalendar – fixed highlight, original booking visible         */
+/*  MiniBarCalendar                                                      */
 /* ================================================================== */
 function MiniBarCalendar({ bookings = [], condoId, highlightBooking, selectedStart, selectedEnd, onDateClick, onConflictClick, showOnlyConfirmed = false, clickableOverPending = true }) {
   const [miniMonth, setMiniMonth] = useState(() => new Date())
@@ -143,11 +236,9 @@ function MiniBarCalendar({ bookings = [], condoId, highlightBooking, selectedSta
       if (highlightBooking.status === 'confirmed') {
         confirmedBars.push({ ...highlightBooking, label: highlightBooking.booking_code || (highlightBooking.guest_name || 'Guest').split(' ')[0], isHighlighted: true })
       } else {
-        // Original booking shown as a semi‑transparent orange bar (dashed removed)
         originalBars.push({ ...highlightBooking, label: highlightBooking.booking_code || (highlightBooking.guest_name || 'Guest').split(' ')[0], type: 'original', isHighlighted: true })
       }
     } else {
-      // If already in list, just mark as highlighted
       const existingConfirmed = confirmedBars.find(b => b.id === highlightBooking.id)
       if (existingConfirmed) existingConfirmed.isHighlighted = true
       const existingPending = pendingBars.find(b => b.id === highlightBooking.id)
@@ -293,7 +384,7 @@ function ConfirmationModal({ isOpen, onClose, onConfirm, booking, formatPrice })
 
 function BookingFormModal({ isOpen, onClose, onSave, condos, formatPrice, confirmedBookings, editBooking }) {
   const isEdit = !!editBooking
-  const [formData, setFormData] = useState({ condo_id: '', guest_name: '', guest_email: '', guest_phone: '', start_date: '', end_date: '', adults: 2, children: 0, infants: 0, seniors: 0, total_amount: 0 })
+  const [formData, setFormData] = useState({ condo_id: '', guest_name: '', guest_email: '', guest_phone: '', start_date: '', end_date: '', adults: 2, children: 0, infants: 0, seniors: 0, total_amount: 0, source: 'direct' })
   const [saving, setSaving] = useState(false)
   const [dateConflict, setDateConflict] = useState(false)
   const [conflictingBookings, setConflictingBookings] = useState([])
@@ -302,8 +393,8 @@ function BookingFormModal({ isOpen, onClose, onSave, condos, formatPrice, confir
 
   useEffect(() => {
     if (isOpen) {
-      if (editBooking) setFormData({ condo_id: '', guest_name: editBooking.guest_name || '', guest_email: editBooking.guest_email || '', guest_phone: editBooking.guest_phone || '', start_date: '', end_date: '', adults: editBooking.adults || 2, children: editBooking.children || 0, infants: editBooking.infants || 0, seniors: editBooking.seniors || 0, total_amount: 0 })
-      else setFormData({ condo_id: '', guest_name: '', guest_email: '', guest_phone: '', start_date: '', end_date: '', adults: 2, children: 0, infants: 0, seniors: 0, total_amount: 0 })
+      if (editBooking) setFormData({ condo_id: '', guest_name: editBooking.guest_name || '', guest_email: editBooking.guest_email || '', guest_phone: editBooking.guest_phone || '', start_date: '', end_date: '', adults: editBooking.adults || 2, children: editBooking.children || 0, infants: editBooking.infants || 0, seniors: editBooking.seniors || 0, total_amount: 0, source: editBooking.source || 'direct' })
+      else setFormData({ condo_id: '', guest_name: '', guest_email: '', guest_phone: '', start_date: '', end_date: '', adults: 2, children: 0, infants: 0, seniors: 0, total_amount: 0, source: 'direct' })
       setSelectingDate('start'); setDateConflict(false); setConflictingBookings([]); setShowConflictPanel(false)
     }
   }, [isOpen, editBooking])
@@ -312,8 +403,6 @@ function BookingFormModal({ isOpen, onClose, onSave, condos, formatPrice, confir
   const selectedCondo = condos.find(c => c.id === effectiveCondoId)
   const originalCondo = isEdit ? condos.find(c => c.id === editBooking?.condo_id) : null
   const nights = formData.start_date && formData.end_date ? differenceInDays(new Date(formData.end_date), new Date(formData.start_date)) : 0
-
-
   const calendarBookings = isEdit && editBooking ? confirmedBookings.filter(b => b.id !== editBooking.id) : confirmedBookings
   const originalPrice = isEdit ? editBooking?.total_amount || 0 : 0
 
@@ -326,7 +415,8 @@ function BookingFormModal({ isOpen, onClose, onSave, condos, formatPrice, confir
 
   useEffect(() => {
     if (selectedCondo && nights > 0) {
-      const bp = selectedCondo.price_per_night || 0;      setFormData(prev => ({ ...prev, total_amount: Math.round(nights * (formData.adults * bp + formData.children * bp * 0.9 + formData.infants * bp * 0.8 + formData.seniors * bp * 0.8) * 1.05) }))
+      const bp = selectedCondo.price_per_night || 0
+      setFormData(prev => ({ ...prev, total_amount: Math.round(nights * (formData.adults * bp + formData.children * bp * 0.9 + formData.infants * bp * 0.8 + formData.seniors * bp * 0.8) * 1.05) }))
     } else { setFormData(prev => ({ ...prev, total_amount: 0 })) }
   }, [selectedCondo, nights, formData.adults, formData.children, formData.infants, formData.seniors])
 
@@ -335,12 +425,6 @@ function BookingFormModal({ isOpen, onClose, onSave, condos, formatPrice, confir
   const handleDateClick = (day) => { const ds = format(day, 'yyyy-MM-dd'); if (selectingDate === 'start') { setFormData(prev => ({ ...prev, start_date: ds, end_date: '' })); setSelectingDate('end') } else { if (ds < formData.start_date) { setFormData(prev => ({ ...prev, start_date: ds, end_date: '' })) } else { setFormData(prev => ({ ...prev, end_date: ds })); setSelectingDate('start') } } }
   const clearDates = () => { setFormData(prev => ({ ...prev, start_date: '', end_date: '' })); setSelectingDate('start') }
 
-  const isCondoAvailable = (condo) => {
-    if (!formData.start_date || !formData.end_date) return true
-    const s = new Date(formData.start_date), e = new Date(formData.end_date)
-    return !confirmedBookings.some(cb => cb.id !== editBooking?.id && String(cb.condo_id) === String(condo.id) && cb.status === 'confirmed' && s <= new Date(cb.end_date) && e >= new Date(cb.start_date))
-  }
-
   const handleSubmit = async () => {
     const finalCondoId = formData.condo_id || (isEdit ? editBooking?.condo_id : '')
     const finalStart = formData.start_date || (isEdit ? editBooking?.start_date : '')
@@ -348,14 +432,48 @@ function BookingFormModal({ isOpen, onClose, onSave, condos, formatPrice, confir
     const finalNights = finalStart && finalEnd ? differenceInDays(new Date(finalEnd), new Date(finalStart)) : 0
     if (!finalCondoId || !formData.guest_name || !finalStart || !finalEnd) { toast.error('Fill all required fields'); return }
     if (finalNights <= 0) { toast.error('Check-out after check-in'); return }
-    if (!isEdit && dateConflict) { toast.error('Date conflict with existing booking'); return }
+    
     setSaving(true)
     try {
       const finalSelectedCondo = condos.find(c => c.id === finalCondoId)
       const finalTotal = formData.total_amount > 0 ? formData.total_amount : (finalSelectedCondo && finalNights > 0 ? Math.round(finalNights * finalSelectedCondo.price_per_night * 1.05) : editBooking?.total_amount || 0)
-      const bd = { condo_id: finalCondoId, guest_name: formData.guest_name, guest_email: formData.guest_email || null, guest_phone: formData.guest_phone || null, start_date: finalStart, end_date: finalEnd, adults: formData.adults, children: formData.children, infants: formData.infants, seniors: formData.seniors, total_amount: finalTotal, subtotal: Math.round(finalTotal * 0.95), service_fee: Math.round(finalTotal * 0.05) }
-      if (editBooking) { const { error } = await supabase.from('bookings').update(bd).eq('id', editBooking.id); if (error) throw error; toast.success('Updated!') }
-      else { const bc = `BK-${Date.now().toString(36).toUpperCase()}`; const { error } = await supabase.from('bookings').insert({ ...bd, status: 'pending', booking_code: bc }); if (error) throw error; toast.success('Created!') }
+      const bd = { 
+        condo_id: finalCondoId, 
+        guest_name: formData.guest_name, 
+        guest_email: formData.guest_email || null, 
+        guest_phone: formData.guest_phone || null, 
+        start_date: finalStart, 
+        end_date: finalEnd, 
+        adults: formData.adults, 
+        children: formData.children, 
+        infants: formData.infants, 
+        seniors: formData.seniors, 
+        total_amount: finalTotal, 
+        subtotal: Math.round(finalTotal * 0.95), 
+        service_fee: Math.round(finalTotal * 0.05),
+        source: formData.source || 'direct',
+        updated_at: new Date().toISOString()
+      }
+      
+      if (editBooking) { 
+        const { error } = await supabase.from('bookings').update(bd).eq('id', editBooking.id)
+        if (error) throw error
+        await logAudit('UPDATE_BOOKING', 'bookings', editBooking.id, { booking_code: editBooking.booking_code })
+        toast.success('Booking updated!') 
+      } else { 
+        const bc = `BK-${Date.now().toString(36).toUpperCase()}`
+        const status = dateConflict ? 'pending' : 'confirmed'
+        const { error } = await supabase.from('bookings').insert({ 
+          ...bd, 
+          status, 
+          booking_code: bc,
+          payment_status: 'paid',
+          created_at: new Date().toISOString()
+        })
+        if (error) throw error
+        await logAudit('CREATE_BOOKING', 'bookings', null, { booking_code: bc, status })
+        toast.success(dateConflict ? 'Created! Pending review due to conflict' : 'Created & Confirmed!')
+      }
       onSave(); onClose()
     } catch { toast.error('Failed') } finally { setSaving(false) }
   }
@@ -367,7 +485,6 @@ function BookingFormModal({ isOpen, onClose, onSave, condos, formatPrice, confir
       <div className="fixed inset-0 z-[99999] flex items-center justify-center p-4">
         <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="absolute inset-0 bg-black/40 backdrop-blur-sm" onClick={onClose} />
         <motion.div initial={{ opacity: 0, scale: 0.97, y: 10 }} animate={{ opacity: 1, scale: 1, y: 0 }} exit={{ opacity: 0, scale: 0.97, y: 10 }} className="relative w-full max-w-4xl bg-white dark:bg-gray-800 rounded-2xl shadow-2xl flex flex-col overflow-hidden" style={{ maxHeight: '90vh' }}>
-          
           <div className="flex-shrink-0 flex items-center justify-between px-5 py-3 border-b border-gray-200 dark:border-gray-700">
             <div>
               <h2 className="text-lg font-bold text-gray-900 dark:text-gray-100">{isEdit ? 'Modify Booking' : 'New Booking'}</h2>
@@ -377,9 +494,7 @@ function BookingFormModal({ isOpen, onClose, onSave, condos, formatPrice, confir
           </div>
 
           <div className="flex-1 overflow-hidden flex flex-col lg:flex-row">
-            
             <div className="w-full lg:w-[380px] flex-shrink-0 flex flex-col min-h-0 border-b lg:border-b-0 lg:border-r border-gray-200 dark:border-gray-700">
-              
               {isEdit && editBooking && (
                 <div className="flex-shrink-0 px-4 py-3 bg-orange-50 dark:bg-orange-900/10 border-b-2 border-orange-200 dark:border-orange-800">
                   <div className="flex items-center gap-3">
@@ -414,8 +529,8 @@ function BookingFormModal({ isOpen, onClose, onSave, condos, formatPrice, confir
               <div className="flex-1 overflow-y-auto px-4 py-4 space-y-4">
                 <div><label className="text-sm font-bold text-gray-800 dark:text-gray-200 mb-1.5 block">Guest Name *</label><input type="text" name="guest_name" value={formData.guest_name} onChange={handleChange} className="w-full border border-gray-300 dark:border-gray-600 rounded-lg px-3 py-2.5 bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 focus:ring-2 focus:ring-[#2d568e] focus:border-[#2d568e]" /></div>
                 <div className="grid grid-cols-2 gap-3"><div><label className="text-sm font-bold text-gray-800 dark:text-gray-200 mb-1.5 block">Email</label><input type="email" name="guest_email" value={formData.guest_email} onChange={handleChange} className="w-full border border-gray-300 dark:border-gray-600 rounded-lg px-3 py-2.5 bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 focus:ring-2 focus:ring-[#2d568e] focus:border-[#2d568e]" /></div><div><label className="text-sm font-bold text-gray-800 dark:text-gray-200 mb-1.5 block">Phone</label><input type="tel" name="guest_phone" value={formData.guest_phone} onChange={handleChange} className="w-full border border-gray-300 dark:border-gray-600 rounded-lg px-3 py-2.5 bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 focus:ring-2 focus:ring-[#2d568e] focus:border-[#2d568e]" /></div></div>
+                <div><label className="text-sm font-bold text-gray-800 dark:text-gray-200 mb-1.5 block">Source</label><select name="source" value={formData.source} onChange={handleChange} className="w-full border border-gray-300 dark:border-gray-600 rounded-lg px-3 py-2.5 bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 focus:ring-2 focus:ring-[#2d568e] focus:border-[#2d568e]"><option value="direct">Direct</option><option value="airbnb">Airbnb</option><option value="booking">Booking.com</option><option value="agoda">Agoda</option><option value="expedia">Expedia</option><option value="ical">iCal Import</option><option value="other">Other</option></select></div>
                 <div><label className="text-sm font-bold text-gray-800 dark:text-gray-200 mb-1.5 block">Guests</label><div className="grid grid-cols-4 gap-2">{[{ label: 'Adults', name: 'adults', value: formData.adults, min: 1 },{ label: 'Children', name: 'children', value: formData.children, min: 0 },{ label: 'Infants', name: 'infants', value: formData.infants, min: 0 },{ label: 'Seniors', name: 'seniors', value: formData.seniors, min: 0 }].map(g => (<div key={g.name} className="text-center"><p className="text-xs text-gray-600 dark:text-gray-400 mb-1">{g.label}</p><div className="flex items-center justify-center gap-2"><button type="button" onClick={() => setFormData(prev => ({ ...prev, [g.name]: Math.max(g.min, prev[g.name] - 1) }))} className="w-7 h-7 rounded-full bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-300 font-bold hover:bg-gray-200 border border-gray-300 dark:border-gray-600">−</button><span className="w-5 text-center font-semibold text-gray-900 dark:text-gray-100">{g.value}</span><button type="button" onClick={() => setFormData(prev => ({ ...prev, [g.name]: prev[g.name] + 1 }))} className="w-7 h-7 rounded-full bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-300 font-bold hover:bg-gray-200 border border-gray-300 dark:border-gray-600">+</button></div></div>))}</div></div>
-                {!isEdit && dateConflict && <div className="p-3 bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-700 rounded-lg"><div className="flex items-center gap-2"><AlertTriangle size={16} className="text-red-500" /><p className="text-sm font-bold text-red-700 dark:text-red-300">Date conflict with existing booking</p></div></div>}
               </div>
             </div>
 
@@ -425,22 +540,10 @@ function BookingFormModal({ isOpen, onClose, onSave, condos, formatPrice, confir
                   <div className="space-y-3">
                     <p className="text-sm font-bold text-gray-700 dark:text-gray-300">Dates</p>
                     <div className="grid grid-cols-4 gap-2">
-                      <div className="rounded-lg p-2.5 border-2 border-orange-200 dark:border-orange-700 bg-orange-50/50 dark:bg-orange-900/5">
-                        <p className="text-xs font-bold text-orange-600 uppercase mb-0.5">Orig. In</p>
-                        <p className="text-sm font-bold text-orange-800 dark:text-orange-300">{format(new Date(editBooking.start_date), 'MMM d')}</p>
-                      </div>
-                      <div className="rounded-lg p-2.5 border-2 border-orange-200 dark:border-orange-700 bg-orange-50/50 dark:bg-orange-900/5">
-                        <p className="text-xs font-bold text-orange-600 uppercase mb-0.5">Orig. Out</p>
-                        <p className="text-sm font-bold text-orange-800 dark:text-orange-300">{format(new Date(editBooking.end_date), 'MMM d')}</p>
-                      </div>
-                      <div className={`rounded-lg p-2.5 border-2 ${formData.start_date ? 'border-blue-400 bg-blue-50/50 dark:bg-blue-900/10' : 'border-gray-200 dark:border-gray-600 bg-white dark:bg-gray-700/30'}`}>
-                        <p className="text-xs font-bold text-blue-600 uppercase mb-0.5">New In</p>
-                        <p className={`text-sm font-bold ${formData.start_date ? 'text-blue-700 dark:text-blue-300' : 'text-gray-500'}`}>{formData.start_date ? format(new Date(formData.start_date), 'MMM d') : '—'}</p>
-                      </div>
-                      <div className={`rounded-lg p-2.5 border-2 ${formData.end_date ? 'border-blue-400 bg-blue-50/50 dark:bg-blue-900/10' : 'border-gray-200 dark:border-gray-600 bg-white dark:bg-gray-700/30'}`}>
-                        <p className="text-xs font-bold text-blue-600 uppercase mb-0.5">New Out</p>
-                        <p className={`text-sm font-bold ${formData.end_date ? 'text-blue-700 dark:text-blue-300' : 'text-gray-500'}`}>{formData.end_date ? format(new Date(formData.end_date), 'MMM d') : '—'}</p>
-                      </div>
+                      <div className="rounded-lg p-2.5 border-2 border-orange-200 dark:border-orange-700 bg-orange-50/50 dark:bg-orange-900/5"><p className="text-xs font-bold text-orange-600 uppercase mb-0.5">Orig. In</p><p className="text-sm font-bold text-orange-800 dark:text-orange-300">{format(new Date(editBooking.start_date), 'MMM d')}</p></div>
+                      <div className="rounded-lg p-2.5 border-2 border-orange-200 dark:border-orange-700 bg-orange-50/50 dark:bg-orange-900/5"><p className="text-xs font-bold text-orange-600 uppercase mb-0.5">Orig. Out</p><p className="text-sm font-bold text-orange-800 dark:text-orange-300">{format(new Date(editBooking.end_date), 'MMM d')}</p></div>
+                      <div className={`rounded-lg p-2.5 border-2 ${formData.start_date ? 'border-blue-400 bg-blue-50/50 dark:bg-blue-900/10' : 'border-gray-200 dark:border-gray-600 bg-white dark:bg-gray-700/30'}`}><p className="text-xs font-bold text-blue-600 uppercase mb-0.5">New In</p><p className={`text-sm font-bold ${formData.start_date ? 'text-blue-700 dark:text-blue-300' : 'text-gray-500'}`}>{formData.start_date ? format(new Date(formData.start_date), 'MMM d') : '—'}</p></div>
+                      <div className={`rounded-lg p-2.5 border-2 ${formData.end_date ? 'border-blue-400 bg-blue-50/50 dark:bg-blue-900/10' : 'border-gray-200 dark:border-gray-600 bg-white dark:bg-gray-700/30'}`}><p className="text-xs font-bold text-blue-600 uppercase mb-0.5">New Out</p><p className={`text-sm font-bold ${formData.end_date ? 'text-blue-700 dark:text-blue-300' : 'text-gray-500'}`}>{formData.end_date ? format(new Date(formData.end_date), 'MMM d') : '—'}</p></div>
                     </div>
                     <div className="flex items-center justify-between"><p className="text-sm text-gray-600 dark:text-gray-400">{selectingDate === 'start' ? 'Click calendar for new check-in' : 'Click calendar for new check-out'}</p>{formData.start_date && <button onClick={clearDates} className="text-sm text-red-500 hover:underline font-medium">Reset</button>}</div>
                   </div>
@@ -448,14 +551,8 @@ function BookingFormModal({ isOpen, onClose, onSave, condos, formatPrice, confir
                   <div className="space-y-3">
                     <p className="text-sm font-bold text-gray-700 dark:text-gray-300">Select Dates</p>
                     <div className="grid grid-cols-2 gap-3">
-                      <div className={`rounded-lg p-3 border-2 ${formData.start_date ? 'border-[#2d568e] bg-[#2d568e]/5' : 'border-gray-200 dark:border-gray-600 bg-white dark:bg-gray-700/30'}`}>
-                        <p className="text-xs font-bold text-gray-600 dark:text-gray-400 uppercase mb-1">Check-in</p>
-                        <p className={`text-sm font-bold ${formData.start_date ? 'text-[#2d568e]' : 'text-gray-500'}`}>{formData.start_date ? format(new Date(formData.start_date), 'MMM d, yyyy') : 'Select'}</p>
-                      </div>
-                      <div className={`rounded-lg p-3 border-2 ${formData.end_date ? 'border-[#2d568e] bg-[#2d568e]/5' : 'border-gray-200 dark:border-gray-600 bg-white dark:bg-gray-700/30'}`}>
-                        <p className="text-xs font-bold text-gray-600 dark:text-gray-400 uppercase mb-1">Check-out</p>
-                        <p className={`text-sm font-bold ${formData.end_date ? 'text-[#2d568e]' : 'text-gray-500'}`}>{formData.end_date ? format(new Date(formData.end_date), 'MMM d, yyyy') : 'Select'}</p>
-                      </div>
+                      <div className={`rounded-lg p-3 border-2 ${formData.start_date ? 'border-[#2d568e] bg-[#2d568e]/5' : 'border-gray-200 dark:border-gray-600 bg-white dark:bg-gray-700/30'}`}><p className="text-xs font-bold text-gray-600 dark:text-gray-400 uppercase mb-1">Check-in</p><p className={`text-sm font-bold ${formData.start_date ? 'text-[#2d568e]' : 'text-gray-500'}`}>{formData.start_date ? format(new Date(formData.start_date), 'MMM d, yyyy') : 'Select'}</p></div>
+                      <div className={`rounded-lg p-3 border-2 ${formData.end_date ? 'border-[#2d568e] bg-[#2d568e]/5' : 'border-gray-200 dark:border-gray-600 bg-white dark:bg-gray-700/30'}`}><p className="text-xs font-bold text-gray-600 dark:text-gray-400 uppercase mb-1">Check-out</p><p className={`text-sm font-bold ${formData.end_date ? 'text-[#2d568e]' : 'text-gray-500'}`}>{formData.end_date ? format(new Date(formData.end_date), 'MMM d, yyyy') : 'Select'}</p></div>
                     </div>
                     <div className="flex items-center justify-between"><p className="text-sm text-gray-600 dark:text-gray-400">{selectingDate === 'start' ? 'Click calendar for check-in' : 'Click calendar for check-out'}</p>{(formData.start_date || formData.end_date) && <button onClick={clearDates} className="text-sm text-red-500 hover:underline font-medium">Reset</button>}</div>
                   </div>
@@ -485,7 +582,7 @@ function BookingFormModal({ isOpen, onClose, onSave, condos, formatPrice, confir
             </div>
             <div className="flex gap-3">
               <button onClick={onClose} className="px-5 py-2.5 border border-gray-300 dark:border-gray-600 rounded-xl font-semibold text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors">Cancel</button>
-              <button onClick={handleSubmit} disabled={saving || (!isEdit && dateConflict) || (!formData.start_date && !isEdit) || !formData.guest_name || !effectiveCondoId} className="px-5 py-2.5 bg-[#2d568e] text-white rounded-xl font-semibold hover:bg-[#1e3a5f] disabled:opacity-50 transition-colors flex items-center gap-2">{saving ? 'Saving...' : isEdit ? <><Edit2 size={16} /> Update</> : <><Plus size={16} /> Create</>}</button>
+              <button onClick={handleSubmit} disabled={saving || (!formData.start_date && !isEdit) || !formData.guest_name || !effectiveCondoId} className="px-5 py-2.5 bg-[#2d568e] text-white rounded-xl font-semibold hover:bg-[#1e3a5f] disabled:opacity-50 transition-colors flex items-center gap-2">{saving ? 'Saving...' : isEdit ? <><Edit2 size={16} /> Update</> : <><Plus size={16} /> Create</>}</button>
             </div>
           </div>
         </motion.div>
@@ -511,11 +608,12 @@ export default function BookingsList({ searchTerm: externalSearchTerm = '' }) {
   const [showFilters, setShowFilters] = useState(false)
   const [bookingFormOpen, setBookingFormOpen] = useState(false)
   const [editBooking, setEditBooking] = useState(null)
+  const [transferModal, setTransferModal] = useState({ isOpen: false, booking: null })
   const { formatPrice } = useCurrency()
   const effectiveSearch = externalSearchTerm || searchText
 
   const fetchCondos = useCallback(async () => { const { data } = await supabase.from('condos').select('id,title,code,price_per_night,images').order('title'); if (data) setCondos(data) }, [])
-  const fetchConfirmedBookings = useCallback(async () => { const { data } = await supabase.from('bookings').select('id, condo_id, start_date, end_date, status, guest_name, guest_email, guest_phone, adults, children, infants, seniors, booking_code, avatar_url').in('status', ['confirmed', 'pending', 'rejected']); if (data) setConfirmedBookings(data) }, [])
+  const fetchConfirmedBookings = useCallback(async () => { const { data } = await supabase.from('bookings').select('id, condo_id, start_date, end_date, status, guest_name, guest_email, guest_phone, adults, children, infants, seniors, booking_code, avatar_url, payment_status, source, channel, updated_at, receipt_number, receipt_sent_at, receipt_email, ical_uid').in('status', ['confirmed', 'pending', 'rejected']); if (data) setConfirmedBookings(data) }, [])
 
   const fetchBookings = useCallback(async () => {
     setLoading(true)
@@ -533,40 +631,36 @@ export default function BookingsList({ searchTerm: externalSearchTerm = '' }) {
   useEffect(() => { fetchBookings(); fetchCondos(); const sub = supabase.channel('bookings-realtime').on('postgres_changes', { event: '*', schema: 'public', table: 'bookings' }, fetchBookings).subscribe(); return () => sub.unsubscribe() }, [fetchBookings, fetchCondos])
   useEffect(() => { const hid = sessionStorage.getItem('highlightBooking'); if (hid && bookings.length > 0) { const b = bookings.find(x => x.id === hid); if (b) { setSelectedBooking(b); setActiveGroup('all'); setTimeout(() => { const el = document.getElementById(`booking-row-${hid}`); if (el) el.scrollIntoView({ behavior: 'smooth', block: 'center' }) }, 300) }; sessionStorage.removeItem('highlightBooking') } }, [bookings])
 
-  const handleQuickAction = async (booking, action) => {
-  if (action === 'confirm' && hasOverlap(booking)) { toast.error('Cannot confirm: Date conflict detected'); return }
-  
-  // Double confirmation for delete
-  if (action === 'delete') {
-    const firstConfirm = window.confirm(`Delete booking ${booking.booking_code}?\n\nGuest: ${booking.guest_name}\nAmount: ${formatPrice(booking.total_amount)}`)
-    if (!firstConfirm) return
-    const secondConfirm = window.confirm('⚠️ This cannot be undone. Are you absolutely sure?')
-    if (!secondConfirm) return
-  }
-  
-  setActionLoading(booking.id)
-  try { 
+  const handleQuickAction = async (booking, action, transferCondoId = null) => {
+    if (action === 'confirm' && hasOverlap(booking)) { toast.error('Cannot confirm: Date conflict detected'); return }
+    
     if (action === 'delete') {
-      await logAudit('DELETE_BOOKING', 'bookings', booking.id, {
-        booking_code: booking.booking_code,
-        guest_name: booking.guest_name,
-        amount: booking.total_amount,
-      })
-      await supabase.from('bookings').delete().eq('id', booking.id)
-      toast.success('Booking deleted') 
-    } else { 
-      await supabase.from('bookings').update({ status: action === 'confirm' ? 'confirmed' : 'rejected' }).eq('id', booking.id)
-      await logAudit(action === 'confirm' ? 'CONFIRM_BOOKING' : 'REJECT_BOOKING', 'bookings', booking.id, { booking_code: booking.booking_code })
-      toast.success(`Booking ${action === 'confirm' ? 'confirmed' : 'rejected'}`) 
+      const firstConfirm = window.confirm(`Delete booking ${booking.booking_code}?\n\nGuest: ${booking.guest_name}\nAmount: ${formatPrice(booking.total_amount)}`)
+      if (!firstConfirm) return
+      const secondConfirm = window.confirm('⚠️ This cannot be undone. Are you absolutely sure?')
+      if (!secondConfirm) return
     }
-    setSelectedBooking(null)
-    fetchBookings() 
-  } catch { 
-    toast.error('Failed') 
-  } finally { 
-    setActionLoading(null) 
+    
+    setActionLoading(booking.id)
+    try { 
+      if (action === 'delete') {
+        await logAudit('DELETE_BOOKING', 'bookings', booking.id, { booking_code: booking.booking_code, guest_name: booking.guest_name, amount: booking.total_amount })
+        await supabase.from('bookings').delete().eq('id', booking.id)
+        toast.success('Booking deleted') 
+      } else if (action === 'transfer') {
+        const { error } = await supabase.from('bookings').update({ condo_id: transferCondoId, updated_at: new Date().toISOString() }).eq('id', booking.id)
+        if (error) throw error
+        await logAudit('TRANSFER_BOOKING', 'bookings', booking.id, { from: booking.condo_id, to: transferCondoId })
+        toast.success('Booking transferred!') 
+      } else { 
+        await supabase.from('bookings').update({ status: action === 'confirm' ? 'confirmed' : 'rejected', updated_at: new Date().toISOString() }).eq('id', booking.id)
+        await logAudit(action === 'confirm' ? 'CONFIRM_BOOKING' : 'REJECT_BOOKING', 'bookings', booking.id, { booking_code: booking.booking_code })
+        toast.success(`Booking ${action === 'confirm' ? 'confirmed' : 'rejected'}`) 
+      }
+      setSelectedBooking(null); fetchBookings() 
+    } catch { toast.error('Failed') } finally { setActionLoading(null) }
   }
-}
+  
   const handleEdit = (booking) => { setEditBooking(booking); setBookingFormOpen(true) }
   const openDeleteModal = (booking) => setModalConfig({ isOpen: true, booking })
   const closeModal = () => setModalConfig({ isOpen: false, booking: null })
@@ -576,16 +670,25 @@ export default function BookingsList({ searchTerm: externalSearchTerm = '' }) {
     const s = new Date(booking.start_date), e = new Date(booking.end_date)
     return confirmedBookings.some(cb => String(cb.condo_id) === String(booking.condo_id) && cb.id !== booking.id && cb.status === 'confirmed' && s <= new Date(cb.end_date) && e >= new Date(cb.start_date))
   }
-  const getConflictingBookings = (booking) => {
-    if (!hasOverlap(booking)) return []
-    const s = new Date(booking.start_date), e = new Date(booking.end_date)
-    return confirmedBookings.filter(cb => String(cb.condo_id) === String(booking.condo_id) && cb.id !== booking.id && cb.status === 'confirmed' && s <= new Date(cb.end_date) && e >= new Date(cb.start_date))
-  }
+  
   const getAllOverlappingBookings = (condoId) => {
     const condoBookings = bookings.filter(b => String(b.condo_id) === String(condoId) && (b.status === 'confirmed' || b.status === 'pending'))
     const overlapping = []; const used = new Set()
-    for (const b1 of condoBookings) { if (used.has(b1.id)) continue; for (const b2 of condoBookings) { if (b2.id === b1.id || used.has(b2.id)) continue; if (new Date(b1.start_date) <= new Date(b2.end_date) && new Date(b1.end_date) >= new Date(b2.start_date)) { if (!used.has(b1.id)) { overlapping.push(b1); used.add(b1.id) } if (!used.has(b2.id)) { overlapping.push(b2); used.add(b2.id) } } } }
-    return overlapping
+    for (const b1 of condoBookings) { 
+      if (used.has(b1.id)) continue
+      for (const b2 of condoBookings) { 
+        if (b2.id === b1.id || used.has(b2.id)) continue
+        if (new Date(b1.start_date) <= new Date(b2.end_date) && new Date(b1.end_date) >= new Date(b2.start_date)) { 
+          if (!used.has(b1.id)) { overlapping.push(b1); used.add(b1.id) } 
+          if (!used.has(b2.id)) { overlapping.push(b2); used.add(b2.id) } 
+        } 
+      } 
+    }
+    return overlapping.sort((a, b) => {
+      if (a.status === 'confirmed' && b.status !== 'confirmed') return -1
+      if (a.status !== 'confirmed' && b.status === 'confirmed') return 1
+      return new Date(a.start_date) - new Date(b.start_date)
+    })
   }
 
   const getNightsCount = (b) => Math.ceil((new Date(b.end_date) - new Date(b.start_date)) / 86400000)
@@ -599,7 +702,25 @@ export default function BookingsList({ searchTerm: externalSearchTerm = '' }) {
     return { bg: sel ? 'bg-blue-50 dark:bg-blue-900/10' : 'bg-white dark:bg-gray-800', text: 'text-gray-900 dark:text-gray-100', subtext: 'text-gray-700 dark:text-gray-300', muted: 'text-gray-600 dark:text-gray-400', border: 'border-b border-gray-100 dark:border-gray-700', strip: '' }
   }
 
-  const groupConflicts = (cbs) => { const g = [], u = new Set(); for (const b of cbs) { if (u.has(b.id)) continue; const grp = [b]; u.add(b.id); for (const o of cbs) { if (u.has(o.id)) continue; if (String(o.condo_id) === String(b.condo_id) && new Date(b.start_date) <= new Date(o.end_date) && new Date(b.end_date) >= new Date(o.start_date)) { grp.push(o); u.add(o.id) } } g.push(grp) } return g }
+  const groupConflicts = (cbs) => { 
+    const g = [], u = new Set()
+    for (const b of cbs) { 
+      if (u.has(b.id)) continue
+      const grp = [b]; u.add(b.id)
+      for (const o of cbs) { 
+        if (u.has(o.id)) continue
+        if (String(o.condo_id) === String(b.condo_id) && new Date(b.start_date) <= new Date(o.end_date) && new Date(b.end_date) >= new Date(o.start_date)) { 
+          grp.push(o); u.add(o.id) 
+        } 
+      } 
+      g.push(grp.sort((a, b) => {
+        if (a.status === 'confirmed' && b.status !== 'confirmed') return -1
+        if (a.status !== 'confirmed' && b.status === 'confirmed') return 1
+        return new Date(a.start_date) - new Date(b.start_date)
+      }))
+    } 
+    return g 
+  }
 
   const getFilteredBookings = () => {
     let f = [...bookings]
@@ -608,14 +729,32 @@ export default function BookingsList({ searchTerm: externalSearchTerm = '' }) {
     if (dateFrom) { const df = new Date(dateFrom); df.setHours(0,0,0,0); f = f.filter(b => new Date(b.created_at) >= df) }
     if (dateTo) { const dt = new Date(dateTo); dt.setHours(23,59,59,999); f = f.filter(b => new Date(b.created_at) <= dt) }
     if (sortBy === 'units') { f.sort((a, b) => { const titleA = (a.condos?.title || '').toLowerCase(); const titleB = (b.condos?.title || '').toLowerCase(); if (titleA !== titleB) return titleA.localeCompare(titleB); return new Date(b.created_at) - new Date(a.created_at) }) }
-    else { f.sort((a, b) => { const ac = a.status === 'pending' && hasOverlap(a), bc = b.status === 'pending' && hasOverlap(b); if (ac && !bc) return -1; if (!ac && bc) return 1; if (a.status === 'pending' && b.status !== 'pending') return -1; if (a.status !== 'pending' && b.status === 'pending') return 1; return new Date(b.created_at) - new Date(a.created_at) }) }
+    else { f.sort((a, b) => { 
+      const ac = a.status === 'pending' && hasOverlap(a)
+      const bc = b.status === 'pending' && hasOverlap(b)
+      if (ac && !bc) return -1
+      if (!ac && bc) return 1
+      if (a.status === 'pending' && b.status !== 'pending') return -1
+      if (a.status !== 'pending' && b.status === 'pending') return 1
+      return new Date(b.created_at) - new Date(a.created_at) 
+    }) }
     return f
   }
 
-  const pc = bookings.filter(b => b.status === 'pending').length, cc = bookings.filter(b => b.status === 'confirmed').length, rc = bookings.filter(b => b.status === 'rejected').length, coc = bookings.filter(b => b.status === 'pending' && hasOverlap(b)).length
+  const pc = bookings.filter(b => b.status === 'pending').length
+  const cc = bookings.filter(b => b.status === 'confirmed').length
+  const rc = bookings.filter(b => b.status === 'rejected').length
+  const coc = bookings.filter(b => b.status === 'pending' && hasOverlap(b)).length
   const stats = { total: bookings.length, pending: pc, confirmed: cc, rejected: rc, conflicts: coc, active: cc + pc }
-  const statusOptions = [{ id: 'pending', label: 'To Accommodate', count: pc, dot: 'bg-orange-500' },{ id: 'all', label: 'All Bookings', count: bookings.length, dot: 'bg-gray-500' },{ id: 'conflicts', label: 'Conflicts', count: coc, dot: 'bg-red-500' },{ id: 'confirmed', label: 'Confirmed', count: cc, dot: 'bg-emerald-500' },{ id: 'rejected', label: 'Rejected', count: rc, dot: 'bg-gray-500' }]
-  const filteredBookings = getFilteredBookings(); const showConflictGroups = activeGroup === 'conflicts'
+  const statusOptions = [
+    { id: 'pending', label: 'To Accommodate', count: pc, dot: 'bg-orange-500' },
+    { id: 'all', label: 'All Bookings', count: bookings.length, dot: 'bg-gray-500' },
+    { id: 'conflicts', label: 'Conflicts', count: coc, dot: 'bg-red-500' },
+    { id: 'confirmed', label: 'Confirmed', count: cc, dot: 'bg-emerald-500' },
+    { id: 'rejected', label: 'Rejected', count: rc, dot: 'bg-gray-500' }
+  ]
+  const filteredBookings = getFilteredBookings()
+  const showConflictGroups = activeGroup === 'conflicts'
   const conflictGroups = showConflictGroups ? groupConflicts(filteredBookings) : []
 
   if (loading) return (<div className="space-y-4 animate-pulse"><div className="grid grid-cols-2 lg:grid-cols-4 gap-4">{[1,2,3,4].map(i => <div key={i} className="bg-white dark:bg-gray-800 rounded-2xl p-5 border border-gray-100 dark:border-gray-700"><div className="h-8 bg-gray-200 dark:bg-gray-700 rounded w-12 mb-2" /><div className="h-4 bg-gray-200 dark:bg-gray-700 rounded w-24" /></div>)}</div><div className="bg-white dark:bg-gray-800 rounded-xl border border-gray-100 dark:border-gray-700 h-64" /></div>)
@@ -623,9 +762,14 @@ export default function BookingsList({ searchTerm: externalSearchTerm = '' }) {
   return (
     <div className="flex flex-col flex-1 min-h-0 space-y-4">
       <SummaryCards stats={stats} />
-      <div className="flex items-center gap-3"><div className="relative flex-1"><Search size={18} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" /><input type="text" placeholder="Search guest, booking ID, unit or email..." value={searchText} onChange={e => setSearchText(e.target.value)} className="w-full pl-10 pr-4 py-3 border border-gray-300 dark:border-gray-600 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-100 bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100" /></div><button onClick={() => { setEditBooking(null); setBookingFormOpen(true) }} className="px-5 py-3 bg-[#2d568e] text-white rounded-xl font-semibold hover:bg-[#1e3a5f] transition-colors flex items-center gap-2"><Plus size={18} /> Add Booking</button></div>
+      <div className="flex items-center gap-3">
+        <div className="relative flex-1">
+          <Search size={18} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
+          <input type="text" placeholder="Search guest, booking ID, unit or email..." value={searchText} onChange={e => setSearchText(e.target.value)} className="w-full pl-10 pr-4 py-3 border border-gray-300 dark:border-gray-600 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-100 bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100" />
+        </div>
+        <button onClick={() => { setEditBooking(null); setBookingFormOpen(true) }} className="px-5 py-3 bg-[#2d568e] text-white rounded-xl font-semibold hover:bg-[#1e3a5f] transition-colors flex items-center gap-2"><Plus size={18} /> Add Booking</button>
+      </div>
 
-      {/* Pill navigation for status filter */}
       <div className="flex flex-wrap items-center gap-2">
         <div className="relative flex bg-gray-100 dark:bg-gray-700/50 rounded-full p-1 gap-1">
           <motion.div
@@ -678,50 +822,109 @@ export default function BookingsList({ searchTerm: externalSearchTerm = '' }) {
           {filteredBookings.length === 0 ? (
             <div className="flex items-center justify-center min-h-[200px]"><div className="text-center py-12"><Calendar size={36} className="text-gray-300 mx-auto mb-3" /><p className="text-gray-700 dark:text-gray-300 font-semibold">No bookings found</p></div></div>
           ) : showConflictGroups ? (
-            <div>{conflictGroups.map((group, gi) => (<div key={gi}><div className="px-4 py-2.5 bg-red-50 dark:bg-red-900/10 border-b border-red-200 dark:border-red-800"><p className="font-bold text-red-700 dark:text-red-300 flex items-center gap-2"><AlertTriangle size={16} /> Conflict Group {gi + 1} — {group[0]?.condos?.code || 'Unit'} ({group.length} booking{group.length !== 1 ? 's' : ''})</p></div>{group.map(booking => <BookingRow key={booking.id} {...{ booking, selectedBooking, hasOverlap, getNightsCount, getGuestSummary, getRowStyle, setSelectedBooking, handleQuickAction, openDeleteModal, handleEdit, actionLoading, formatPrice, confirmedBookings, getConflictingBookings, bookings, getAllOverlappingBookings }} />)}</div>))}</div>
+            <div>{conflictGroups.map((group, gi) => (<div key={gi}><div className="px-4 py-2.5 bg-red-50 dark:bg-red-900/10 border-b border-red-200 dark:border-red-800"><p className="font-bold text-red-700 dark:text-red-300 flex items-center gap-2"><AlertTriangle size={16} /> Conflict Group {gi + 1} — {group[0]?.condos?.code || 'Unit'} ({group.length} booking{group.length !== 1 ? 's' : ''})</p></div>{group.map(booking => <BookingRow key={booking.id} {...{ booking, selectedBooking, hasOverlap, getNightsCount, getGuestSummary, getRowStyle, setSelectedBooking, handleQuickAction, openDeleteModal, handleEdit, actionLoading, formatPrice, confirmedBookings, getAllOverlappingBookings, onTransfer: (b) => setTransferModal({ isOpen: true, booking: b }) }} />)}</div>))}</div>
           ) : (
-            <div>{filteredBookings.map(booking => <BookingRow key={booking.id} {...{ booking, selectedBooking, hasOverlap, getNightsCount, getGuestSummary, getRowStyle, setSelectedBooking, handleQuickAction, openDeleteModal, handleEdit, actionLoading, formatPrice, confirmedBookings, getConflictingBookings, getAllOverlappingBookings }} />)}</div>
+            <div>{filteredBookings.map(booking => <BookingRow key={booking.id} {...{ booking, selectedBooking, hasOverlap, getNightsCount, getGuestSummary, getRowStyle, setSelectedBooking, handleQuickAction, openDeleteModal, handleEdit, actionLoading, formatPrice, confirmedBookings, getAllOverlappingBookings, onTransfer: (b) => setTransferModal({ isOpen: true, booking: b }) }} />)}</div>
           )}
         </div>
         <div className="flex-shrink-0 px-4 py-2.5 border-t border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-700/30"><p className="font-medium text-gray-700 dark:text-gray-300">Showing {filteredBookings.length} of {bookings.length} bookings</p></div>
       </div>
       <ConfirmationModal isOpen={modalConfig.isOpen} onClose={closeModal} onConfirm={() => handleQuickAction(modalConfig.booking, 'delete')} booking={modalConfig.booking} formatPrice={formatPrice} />
       <BookingFormModal isOpen={bookingFormOpen} onClose={() => { setBookingFormOpen(false); setEditBooking(null) }} onSave={fetchBookings} condos={condos} formatPrice={formatPrice} confirmedBookings={confirmedBookings} editBooking={editBooking} />
+      <TransferModal isOpen={transferModal.isOpen} onClose={() => setTransferModal({ isOpen: false, booking: null })} booking={transferModal.booking} condos={condos} onTransfer={(bookingId, newCondoId) => handleQuickAction(transferModal.booking, 'transfer', newCondoId)} />
     </div>
   )
 }
 
-function BookingRow({ booking, selectedBooking, hasOverlap, getNightsCount, getGuestSummary, getRowStyle, setSelectedBooking, handleQuickAction, openDeleteModal, handleEdit, actionLoading, formatPrice, confirmedBookings, getConflictingBookings, bookings, getAllOverlappingBookings }) {
+function BookingRow({ booking, selectedBooking, hasOverlap, getNightsCount, getGuestSummary, getRowStyle, setSelectedBooking, handleQuickAction, openDeleteModal, handleEdit, actionLoading, formatPrice, confirmedBookings, getAllOverlappingBookings, onTransfer }) {
   const isSelected = selectedBooking?.id === booking.id
   const overlap = hasOverlap(booking)
   const nights = getNightsCount(booking)
   const style = getRowStyle(booking, isSelected)
-  const conflicts = getConflictingBookings ? getConflictingBookings(booking) : []
   const [showConflictModal, setShowConflictModal] = useState(false)
+  const [sendingReceipt, setSendingReceipt] = useState(false)
   const detailRef = useRef(null)
   const isColoredRow = booking.status === 'confirmed' || booking.status === 'rejected'
+  const isIcal = booking.source === 'ical'
+  
+  const allOverlapping = getAllOverlappingBookings 
+    ? getAllOverlappingBookings(booking.condo_id)
+        .filter(cb => cb.id !== booking.id)
+    : []
+  
+  const handleSendReceipt = async () => {
+    setSendingReceipt(true)
+    try {
+      const { data, error } = await supabase.functions.invoke('send-receipt', {
+        body: { bookingId: booking.id },
+      })
+      if (error) throw error
+      toast.success('Receipt sent to guest email!')
+    } catch (error) {
+      console.error('Error sending receipt:', error)
+      toast.error('Failed to send receipt. Check if guest email is valid.')
+    } finally {
+      setSendingReceipt(false)
+    }
+  }
+  
   useEffect(() => { if (isSelected && detailRef.current) window.scrollTo({ top: detailRef.current.getBoundingClientRect().top + window.pageYOffset - 80, behavior: 'smooth' }) }, [isSelected])
 
   return (
     <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} id={`booking-row-${booking.id}`}>
       <div onClick={() => setSelectedBooking(isSelected ? null : booking)} className={`flex items-center px-4 py-4 cursor-pointer transition-all duration-200 ${style.bg} ${style.border} ${style.strip} ${!isColoredRow ? 'hover:bg-gray-50 dark:hover:bg-gray-750' : 'hover:brightness-110'}`}>
         <div className="flex items-center gap-3 flex-[2] min-w-0 px-2"><UnitImage condo={booking.condos} /><div className="min-w-0"><div className="flex items-center gap-2 flex-wrap"><p className={`font-bold truncate max-w-[160px] ${style.text}`}>{booking.condos?.title || '—'}</p><span className={`text-xs font-mono font-semibold px-1.5 py-0.5 rounded ${isColoredRow ? 'bg-white/20 text-white' : 'bg-blue-50 dark:bg-blue-900/30 text-[#2d568e] dark:text-blue-400'}`}>{booking.condos?.code || '—'}</span></div><div className={`flex items-center gap-1 mt-1 text-xs ${style.muted}`}><MapPin size={12} /><span className="truncate">{booking.condos?.location || '—'}</span></div></div></div>
-        <div className="flex-1 min-w-0 px-2"><span className={`font-bold ${style.subtext}`}>{booking.booking_code}</span></div>
+        <div className="flex-1 min-w-0 px-2">
+          <div className="flex items-center gap-2">
+            <span className={`font-bold ${style.subtext}`}>{booking.booking_code}</span>
+            <SourceBadge source={booking.source} channel={booking.channel} />
+          </div>
+          {!isColoredRow && <div className="mt-1"><PaymentBadge status={booking.payment_status} /></div>}
+        </div>
         <div className="flex-[1.5] min-w-0 px-2"><div className="flex items-center gap-2 flex-wrap"><span className={`font-semibold whitespace-nowrap ${style.text}`}>{format(new Date(booking.start_date), 'MMM d')}</span><span className={style.muted}>→</span><span className={`font-semibold whitespace-nowrap ${style.text}`}>{format(new Date(booking.end_date), 'MMM d')}</span><span className={`px-2 py-0.5 rounded text-xs font-bold ${isColoredRow ? 'bg-white/20 text-white' : 'bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-300'}`}>{nights}n</span></div></div>
         <div className="flex-[0.7] text-center px-2"><span className={`font-semibold ${style.text}`}>{getGuestSummary(booking)}</span></div>
         <div className="flex-1 text-right px-2"><span className={`font-extrabold whitespace-nowrap ${isColoredRow ? 'text-white' : 'text-[#2d568e] dark:text-blue-400'}`}>{formatPrice(booking.total_amount)}</span></div>
         <div className="flex-[0.8] flex items-center justify-center gap-2 px-2"><StatusDot status={booking.status} hasConflict={overlap} /><span className={`text-xs font-semibold ${style.muted}`}>{booking.status === 'pending' && !overlap ? 'Pending' : booking.status === 'pending' && overlap ? 'Conflict' : booking.status === 'confirmed' ? 'Confirmed' : booking.status === 'rejected' ? 'Rejected' : ''}</span></div>
-        <div className="flex-[0.8] flex justify-center px-2"><ActionDropdown booking={booking} onConfirm={(b) => handleQuickAction(b, 'confirm')} onReject={(b) => handleQuickAction(b, 'reject')} onDelete={(b) => openDeleteModal(b)} onEdit={(b) => handleEdit(b)} actionLoading={actionLoading} overlap={overlap} /></div>
+        <div className="flex-[0.8] flex justify-center px-2"><ActionDropdown booking={booking} onConfirm={(b) => handleQuickAction(b, 'confirm')} onReject={(b) => handleQuickAction(b, 'reject')} onDelete={(b) => openDeleteModal(b)} onEdit={(b) => handleEdit(b)} onTransfer={(b) => onTransfer(b)} actionLoading={actionLoading} overlap={overlap} /></div>
         <div className="w-6 flex justify-center flex-shrink-0"><ChevronRight size={18} className={`transition-transform ${isSelected ? 'rotate-90' : ''} ${style.muted}`} /></div>
       </div>
       <AnimatePresence>
         {isSelected && (
           <motion.div ref={detailRef} initial={{ height: 0, opacity: 0 }} animate={{ height: 'auto', opacity: 1 }} exit={{ height: 0, opacity: 0 }} className="overflow-hidden bg-gray-50 dark:bg-gray-700/20 border-b border-gray-200 dark:border-gray-700">
             <div className="px-6 py-6">
-              <div className="flex flex-wrap items-start gap-4 mb-6 pb-5 border-b border-gray-200 dark:border-gray-700">
-                <div className="flex items-center gap-4">
+              <div className="flex flex-wrap items-center gap-4 mb-6 pb-5 border-b border-gray-200 dark:border-gray-700">
+                <div className="flex items-center gap-4 flex-wrap">
                   {booking.avatar_url ? <img src={booking.avatar_url} alt="" className="w-12 h-12 rounded-xl object-cover ring-2 ring-white dark:ring-gray-700 shadow-sm" /> : <div style={{ background: avatarColors(booking.guest_name || '—')[0], color: avatarColors(booking.guest_name || '—')[1] }} className="w-12 h-12 rounded-xl flex items-center justify-center text-base font-bold ring-2 ring-white dark:ring-gray-700 shadow-sm">{initials(booking.guest_name || '—')}</div>}
-                  <div><p className="text-lg font-bold text-gray-900 dark:text-gray-100">{booking.guest_name || '—'}</p></div>
+                  <div>
+                    <p className="text-lg font-bold text-gray-900 dark:text-gray-100">{booking.guest_name || '—'}</p>
+                    <p className="text-xs text-gray-500">{booking.guest_email || 'No email'}</p>
+                  </div>
+                  {!isIcal && (
+                    <button 
+                      onClick={handleSendReceipt} 
+                      disabled={sendingReceipt || !booking.guest_email || booking.receipt_sent_at}
+                      className={`px-3 py-2 rounded-lg text-sm font-semibold flex items-center gap-2 transition-colors ${
+                        booking.receipt_sent_at 
+                          ? 'bg-emerald-100 text-emerald-700 cursor-not-allowed' 
+                          : 'bg-[#2d568e] text-white hover:bg-[#1e3a5f]'
+                      } disabled:opacity-50`}
+                      title={booking.receipt_sent_at ? `Receipt sent ${format(new Date(booking.receipt_sent_at), 'MMM d, yyyy h:mm a')}` : 'Send receipt to guest email'}
+                    >
+                      {sendingReceipt ? (
+                        <RefreshCw size={14} className="animate-spin" />
+                      ) : booking.receipt_sent_at ? (
+                        <CheckCircle size={14} />
+                      ) : (
+                        <Send size={14} />
+                      )}
+                      {sendingReceipt ? 'Sending...' : booking.receipt_sent_at ? 'Receipt Sent' : 'Send Receipt'}
+                    </button>
+                  )}
+                  {isIcal && (
+                    <span className="px-3 py-2 rounded-lg text-sm font-semibold bg-cyan-100 text-cyan-700 flex items-center gap-2">
+                      <Link2 size={14} /> iCal Import
+                    </span>
+                  )}
                 </div>
               </div>
               <div className="mb-6">
@@ -736,14 +939,14 @@ function BookingRow({ booking, selectedBooking, hasOverlap, getNightsCount, getG
                     <div className="grid grid-cols-1 lg:grid-cols-5 gap-5">
                       <div className="lg:col-span-3"><MiniBarCalendar bookings={confirmedBookings} condoId={booking.condo_id} highlightBooking={booking} onConflictClick={() => setShowConflictModal(true)} mode="interactive" /></div>
                       <div className="lg:col-span-2 space-y-3">
-                        <div className="flex items-center justify-between"><p className="font-bold text-gray-700 dark:text-gray-300 uppercase tracking-wider">Conflicting</p><button onClick={() => { handleEdit(booking); setSelectedBooking(null) }} className="px-3 py-2 bg-orange-500 text-white rounded-lg font-semibold hover:bg-orange-600 transition-colors flex items-center gap-1"><Edit2 size={14} /> Modify</button></div>
+                        <div className="flex items-center justify-between"><p className="font-bold text-gray-700 dark:text-gray-300 uppercase tracking-wider">Conflicting</p>{!isIcal && <button onClick={() => { handleEdit(booking); setSelectedBooking(null) }} className="px-3 py-2 bg-orange-500 text-white rounded-lg font-semibold hover:bg-orange-600 transition-colors flex items-center gap-1"><Edit2 size={14} /> Modify</button>}</div>
                         <div className="space-y-2 max-h-[300px] overflow-y-auto">
-                          {conflicts.map(cb => (
-                            <div key={cb.id} className="bg-red-50 dark:bg-red-900/10 rounded-xl p-3 border border-red-100 dark:border-red-800/30">
+                          {allOverlapping.map(cb => (
+                            <div key={cb.id} className={`rounded-xl p-3 border ${cb.status === 'confirmed' ? 'bg-emerald-50 dark:bg-emerald-900/10 border-emerald-200 dark:border-emerald-800/30' : 'bg-orange-50 dark:bg-orange-900/10 border-orange-200 dark:border-orange-800/30'}`}>
                               <div className="flex items-center gap-3 mb-2">
                                 {cb.avatar_url ? <img src={cb.avatar_url} alt="" className="w-8 h-8 rounded-full object-cover ring-1 ring-white" /> : <div style={{ background: avatarColors(cb.guest_name || '—')[0], color: avatarColors(cb.guest_name || '—')[1] }} className="w-8 h-8 rounded-full flex items-center justify-center text-xs font-bold">{initials(cb.guest_name || '—')}</div>}
                                 <div className="min-w-0 flex-1"><p className="font-bold text-gray-800 dark:text-gray-200 truncate">{cb.guest_name || 'Guest'}</p><p className="text-xs text-gray-600 dark:text-gray-400 font-mono">{cb.booking_code}</p></div>
-                                <span className="text-xs font-bold bg-emerald-100 dark:bg-emerald-900/30 text-emerald-700 dark:text-emerald-300 px-2 py-0.5 rounded-full">Confirmed</span>
+                                <span className={`text-xs font-bold px-2 py-0.5 rounded-full ${cb.status === 'confirmed' ? 'bg-emerald-100 dark:bg-emerald-900/30 text-emerald-700 dark:text-emerald-300' : 'bg-orange-100 dark:bg-orange-900/30 text-orange-700 dark:text-orange-300'}`}>{cb.status === 'confirmed' ? 'Confirmed' : 'Pending'}</span>
                               </div>
                               <div className="flex gap-4 text-sm text-gray-600 dark:text-gray-400"><span>In: {format(new Date(cb.start_date), 'MMM d')}</span><span>Out: {format(new Date(cb.end_date), 'MMM d')}</span><span>{Math.ceil((new Date(cb.end_date) - new Date(cb.start_date)) / 86400000)}n</span></div>
                             </div>
@@ -754,14 +957,16 @@ function BookingRow({ booking, selectedBooking, hasOverlap, getNightsCount, getG
                   </div>
                 )}
               </div>
-              <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-3 pt-5 border-t border-gray-200 dark:border-gray-700">
+              <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-3 pt-5 border-t border-gray-200 dark:border-gray-700">
                 {[
                   { icon: Mail, label: 'Email', value: booking.guest_email || '—' },
                   { icon: Phone, label: 'Phone', value: booking.guest_phone || '—' },
                   { icon: CalendarIcon, label: 'Check-in', value: format(new Date(booking.start_date), 'MMM d, yyyy') },
                   { icon: CalendarIcon, label: 'Check-out', value: format(new Date(booking.end_date), 'MMM d, yyyy') },
                   { icon: Clock, label: 'Booked', value: format(new Date(booking.created_at), 'MMM d, yyyy \'at\' h:mm a') },
-                  { icon: MapPin, label: 'Location', value: booking.condos?.location || '—' },
+                  { icon: Clock, label: 'Last Updated', value: booking.updated_at ? format(new Date(booking.updated_at), 'MMM d, yyyy h:mm a') : 'Never' },
+                  { icon: Receipt, label: 'Receipt', value: booking.receipt_sent_at ? `Sent ${format(new Date(booking.receipt_sent_at), 'MMM d, yyyy h:mm a')}` : 'Not sent' },
+                  { icon: Globe, label: 'Source', value: booking.source === 'ical' ? `iCal (${booking.channel || 'Unknown'})` : booking.source || 'Direct' },
                 ].map((item, idx) => (
                   <div key={idx} className="bg-white dark:bg-gray-700/30 rounded-xl p-3 border border-gray-200 dark:border-gray-600">
                     <div className="flex items-center gap-1.5 mb-1.5"><item.icon size={12} className="text-gray-500" /><p className="text-xs font-bold text-gray-600 dark:text-gray-400 uppercase">{item.label}</p></div>
@@ -780,12 +985,12 @@ function BookingRow({ booking, selectedBooking, hasOverlap, getNightsCount, getG
             <motion.div initial={{ opacity: 0, scale: 0.95 }} animate={{ opacity: 1, scale: 1 }} exit={{ opacity: 0, scale: 0.95 }} className="relative bg-white dark:bg-gray-800 rounded-2xl shadow-2xl max-w-md w-full p-6 max-h-[75vh] overflow-y-auto">
               <div className="flex items-center justify-between mb-4"><h3 className="text-lg font-bold text-red-600">Conflicting Bookings</h3><button onClick={() => setShowConflictModal(false)} className="p-2 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-full"><X size={20} /></button></div>
               <div className="space-y-3">
-                {getAllOverlappingBookings(booking.condo_id).map(cb => (
+                {allOverlapping.map(cb => (
                   <div key={cb.id} className={`rounded-xl p-4 ${cb.status === 'confirmed' ? 'bg-emerald-50 dark:bg-emerald-900/20 border border-emerald-200 dark:border-emerald-700' : 'bg-orange-50 dark:bg-orange-900/20 border border-orange-200 dark:border-orange-700'}`}>
                     <div className="flex items-center gap-3 mb-3">
                       {cb.avatar_url ? <img src={cb.avatar_url} alt="" className="w-9 h-9 rounded-full object-cover" /> : <div style={{ background: avatarColors(cb.guest_name || '—')[0], color: avatarColors(cb.guest_name || '—')[1] }} className="w-9 h-9 rounded-full flex items-center justify-center text-sm font-bold">{initials(cb.guest_name || '—')}</div>}
                       <div><p className="font-bold text-gray-900 dark:text-gray-100">{cb.guest_name || 'Guest'}</p><p className="text-sm text-gray-600 dark:text-gray-400 font-mono">{cb.booking_code}</p></div>
-                      <span className={`ml-auto text-xs font-bold px-2 py-0.5 rounded-full ${cb.status === 'confirmed' ? 'bg-emerald-500/20 text-emerald-700 dark:text-emerald-300' : 'bg-orange-500/20 text-orange-700 dark:text-orange-300'}`}>{cb.status}</span>
+                      <span className={`ml-auto text-xs font-bold px-2 py-0.5 rounded-full ${cb.status === 'confirmed' ? 'bg-emerald-500/20 text-emerald-700 dark:text-emerald-300' : 'bg-orange-500/20 text-orange-700 dark:text-orange-300'}`}>{cb.status === 'confirmed' ? 'Confirmed' : 'Pending'}</span>
                     </div>
                     <div className="grid grid-cols-2 gap-2 text-sm"><div><span className="text-gray-600 dark:text-gray-400">Check-in:</span> {format(new Date(cb.start_date), 'MMM d, yyyy')}</div><div><span className="text-gray-600 dark:text-gray-400">Check-out:</span> {format(new Date(cb.end_date), 'MMM d, yyyy')}</div></div>
                   </div>
