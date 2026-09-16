@@ -236,7 +236,6 @@ export default function CondoDetailPage() {
     if (!condo) return
     setImagesLoading(true)
     
-    // Build candidate list: prioritize DB images, then fallback to storage URLs
     const dbImages = condo.images && condo.images.length > 0 ? condo.images : []
     const storageImages = condo.code ? getCondoImages(condo.code) : []
     const candidates = dbImages.length > 0 ? dbImages : storageImages
@@ -249,7 +248,6 @@ export default function CondoDetailPage() {
       return
     }
     
-    // Preload and filter out broken images
     let cancelled = false
     const checkImages = async () => {
       const valid = []
@@ -262,7 +260,6 @@ export default function CondoDetailPage() {
         })
       ))
       if (cancelled) return
-      // Preserve original order
       const ordered = candidates.filter(url => valid.includes(url))
       setValidImages(ordered.length > 0 ? ordered : [fallback])
       setImagesLoading(false)
@@ -272,7 +269,6 @@ export default function CondoDetailPage() {
     return () => { cancelled = true }
   }, [condo])
 
-  // Auto-rotate valid images
   useEffect(() => {
     if (validImages.length <= 1) return
     const interval = setInterval(() => {
@@ -281,7 +277,6 @@ export default function CondoDetailPage() {
     return () => clearInterval(interval)
   }, [validImages.length])
 
-  // Reset index if valid images change and index is out of bounds
   useEffect(() => {
     if (currentImageIndex >= validImages.length && validImages.length > 0) {
       setCurrentImageIndex(0)
@@ -378,6 +373,14 @@ export default function CondoDetailPage() {
         .single()
       
       if (insertError) throw insertError
+      
+      // ✅ Send confirmation email (fire-and-forget)
+      supabase.functions.invoke('send-booking-confirmation', {
+        body: { bookingId: newBooking.id }
+      }).then(({ data, error }) => {
+        if (error) console.error('Confirmation email error:', error)
+        else console.log('Confirmation email sent:', data)
+      }).catch(err => console.error('Confirmation email failed:', err))
       
       toast.success('Reservation created!')
       setShowBookingForm(false)
