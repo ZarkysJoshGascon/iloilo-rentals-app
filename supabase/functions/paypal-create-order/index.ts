@@ -1,34 +1,44 @@
+// supabase/functions/paypal-create-order/index.ts
 import { serve } from 'https://deno.land/std@0.168.0/http/server.ts'
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2'
 import { corsHeaders } from '../_shared/cors.ts'
+
 const PAYPAL_CLIENT_ID = Deno.env.get('PAYPAL_CLIENT_ID')!
 const PAYPAL_SECRET = Deno.env.get('PAYPAL_SECRET')!
+const PAYPAL_MODE = Deno.env.get('PAYPAL_MODE') || 'sandbox'
+const PAYPAL_API_URL = PAYPAL_MODE === 'live'
+  ? 'https://api-m.paypal.com'
+  : 'https://api-m.sandbox.paypal.com'
 const SUPABASE_URL = Deno.env.get('SUPABASE_URL')!
 const SUPABASE_SERVICE_ROLE_KEY = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!
-const PAYPAL_API_URL = 'https://api-m.sandbox.paypal.com'
+
+async function getAccessToken(): Promise<string> {
+  const auth = btoa(`${PAYPAL_CLIENT_ID}:${PAYPAL_SECRET}`)
+  const response = await fetch(`${PAYPAL_API_URL}/v1/oauth2/token`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/x-www-form-urlencoded',
+      'Authorization': `Basic ${auth}`,
+    },
+    body: 'grant_type=client_credentials',
+  })
+  
+  const data = await response.json()
+  if (!response.ok) throw new Error(data.error_description || 'PayPal auth failed')
+  return data.access_token
+}
 
 serve(async (req) => {
-  // Handle CORS preflight
   if (req.method === 'OPTIONS') {
     return new Response('ok', { headers: corsHeaders })
   }
 
   try {
-    const { bookingId } = await req.json()
-    
-    if (!bookingId) {
-      return new Response(JSON.stringify({ error: 'bookingId required' }), {
-        status: 400,
-        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-      })
-    }
-
     const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY)
-
-    // Get auth user from request
+    
+    // Auth check
     const authHeader = req.headers.get('Authorization') || ''
     const token = authHeader.replace('Bearer ', '')
-    
     const { data: { user }, error: authError } = await supabase.auth.getUser(token)
     
     if (authError || !user) {
@@ -38,7 +48,15 @@ serve(async (req) => {
       })
     }
 
-    // Get booking from DB - verify ownership
+    const { bookingId } = await req.json()
+    if (!bookingId) {
+      return new Response(JSON.stringify({ error: 'bookingId required' }), {
+        status: 400,
+        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+      })
+    }
+
+    // Fetch booking and verify ownership
     const { data: booking, error: bookingError } = await supabase
       .from('bookings')
       .select('*, condos:condo_id(title, code)')
@@ -61,26 +79,9 @@ serve(async (req) => {
       })
     }
 
-    // Get PayPal access token
-    const authResponse = await fetch(`${PAYPAL_API_URL}/v1/oauth2/token`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/x-www-form-urlencoded',
-        'Authorization': `Basic ${btoa(`${PAYPAL_CLIENT_ID}:${PAYPAL_SECRET}`)}`,
-      },
-      body: 'grant_type=client_credentials',
-    })
+    const accessToken = await getAccessToken()
 
-    const authData = await authResponse.json()
-
-    if (!authResponse.ok) {
-      console.error('PayPal auth error:', authData)
-      throw new Error(authData.error_description || 'PayPal authentication failed')
-    }
-
-    const accessToken = authData.access_token
-
-    // Create PayPal order with DB price (server-side - secure)
+    // Create PayPal order (payment routes to the API app owner's account)
     const orderResponse = await fetch(`${PAYPAL_API_URL}/v2/checkout/orders`, {
       method: 'POST',
       headers: {
@@ -144,7 +145,7 @@ serve(async (req) => {
       headers: { ...corsHeaders, 'Content-Type': 'application/json' },
     })
 
-  } catch (error) {
+  } catch (error: any) {
     console.error('Edge function error:', error)
     return new Response(JSON.stringify({ error: error.message }), {
       status: 500,
