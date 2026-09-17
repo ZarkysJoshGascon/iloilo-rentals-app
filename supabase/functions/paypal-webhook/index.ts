@@ -77,39 +77,73 @@ serve(async (req) => {
 
     switch (eventType) {
       // ============================================
-      // NEW: Capture order server-side (fixes race condition)
+      // CAPTURE SERVER-SIDE WHEN ORDER IS APPROVED
+      // This is the fix for the race condition
       // ============================================
       case 'CHECKOUT.ORDER.APPROVED': {
         const orderId = resource.id
-        console.log(`Order approved: ${orderId} — capturing server-side`)
+        console.log(`Order approved: ${orderId} — attempting server-side capture`)
 
         try {
           const accessToken = await getAccessToken()
+
+          // Check if already captured (idempotency)
+          const { data: existingPayment } = await supabase
+            .from('payments')
+            .select('status, paypal_capture_id')
+            .eq('paypal_order_id', orderId)
+            .maybeSingle()
+
+          if (existingPayment?.status === 'paid' && existingPayment?.paypal_capture_id) {
+            console.log(`Order ${orderId} already captured, skipping`)
+            break
+          }
+
+          // Capture the order
           const captureRes = await fetch(`${PAYPAL_API_URL}/v2/checkout/orders/${orderId}/capture`, {
             method: 'POST',
             headers: {
               'Content-Type': 'application/json',
               'Authorization': `Bearer ${accessToken}`,
+              'PayPal-Request-Id': `capture-${orderId}`,
             },
           })
-          const captureData = await captureRes.json()
-          console.log('Capture result:', captureData.status, captureData.id)
 
-          // PAYMENT.CAPTURE.COMPLETED webhook will handle DB update
+          const captureData = await captureRes.json()
+
+          if (!captureRes.ok) {
+            // Handle already captured case
+            if (captureData.name === 'UNPROCESSABLE_ENTITY' &&
+                captureData.details?.some((d: any) => d.issue === 'ORDER_ALREADY_CAPTURED')) {
+              console.log(`Order ${orderId} already captured on PayPal side`)
+            } else {
+              console.error('Server-side capture failed:', captureData)
+            }
+          } else {
+            console.log(`Order ${orderId} captured successfully:`, captureData.status)
+          }
+
+          // The PAYMENT.CAPTURE.COMPLETED webhook will handle DB updates
         } catch (captureError) {
-          console.error('Server-side capture failed:', captureError)
-          // Don't fail the webhook — PayPal will retry
+          console.error('Server-side capture exception:', captureError)
+          // Don't throw — PayPal should still get a 200 to prevent retries
         }
         break
       }
 
+      // ============================================
+      // PAYMENT COMPLETED
+      // ============================================
       case 'PAYMENT.CAPTURE.COMPLETED': {
         const orderId = resource.supplementary_data?.related_ids?.order_id
         const captureId = resource.id
         const payerId = resource.payer?.payer_id
         const payerEmail = resource.payer?.email_address
 
+        console.log(`Payment captured for order: ${orderId}, capture: ${captureId}`)
+
         if (orderId) {
+          // Update payments table
           await supabase
             .from('payments')
             .update({
@@ -122,6 +156,7 @@ serve(async (req) => {
             })
             .eq('paypal_order_id', orderId)
 
+          // Update bookings table
           const { data: payment } = await supabase
             .from('payments')
             .select('booking_id')
@@ -136,11 +171,15 @@ serve(async (req) => {
                 paid_at: new Date().toISOString(),
               })
               .eq('id', payment.booking_id)
+            console.log(`Booking ${payment.booking_id} marked as paid`)
           }
         }
         break
       }
 
+      // ============================================
+      // PAYMENT DENIED / DECLINED
+      // ============================================
       case 'PAYMENT.CAPTURE.DENIED':
       case 'PAYMENT.CAPTURE.DECLINED': {
         const orderId = resource.supplementary_data?.related_ids?.order_id
@@ -172,6 +211,9 @@ serve(async (req) => {
         break
       }
 
+      // ============================================
+      // PAYMENT REFUNDED
+      // ============================================
       case 'PAYMENT.CAPTURE.REFUNDED': {
         const captureId = resource.id
         const refundAmount = resource.amount?.value
@@ -188,6 +230,9 @@ serve(async (req) => {
         break
       }
 
+      // ============================================
+      // PAYMENT REVERSED (chargeback)
+      // ============================================
       case 'PAYMENT.CAPTURE.REVERSED': {
         const captureId = resource.id
         await supabase
@@ -200,6 +245,9 @@ serve(async (req) => {
         break
       }
 
+      // ============================================
+      // ORDER CANCELLED
+      // ============================================
       case 'PAYMENT.ORDER.CANCELLED': {
         const orderId = resource.id
         await supabase
