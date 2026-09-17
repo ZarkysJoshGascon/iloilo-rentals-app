@@ -12,27 +12,29 @@ const PAYPAL_API_URL = PAYPAL_MODE === 'live'
   ? 'https://api-m.paypal.com'
   : 'https://api-m.sandbox.paypal.com'
 
-async function verifyWebhookSignature(
-  headers: Headers,
-  rawBody: string
-): Promise<boolean> {
-  try {
-    const auth = btoa(`${PAYPAL_CLIENT_ID}:${PAYPAL_SECRET}`)
-    const tokenRes = await fetch(`${PAYPAL_API_URL}/v1/oauth2/token`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/x-www-form-urlencoded',
-        'Authorization': `Basic ${auth}`,
-      },
-      body: 'grant_type=client_credentials',
-    })
-    const { access_token } = await tokenRes.json()
+async function getAccessToken(): Promise<string> {
+  const auth = btoa(`${PAYPAL_CLIENT_ID}:${PAYPAL_SECRET}`)
+  const res = await fetch(`${PAYPAL_API_URL}/v1/oauth2/token`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/x-www-form-urlencoded',
+      'Authorization': `Basic ${auth}`,
+    },
+    body: 'grant_type=client_credentials',
+  })
+  const data = await res.json()
+  if (!res.ok) throw new Error(data.error_description || 'PayPal auth failed')
+  return data.access_token
+}
 
+async function verifyWebhookSignature(headers: Headers, rawBody: string): Promise<boolean> {
+  try {
+    const accessToken = await getAccessToken()
     const verifyRes = await fetch(`${PAYPAL_API_URL}/v1/notifications/verify-webhook-signature`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
-        'Authorization': `Bearer ${access_token}`,
+        'Authorization': `Bearer ${accessToken}`,
       },
       body: JSON.stringify({
         auth_algo: headers.get('paypal-auth-algo'),
@@ -44,11 +46,10 @@ async function verifyWebhookSignature(
         webhook_event: JSON.parse(rawBody),
       }),
     })
-
     const { verification_status } = await verifyRes.json()
     return verification_status === 'SUCCESS'
   } catch (error) {
-    console.error('Webhook verification error:', error)
+    console.error('Signature verification error:', error)
     return false
   }
 }
@@ -61,7 +62,6 @@ serve(async (req) => {
   try {
     const rawBody = await req.text()
 
-    // Verify webhook signature (security)
     const isValid = await verifyWebhookSignature(req.headers, rawBody)
     if (!isValid) {
       console.error('Invalid webhook signature')
@@ -70,13 +70,39 @@ serve(async (req) => {
 
     const event = JSON.parse(rawBody)
     const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY)
-
     const eventType = event.event_type
     const resource = event.resource
 
     console.log(`Webhook received: ${eventType}`)
 
     switch (eventType) {
+      // ============================================
+      // NEW: Capture order server-side (fixes race condition)
+      // ============================================
+      case 'CHECKOUT.ORDER.APPROVED': {
+        const orderId = resource.id
+        console.log(`Order approved: ${orderId} — capturing server-side`)
+
+        try {
+          const accessToken = await getAccessToken()
+          const captureRes = await fetch(`${PAYPAL_API_URL}/v2/checkout/orders/${orderId}/capture`, {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              'Authorization': `Bearer ${accessToken}`,
+            },
+          })
+          const captureData = await captureRes.json()
+          console.log('Capture result:', captureData.status, captureData.id)
+
+          // PAYMENT.CAPTURE.COMPLETED webhook will handle DB update
+        } catch (captureError) {
+          console.error('Server-side capture failed:', captureError)
+          // Don't fail the webhook — PayPal will retry
+        }
+        break
+      }
+
       case 'PAYMENT.CAPTURE.COMPLETED': {
         const orderId = resource.supplementary_data?.related_ids?.order_id
         const captureId = resource.id
@@ -96,7 +122,6 @@ serve(async (req) => {
             })
             .eq('paypal_order_id', orderId)
 
-          // Update booking
           const { data: payment } = await supabase
             .from('payments')
             .select('booking_id')
@@ -172,6 +197,18 @@ serve(async (req) => {
             webhook_received_at: new Date().toISOString(),
           })
           .eq('paypal_capture_id', captureId)
+        break
+      }
+
+      case 'PAYMENT.ORDER.CANCELLED': {
+        const orderId = resource.id
+        await supabase
+          .from('payments')
+          .update({
+            status: 'cancelled',
+            webhook_received_at: new Date().toISOString(),
+          })
+          .eq('paypal_order_id', orderId)
         break
       }
 
