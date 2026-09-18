@@ -4,6 +4,7 @@ import { motion } from 'framer-motion'
 import { supabase } from "../../lib/supabase";
 import { useAuth } from "../../context/AuthContext";
 import { Loader2, ExternalLink } from 'lucide-react'
+import toast from 'react-hot-toast'
 
 export default function LoginPage() {
   const navigate = useNavigate()
@@ -12,15 +13,19 @@ export default function LoginPage() {
   const [isLoading, setIsLoading] = useState(false)
   const [showWarning, setShowWarning] = useState(false)
   const warningChecked = useRef(false)
+  const redirectHandled = useRef(false)
 
   useEffect(() => {
-    if (!authLoading && user) {
-      const setupUser = async () => {
-        const avatarUrl = user.user_metadata?.avatar_url || null
-        const fullName = user.user_metadata?.full_name || ''
-        const firstName = fullName.split(' ')[0] || ''
-        const lastName = fullName.split(' ').slice(1).join(' ') || ''
+    if (authLoading || !user || redirectHandled.current) return
+    redirectHandled.current = true
 
+    const setupUser = async () => {
+      const avatarUrl = user.user_metadata?.avatar_url || null
+      const fullName = user.user_metadata?.full_name || ''
+      const firstName = fullName.split(' ')[0] || ''
+      const lastName = fullName.split(' ').slice(1).join(' ') || ''
+
+      try {
         await supabase.from('user_profiles').upsert({
           id: user.id,
           avatar_url: avatarUrl,
@@ -31,13 +36,14 @@ export default function LoginPage() {
           .select('id')
           .eq('email', user.email)
           .maybeSingle()
+
         if (!existingLead) {
           await supabase.from('leads').insert({
             email: user.email,
             first_name: firstName,
             last_name: lastName,
             notes: 'Auto-created from user sign-in',
-            status: 'new'
+            status: 'new',
           }, { onConflict: 'email' })
         }
 
@@ -47,18 +53,37 @@ export default function LoginPage() {
           .eq('user_id', user.id)
           .maybeSingle()
 
-        // SECURE REDIRECT: Only allow internal redirects
         const redirect = searchParams.get('redirect')
-        if (redirect && redirect.startsWith('/') && !redirect.startsWith('//') && !redirect.includes('://')) {
-          navigate(redirect)
+        const safeRedirect =
+          redirect &&
+          redirect.startsWith('/') &&
+          !redirect.startsWith('//') &&
+          !redirect.includes('://')
+            ? redirect
+            : null
+
+        if (safeRedirect) {
+          navigate(safeRedirect)
         } else if (adminData) {
           navigate('/admin')
         } else {
           navigate('/')
         }
+      } catch (err) {
+        console.error('Post-login setup error:', err)
+        const redirect = searchParams.get('redirect')
+        const safeRedirect =
+          redirect &&
+          redirect.startsWith('/') &&
+          !redirect.startsWith('//') &&
+          !redirect.includes('://')
+            ? redirect
+            : null
+        navigate(safeRedirect || '/')
       }
-      setupUser()
     }
+
+    setupUser()
   }, [authLoading, user, navigate, searchParams])
 
   useEffect(() => {
@@ -78,17 +103,30 @@ export default function LoginPage() {
   const handleGoogleLogin = async () => {
     setIsLoading(true)
     try {
+      const redirect = searchParams.get('redirect')
+      const safeRedirect =
+        redirect &&
+        redirect.startsWith('/') &&
+        !redirect.startsWith('//') &&
+        !redirect.includes('://')
+          ? redirect
+          : null
+
+      const redirectTo = safeRedirect
+        ? `${window.location.origin}/login?redirect=${encodeURIComponent(safeRedirect)}`
+        : `${window.location.origin}/login`
+
       const { error } = await supabase.auth.signInWithOAuth({
         provider: 'google',
         options: {
           queryParams: { prompt: 'select_account' },
-          redirectTo: `${window.location.origin}/login`
-        }
+          redirectTo,
+        },
       })
       if (error) throw error
     } catch (error) {
       console.error('Login error:', error)
-      alert('Login failed. Please try again.')
+      toast.error('Login failed. Please try again.')
       setIsLoading(false)
     }
   }
@@ -99,15 +137,13 @@ export default function LoginPage() {
       navigator.share({
         title: 'Iloilo Rentals',
         text: 'Please open this link in your external browser to sign in:',
-        url: currentUrl
+        url: currentUrl,
       }).catch(() => {
         prompt('Copy this URL and open in your browser:', currentUrl)
       })
-    } 
-    else if (/iPhone|iPad|iPod/.test(navigator.userAgent)) {
+    } else if (/iPhone|iPad|iPod/.test(navigator.userAgent)) {
       prompt('Copy this link and open in Safari:', currentUrl)
-    }
-    else {
+    } else {
       const link = document.createElement('a')
       link.href = currentUrl
       link.target = '_blank'
@@ -120,77 +156,77 @@ export default function LoginPage() {
 
   const containerVariants = {
     hidden: { opacity: 0, scale: 0.9 },
-    visible: { 
-      opacity: 1, 
+    visible: {
+      opacity: 1,
       scale: 1,
-      transition: { duration: 0.5, type: "spring", stiffness: 200, damping: 20 }
-    }
+      transition: { duration: 0.5, type: "spring", stiffness: 200, damping: 20 },
+    },
   }
   const logoVariants = {
     hidden: { scale: 0, rotate: -180 },
-    visible: { 
-      scale: 1, 
+    visible: {
+      scale: 1,
       rotate: 0,
-      transition: { duration: 0.5, type: "spring", stiffness: 260, damping: 20 }
-    }
+      transition: { duration: 0.5, type: "spring", stiffness: 260, damping: 20 },
+    },
   }
   const titleVariants = {
     hidden: { opacity: 0, y: -30 },
-    visible: { opacity: 1, y: 0, transition: { delay: 0.2, duration: 0.5 } }
+    visible: { opacity: 1, y: 0, transition: { delay: 0.2, duration: 0.5 } },
   }
   const subtitleVariants = {
     hidden: { opacity: 0 },
-    visible: { opacity: 1, transition: { delay: 0.3, duration: 0.5 } }
+    visible: { opacity: 1, transition: { delay: 0.3, duration: 0.5 } },
   }
   const dividerVariants = {
     hidden: { width: 0, opacity: 0 },
-    visible: { width: "100%", opacity: 1, transition: { delay: 0.4, duration: 0.6 } }
+    visible: { width: "100%", opacity: 1, transition: { delay: 0.4, duration: 0.6 } },
   }
   const buttonVariants = {
     hidden: { opacity: 0, y: 20 },
     visible: { opacity: 1, y: 0, transition: { delay: 0.5, duration: 0.5 } },
-    hover: { 
+    hover: {
       scale: 1.02,
       borderColor: "#2d568e",
       boxShadow: "0 10px 25px -5px rgba(45,86,142,0.2)",
-      transition: { duration: 0.2 }
+      transition: { duration: 0.2 },
     },
-    tap: { scale: 0.98 }
+    tap: { scale: 0.98 },
   }
   const featuresVariants = {
     hidden: { opacity: 0 },
-    visible: { opacity: 1, transition: { delay: 0.6, staggerChildren: 0.1 } }
+    visible: { opacity: 1, transition: { delay: 0.6, staggerChildren: 0.1 } },
   }
   const featureItemVariants = {
     hidden: { opacity: 0, x: -10 },
-    visible: { opacity: 1, x: 0 }
+    visible: { opacity: 1, x: 0 },
   }
   const footerVariants = {
     hidden: { opacity: 0 },
-    visible: { opacity: 1, transition: { delay: 0.7, duration: 0.5 } }
+    visible: { opacity: 1, transition: { delay: 0.7, duration: 0.5 } },
   }
 
   return (
     <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-[#2d568e]/5 via-white to-[#2d568e]/10 overflow-hidden pb-24 md:pb-0">
       <div className="absolute inset-0 overflow-hidden pointer-events-none">
-        <motion.div 
+        <motion.div
           animate={{ y: [0, -20, 0], x: [0, 10, 0] }}
           transition={{ repeat: Infinity, duration: 8, ease: "easeInOut" }}
           className="absolute -top-40 -right-40 w-80 h-80 bg-[#2d568e]/10 rounded-full blur-3xl"
         />
-        <motion.div 
+        <motion.div
           animate={{ y: [0, 20, 0], x: [0, -10, 0] }}
           transition={{ repeat: Infinity, duration: 10, ease: "easeInOut" }}
           className="absolute -bottom-40 -left-40 w-80 h-80 bg-[#2d568e]/10 rounded-full blur-3xl"
         />
-        <motion.div 
+        <motion.div
           animate={{ scale: [1, 1.2, 1], opacity: [0.3, 0.5, 0.3] }}
           transition={{ repeat: Infinity, duration: 6, ease: "easeInOut" }}
           className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-96 h-96 bg-[#2d568e]/5 rounded-full blur-3xl"
         />
       </div>
 
-      <motion.div 
+      <motion.div
         variants={containerVariants}
         initial="hidden"
         animate="visible"
@@ -198,7 +234,7 @@ export default function LoginPage() {
         className="relative bg-white rounded-2xl shadow-2xl max-w-md w-full mx-4 p-6 md:p-10 transition-all duration-500"
       >
         {showWarning && (
-          <motion.div 
+          <motion.div
             initial={{ opacity: 0, y: -10 }}
             animate={{ opacity: 1, y: 0 }}
             className="mb-6 p-4 bg-amber-50 border-l-4 border-amber-500 rounded-lg"
@@ -228,23 +264,23 @@ export default function LoginPage() {
             </p>
           </motion.div>
         )}
-        
+
         <div className="flex justify-center mb-4 md:mb-6">
-          <motion.div 
+          <motion.div
             variants={logoVariants}
             className="bg-[#2d568e]/10 p-4 rounded-full transition-all duration-300 hover:bg-[#2d568e]/20 cursor-pointer"
             whileHover={{ scale: 1.1 }}
             whileTap={{ scale: 0.95 }}
           >
-            <motion.img 
-              src="/Iloilo_rentals_img.png" 
-              alt="Iloilo Rentals Logo" 
+            <motion.img
+              src="/Iloilo_rentals_img.png"
+              alt="Iloilo Rentals Logo"
               className="w-16 h-16 md:w-20 md:h-20 object-contain"
               animate={{ rotate: [0, 5, -5, 0] }}
               transition={{ repeat: Infinity, duration: 4, repeatDelay: 3 }}
               onError={(e) => {
                 e.target.style.display = 'none'
-                e.target.nextSibling.style.display = 'flex'
+                if (e.target.nextSibling) e.target.nextSibling.style.display = 'flex'
               }}
             />
             <div className="hidden w-16 h-16 md:w-20 md:h-20 bg-[#2d568e] rounded-full items-center justify-center">
@@ -252,37 +288,37 @@ export default function LoginPage() {
             </div>
           </motion.div>
         </div>
-        
-        <motion.h1 
+
+        <motion.h1
           variants={titleVariants}
           className="text-2xl md:text-4xl font-bold text-center bg-gradient-to-r from-[#2d568e] to-[#1e3a5f] bg-clip-text text-transparent mb-3"
         >
           Iloilo Rentals
         </motion.h1>
-        
-        <motion.p 
+
+        <motion.p
           variants={subtitleVariants}
           className="text-center text-gray-500 text-sm md:text-base mb-2"
         >
           Sign in to book your perfect stay
         </motion.p>
-        
-        <motion.p 
+
+        <motion.p
           variants={subtitleVariants}
           className="text-center text-xs md:text-sm text-gray-400 mb-6 md:mb-8"
         >
           in Iloilo City
         </motion.p>
-        
+
         <div className="relative mb-6 md:mb-8">
-          <motion.div 
+          <motion.div
             variants={dividerVariants}
             className="absolute inset-0 flex items-center"
           >
             <div className="w-full border-t border-gray-200"></div>
           </motion.div>
           <div className="relative flex justify-center text-sm">
-            <motion.span 
+            <motion.span
               initial={{ opacity: 0, scale: 0.8 }}
               animate={{ opacity: 1, scale: 1 }}
               transition={{ delay: 0.45 }}
@@ -292,7 +328,7 @@ export default function LoginPage() {
             </motion.span>
           </div>
         </div>
-        
+
         <motion.button
           variants={buttonVariants}
           initial="hidden"
@@ -302,21 +338,21 @@ export default function LoginPage() {
           onClick={handleGoogleLogin}
           disabled={isLoading || showWarning}
           className={`group relative w-full py-3.5 rounded-xl font-semibold flex items-center justify-center gap-3 overflow-hidden transition-all duration-300 ${
-            showWarning 
-              ? 'bg-gray-100 border-2 border-gray-200 text-gray-400 cursor-not-allowed' 
+            showWarning
+              ? 'bg-gray-100 border-2 border-gray-200 text-gray-400 cursor-not-allowed'
               : 'bg-white border-2 border-gray-200 text-gray-700 hover:border-[#2d568e] hover:shadow-lg'
           }`}
         >
-          <motion.span 
+          <motion.span
             className="absolute inset-0 bg-gradient-to-r from-[#2d568e]/0 via-[#2d568e]/5 to-[#2d568e]/0"
             initial={{ x: "-100%" }}
             whileHover={!showWarning ? { x: "100%" } : {}}
             transition={{ duration: 0.7 }}
           />
-          
+
           {isLoading ? (
             <>
-              <motion.div 
+              <motion.div
                 animate={{ rotate: 360 }}
                 transition={{ duration: 1, repeat: Infinity, ease: "linear" }}
               >
@@ -337,7 +373,7 @@ export default function LoginPage() {
             </>
           ) : (
             <>
-              <motion.svg 
+              <motion.svg
                 className="w-5 h-5"
                 whileHover={{ scale: 1.2, rotate: 5 }}
                 viewBox="0 0 24 24"
@@ -351,8 +387,8 @@ export default function LoginPage() {
             </>
           )}
         </motion.button>
-        
-        <motion.div 
+
+        <motion.div
           variants={featuresVariants}
           initial="hidden"
           animate="visible"
@@ -361,7 +397,7 @@ export default function LoginPage() {
           <div className="flex flex-col gap-2 text-center text-xs text-gray-400">
             <div className="flex justify-center gap-4">
               {["✓ Secure login", "✓ No password needed", "✓ Instant access"].map((feature, idx) => (
-                <motion.span 
+                <motion.span
                   key={idx}
                   variants={featureItemVariants}
                   className="flex items-center gap-1"
@@ -373,16 +409,16 @@ export default function LoginPage() {
             </div>
           </div>
         </motion.div>
-        
-        <motion.p 
+
+        <motion.p
           variants={footerVariants}
           initial="hidden"
           animate="visible"
           className="text-center text-xs text-gray-400 mt-6"
         >
           By signing in, you agree to our{' '}
-          <motion.a 
-            href="/terms" 
+          <motion.a
+            href="/terms"
             className="text-[#2d568e] hover:underline inline-block"
             whileHover={{ scale: 1.05, x: 2 }}
             whileTap={{ scale: 0.98 }}
@@ -390,8 +426,8 @@ export default function LoginPage() {
             Terms of Service
           </motion.a>
           {' '}and{' '}
-          <motion.a 
-            href="/privacy" 
+          <motion.a
+            href="/privacy"
             className="text-[#2d568e] hover:underline inline-block"
             whileHover={{ scale: 1.05, x: 2 }}
             whileTap={{ scale: 0.98 }}
