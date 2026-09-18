@@ -1,8 +1,8 @@
 import { useNavigate } from 'react-router-dom'
 import { useAuth } from "../../context/AuthContext";
 import {
-  Users, CalendarDays, DoorOpen, LogOut, Building2,
-  Paintbrush, LayoutDashboard
+  CalendarDays, DoorOpen, LogOut, Building2,
+  Paintbrush, LayoutDashboard, ScrollText
 } from 'lucide-react'
 import { motion } from 'framer-motion'
 import toast from 'react-hot-toast'
@@ -21,7 +21,7 @@ export default function AdminSidebar({ activeTab, setActiveTab, collapsed, onMou
     { id: 'bookings', label: 'Bookings', icon: CalendarDays },
     { id: 'listings', label: 'Listings', icon: Building2 },
     { id: 'calendar', label: 'Calendar', icon: DoorOpen },
-    { id: 'leads', label: 'Leads', icon: Users },
+    { id: 'registry', label: 'Registry', icon: ScrollText },
     { id: 'housekeeping', label: 'Housekeeping', icon: Paintbrush },
     { id: 'accounting', label: 'Accounting', icon: LayoutDashboard },
   ]
@@ -30,7 +30,7 @@ export default function AdminSidebar({ activeTab, setActiveTab, collapsed, onMou
     <div
       onMouseEnter={onMouseEnter}
       onMouseLeave={onMouseLeave}
-      style={style}   // width & position are set by the parent
+      style={style}
       className="h-full bg-blue-50/70 dark:bg-gray-800/70 backdrop-blur-sm shadow-md flex flex-col transition-all duration-300 overflow-hidden rounded-tl-xl"
     >
       <nav className="flex-1 py-4 px-2 space-y-1">

@@ -6,7 +6,7 @@
 /* Montserrat Bold as the default font */
 @layer base {
   html {
-    font-family: 'Montserrat', sans-serif;
+    font-family: 'Poppins', sans-serif;
     font-weight: 700;
     @apply font-sans;
   }

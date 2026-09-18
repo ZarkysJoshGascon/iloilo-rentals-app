@@ -4,8 +4,8 @@ import { motion, AnimatePresence } from 'framer-motion'
 import { useTheme } from "../../context/ThemeContext";
 import { useAuth } from "../../context/AuthContext";
 import {
-  Moon, Sun, Users, CalendarDays, DoorOpen, LogOut, Building2,
-  Paintbrush, LayoutDashboard
+  Moon, Sun, CalendarDays, DoorOpen, LogOut, Building2,
+  Paintbrush, LayoutDashboard, ScrollText
 } from 'lucide-react'
 import toast from "react-hot-toast";
 import AdminSidebar from '../../components/admin/AdminSidebar'
@@ -14,8 +14,7 @@ import CalendarView from '../../components/admin/calendar/CalendarView'
 import CondosManagement from '../../components/admin/condos/CondosManagement'
 import HousekeepingManagement from '../../components/admin/housekeeping/HousekeepingManagement'
 import AccountingManagement from '../../components/admin/accounting/AccountingManagement'
-import LeadsList from '../../components/admin/leads/LeadsList'
-import LeadDetail from '../../components/admin/leads/LeadDetail'
+import RegistryPage from '../../components/admin/registry/RegistryPage'
 
 function PageTransition({ children, tabKey }) {
   return (
@@ -25,6 +24,7 @@ function PageTransition({ children, tabKey }) {
       animate={{ opacity: 1, y: 0 }}
       exit={{ opacity: 0, y: -12 }}
       transition={{ duration: 0.25 }}
+      className="h-full min-h-0"
     >
       {children}
     </motion.div>
@@ -38,27 +38,25 @@ export default function AdminDashboardPage() {
 
   const [activeTab, setActiveTab] = useState('bookings')
   const [sidebarCollapsed, setSidebarCollapsed] = useState(true)
-  const [selectedLeadId, setSelectedLeadId] = useState(null)
   const [adminUser, setAdminUser] = useState(null)
   const [showProfileMenu, setShowProfileMenu] = useState(false)
-  const [sessionTimeout, setSessionTimeout] = useState(null)
 
   useEffect(() => {
     if (user) {
       setAdminUser({
         name: user.user_metadata?.full_name || user.email?.split('@')[0] || 'Admin',
         email: user.email,
-        avatar: user.user_metadata?.avatar_url || null
+        avatar: user.user_metadata?.avatar_url || null,
       })
     }
   }, [user])
 
   const handleTabChange = (tab) => setActiveTab(tab)
-  
-  const handleSignOut = async () => { 
+
+  const handleSignOut = useCallback(async () => {
     await signOut()
-    navigate('/') 
-  }
+    navigate('/')
+  }, [signOut, navigate])
 
   // ============ SESSION TIMEOUT (30 minutes inactivity) ============
   const timeoutRef = useRef(null)
@@ -67,58 +65,40 @@ export default function AdminDashboardPage() {
     if (timeoutRef.current) clearTimeout(timeoutRef.current)
     timeoutRef.current = setTimeout(() => {
       handleSignOut()
-    }, 30 * 60 * 1000) // 30 minutes
-  }, [])
+    }, 30 * 60 * 1000)
+  }, [handleSignOut])
 
   useEffect(() => {
     const events = ['click', 'keydown', 'scroll', 'mousemove', 'touchstart']
-    
     const handleActivity = () => resetTimeout()
-    
-    events.forEach(event => {
-      window.addEventListener(event, handleActivity)
-    })
-    
+
+    events.forEach((event) => window.addEventListener(event, handleActivity))
     resetTimeout()
-    
+
     return () => {
       if (timeoutRef.current) clearTimeout(timeoutRef.current)
-      events.forEach(event => {
-        window.removeEventListener(event, handleActivity)
-      })
+      events.forEach((event) => window.removeEventListener(event, handleActivity))
     }
   }, [resetTimeout])
-
-  // ============ WARNING BEFORE TIMEOUT ============
-  useEffect(() => {
-    if (!sessionTimeout) return
-    
-    const warnTimeout = setTimeout(() => {
-      toast('Session will expire in 5 minutes due to inactivity', {
-            icon: '⚠️',
-            duration: 5000,
-          })
-    }, 25 * 60 * 1000) // Warn at 25 minutes
-    
-    return () => clearTimeout(warnTimeout)
-  }, [sessionTimeout])
 
   const tabIcons = {
     bookings: CalendarDays,
     listings: Building2,
     calendar: DoorOpen,
-    leads: Users,
+    registry: ScrollText,
     housekeeping: Paintbrush,
-    accounting: LayoutDashboard
+    accounting: LayoutDashboard,
   }
+
   const tabTitles = {
     bookings: 'Bookings Management',
     listings: 'Listings Management',
     calendar: 'Calendar',
-    leads: 'Leads Management',
+    registry: 'Registry',
     housekeeping: 'Housekeeping',
-    accounting: 'Accounting'
+    accounting: 'Accounting',
   }
+
   const Icon = tabIcons[activeTab] || LayoutDashboard
 
   const sidebarLeftOffset = 12
@@ -132,8 +112,10 @@ export default function AdminDashboardPage() {
   const sidebarStyle = {
     left: `${sidebarLeftOffset}px`,
     width: `calc(100% - ${sidebarLeftOffset}px)`,
-    transition: 'all 0.3s ease'
+    transition: 'all 0.3s ease',
   }
+
+  const isRegistry = activeTab === 'registry'
 
   return (
     <div className="h-screen flex flex-col bg-[#d4deec] dark:bg-gray-900 overflow-hidden transition-colors duration-300">
@@ -155,7 +137,11 @@ export default function AdminDashboardPage() {
               className="flex items-center gap-2 px-3 py-1.5 rounded-xl bg-white/80 dark:bg-gray-800/80 backdrop-blur-sm border border-gray-200 dark:border-gray-700 hover:bg-white dark:hover:bg-gray-700 transition-all duration-200 shadow-sm"
             >
               {adminUser?.avatar ? (
-                <img src={adminUser.avatar} alt="Admin" className="w-7 h-7 rounded-full object-cover ring-2 ring-white dark:ring-gray-700" />
+                <img
+                  src={adminUser.avatar}
+                  alt="Admin"
+                  className="w-7 h-7 rounded-full object-cover ring-2 ring-white dark:ring-gray-700"
+                />
               ) : (
                 <div className="w-7 h-7 rounded-full bg-gradient-to-br from-[#2d568e] to-[#1e3a5f] flex items-center justify-center text-white text-xs font-semibold ring-2 ring-white dark:ring-gray-700">
                   {adminUser?.name?.charAt(0)?.toUpperCase() || 'A'}
@@ -165,7 +151,9 @@ export default function AdminDashboardPage() {
                 <p className="text-xs font-medium text-gray-700 dark:text-gray-200 leading-tight">
                   {adminUser?.name || 'Admin'}
                 </p>
-                <p className="text-[10px] text-gray-500 dark:text-gray-400 leading-tight">Administrator</p>
+                <p className="text-[10px] text-gray-500 dark:text-gray-400 leading-tight">
+                  Administrator
+                </p>
               </div>
             </button>
             {showProfileMenu && (
@@ -175,15 +163,23 @@ export default function AdminDashboardPage() {
                   <div className="p-4 border-b border-gray-100 dark:border-gray-700">
                     <div className="flex items-center gap-3">
                       {adminUser?.avatar ? (
-                        <img src={adminUser.avatar} alt="Admin" className="w-10 h-10 rounded-full object-cover" />
+                        <img
+                          src={adminUser.avatar}
+                          alt="Admin"
+                          className="w-10 h-10 rounded-full object-cover"
+                        />
                       ) : (
                         <div className="w-10 h-10 rounded-full bg-gradient-to-br from-[#2d568e] to-[#1e3a5f] flex items-center justify-center text-white font-semibold">
                           {adminUser?.name?.charAt(0)?.toUpperCase() || 'A'}
                         </div>
                       )}
-                      <div>
-                        <p className="text-sm font-semibold text-gray-900 dark:text-gray-100">{adminUser?.name || 'Admin'}</p>
-                        <p className="text-xs text-gray-500 dark:text-gray-400">{adminUser?.email || 'admin@iloilorentals.com'}</p>
+                      <div className="min-w-0">
+                        <p className="text-sm font-semibold text-gray-900 dark:text-gray-100 truncate">
+                          {adminUser?.name || 'Admin'}
+                        </p>
+                        <p className="text-xs text-gray-500 dark:text-gray-400 truncate">
+                          {adminUser?.email || ''}
+                        </p>
                       </div>
                     </div>
                   </div>
@@ -227,7 +223,25 @@ export default function AdminDashboardPage() {
                 {tabTitles[activeTab] || 'Dashboard'}
               </h2>
             </div>
-            <div className="flex-1 overflow-auto p-6">
+
+            {/*
+              * The content area. Behavior differs per tab:
+              *
+              *   - Registry: fills the available height exactly.
+              *     RegistryPage handles its own internal scrolling (only the table body scrolls).
+              *     `overflow-hidden` + `relative` + Registry wrapped in `absolute inset-6` pins it.
+              *
+              *   - Everything else: scrolls normally inside `overflow-auto`.
+              *
+              * We conditionally apply the outer overflow class so nothing else is affected.
+              */}
+            <div
+              className={
+                isRegistry
+                  ? 'flex-1 min-h-0 overflow-hidden p-6 relative'
+                  : 'flex-1 overflow-auto p-6'
+              }
+            >
               <AnimatePresence mode="wait">
                 {activeTab === 'bookings' && (
                   <PageTransition tabKey="bookings">
@@ -244,6 +258,13 @@ export default function AdminDashboardPage() {
                     <CondosManagement />
                   </PageTransition>
                 )}
+                {activeTab === 'registry' && (
+                  <PageTransition tabKey="registry">
+                    <div className="absolute inset-6 min-h-0 flex flex-col">
+                      <RegistryPage />
+                    </div>
+                  </PageTransition>
+                )}
                 {activeTab === 'housekeeping' && (
                   <PageTransition tabKey="housekeeping">
                     <HousekeepingManagement />
@@ -252,27 +273,6 @@ export default function AdminDashboardPage() {
                 {activeTab === 'accounting' && (
                   <PageTransition tabKey="accounting">
                     <AccountingManagement />
-                  </PageTransition>
-                )}
-                {activeTab === 'leads' && (
-                  <PageTransition tabKey="leads">
-                    <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-                      <div className="lg:col-span-1">
-                        <LeadsList onSelectLead={setSelectedLeadId} selectedId={selectedLeadId} />
-                      </div>
-                      <div className="lg:col-span-2">
-                        {selectedLeadId ? (
-                          <LeadDetail leadId={selectedLeadId} />
-                        ) : (
-                          <div className="flex flex-col items-center justify-center text-center py-20">
-                            <div className="w-20 h-20 rounded-full bg-gray-100 dark:bg-gray-700 flex items-center justify-center mb-4">
-                              <Users size={32} className="text-gray-400 dark:text-gray-500" />
-                            </div>
-                            <p className="text-gray-500 dark:text-gray-400 text-sm">Select a lead to view details</p>
-                          </div>
-                        )}
-                      </div>
-                    </div>
                   </PageTransition>
                 )}
               </AnimatePresence>
