@@ -280,3 +280,21 @@ export function formatDate(dateStr) {
     day: 'numeric',
   })
 }
+export async function updateInteraction(id, patch) {
+  const { data, error } = await supabase
+    .from('unit_interactions')
+    .update(patch)
+    .eq('id', id)
+    .select()
+    .single()
+  if (error) throw error
+  return data
+}
+
+export async function deleteInteraction(id) {
+  const { error } = await supabase
+    .from('unit_interactions')
+    .delete()
+    .eq('id', id)
+  if (error) throw error
+}
