@@ -64,8 +64,6 @@ export default function LoginPage() {
 
         if (safeRedirect) {
           navigate(safeRedirect)
-        } else if (adminData) {
-          navigate('/admin')
         } else {
           navigate('/')
         }

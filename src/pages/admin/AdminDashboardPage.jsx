@@ -5,7 +5,7 @@ import { useTheme } from "../../context/ThemeContext";
 import { useAuth } from "../../context/AuthContext";
 import {
   Moon, Sun, CalendarDays, DoorOpen, LogOut, Building2,
-  Paintbrush, LayoutDashboard, ScrollText
+  Paintbrush, LayoutDashboard, ScrollText, ArrowLeft,
 } from 'lucide-react'
 import toast from "react-hot-toast";
 import AdminSidebar from '../../components/admin/AdminSidebar'
@@ -126,6 +126,14 @@ export default function AdminDashboardPage() {
         </h1>
         <div className="flex items-center gap-3">
           <button
+            onClick={() => navigate('/')}
+            className="flex items-center gap-2 px-3 py-2 rounded-xl bg-white/80 dark:bg-gray-800/80 backdrop-blur-sm border border-gray-200 dark:border-gray-700 hover:bg-white dark:hover:bg-gray-700 text-gray-700 dark:text-gray-200 transition-all duration-200 shadow-sm"
+            title="Back to site"
+          >
+            <ArrowLeft size={17} />
+            <span className="hidden sm:inline text-sm font-medium">Back to site</span>
+          </button>
+          <button
             onClick={toggleTheme}
             className="flex items-center gap-2 px-3 py-2 rounded-xl bg-white/80 dark:bg-gray-800/80 backdrop-blur-sm border border-gray-200 dark:border-gray-700 hover:bg-white dark:hover:bg-gray-700 text-gray-700 dark:text-gray-200 transition-all duration-200 shadow-sm"
           >
@@ -224,17 +232,6 @@ export default function AdminDashboardPage() {
               </h2>
             </div>
 
-            {/*
-              * The content area. Behavior differs per tab:
-              *
-              *   - Registry: fills the available height exactly.
-              *     RegistryPage handles its own internal scrolling (only the table body scrolls).
-              *     `overflow-hidden` + `relative` + Registry wrapped in `absolute inset-6` pins it.
-              *
-              *   - Everything else: scrolls normally inside `overflow-auto`.
-              *
-              * We conditionally apply the outer overflow class so nothing else is affected.
-              */}
             <div
               className={
                 isRegistry
