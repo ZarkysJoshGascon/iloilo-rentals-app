@@ -7,7 +7,6 @@ import { createRoot } from 'react-dom/client'
 import { BrowserRouter } from 'react-router-dom'
 import './index.css'
 import App from './App.jsx'
-import { CurrencyProvider } from './context/CurrencyContext'
 import { AuthProvider } from './context/AuthContext'
 import ErrorBoundary from './components/common/ErrorBoundary'
 
@@ -25,9 +24,7 @@ createRoot(document.getElementById('root')).render(
             v7_relativeSplatPath: true,
           }}
         >
-          <CurrencyProvider>
-            <App />
-          </CurrencyProvider>
+          <App />
         </BrowserRouter>
       </AuthProvider>
     </ErrorBoundary>

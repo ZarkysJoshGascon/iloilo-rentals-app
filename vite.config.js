@@ -22,16 +22,4 @@ export default defineConfig({
       'Cache-Control': 'no-store',
     },
   },
-  test: {
-    globals: true,
-    environment: 'jsdom',
-    setupFiles: './src/test/setup.js',
-    css: true,
-    include: ['src/test/**/*.{test,spec}.{js,jsx,ts,tsx}'],
-    coverage: {
-      provider: 'v8',
-      reporter: ['text', 'json', 'html'],
-      exclude: ['node_modules/', 'src/test/setup.js'],
-    },
-  },
 })

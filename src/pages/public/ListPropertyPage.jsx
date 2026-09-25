@@ -1,18 +1,11 @@
-import { useState, useEffect } from 'react'
-import { useNavigate } from 'react-router-dom'
+import { useState } from 'react'
 import { motion } from 'framer-motion'
-import { Upload, X, Loader2, Plus, Camera } from 'lucide-react'
+import { Upload, X, Plus, Camera } from 'lucide-react'
 import toast from 'react-hot-toast'
-import { supabase } from "../../lib/supabase";
-import { useAuth } from "../../context/AuthContext";
 
 const MAX_IMAGES = 5
 
 export default function ListPropertyPage() {
-  const navigate = useNavigate()
-  const { user, loading: authLoading } = useAuth()
-  const [loading, setLoading] = useState(false)
-  const [uploading, setUploading] = useState(false)
   const [formData, setFormData] = useState({
     title: '',
     location: '',
@@ -26,13 +19,6 @@ export default function ListPropertyPage() {
   })
   const [imageFiles, setImageFiles] = useState([])
   const [amenityInput, setAmenityInput] = useState('')
-
-  useEffect(() => {
-    if (!authLoading && !user) {
-      toast.error('Please sign in to list a property')
-      navigate('/login?redirect=/list-property')
-    }
-  }, [authLoading, user, navigate])
 
   const handleChange = (e) => {
     const { name, value } = e.target
@@ -75,72 +61,9 @@ export default function ListPropertyPage() {
     })
   }
 
-  const uploadImages = async (code) => {
-    if (imageFiles.length === 0) return []
-    const urls = []
-    for (let i = 0; i < imageFiles.length; i++) {
-      const { file } = imageFiles[i]
-      const ext = (file.name.split('.').pop() || 'jpg').toLowerCase()
-      const path = `${code}_${i + 1}.${ext}`
-      const { error } = await supabase.storage
-        .from('condo-images')
-        .upload(path, file, { cacheControl: '3600', upsert: true })
-      if (error) {
-        console.error('Upload error:', error)
-        continue
-      }
-      const { data } = supabase.storage.from('condo-images').getPublicUrl(path)
-      urls.push(data.publicUrl)
-    }
-    return urls
-  }
-
-  const handleSubmit = async (e) => {
+  const handleSubmit = (e) => {
     e.preventDefault()
-    if (!user) return
-    if (imageFiles.length === 0) {
-      toast.error('Please add at least one image')
-      return
-    }
-
-    setLoading(true)
-    setUploading(true)
-    try {
-      const code = crypto.randomUUID().split('-')[0].toUpperCase().slice(0, 6)
-      const imageUrls = await uploadImages(code)
-      setUploading(false)
-
-      if (imageUrls.length === 0) {
-        throw new Error('All image uploads failed. Please try again.')
-      }
-
-      const { error: condoError } = await supabase.from('condos').insert({
-        title: formData.title,
-        location: formData.location,
-        bedroom_count: Number(formData.bedroom_count),
-        bathroom_count: Number(formData.bathroom_count),
-        max_guests: Number(formData.max_guests),
-        square_meters: Number(formData.square_meters),
-        price_per_night: Number(formData.price_per_night),
-        amenities: formData.amenities,
-        description: formData.description,
-        images: imageUrls,
-        code,
-        owner_id: user.id,
-        status: 'unavailable',
-      }).select().single()
-
-      if (condoError) throw condoError
-
-      toast.success('Property submitted! An admin will review it shortly.')
-      navigate('/condos')
-    } catch (err) {
-      console.error('List property error:', err)
-      toast.error(err.message || 'Failed to list property.')
-    } finally {
-      setLoading(false)
-      setUploading(false)
-    }
+    toast.success('Property listing is coming soon. Please contact us in the meantime.')
   }
 
   return (
@@ -287,16 +210,9 @@ export default function ListPropertyPage() {
 
             <button
               type="submit"
-              disabled={loading}
-              className="w-full bg-[#2d568e] text-white py-3 rounded-xl font-semibold hover:bg-[#1e3a5f] transition disabled:opacity-50 flex items-center justify-center gap-2 text-sm"
+              className="w-full bg-[#2d568e] text-white py-3 rounded-xl font-semibold hover:bg-[#1e3a5f] transition flex items-center justify-center gap-2 text-sm"
             >
-              {uploading ? (
-                <><Loader2 size={16} className="animate-spin" />Uploading images...</>
-              ) : loading ? (
-                <><Loader2 size={16} className="animate-spin" />Processing...</>
-              ) : (
-                <><Upload size={16} />Submit Property</>
-              )}
+              <Upload size={16} />Submit Property
             </button>
           </form>
         </div>

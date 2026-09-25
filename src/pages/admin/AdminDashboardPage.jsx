@@ -4,16 +4,9 @@ import { motion, AnimatePresence } from 'framer-motion'
 import { useTheme } from "../../context/ThemeContext";
 import { useAuth } from "../../context/AuthContext";
 import {
-  Moon, Sun, CalendarDays, DoorOpen, LogOut, Building2,
-  Paintbrush, LayoutDashboard, ScrollText, ArrowLeft,
+  Moon, Sun, LogOut, ScrollText, ArrowLeft,
 } from 'lucide-react'
-import toast from "react-hot-toast";
 import AdminSidebar from '../../components/admin/AdminSidebar'
-import BookingsList from '../../components/admin/bookings/BookingsList'
-import CalendarView from '../../components/admin/calendar/CalendarView'
-import CondosManagement from '../../components/admin/condos/CondosManagement'
-import HousekeepingManagement from '../../components/admin/housekeeping/HousekeepingManagement'
-import AccountingManagement from '../../components/admin/accounting/AccountingManagement'
 import RegistryPage from '../../components/admin/registry/RegistryPage'
 
 function PageTransition({ children, tabKey }) {
@@ -36,7 +29,7 @@ export default function AdminDashboardPage() {
   const { isDark, toggleTheme } = useTheme()
   const navigate = useNavigate()
 
-  const [activeTab, setActiveTab] = useState('bookings')
+  const [activeTab, setActiveTab] = useState('registry')
   const [sidebarCollapsed, setSidebarCollapsed] = useState(true)
   const [adminUser, setAdminUser] = useState(null)
   const [showProfileMenu, setShowProfileMenu] = useState(false)
@@ -82,24 +75,14 @@ export default function AdminDashboardPage() {
   }, [resetTimeout])
 
   const tabIcons = {
-    bookings: CalendarDays,
-    listings: Building2,
-    calendar: DoorOpen,
     registry: ScrollText,
-    housekeeping: Paintbrush,
-    accounting: LayoutDashboard,
   }
 
   const tabTitles = {
-    bookings: 'Bookings Management',
-    listings: 'Listings Management',
-    calendar: 'Calendar',
     registry: 'Registry',
-    housekeeping: 'Housekeeping',
-    accounting: 'Accounting',
   }
 
-  const Icon = tabIcons[activeTab] || LayoutDashboard
+  const Icon = tabIcons[activeTab] || ScrollText
 
   const sidebarLeftOffset = 12
   const sidebarCollapsedWidth = 56
@@ -240,36 +223,11 @@ export default function AdminDashboardPage() {
               }
             >
               <AnimatePresence mode="wait">
-                {activeTab === 'bookings' && (
-                  <PageTransition tabKey="bookings">
-                    <BookingsList searchTerm="" />
-                  </PageTransition>
-                )}
-                {activeTab === 'calendar' && (
-                  <PageTransition tabKey="calendar">
-                    <CalendarView />
-                  </PageTransition>
-                )}
-                {activeTab === 'listings' && (
-                  <PageTransition tabKey="listings">
-                    <CondosManagement />
-                  </PageTransition>
-                )}
                 {activeTab === 'registry' && (
                   <PageTransition tabKey="registry">
                     <div className="absolute inset-6 min-h-0 flex flex-col">
                       <RegistryPage />
                     </div>
-                  </PageTransition>
-                )}
-                {activeTab === 'housekeeping' && (
-                  <PageTransition tabKey="housekeeping">
-                    <HousekeepingManagement />
-                  </PageTransition>
-                )}
-                {activeTab === 'accounting' && (
-                  <PageTransition tabKey="accounting">
-                    <AccountingManagement />
                   </PageTransition>
                 )}
               </AnimatePresence>

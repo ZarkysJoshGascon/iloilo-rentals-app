@@ -20,33 +20,7 @@ export default function LoginPage() {
     redirectHandled.current = true
 
     const setupUser = async () => {
-      const avatarUrl = user.user_metadata?.avatar_url || null
-      const fullName = user.user_metadata?.full_name || ''
-      const firstName = fullName.split(' ')[0] || ''
-      const lastName = fullName.split(' ').slice(1).join(' ') || ''
-
       try {
-        await supabase.from('user_profiles').upsert({
-          id: user.id,
-          avatar_url: avatarUrl,
-        }, { onConflict: 'id' })
-
-        const { data: existingLead } = await supabase
-          .from('leads')
-          .select('id')
-          .eq('email', user.email)
-          .maybeSingle()
-
-        if (!existingLead) {
-          await supabase.from('leads').insert({
-            email: user.email,
-            first_name: firstName,
-            last_name: lastName,
-            notes: 'Auto-created from user sign-in',
-            status: 'new',
-          }, { onConflict: 'email' })
-        }
-
         const { data: adminData } = await supabase
           .from('admin_users')
           .select('user_id')
@@ -64,6 +38,8 @@ export default function LoginPage() {
 
         if (safeRedirect) {
           navigate(safeRedirect)
+        } else if (adminData) {
+          navigate('/admin')
         } else {
           navigate('/')
         }

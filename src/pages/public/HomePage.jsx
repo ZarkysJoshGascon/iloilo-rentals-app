@@ -3,7 +3,7 @@ import { useNavigate } from 'react-router-dom'
 import { motion, useScroll, useTransform, AnimatePresence } from 'framer-motion'
 import Footer from '../../components/layout/Footer'
 import {
-  ChevronRight, Phone, ArrowRight, Search,
+  Phone, ArrowRight,
   Building2, Sparkles, TrendingUp, Users, CheckCircle2, Star, Quote,
 } from 'lucide-react'
 
@@ -112,8 +112,6 @@ const TESTIMONIALS = [
 ]
 
 const ACTIONS = [
-  { key: 'book', label: 'Book', title: 'Book a stay', description: 'Browse premium condos across Iloilo and book directly.', icon: Search, to: '/condos' },
-  { key: 'list', label: 'List Property', title: 'List your property', description: 'Add your condo to our portfolio and let us handle everything.', icon: Building2, to: '/list-property' },
   { key: 'buy', label: 'Buy Property', title: 'Buy a property', description: 'Looking to invest? Our team matches serious buyers with sellers.', icon: TrendingUp, to: '/contact' },
 ]
 
@@ -183,9 +181,6 @@ export default function HomePage() {
   const topRowX = useTransform(easedExitProgress, (p) => -p * 200000)
   const bottomRowX = useTransform(easedExitProgress, (p) => p * 200000)
 
-  // Style applied to every element that could leak horizontal width.
-  // clipPath + contain:strict forces the browser to treat the box as fully
-  // self-contained — nothing inside can affect page layout width.
   const clipBox = {
     width: '100vw',
     maxWidth: '100vw',
@@ -280,12 +275,6 @@ export default function HomePage() {
                   </p>
                   <div className="flex flex-col sm:flex-row flex-wrap gap-3 md:gap-4 justify-center md:justify-start">
                     <button
-                      onClick={() => navigate('/condos')}
-                      className="bg-[#2d568e] text-white px-5 sm:px-7 py-3 sm:py-4 rounded-2xl font-bold text-sm hover:bg-[#1e3a5f] transition-all duration-300 flex items-center justify-center gap-2 shadow-xl shadow-[#2d568e]/20 hover:scale-105 active:scale-95 w-full sm:w-auto"
-                    >
-                      <Search size={18} /> Explore Listings <ChevronRight size={18} />
-                    </button>
-                    <button
                       onClick={() => navigate('/contact')}
                       className="border-2 border-[#2d568e] text-[#2d568e] px-5 sm:px-7 py-3 sm:py-4 rounded-2xl font-bold text-sm hover:bg-[#2d568e]/5 transition-all duration-300 hover:scale-105 active:scale-95 w-full sm:w-auto"
                     >
@@ -344,15 +333,12 @@ export default function HomePage() {
           animation-play-state: paused;
         }
 
-        /* Mobile: JS parallax uses transform on this element. */
         @media (max-width: 767px) {
           .hole-image-bg {
             will-change: transform;
           }
         }
 
-        /* Desktop: CSS-only parallax. No will-change or transform here,
-           or background-attachment: fixed degrades to scroll. */
         @media (min-width: 768px) {
           .hole-image-bg {
             background-attachment: fixed;
@@ -436,9 +422,7 @@ function ServiceSection({ service, Icon, isEven }) {
 }
 
 // ============================================================
-// HOLE SECTION — "A View From Here"
-// Desktop: CSS parallax (background-attachment: fixed, no will-change)
-// Mobile:  JS parallax (transform: translate3d on scroll)
+// HOLE SECTION
 // ============================================================
 function HoleSection() {
   const sectionRef = useRef(null)
@@ -682,12 +666,6 @@ function FinalCTA({ navigate }) {
             Whether you own one unit or ten, Iloilo Rentals manages the guests, cleaning, and payouts so you don't have to.
           </p>
           <div className="flex flex-col sm:flex-row flex-wrap gap-4 justify-center">
-            <button
-              onClick={() => navigate('/list-property')}
-              className="bg-white text-[#2d568e] px-8 py-4 rounded-2xl font-bold text-sm hover:bg-gray-100 transition-all duration-500 inline-flex items-center justify-center gap-2 shadow-xl hover:scale-105"
-            >
-              <Building2 size={18} /> List Your Property
-            </button>
             <button
               onClick={() => navigate('/contact')}
               className="bg-transparent border-2 border-white/40 text-white px-8 py-4 rounded-2xl font-bold text-sm hover:bg-white/10 transition-all duration-500 inline-flex items-center justify-center gap-2 hover:scale-105"

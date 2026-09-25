@@ -1,9 +1,6 @@
 import { useNavigate } from 'react-router-dom'
 import { useAuth } from "../../context/AuthContext";
-import {
-  CalendarDays, DoorOpen, LogOut, Building2,
-  Paintbrush, LayoutDashboard, ScrollText
-} from 'lucide-react'
+import { LogOut, ScrollText } from 'lucide-react'
 import { motion } from 'framer-motion'
 import toast from 'react-hot-toast'
 
@@ -18,12 +15,7 @@ export default function AdminSidebar({ activeTab, setActiveTab, collapsed, onMou
   }
 
   const navItems = [
-    { id: 'bookings', label: 'Bookings', icon: CalendarDays },
-    { id: 'listings', label: 'Listings', icon: Building2 },
-    { id: 'calendar', label: 'Calendar', icon: DoorOpen },
     { id: 'registry', label: 'Registry', icon: ScrollText },
-    { id: 'housekeeping', label: 'Housekeeping', icon: Paintbrush },
-    { id: 'accounting', label: 'Accounting', icon: LayoutDashboard },
   ]
 
   return (

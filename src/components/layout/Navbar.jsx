@@ -2,38 +2,20 @@
 import { useState, useEffect, useRef } from 'react'
 import { Link, useNavigate, useLocation } from 'react-router-dom'
 import { motion, AnimatePresence } from 'framer-motion'
-import { useCurrency } from "../../context/CurrencyContext";
 import { useAuth } from "../../context/AuthContext";
-import { Menu, X, User, Globe, Home, Building, Calendar, Phone, Info, FileText, Shield, LogOut } from 'lucide-react'
-
-const CURRENCIES = {
-  PHP: { symbol: '₱', name: 'PHP' },
-  USD: { symbol: '$', name: 'USD' },
-  EUR: { symbol: '€', name: 'EUR' },
-  GBP: { symbol: '£', name: 'GBP' },
-  JPY: { symbol: '¥', name: 'JPY' },
-  AUD: { symbol: 'A$', name: 'AUD' },
-  CAD: { symbol: 'C$', name: 'CAD' },
-  SGD: { symbol: 'S$', name: 'SGD' },
-  KRW: { symbol: '₩', name: 'KRW' },
-}
+import { Menu, X, User, Home, Phone, Info, FileText, Shield, LogOut } from 'lucide-react'
 
 export default function Navbar() {
   const { user, signOut } = useAuth()
-  const { currency, changeCurrency } = useCurrency()
   const navigate = useNavigate()
   const location = useLocation()
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false)
-  const [currencyOpen, setCurrencyOpen] = useState(false)
   const navRef = useRef(null)
   const [indicatorStyle, setIndicatorStyle] = useState({ left: 0, width: 0 })
   const [userKey, setUserKey] = useState(0)
 
   const desktopLinks = [
     { path: '/', label: 'Home', icon: Home },
-    { path: '/condos', label: 'Listings', icon: Building },
-    ...(user ? [{ path: '/my-bookings', label: 'My Bookings', icon: Calendar }] : []),
-    ...(user ? [{ path: '/list-property', label: 'List Property', icon: Building }] : []),
     { path: '/about', label: 'About', icon: Info },
     { path: '/contact', label: 'Contact', icon: Phone },
     { path: '/terms', label: 'Terms', icon: FileText },
@@ -115,25 +97,6 @@ export default function Navbar() {
 
             <div className="w-px h-7 bg-white/15 mx-2" />
 
-            <div className="relative">
-              <button onClick={() => setCurrencyOpen(!currencyOpen)} className="px-3 py-2.5 text-white/70 hover:text-white transition-colors flex items-center gap-1.5 rounded-full hover:bg-white/5">
-                <Globe size={15} /><span className="text-sm font-medium">{currency}</span>
-              </button>
-              <AnimatePresence>
-                {currencyOpen && (
-                  <motion.div initial={{ opacity: 0, y: -8, scale: 0.95 }} animate={{ opacity: 1, y: 0, scale: 1 }} exit={{ opacity: 0, y: -8, scale: 0.95 }}
-                    className="absolute top-full right-0 mt-2 bg-[#1a1a2e] backdrop-blur-xl rounded-2xl border border-white/10 shadow-2xl p-2 min-w-[130px]">
-                    {Object.entries(CURRENCIES).map(([code, { symbol }]) => (
-                      <button key={code} onClick={() => { changeCurrency(code); setCurrencyOpen(false) }}
-                        className={`w-full text-left px-3 py-2.5 rounded-xl text-sm transition-all ${currency === code ? 'bg-white/10 text-white' : 'text-white/60 hover:text-white hover:bg-white/5'}`}>
-                        {symbol} {code}
-                      </button>
-                    ))}
-                  </motion.div>
-                )}
-              </AnimatePresence>
-            </div>
-
             <div className="pr-2">
               {user ? (
                 <div className="flex items-center gap-2">
@@ -170,26 +133,11 @@ export default function Navbar() {
               </div>
             </Link>
 
-            <Link
-              to="/condos"
-              className={`flex items-center gap-1.5 px-3 py-2 text-xs font-medium rounded-full transition-all duration-300 ${
-                isActive('/condos') ? 'bg-[#2d568e] text-white' : 'text-gray-600 hover:text-gray-900 hover:bg-gray-100'
-              }`}
-            >
-              <Building size={14} />
-              <span>Condos</span>
-            </Link>
-
             {user ? (
-              <Link
-                to="/my-bookings"
-                className={`flex items-center gap-1.5 px-3 py-2 text-xs font-medium rounded-full transition-all duration-300 ${
-                  isActive('/my-bookings') ? 'bg-[#2d568e] text-white' : 'text-gray-600 hover:text-gray-900 hover:bg-gray-100'
-                }`}
-              >
-                <Calendar size={14} />
-                <span>Bookings</span>
-              </Link>
+              <div className="flex items-center gap-1.5 px-3 py-2 text-xs font-medium text-gray-600">
+                <User size={14} />
+                <span className="truncate max-w-[100px]">{userName}</span>
+              </div>
             ) : (
               <Link
                 to="/login"
@@ -260,25 +208,6 @@ export default function Navbar() {
                     </Link>
                   )
                 })}
-
-                <div className="pt-3 mt-3 border-t border-gray-100 space-y-3">
-                  <p className="text-xs font-semibold text-gray-400 uppercase tracking-wider px-1">Currency</p>
-                  <div className="flex flex-wrap gap-2 px-1">
-                    {Object.entries(CURRENCIES).map(([code, { symbol }]) => (
-                      <button
-                        key={code}
-                        onClick={() => { changeCurrency(code); setMobileMenuOpen(false) }}
-                        className={`px-3 py-2 rounded-lg text-xs font-medium transition-all ${
-                          currency === code
-                            ? 'bg-[#2d568e] text-white'
-                            : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
-                        }`}
-                      >
-                        {symbol} {code}
-                      </button>
-                    ))}
-                  </div>
-                </div>
 
                 <div className="pt-3 mt-3 border-t border-gray-100">
                   {user ? (
