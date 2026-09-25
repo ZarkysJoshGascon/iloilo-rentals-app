@@ -7,7 +7,6 @@ import {
   ChevronRight,
 } from 'lucide-react'
 import toast from 'react-hot-toast'
-import { Card } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { Input } from '@/components/ui/input'
@@ -19,7 +18,7 @@ import {
 import { supabase } from '@/lib/supabase'
 import {
   listUnits, updateUnit, updateContract, createUnit, createOwner, deleteUnit,
-  getUnitInteractions, updateInteraction, deleteInteraction, formatDate,
+  updateInteraction, deleteInteraction, formatDate,
 } from '@/lib/registry'
 import { logAudit } from '@/lib/auditLog'
 import { cn } from '@/lib/utils'
@@ -114,6 +113,42 @@ function findDuplicateChannels(listings) {
   return [...dupes]
 }
 
+function formatDaysAgo(days) {
+  const abs = Math.abs(days)
+  if (abs === 0) return 'today'
+  if (abs === 1) return '1 day'
+  if (abs < 30) return `${abs} days`
+  const months = Math.round(abs / 30)
+  if (months === 1) return '1 month'
+  if (months < 12) return `${months} months`
+  const years = Math.round(abs / 365)
+  return years === 1 ? '1 year' : `${years} years`
+}
+
+function getExpiryInfo(unit) {
+  if (!unit?.expiry_date) return { status: 'none', days: null, date: null }
+  const today = new Date(); today.setHours(0, 0, 0, 0)
+  const expiry = new Date(unit.expiry_date); expiry.setHours(0, 0, 0, 0)
+  const days = Math.round((expiry - today) / 86400000)
+  if (days < 0) return { status: 'expired', days, date: unit.expiry_date }
+  if (days <= 60) return { status: 'soon', days, date: unit.expiry_date }
+  return { status: 'ok', days, date: unit.expiry_date }
+}
+
+function getExpiryWarnings(units) {
+  if (!Array.isArray(units)) return { expired: [], soon: [] }
+  const expired = []
+  const soon = []
+  for (const u of units) {
+    const info = getExpiryInfo(u)
+    if (info.status === 'expired') expired.push({ unit: u, ...info })
+    else if (info.status === 'soon') soon.push({ unit: u, ...info })
+  }
+  expired.sort((a, b) => b.days - a.days)
+  soon.sort((a, b) => a.days - b.days)
+  return { expired, soon }
+}
+
 const CRITICAL = 'critical'
 const WARNING = 'warning'
 const INFO = 'info'
@@ -170,40 +205,6 @@ function getMissingFields(unit) {
   return { critical, warnings, ota, total, score }
 }
 
-function getContractOverdue(unit) {
-  if (!unit?.expiry_date) return null
-  const expiry = new Date(unit.expiry_date); expiry.setHours(0, 0, 0, 0)
-  const today = new Date(); today.setHours(0, 0, 0, 0)
-  const days = Math.round((today - expiry) / 86400000)
-  return days > 0 ? { kind: 'contract', daysOverdue: days, date: unit.expiry_date } : null
-}
-
-function getFollowUpOverdue(unit) {
-  const d = unit?.next_follow_up_date
-  if (!d) return null
-  const due = new Date(d); due.setHours(0, 0, 0, 0)
-  const today = new Date(); today.setHours(0, 0, 0, 0)
-  const days = Math.round((today - due) / 86400000)
-  return days > 0 ? { kind: 'follow_up', daysOverdue: days, date: d } : null
-}
-
-function getOverdueUnits(units) {
-  if (!Array.isArray(units)) return []
-  const out = []
-  for (const u of units) {
-    const items = []
-    const c = getContractOverdue(u); if (c) items.push(c)
-    const f = getFollowUpOverdue(u); if (f) items.push(f)
-    if (items.length > 0) out.push({ unit: u, overdue: items })
-  }
-  out.sort((a, b) => {
-    const aMax = Math.max(...a.overdue.map((o) => o.daysOverdue))
-    const bMax = Math.max(...b.overdue.map((o) => o.daysOverdue))
-    return bMax - aMax
-  })
-  return out
-}
-
 // ============================================================
 // AVATARS
 // ============================================================
@@ -247,7 +248,7 @@ function UnitAvatar({ unit, size = 'md' }) {
 }
 
 // ============================================================
-// BADGES
+// BADGES — same style language as StatusBadge
 // ============================================================
 function StatusBadge({ status, className }) {
   const config = STATUS_CONFIG[status]
@@ -255,32 +256,35 @@ function StatusBadge({ status, className }) {
   return <Badge className={cn('text-[11px] font-semibold rounded-full px-2.5 py-0.5', config.className, className)}>{config.label}</Badge>
 }
 
-function ContractBadge({ expiryDate }) {
+function ExpiryBadge({ expiryDate }) {
   if (!expiryDate) return null
-  const now = new Date(); now.setHours(0, 0, 0, 0)
+  const today = new Date(); today.setHours(0, 0, 0, 0)
   const expiry = new Date(expiryDate); expiry.setHours(0, 0, 0, 0)
-  const days = Math.round((expiry - now) / 86400000)
+  const days = Math.round((expiry - today) / 86400000)
 
-  let className
-  let label
-
+  let label, className
   if (days < 0) {
-    const abs = Math.abs(days)
-    label = abs === 1 ? 'Expired yesterday' : `Overdue ${abs}d`
-    className = 'bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-300 border-red-200 dark:border-red-800'
+    label = `Expired ${formatDaysAgo(Math.abs(days))} ago`
+    className = 'bg-red-600 text-white hover:bg-red-600 border-0'
   } else if (days === 0) {
     label = 'Expires today'
-    className = 'bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-300 border-amber-200 dark:border-amber-800'
+    className = 'bg-red-600 text-white hover:bg-red-600 border-0'
+  } else if (days <= 14) {
+    label = `Expires in ${days}d`
+    className = 'bg-red-600 text-white hover:bg-red-600 border-0'
   } else if (days <= 30) {
     label = `Expires in ${days}d`
-    className = 'bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-300 border-amber-200 dark:border-amber-800'
+    className = 'bg-amber-600 text-white hover:bg-amber-600 border-0'
+  } else if (days <= 60) {
+    label = `Expires in ${days}d`
+    className = 'bg-blue-600 text-white hover:bg-blue-600 border-0'
   } else {
     return null
   }
 
   return (
     <div className="px-1.5 pt-1">
-      <Badge variant="outline" className={cn('text-[10px] font-semibold rounded-full px-2 py-0.5', className)}>{label}</Badge>
+      <Badge className={cn('text-[11px] font-semibold rounded-full px-2.5 py-0.5', className)}>{label}</Badge>
     </div>
   )
 }
@@ -351,15 +355,11 @@ function SortHead({ field, children, sortField, sortDir, onSort, align = 'left' 
 // ============================================================
 // EDITABLE FIELD
 // ============================================================
-function EditableField({ label, value, type = 'text', options, onSave, actionHref, actionIcon: ActionIcon, actionTitle, auditTag, registerRef }) {
+function EditableField({ label, value, type = 'text', options, onSave, actionHref, actionIcon: ActionIcon, actionTitle, auditTag }) {
   const [draft, setDraft] = useState(value ?? '')
   const [status, setStatus] = useState('idle')
-  const inputRef = useRef(null)
 
   useEffect(() => { setDraft(value ?? '') }, [value])
-  useEffect(() => {
-    if (registerRef && inputRef.current) registerRef(inputRef.current)
-  }, [registerRef])
 
   const friendlyError = (err, attempted) => {
     const msg = err?.message || ''
@@ -404,7 +404,6 @@ function EditableField({ label, value, type = 'text', options, onSave, actionHre
           </Select>
         ) : (
           <Input
-            ref={inputRef}
             type={type}
             value={draft}
             onChange={(e) => setDraft(e.target.value)}
@@ -429,15 +428,12 @@ function EditableField({ label, value, type = 'text', options, onSave, actionHre
 // ============================================================
 // SECTION CARD
 // ============================================================
-function SectionCard({ title, icon: Icon, children, className, action }) {
+function SectionCard({ title, icon: Icon, children, className }) {
   return (
     <div className={cn('rounded-md bg-card border border-border overflow-hidden', className)}>
-      <div className="flex items-center justify-between gap-2 px-3 py-2 border-b border-border bg-muted/30">
-        <div className="flex items-center gap-2 min-w-0">
-          {Icon && <Icon size={13} className="text-muted-foreground flex-shrink-0" />}
-          <h4 className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground truncate">{title}</h4>
-        </div>
-        {action}
+      <div className="flex items-center gap-2 px-3 py-2 border-b border-border bg-muted/30">
+        {Icon && <Icon size={13} className="text-muted-foreground flex-shrink-0" />}
+        <h4 className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground">{title}</h4>
       </div>
       <div className="p-3 space-y-0.5">{children}</div>
     </div>
@@ -610,238 +606,253 @@ function OtaEditor({ unit, onSave, channelOptions = [] }) {
 }
 
 // ============================================================
-// MISSING FIELDS CARD
+// WARNING CHIP + DROPDOWN
 // ============================================================
-function MissingFieldsCard({ missing, onFieldClick }) {
-  if (!missing || missing.total === 0) return null
-  const groups = [
-    { key: 'critical', label: 'Critical', items: missing.critical, tone: 'red' },
-    { key: 'warnings', label: 'Warnings', items: missing.warnings, tone: 'amber' },
-    { key: 'ota',      label: 'OTA Channels', items: missing.ota, tone: 'amber' },
-  ].filter((g) => g.items.length > 0)
+function WarningChip({ icon: Icon, label, count, active, onClick, children }) {
   return (
-    <div className="rounded-md border border-amber-200 dark:border-amber-800 bg-amber-50/60 dark:bg-amber-900/10 overflow-hidden">
-      <div className="flex items-center gap-2 px-3 py-2 border-b border-amber-200 dark:border-amber-800 bg-amber-100/50 dark:bg-amber-900/20">
-        <AlertTriangle size={13} className="text-amber-700 dark:text-amber-400 flex-shrink-0" />
-        <h4 className="text-[10px] font-bold uppercase tracking-wider text-amber-800 dark:text-amber-300">Missing Information · {missing.total}</h4>
-      </div>
-      <div className="p-2 space-y-2">
-        {groups.map((g) => (
-          <div key={g.key}>
-            <p className="text-[10px] uppercase tracking-wider font-bold text-muted-foreground px-1 mb-1">{g.label}</p>
-            <div className="space-y-0.5">
-              {g.items.map((it) => (
-                <button key={it.key} type="button" onClick={() => onFieldClick?.(it)}
-                  className={cn('w-full flex items-center gap-2 px-2 py-1.5 rounded text-xs text-left transition-colors', 'hover:bg-amber-100/70 dark:hover:bg-amber-900/30',
-                    g.tone === 'red' ? 'text-red-700 dark:text-red-400' : 'text-amber-800 dark:text-amber-300')}>
-                  <AlertTriangle size={11} className={cn('flex-shrink-0', it.severity === 'info' && 'opacity-70')} />
-                  <span className="flex-1 min-w-0 truncate">{it.label}</span>
-                  <ChevronRight size={11} className="flex-shrink-0 opacity-50" />
-                </button>
-              ))}
-            </div>
-          </div>
-        ))}
-      </div>
+    <div className="relative">
+      <button
+        type="button"
+        onClick={onClick}
+        className={cn(
+          'inline-flex items-center gap-2 h-8 px-3 rounded-lg text-xs font-medium border transition-colors',
+          active
+            ? 'bg-foreground text-background border-foreground'
+            : 'bg-card text-foreground border-border hover:bg-muted'
+        )}
+      >
+        <Icon size={13} className={active ? 'opacity-90' : 'opacity-60'} />
+        <span>{label}</span>
+        <span
+          className={cn(
+            'min-w-[20px] h-[18px] inline-flex items-center justify-center px-1.5 rounded text-[10px] font-semibold tabular-nums',
+            active ? 'bg-background/20' : 'bg-muted'
+          )}
+        >
+          {count}
+        </span>
+      </button>
+      {children}
     </div>
   )
 }
 
-// ============================================================
-// WARNINGS STRIP
-// ============================================================
-function WarningsStrip({
-  missingUnits,
-  overdueCount,
-  overdueUnits,
-  onSelectUnit,
-}) {
-  const [missingOpen, setMissingOpen] = useState(false)
-  const [overdueOpen, setOverdueOpen] = useState(false)
+function DropdownPanel({ title, subtitle, onClose, children }) {
+  return (
+    <motion.div
+      initial={{ opacity: 0, y: -4 }}
+      animate={{ opacity: 1, y: 0 }}
+      exit={{ opacity: 0, y: -4 }}
+      transition={{ duration: 0.12 }}
+      className="absolute right-0 top-full mt-2 w-[420px] max-h-[520px] bg-popover border border-border rounded-lg shadow-lg z-50 overflow-hidden flex flex-col"
+    >
+      <div className="flex items-start justify-between gap-3 px-4 py-3 border-b border-border">
+        <div className="min-w-0">
+          <p className="text-xs font-semibold text-foreground">{title}</p>
+          <p className="text-[10px] text-muted-foreground mt-0.5">{subtitle}</p>
+        </div>
+        <button
+          type="button"
+          onClick={onClose}
+          className="p-1 -m-1 rounded hover:bg-muted text-muted-foreground"
+        >
+          <X size={12} />
+        </button>
+      </div>
+      <div className="flex-1 overflow-y-auto">{children}</div>
+    </motion.div>
+  )
+}
+
+function SectionHeader({ label, tone, count }) {
+  const color = tone === 'red'
+    ? 'text-red-600 dark:text-red-400'
+    : 'text-amber-600 dark:text-amber-400'
+  const dot = tone === 'red' ? 'bg-red-500' : 'bg-amber-500'
+  return (
+    <div className="sticky top-0 z-10 flex items-center gap-2 px-4 py-2 bg-muted/40 border-b border-border">
+      <span className={cn('w-1.5 h-1.5 rounded-full', dot)} />
+      <span className={cn('text-[10px] font-semibold uppercase tracking-wider', color)}>
+        {label}
+      </span>
+      <span className="ml-auto text-[10px] text-muted-foreground tabular-nums">{count}</span>
+    </div>
+  )
+}
+
+function UnitRow({ unit, date, chip, chipTone, onClick }) {
+  const chipClass = chipTone === 'red'
+    ? 'bg-red-600 text-white'
+    : chipTone === 'amber'
+    ? 'bg-amber-600 text-white'
+    : 'bg-blue-600 text-white'
+
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className="w-full text-left px-4 py-2.5 border-b border-border last:border-0 hover:bg-muted/40 transition-colors flex items-center gap-3 group"
+    >
+      <div className="min-w-0 flex-1">
+        <div className="flex items-baseline gap-2">
+          <span className="font-mono text-xs font-semibold text-foreground truncate">
+            {unit.unit_code}
+          </span>
+          <span className="text-[11px] text-muted-foreground truncate">
+            {unit.building}
+          </span>
+        </div>
+        <p className="text-[10px] text-muted-foreground mt-0.5 truncate">
+          {unit.owner_name || 'No owner'}
+          {date ? ` · ${formatDate(date)}` : ''}
+        </p>
+      </div>
+      <span className={cn('inline-flex items-center px-2.5 py-0.5 rounded-full text-[11px] font-semibold whitespace-nowrap flex-shrink-0', chipClass)}>
+        {chip}
+      </span>
+      <ChevronRight size={12} className="text-muted-foreground/40 group-hover:text-muted-foreground transition-colors flex-shrink-0" />
+    </button>
+  )
+}
+
+function WarningsStrip({ missingUnits, expiryWarnings, onSelectUnit }) {
+  const [open, setOpen] = useState(null)
   const wrapRef = useRef(null)
 
+  // Defensive defaults — prevent crashes during first render
+  const safeMissing = Array.isArray(missingUnits) ? missingUnits : []
+  const safeExpiry = (expiryWarnings && Array.isArray(expiryWarnings.expired) && Array.isArray(expiryWarnings.soon))
+    ? expiryWarnings
+    : { expired: [], soon: [] }
+
   useEffect(() => {
-    if (!missingOpen && !overdueOpen) return
-    const h = (e) => {
-      if (wrapRef.current && !wrapRef.current.contains(e.target)) {
-        setMissingOpen(false); setOverdueOpen(false)
-      }
+    if (!open) return
+    const onDown = (e) => {
+      if (wrapRef.current && !wrapRef.current.contains(e.target)) setOpen(null)
     }
-    const k = (e) => { if (e.key === 'Escape') { setMissingOpen(false); setOverdueOpen(false) } }
-    document.addEventListener('mousedown', h)
-    window.addEventListener('keydown', k)
-    return () => { document.removeEventListener('mousedown', h); window.removeEventListener('keydown', k) }
-  }, [missingOpen, overdueOpen])
+    const onKey = (e) => { if (e.key === 'Escape') setOpen(null) }
+    document.addEventListener('mousedown', onDown)
+    window.addEventListener('keydown', onKey)
+    return () => {
+      document.removeEventListener('mousedown', onDown)
+      window.removeEventListener('keydown', onKey)
+    }
+  }, [open])
 
-  const missingCount = missingUnits.length
-  if (missingCount === 0 && overdueCount === 0) return null
+  const missingCount = safeMissing.length
+  const expiredCount = safeExpiry.expired.length
+  const soonCount = safeExpiry.soon.length
+  const expiryCount = expiredCount + soonCount
 
-  const contractOverdue = overdueUnits
-    .map(({ unit, overdue }) => {
-      const item = overdue.find((o) => o.kind === 'contract')
-      return item ? { unit, days: item.daysOverdue, date: item.date } : null
-    })
-    .filter(Boolean)
+  if (missingCount === 0 && expiryCount === 0) return null
 
-  const followUpOverdue = overdueUnits
-    .map(({ unit, overdue }) => {
-      const item = overdue.find((o) => o.kind === 'follow_up')
-      return item ? { unit, days: item.daysOverdue, date: item.date } : null
-    })
-    .filter(Boolean)
+  const toggle = (key) => setOpen((v) => (v === key ? null : key))
 
   return (
-    <div className="inline-flex items-center gap-1.5" ref={wrapRef}>
+    <div className="flex items-center gap-2" ref={wrapRef}>
       {missingCount > 0 && (
-        <div className="relative">
-          <button
-            type="button"
-            onClick={() => { setMissingOpen((v) => !v); setOverdueOpen(false) }}
-            className={cn(
-              'inline-flex items-center gap-2 h-7 px-3 rounded-md text-xs font-medium border transition-colors',
-              missingOpen ? 'bg-foreground text-background border-foreground' : 'bg-card text-foreground border-border hover:bg-muted'
-            )}
-          >
-            <AlertTriangle size={12} className="opacity-70" />
-            <span>Units with missing fields</span>
-            <span className={cn('ml-0.5 px-1.5 rounded tabular-nums text-[11px] font-semibold', missingOpen ? 'bg-background/20' : 'bg-muted')}>
-              {missingCount}
-            </span>
-            <ArrowDown size={11} className={cn('opacity-60 transition-transform', missingOpen && 'rotate-180')} />
-          </button>
-
+        <WarningChip
+          icon={AlertTriangle}
+          label="Missing fields"
+          count={missingCount}
+          active={open === 'missing'}
+          onClick={() => toggle('missing')}
+        >
           <AnimatePresence>
-            {missingOpen && (
-              <motion.div
-                initial={{ opacity: 0, y: -4 }}
-                animate={{ opacity: 1, y: 0 }}
-                exit={{ opacity: 0, y: -4 }}
-                transition={{ duration: 0.12 }}
-                className="absolute right-0 top-full mt-2 w-[440px] max-h-[520px] bg-popover border border-border rounded-lg shadow-lg z-50 overflow-hidden flex flex-col"
+            {open === 'missing' && (
+              <DropdownPanel
+                title="Missing fields"
+                subtitle={`${missingCount} unit${missingCount === 1 ? '' : 's'} with incomplete data`}
+                onClose={() => setOpen(null)}
               >
-                <div className="px-4 py-2.5 border-b border-border bg-muted/30">
-                  <p className="text-[11px] font-semibold text-foreground">Units with missing fields</p>
-                  <p className="text-[10px] text-muted-foreground mt-0.5">
-                    {missingCount} unit{missingCount !== 1 ? 's' : ''} with incomplete data
-                  </p>
-                </div>
-                <div className="flex-1 overflow-y-auto">
-                  {missingUnits.map(({ unit, missing }) => (
-                    <button key={unit.id} type="button"
-                      onClick={() => { onSelectUnit(unit); setMissingOpen(false) }}
-                      className="w-full text-left px-4 py-3 border-b border-border last:border-0 hover:bg-muted/50 transition-colors group">
-                      <div className="flex items-center gap-2 flex-wrap mb-1.5">
-                        <span className="text-xs font-mono font-bold text-foreground truncate">{unit.unit_code}</span>
-                        <span className="text-[10px] text-muted-foreground truncate">{unit.building}</span>
-                        <span className="ml-auto text-[10px] font-semibold text-muted-foreground tabular-nums">
-                          {missing.total} missing
+                {safeMissing.map(({ unit, missing }) => (
+                  <button
+                    key={unit.id}
+                    type="button"
+                    onClick={() => { onSelectUnit(unit); setOpen(null) }}
+                    className="w-full text-left px-4 py-3 border-b border-border last:border-0 hover:bg-muted/40 transition-colors group"
+                  >
+                    <div className="flex items-baseline gap-2 mb-2">
+                      <span className="font-mono text-xs font-semibold text-foreground">
+                        {unit.unit_code}
+                      </span>
+                      <span className="text-[11px] text-muted-foreground truncate">
+                        {unit.building}
+                      </span>
+                      <span className="ml-auto text-[10px] text-muted-foreground tabular-nums">
+                        {missing.total}
+                      </span>
+                    </div>
+                    <div className="flex flex-wrap gap-1">
+                      {[...missing.critical, ...missing.warnings].map((f) => (
+                        <span
+                          key={f.key}
+                          className={cn(
+                            'inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-semibold',
+                            f.severity === 'critical'
+                              ? 'bg-red-600 text-white'
+                              : 'bg-amber-600 text-white'
+                          )}
+                        >
+                          {f.label}
                         </span>
-                      </div>
-                      <div className="flex flex-wrap gap-1">
-                        {[...missing.critical, ...missing.warnings].map((f) => (
-                          <span key={f.key}
-                            className={cn(
-                              'inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-medium',
-                              f.severity === 'critical'
-                                ? 'bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-300'
-                                : 'bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-300'
-                            )}>
-                            {f.label}
-                          </span>
-                        ))}
-                      </div>
-                    </button>
-                  ))}
-                </div>
-              </motion.div>
+                      ))}
+                    </div>
+                  </button>
+                ))}
+              </DropdownPanel>
             )}
           </AnimatePresence>
-        </div>
+        </WarningChip>
       )}
 
-      {overdueCount > 0 && (
-        <div className="relative">
-          <button
-            type="button"
-            onClick={() => { setOverdueOpen((v) => !v); setMissingOpen(false) }}
-            className={cn(
-              'inline-flex items-center gap-2 h-7 px-3 rounded-md text-xs font-medium border transition-colors',
-              overdueOpen ? 'bg-foreground text-background border-foreground' : 'bg-card text-foreground border-border hover:bg-muted'
-            )}
-          >
-            <Clock size={12} className="opacity-70" />
-            <span>Overdue</span>
-            <span className={cn('ml-0.5 px-1.5 rounded tabular-nums text-[11px] font-semibold', overdueOpen ? 'bg-background/20' : 'bg-muted')}>
-              {overdueCount}
-            </span>
-            <ArrowDown size={11} className={cn('opacity-60 transition-transform', overdueOpen && 'rotate-180')} />
-          </button>
-
+      {expiryCount > 0 && (
+        <WarningChip
+          icon={Clock}
+          label="Contract expiry"
+          count={expiryCount}
+          active={open === 'expiry'}
+          onClick={() => toggle('expiry')}
+        >
           <AnimatePresence>
-            {overdueOpen && (
-              <motion.div
-                initial={{ opacity: 0, y: -4 }}
-                animate={{ opacity: 1, y: 0 }}
-                exit={{ opacity: 0, y: -4 }}
-                transition={{ duration: 0.12 }}
-                className="absolute right-0 top-full mt-2 w-[400px] max-h-[480px] bg-popover border border-border rounded-lg shadow-lg z-50 overflow-hidden flex flex-col"
+            {open === 'expiry' && (
+              <DropdownPanel
+                title="Contract expiry"
+                subtitle={`${expiredCount} expired · ${soonCount} expiring soon`}
+                onClose={() => setOpen(null)}
               >
-                <div className="px-4 py-2.5 border-b border-border bg-muted/30">
-                  <p className="text-[11px] font-semibold text-foreground">Overdue Units</p>
-                  <p className="text-[10px] text-muted-foreground mt-0.5">
-                    {overdueCount} unit{overdueCount !== 1 ? 's' : ''} past due
-                  </p>
-                </div>
-                <div className="flex-1 overflow-y-auto">
-                  {contractOverdue.length > 0 && (
-                    <OverdueSection title="Contract expired" items={contractOverdue} tone="red"
-                      onSelect={(u) => { onSelectUnit(u); setOverdueOpen(false) }} />
-                  )}
-                  {followUpOverdue.length > 0 && (
-                    <OverdueSection title="Follow-up overdue" items={followUpOverdue} tone="amber"
-                      onSelect={(u) => { onSelectUnit(u); setOverdueOpen(false) }} />
-                  )}
-                </div>
-              </motion.div>
+                {safeExpiry.expired.length > 0 && (
+                  <SectionHeader label="Expired" tone="red" count={expiredCount} />
+                )}
+                {safeExpiry.expired.map(({ unit, days, date }) => (
+                  <UnitRow
+                    key={unit.id}
+                    unit={unit}
+                    date={date}
+                    chip={`Expired ${formatDaysAgo(Math.abs(days))} ago`}
+                    chipTone="red"
+                    onClick={() => { onSelectUnit(unit); setOpen(null) }}
+                  />
+                ))}
+
+                {safeExpiry.soon.length > 0 && (
+                  <SectionHeader label="Expiring soon" tone="amber" count={soonCount} />
+                )}
+                {safeExpiry.soon.map(({ unit, days, date }) => (
+                  <UnitRow
+                    key={unit.id}
+                    unit={unit}
+                    date={date}
+                    chip={days === 0 ? 'Expires today' : `Expires in ${days} days`}
+                    chipTone="amber"
+                    onClick={() => { onSelectUnit(unit); setOpen(null) }}
+                  />
+                ))}
+              </DropdownPanel>
             )}
           </AnimatePresence>
-        </div>
+        </WarningChip>
       )}
-    </div>
-  )
-}
-
-function OverdueSection({ title, items, tone, onSelect }) {
-  const titleColor = tone === 'red' ? 'text-red-700 dark:text-red-300' : 'text-amber-700 dark:text-amber-300'
-  const dotColor = tone === 'red' ? 'bg-red-500' : 'bg-amber-500'
-  return (
-    <div className="border-b border-border last:border-0">
-      <div className="flex items-center gap-2 px-4 py-2 bg-muted/40 sticky top-0 z-10">
-        <span className={cn('w-1.5 h-1.5 rounded-full', dotColor)} />
-        <span className={cn('text-[10px] font-bold uppercase tracking-wider', titleColor)}>{title}</span>
-        <span className="text-[10px] text-muted-foreground ml-auto tabular-nums">{items.length}</span>
-      </div>
-      {items.map(({ unit, days, date }) => (
-        <button key={unit.id} type="button" onClick={() => onSelect(unit)}
-          className="w-full text-left px-4 py-2.5 border-b border-border last:border-0 hover:bg-muted/50 transition-colors flex items-center justify-between gap-3 group">
-          <div className="min-w-0 flex-1">
-            <div className="flex items-center gap-2 flex-wrap">
-              <span className="text-xs font-mono font-bold text-foreground truncate">{unit.unit_code}</span>
-              <span className="text-[10px] text-muted-foreground truncate">{unit.building}</span>
-            </div>
-            <p className="text-[10px] text-muted-foreground mt-0.5 truncate">
-              {unit.owner_name || 'No owner'} {date ? `· ${formatDate(date)}` : ''}
-            </p>
-          </div>
-          <div className="text-right flex-shrink-0">
-            <span className={cn('inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-bold tabular-nums',
-              tone === 'red' ? 'bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-300' : 'bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-300')}>
-              {days}d late
-            </span>
-          </div>
-          <ChevronRight size={13} className="text-muted-foreground/40 group-hover:text-muted-foreground transition-colors flex-shrink-0" />
-        </button>
-      ))}
     </div>
   )
 }
@@ -994,10 +1005,10 @@ function InteractionRow({ record, onUpdated, onDeleted }) {
   }
 
   const outcomeClasses =
-    record.outcome === 'positive' ? 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-300'
-    : record.outcome === 'negative' ? 'bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-300'
-    : record.outcome === 'no_answer' ? 'bg-gray-100 text-gray-700 dark:bg-gray-700 dark:text-gray-300'
-    : 'bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-300'
+    record.outcome === 'positive' ? 'bg-emerald-600 text-white'
+    : record.outcome === 'negative' ? 'bg-red-600 text-white'
+    : record.outcome === 'no_answer' ? 'bg-gray-500 text-white'
+    : 'bg-amber-600 text-white'
 
   if (editing) {
     return (
@@ -1040,7 +1051,7 @@ function InteractionRow({ record, onUpdated, onDeleted }) {
     <div className="group flex items-start gap-2 px-3 py-2 rounded-md border border-border bg-card hover:bg-muted/40 transition-colors">
       <div className="flex flex-col gap-1 pt-0.5 flex-shrink-0 w-[86px]">
         <span className="text-[10px] uppercase tracking-wider font-bold text-muted-foreground">{record.type}</span>
-        <span className={cn('inline-flex items-center justify-center px-1.5 py-0.5 rounded text-[10px] font-semibold', outcomeClasses)}>
+        <span className={cn('inline-flex items-center justify-center px-2.5 py-0.5 rounded-full text-[11px] font-semibold', outcomeClasses)}>
           {record.outcome}
         </span>
       </div>
@@ -1090,8 +1101,13 @@ function InteractionsSection({ unit, onLogCall, refreshKey = 0 }) {
   const load = useCallback(async () => {
     setLoading(true)
     try {
-      const rows = await getUnitInteractions(unit.id)
-      setItems(rows)
+      const { data, error } = await supabase
+        .from('unit_interactions')
+        .select('*')
+        .eq('unit_id', unit.id)
+        .order('created_at', { ascending: false })
+      if (error) throw error
+      setItems(data || [])
     } catch (err) {
       console.error('Failed to load interactions:', err)
     } finally {
@@ -1149,17 +1165,7 @@ function InteractionsSection({ unit, onLogCall, refreshKey = 0 }) {
 // ============================================================
 // EXPANDED ROW
 // ============================================================
-function ExpandedRow({ unit, onUnitChange, rowRef, channelOptions, missing, onLogCall, onDelete, interactionsRefreshKey }) {
-  const fieldRefs = useRef({})
-
-  const registerRef = useMemo(
-    () => (key) => (el) => {
-      if (el) fieldRefs.current[key] = el
-      else delete fieldRefs.current[key]
-    },
-    []
-  )
-
+function ExpandedRow({ unit, onUnitChange, rowRef, channelOptions, onLogCall, onDelete, interactionsRefreshKey }) {
   const handleUnitField = async (field, value) => {
     await updateUnit(unit.id, { [field]: value })
     onUnitChange({ ...unit, [field]: value })
@@ -1185,35 +1191,12 @@ function ExpandedRow({ unit, onUnitChange, rowRef, channelOptions, missing, onLo
     onUnitChange({ ...unit, photo_url: url })
   }
 
-  const handleMissingClick = (item) => {
-    const map = {
-      unit_code: 'unit_code', building: 'building', unit_type: 'unit_type', marketing_title: 'marketing_title',
-      effective_date: 'effective_date', expiry_date: 'expiry_date',
-      owner: 'owner_name', owner_contact: 'owner_email',
-    }
-    const key = map[item.key] || item.key
-    const el = fieldRefs.current[key]
-    if (el) {
-      el.scrollIntoView({ behavior: 'smooth', block: 'center' })
-      try {
-        el.focus?.()
-      } catch {
-        // Focus may fail on non-focusable elements; safe to ignore
-      }
-    } else if (item.group === 'OTA') {
-      const ota = fieldRefs.current.ota_section
-      if (ota) ota.scrollIntoView({ behavior: 'smooth', block: 'center' })
-    }
-  }
-
   return (
     <tr ref={rowRef} className="bg-muted/40 border-b border-border">
       <td className="p-0 bg-muted/40"></td>
       <td colSpan={7} className="p-0 bg-muted/40">
         <motion.div initial={{ opacity: 0, height: 0 }} animate={{ opacity: 1, height: 'auto' }} transition={{ duration: 0.22, ease: [0.4, 0, 0.2, 1] }} className="overflow-hidden">
           <div className="px-4 py-4 space-y-3">
-            <MissingFieldsCard missing={missing} onFieldClick={handleMissingClick} />
-
             <div className="flex items-center justify-end gap-2">
               <Button variant="outline" size="sm" className="h-7 rounded text-[11px] gap-1.5" onClick={onLogCall}>
                 <PhoneCall size={11} /> Log Interaction
@@ -1227,9 +1210,9 @@ function ExpandedRow({ unit, onUnitChange, rowRef, channelOptions, missing, onLo
               <SectionCard title="Unit" icon={Building2}>
                 <UnitPhotoUpload unit={unit} onSave={handlePhotoSave} />
                 <div className="pt-2 mt-2 border-t border-border space-y-0.5">
-                  <EditableField label="Code" value={unit.unit_code} onSave={(v) => handleUnitField('unit_code', v)} auditTag="unit_code" registerRef={registerRef('unit_code')} />
-                  <EditableField label="Building" value={unit.building} onSave={(v) => handleUnitField('building', v)} auditTag="building" registerRef={registerRef('building')} />
-                  <EditableField label="Type" value={unit.unit_type} options={UNIT_TYPES} onSave={(v) => handleUnitField('unit_type', v)} auditTag="unit_type" registerRef={registerRef('unit_type')} />
+                  <EditableField label="Code" value={unit.unit_code} onSave={(v) => handleUnitField('unit_code', v)} auditTag="unit_code" />
+                  <EditableField label="Building" value={unit.building} onSave={(v) => handleUnitField('building', v)} auditTag="building" />
+                  <EditableField label="Type" value={unit.unit_type} options={UNIT_TYPES} onSave={(v) => handleUnitField('unit_type', v)} auditTag="unit_type" />
                   <EditableField label="Status" value={unit.status} options={STATUS_OPTIONS} onSave={(v) => handleUnitField('status', v)} auditTag="status" />
                 </div>
               </SectionCard>
@@ -1242,29 +1225,27 @@ function ExpandedRow({ unit, onUnitChange, rowRef, channelOptions, missing, onLo
                     <p className="text-[11px] text-muted-foreground truncate">{unit.owner_email || 'No email'}</p>
                   </div>
                 </div>
-                <EditableField label="Email" value={unit.owner_email} type="email" onSave={(v) => handleUnitField('owner_email', v)} actionHref={unit.owner_email ? `mailto:${unit.owner_email}` : null} actionIcon={Mail} actionTitle="Send email" auditTag="owner_email" registerRef={registerRef('owner_email')} />
-                <EditableField label="Phone" value={unit.owner_phone} type="tel" onSave={(v) => handleUnitField('owner_phone', v)} actionHref={unit.owner_phone ? `tel:${unit.owner_phone}` : null} actionIcon={Phone} actionTitle="Call" auditTag="owner_phone" registerRef={registerRef('owner_phone')} />
-                <EditableField label="GC" value={unit.gc_status} options={GC_STATUS_OPTIONS} onSave={(v) => handleUnitField('gc_status', v)} auditTag="gc_status" registerRef={registerRef('gc_status')} />
+                <EditableField label="Email" value={unit.owner_email} type="email" onSave={(v) => handleUnitField('owner_email', v)} actionHref={unit.owner_email ? `mailto:${unit.owner_email}` : null} actionIcon={Mail} actionTitle="Send email" auditTag="owner_email" />
+                <EditableField label="Phone" value={unit.owner_phone} type="tel" onSave={(v) => handleUnitField('owner_phone', v)} actionHref={unit.owner_phone ? `tel:${unit.owner_phone}` : null} actionIcon={Phone} actionTitle="Call" auditTag="owner_phone" />
+                <EditableField label="GC" value={unit.gc_status} options={GC_STATUS_OPTIONS} onSave={(v) => handleUnitField('gc_status', v)} auditTag="gc_status" />
               </SectionCard>
 
               <SectionCard title="Contract" icon={Tag}>
-                <EditableField label="Effective" value={unit.effective_date} type="date" onSave={(v) => handleContractField('effective_date', v)} auditTag="effective_date" registerRef={registerRef('effective_date')} />
-                <EditableField label="Expiry" value={unit.expiry_date} type="date" onSave={(v) => handleContractField('expiry_date', v)} auditTag="expiry_date" registerRef={registerRef('expiry_date')} />
-                <ContractBadge expiryDate={unit.expiry_date} />
-                <EditableField label="Class" value={unit.classification} options={CLASSIFICATION_OPTIONS} onSave={(v) => handleContractField('classification', v)} auditTag="classification" registerRef={registerRef('classification')} />
-                <EditableField label="PDF" value={unit.contract_pdf_url} onSave={(v) => handleContractField('contract_pdf_url', v)} auditTag="contract_pdf_url" registerRef={registerRef('contract_pdf_url')} />
+                <EditableField label="Effective" value={unit.effective_date} type="date" onSave={(v) => handleContractField('effective_date', v)} auditTag="effective_date" />
+                <EditableField label="Expiry" value={unit.expiry_date} type="date" onSave={(v) => handleContractField('expiry_date', v)} auditTag="expiry_date" />
+                <ExpiryBadge expiryDate={unit.expiry_date} />
+                <EditableField label="Class" value={unit.classification} options={CLASSIFICATION_OPTIONS} onSave={(v) => handleContractField('classification', v)} auditTag="classification" />
+                <EditableField label="PDF" value={unit.contract_pdf_url} onSave={(v) => handleContractField('contract_pdf_url', v)} auditTag="contract_pdf_url" />
               </SectionCard>
             </div>
 
             <div className="grid grid-cols-1 lg:grid-cols-3 gap-3">
               <SectionCard title="Marketing" icon={Layers}>
-                <EditableField label="Title" value={unit.marketing_title} onSave={(v) => handleUnitField('marketing_title', v)} auditTag="marketing_title" registerRef={registerRef('marketing_title')} />
+                <EditableField label="Title" value={unit.marketing_title} onSave={(v) => handleUnitField('marketing_title', v)} auditTag="marketing_title" />
                 <EditableField label="Inventory" value={unit.inventory_list} onSave={(v) => handleUnitField('inventory_list', v)} auditTag="inventory_list" />
               </SectionCard>
               <SectionCard title="OTA Channels" icon={Tag} className="lg:col-span-2">
-                <div ref={registerRef('ota_section')}>
-                  <OtaEditor unit={unit} onSave={handleOtaSave} channelOptions={channelOptions} />
-                </div>
+                <OtaEditor unit={unit} onSave={handleOtaSave} channelOptions={channelOptions} />
               </SectionCard>
             </div>
 
@@ -1500,16 +1481,18 @@ function AddUnitModal({ open, onClose, onCreated, existingBuildings, channelOpti
 // CSV EXPORT
 // ============================================================
 function downloadCSV(units, filename) {
-  const headers = ['Building', 'Unit', 'Owner', 'Email', 'Phone', 'Type', 'Status', 'Effective', 'Expiry', 'Marketing Title', 'Missing Fields', 'Overdue']
+  const headers = ['Building', 'Unit', 'Owner', 'Email', 'Phone', 'Type', 'Status', 'Effective', 'Expiry', 'Marketing Title', 'Missing Fields', 'Expiry Warning']
   const rows = units.map((u) => {
     const m = getMissingFields(u)
-    const c = getContractOverdue(u)
-    const f = getFollowUpOverdue(u)
-    const overdueDays = Math.max(c?.daysOverdue || 0, f?.daysOverdue || 0)
+    const exp = getExpiryInfo(u)
+    const expiryLabel =
+      exp.status === 'expired' ? `Expired ${Math.abs(exp.days)}d ago` :
+      exp.status === 'soon' ? `Expires in ${exp.days}d` :
+      ''
     return [
       u.building, u.unit_code, u.owner_name || '', u.owner_email || '', u.owner_phone || '',
       u.unit_type || '', u.status || '', u.effective_date || '', u.expiry_date || '',
-      u.marketing_title || '', m.total, overdueDays > 0 ? `${overdueDays}d` : '',
+      u.marketing_title || '', m.total, expiryLabel,
     ]
   })
   const csv = [headers, ...rows].map((row) => row.map((v) => `"${String(v).replace(/"/g, '""')}"`).join(',')).join('\n')
@@ -1580,7 +1563,7 @@ function FilterPanel({ open, onClose, building, setBuilding, dateFilter, setDate
 }
 
 // ============================================================
-// STATUS PILLS — white bg, text color changes
+// STATUS PILLS
 // ============================================================
 function StatusPills({ statusFilter, onStatusFilter, counts }) {
   const containerRef = useRef(null)
@@ -1690,6 +1673,17 @@ export default function RegistryPage() {
 
   useEffect(() => { fetchUnits(); fetchChannelOptions() }, [fetchUnits, fetchChannelOptions])
 
+  // Realtime
+  useEffect(() => {
+    const channels = [
+      supabase.channel('registry-units').on('postgres_changes', { event: '*', schema: 'public', table: 'units' }, () => fetchUnits()).subscribe(),
+      supabase.channel('registry-contracts').on('postgres_changes', { event: '*', schema: 'public', table: 'contracts' }, () => fetchUnits()).subscribe(),
+      supabase.channel('registry-owners').on('postgres_changes', { event: '*', schema: 'public', table: 'owners' }, () => fetchUnits()).subscribe(),
+      supabase.channel('registry-interactions').on('postgres_changes', { event: '*', schema: 'public', table: 'unit_interactions' }, () => fetchUnits()).subscribe(),
+    ]
+    return () => { channels.forEach((ch) => supabase.removeChannel(ch)) }
+  }, [fetchUnits])
+
   const buildings = useMemo(() => {
     const set = new Set()
     allUnits.forEach((u) => { if (u.building) set.add(u.building) })
@@ -1716,7 +1710,7 @@ export default function RegistryPage() {
     return out
   }, [allUnits, missingMap])
 
-  const overdueList = useMemo(() => getOverdueUnits(allUnits), [allUnits])
+  const expiryWarnings = useMemo(() => getExpiryWarnings(allUnits), [allUnits])
 
   const counts = useMemo(() => {
     const c = { all: allUnits.length, ACTIVE: 0, INACTIVE: 0, IN_PROGRESS: 0, FOR_RENEWAL: 0 }
@@ -1740,9 +1734,7 @@ export default function RegistryPage() {
     const q = debouncedSearch.trim().toLowerCase()
     return allUnits.filter((u) => {
       if (statusFilter !== 'all' && u.status !== statusFilter) return false
-
       if (building !== 'all' && u.building !== building) return false
-
       if (dateFilter !== 'all') {
         const days = u.days_until_expiry
         if (dateFilter === 'no-expiry' && u.expiry_date) return false
@@ -1750,14 +1742,12 @@ export default function RegistryPage() {
         if (dateFilter === 'next30' && !(days !== null && days >= 0 && days <= 30)) return false
         if (dateFilter === 'next90' && !(days !== null && days >= 0 && days <= 90)) return false
       }
-
       if (otaFilter !== 'all') {
         const listings = normalizeOtaListings(u.ota_listings)
         if (otaFilter === 'none' && listings.length > 0) return false
         if (otaFilter === 'missing_names' && !listings.some((l) => !l.name)) return false
         if (otaFilter === 'duplicates' && findDuplicateChannels(listings).length === 0) return false
       }
-
       if (q) {
         const haystack = [u.unit_code, u.owner_name, u.owner_email, u.owner_phone, u.building, u.marketing_title, u.unit_type, u.gc_status]
           .filter(Boolean).join(' ').toLowerCase()
@@ -1870,8 +1860,7 @@ export default function RegistryPage() {
             <StatusPills statusFilter={statusFilter} onStatusFilter={setStatusFilter} counts={counts} />
             <WarningsStrip
               missingUnits={missingUnitsList}
-              overdueCount={overdueList.length}
-              overdueUnits={overdueList}
+              expiryWarnings={expiryWarnings}
               onSelectUnit={handleSelectUnit}
             />
           </div>
@@ -1910,7 +1899,6 @@ export default function RegistryPage() {
                     ) : (
                       sorted.map((unit) => {
                         const isExpanded = expandedId === unit.id
-                        const missing = missingMap.get(unit.id) || { critical: [], warnings: [], ota: [], total: 0, score: 100 }
                         return (
                           <Fragment key={unit.id}>
                             <tr ref={isExpanded ? clickedRowRef : null} onClick={() => setExpandedId(isExpanded ? null : unit.id)}
@@ -1937,7 +1925,7 @@ export default function RegistryPage() {
                             </tr>
                             {isExpanded && (
                               <ExpandedRow unit={unit} onUnitChange={handleUnitUpdate} rowRef={expandedRowRef}
-                                channelOptions={channelOptions} missing={missing}
+                                channelOptions={channelOptions}
                                 onLogCall={() => setLogCallUnit(unit)}
                                 onDelete={() => handleDeleteUnit(unit)}
                                 interactionsRefreshKey={interactionsRefreshKey} />

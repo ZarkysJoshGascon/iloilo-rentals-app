@@ -31,6 +31,13 @@ html {
   scroll-behavior: smooth;
 }
 
+/* Kill the "pan anywhere" behaviour on iOS without breaking
+   background-attachment: fixed on desktop. */
+html, body {
+  overscroll-behavior-x: none;
+  touch-action: pan-y;
+}
+
 body {
   background-color: #2d568e;
   color: #1a202c;
