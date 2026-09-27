@@ -248,7 +248,7 @@ function UnitAvatar({ unit, size = 'md' }) {
 }
 
 // ============================================================
-// BADGES — same style language as StatusBadge
+// BADGES
 // ============================================================
 function StatusBadge({ status, className }) {
   const config = STATUS_CONFIG[status]
@@ -719,7 +719,6 @@ function WarningsStrip({ missingUnits, expiryWarnings, onSelectUnit }) {
   const [open, setOpen] = useState(null)
   const wrapRef = useRef(null)
 
-  // Defensive defaults — prevent crashes during first render
   const safeMissing = Array.isArray(missingUnits) ? missingUnits : []
   const safeExpiry = (expiryWarnings && Array.isArray(expiryWarnings.expired) && Array.isArray(expiryWarnings.soon))
     ? expiryWarnings
@@ -1163,7 +1162,7 @@ function InteractionsSection({ unit, onLogCall, refreshKey = 0 }) {
 }
 
 // ============================================================
-// EXPANDED ROW
+// EXPANDED ROW  ← FIXED (single colSpan, no empty leading cell)
 // ============================================================
 function ExpandedRow({ unit, onUnitChange, rowRef, channelOptions, onLogCall, onDelete, interactionsRefreshKey }) {
   const handleUnitField = async (field, value) => {
@@ -1193,8 +1192,7 @@ function ExpandedRow({ unit, onUnitChange, rowRef, channelOptions, onLogCall, on
 
   return (
     <tr ref={rowRef} className="bg-muted/40 border-b border-border">
-      <td className="p-0 bg-muted/40"></td>
-      <td colSpan={7} className="p-0 bg-muted/40">
+      <td colSpan={8} className="p-0 bg-muted/40">
         <motion.div initial={{ opacity: 0, height: 0 }} animate={{ opacity: 1, height: 'auto' }} transition={{ duration: 0.22, ease: [0.4, 0, 0.2, 1] }} className="overflow-hidden">
           <div className="px-4 py-4 space-y-3">
             <div className="flex items-center justify-end gap-2">

@@ -4,10 +4,11 @@ import { motion, AnimatePresence } from 'framer-motion'
 import { useTheme } from "../../context/ThemeContext";
 import { useAuth } from "../../context/AuthContext";
 import {
-  Moon, Sun, LogOut, ScrollText, ArrowLeft,
+  Moon, Sun, LogOut, ScrollText, ArrowLeft, Calendar,
 } from 'lucide-react'
 import AdminSidebar from '../../components/admin/AdminSidebar'
 import RegistryPage from '../../components/admin/registry/RegistryPage'
+import BookingsPage from '../../components/admin/bookings/BookingsPage'
 
 function PageTransition({ children, tabKey }) {
   return (
@@ -76,10 +77,12 @@ export default function AdminDashboardPage() {
 
   const tabIcons = {
     registry: ScrollText,
+    bookings: Calendar,
   }
 
   const tabTitles = {
     registry: 'Registry',
+    bookings: 'Bookings',
   }
 
   const Icon = tabIcons[activeTab] || ScrollText
@@ -98,7 +101,7 @@ export default function AdminDashboardPage() {
     transition: 'all 0.3s ease',
   }
 
-  const isRegistry = activeTab === 'registry'
+  const isFullHeightTab = activeTab === 'registry' || activeTab === 'bookings'
 
   return (
     <div className="h-screen flex flex-col bg-[#d4deec] dark:bg-gray-900 overflow-hidden transition-colors duration-300">
@@ -217,7 +220,7 @@ export default function AdminDashboardPage() {
 
             <div
               className={
-                isRegistry
+                isFullHeightTab
                   ? 'flex-1 min-h-0 overflow-hidden p-6 relative'
                   : 'flex-1 overflow-auto p-6'
               }
@@ -227,6 +230,13 @@ export default function AdminDashboardPage() {
                   <PageTransition tabKey="registry">
                     <div className="absolute inset-6 min-h-0 flex flex-col">
                       <RegistryPage />
+                    </div>
+                  </PageTransition>
+                )}
+                {activeTab === 'bookings' && (
+                  <PageTransition tabKey="bookings">
+                    <div className="absolute inset-6 min-h-0 flex flex-col">
+                      <BookingsPage />
                     </div>
                   </PageTransition>
                 )}
