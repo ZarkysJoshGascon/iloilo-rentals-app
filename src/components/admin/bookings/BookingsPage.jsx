@@ -1,10 +1,10 @@
-import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import {
   ArrowUpDown, ArrowUp, ArrowDown, Check, Download, Loader2,
   Plus, RefreshCw, Search, SlidersHorizontal, X, Trash2,
   Building2, CheckCircle2, Clock, AlertTriangle, Calendar, User, Wallet,
-  ChevronRight, Edit2,
+  ChevronRight, Edit2, Mail, Phone,
 } from 'lucide-react'
 import toast from 'react-hot-toast'
 import { Button } from '@/components/ui/button'
@@ -61,16 +61,10 @@ const PAYMENT_STATUS_CONFIG = {
   paid: { label: 'Paid', className: 'bg-emerald-600 text-white hover:bg-emerald-600 border-0' },
 }
 
-const COL_WIDTHS = {
-  building: 'w-[160px]',
-  unit: 'w-[130px]',
-  code: 'w-[130px]',
-  dates: 'w-[200px]',
-  total: 'w-[120px]',
-  payment: 'w-[120px]',
-  status: 'w-[130px]',
-  chevron: 'w-[40px]',
-}
+// Row grid — last column fixed so header + rows align perfectly
+const ROW_GRID = 'grid grid-cols-[1.4fr_1fr_1.2fr_1.1fr_1fr_160px] gap-4 items-center'
+
+const PANEL_WIDTH = 448
 
 // ============================================================
 // HELPERS
@@ -203,25 +197,6 @@ function SummaryCards({ bookings }) {
         </motion.div>
       ))}
     </div>
-  )
-}
-
-// ============================================================
-// SORT HEAD
-// ============================================================
-function SortHead({ field, children, sortField, sortDir, onSort, align = 'left' }) {
-  const isActive = sortField === field
-  const alignClass = align === 'center' ? 'text-center' : align === 'right' ? 'text-right' : 'text-left'
-  return (
-    <th className={cn('bg-card px-4 py-2.5 border-b border-border', alignClass)}>
-      <button type="button" onClick={() => onSort(field)}
-        className={cn('inline-flex items-center gap-1 transition-colors duration-150', 'text-[11px] font-bold uppercase tracking-wider',
-          isActive ? 'text-primary' : 'text-muted-foreground hover:text-foreground')}>
-        {children}
-        {isActive ? (sortDir === 'asc' ? <ArrowUp size={11} className="text-primary" /> : <ArrowDown size={11} className="text-primary" />)
-          : <ArrowUpDown size={11} className="text-muted-foreground/40" />}
-      </button>
-    </th>
   )
 }
 
@@ -533,7 +508,7 @@ function FilterPanel({ open, onClose, building, setBuilding, dateFilter, setDate
 }
 
 // ============================================================
-// BOOKING FORM MODAL
+// BOOKING FORM MODAL (unchanged behavior)
 // ============================================================
 const emptyForm = () => ({
   unit_id: '',
@@ -1027,9 +1002,9 @@ function CompleteConfirmModal({ open, onClose, booking, onConfirmed }) {
 }
 
 // ============================================================
-// EXPANDED ROW
+// BOOKING DETAIL PANEL
 // ============================================================
-function ExpandedRow({ booking, rowRef, onBookingChange, onAddPayment, onExtend, onComplete, onEdit, onDelete }) {
+function BookingDetailPanel({ booking, onBookingChange, onClose, onAddPayment, onExtend, onComplete, onEdit, onDelete }) {
   const status = deriveBookingStatus(booking)
   const isCompleted = status === 'completed'
   const isPaid = booking.payment_status === 'paid'
@@ -1054,147 +1029,240 @@ function ExpandedRow({ booking, rowRef, onBookingChange, onAddPayment, onExtend,
   const nights = computeNights(booking.check_in, booking.check_out)
 
   return (
-    <tr ref={rowRef} className="bg-muted/40 border-b border-border">
-      <td colSpan={8} className="p-0 bg-muted/40">
-        <motion.div initial={{ opacity: 0, height: 0 }} animate={{ opacity: 1, height: 'auto' }} transition={{ duration: 0.22, ease: [0.4, 0, 0.2, 1] }} className="overflow-hidden">
-          <div className="px-4 py-4 space-y-3">
-
-            <div className="flex items-center justify-end gap-2 flex-wrap">
-              {!isCompleted && (
-                <Button variant="outline" size="sm" className="h-7 rounded text-[11px] gap-1.5" onClick={onAddPayment}>
-                  <Plus size={11} /> Add Payment
-                </Button>
-              )}
-              {canExtend && (
-                <Button variant="outline" size="sm" className="h-7 rounded text-[11px] gap-1.5" onClick={onExtend}>
-                  <Calendar size={11} /> Extend Stay
-                </Button>
-              )}
-              {!isCompleted && (
-                <Button
-                  variant="outline"
-                  size="sm"
-                  className={cn(
-                    'h-7 rounded text-[11px] gap-1.5',
-                    canComplete
-                      ? 'text-emerald-600 border-emerald-200 hover:bg-emerald-50 dark:text-emerald-400 dark:border-emerald-800 dark:hover:bg-emerald-900/20'
-                      : 'text-muted-foreground border-border cursor-not-allowed opacity-60'
-                  )}
-                  onClick={canComplete ? onComplete : undefined}
-                  disabled={!canComplete}
-                  title={
-                    isCompleted ? 'Already completed'
-                      : !guestLeft ? 'Guest has not left yet'
-                      : !isPaid ? `Guest still owes ${formatMoney(booking.balance)}. Collect the balance first.`
-                      : 'Mark as completed'
-                  }
-                >
-                  <CheckCircle2 size={11} /> Mark as Completed
-                </Button>
-              )}
-            </div>
-
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
-              <SectionCard title="Unit" icon={Building2}>
-                <div className="space-y-1">
-                  <div className="flex items-baseline gap-2 pb-2 mb-2 border-b border-border">
-                    <span className="font-mono text-sm font-bold text-foreground">{booking.units?.unit_code || '—'}</span>
-                    <span className="text-[11px] text-muted-foreground truncate">{booking.units?.building || '—'}</span>
-                  </div>
-                  <div className="flex items-center gap-2 py-0.5">
-                    <span className="text-[10px] uppercase tracking-wider text-muted-foreground font-semibold min-w-[72px]">Booked by</span>
-                    <span className="text-xs font-semibold text-foreground">{booking.booker_name || '—'}</span>
-                  </div>
-                  <div className="flex items-center gap-2 py-0.5">
-                    <span className="text-[10px] uppercase tracking-wider text-muted-foreground font-semibold min-w-[72px]">Booking code</span>
-                    <span className="text-xs font-mono text-foreground">{booking.booking_code}</span>
-                  </div>
-                </div>
-              </SectionCard>
-
-              <SectionCard title="Guest" icon={User}>
-                <div className="flex items-center gap-2.5 pb-2 mb-2 border-b border-border">
-                  <GuestAvatar name={booking.guest_name} size="lg" />
-                  <div className="min-w-0 flex-1">
-                    <p className="text-sm font-semibold truncate">{booking.guest_name}</p>
-                    <p className="text-[11px] text-muted-foreground truncate">{booking.guest_email || 'No email'}</p>
-                  </div>
-                </div>
-                <EditableField label="Name" value={booking.guest_name} onSave={(v) => updateField('guest_name', v)} auditTag="guest_name" />
-                <EditableField label="Email" value={booking.guest_email} type="email" onSave={(v) => updateField('guest_email', v)} auditTag="guest_email" />
-                <EditableField label="Contact" value={booking.guest_contact} type="tel" onSave={(v) => updateField('guest_contact', v)} auditTag="guest_contact" />
-                <EditableField label="Guests" value={booking.guests} type="number" onSave={(v) => updateField('guests', Number(v) || 1)} auditTag="guests" />
-              </SectionCard>
-
-              <SectionCard title="Dates & Amount" icon={Calendar}>
-                <EditableField label="Check-in" value={booking.check_in} type="date" onSave={(v) => updateField('check_in', v)} auditTag="check_in" />
-                <EditableField label="Check-out" value={booking.check_out} type="date" onSave={(v) => updateField('check_out', v)} auditTag="check_out" />
-                <div className="flex items-center gap-2 py-0.5">
-                  <span className="text-[10px] uppercase tracking-wider text-muted-foreground font-semibold min-w-[72px] flex-shrink-0">Nights</span>
-                  <span className="text-xs tabular-nums font-semibold">{nights}</span>
-                </div>
-                <EditableField label="Total" value={booking.total_amount} type="number" onSave={(v) => updateMoney('total_amount', v)} auditTag="total_amount" />
-                <EditableField label="Notes" value={booking.notes} onSave={(v) => updateField('notes', v)} auditTag="notes" />
-              </SectionCard>
-            </div>
-
-            <div className="grid grid-cols-1 lg:grid-cols-3 gap-3">
-              <SectionCard title="Summary" icon={Wallet}>
-                <div className="space-y-1 text-xs">
-                  <div className="flex justify-between"><span className="text-muted-foreground">Total</span><span className="font-semibold tabular-nums">{formatMoney(booking.total_amount)}</span></div>
-                  <div className="flex justify-between"><span className="text-muted-foreground">Paid</span><span className="font-semibold tabular-nums text-emerald-600 dark:text-emerald-400">{formatMoney(booking.amount_paid)}</span></div>
-                  <div className="flex justify-between pt-1 border-t border-border"><span className="text-muted-foreground font-semibold">Balance</span><span className={cn('font-bold tabular-nums', Number(booking.balance) > 0 ? 'text-amber-600 dark:text-amber-400' : 'text-emerald-600 dark:text-emerald-400')}>{formatMoney(booking.balance)}</span></div>
-                  <div className="pt-2"><PaymentStatusBadge status={booking.payment_status} /></div>
-                </div>
-              </SectionCard>
-
-              <SectionCard title="Affiliate / Commission" icon={Wallet} className="lg:col-span-2">
-                <EditableField label="Code" value={booking.affiliate_code} onSave={(v) => updateField('affiliate_code', v)} auditTag="affiliate_code" />
-                <EditableField label="Commission" value={booking.affiliate_commission} type="number" onSave={(v) => updateMoney('affiliate_commission', v)} auditTag="affiliate_commission" />
-                <EditableField label="Notes" value={booking.affiliate_notes} onSave={(v) => updateField('affiliate_notes', v)} auditTag="affiliate_notes" />
-              </SectionCard>
-            </div>
-
-            <div className="rounded-md bg-card border border-border overflow-hidden">
-              <div className="flex items-center justify-between gap-2 px-3 py-2 border-b border-border bg-muted/30">
-                <div className="flex items-center gap-2 min-w-0">
-                  <Wallet size={13} className="text-muted-foreground flex-shrink-0" />
-                  <h4 className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground truncate">Payment History · {transactions.length}</h4>
-                </div>
-              </div>
-              <div className="p-2">
-                {transactions.length === 0 ? (
-                  <div className="py-4 text-center text-xs text-muted-foreground">No payments recorded yet</div>
-                ) : (
-                  <div className="space-y-1.5">
-                    {transactions.map((t, i) => (
-                      <div key={i} className="flex items-center gap-3 px-3 py-2 rounded-md border border-border bg-background">
-                        <div className="flex items-center gap-2 min-w-0 flex-1">
-                          <span className="text-[10px] uppercase tracking-wider font-bold text-muted-foreground min-w-[60px]">{formatDateShort(t.date)}</span>
-                          <span className="text-xs font-semibold text-foreground tabular-nums">{formatMoney(t.amount)}</span>
-                          {t.method && <span className="text-[11px] text-muted-foreground truncate">{t.method}</span>}
-                          {t.reference && <span className="text-[10px] text-muted-foreground font-mono truncate">· {t.reference}</span>}
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                )}
+    <motion.div
+      initial={{ width: 0, opacity: 0 }}
+      animate={{ width: PANEL_WIDTH, opacity: 1 }}
+      exit={{ width: 0, opacity: 0 }}
+      transition={{
+        width: { duration: 0.32, ease: [0.4, 0, 0.2, 1] },
+        opacity: { duration: 0.2, ease: 'easeOut' },
+      }}
+      className="bg-card border-l border-border h-full overflow-hidden flex-shrink-0"
+      style={{ maxWidth: '100%' }}
+    >
+      <div className="flex flex-col h-full" style={{ width: PANEL_WIDTH }}>
+        {/* Header */}
+        <div className="flex-shrink-0 px-5 py-4 border-b border-border bg-muted/30">
+          <div className="flex items-start gap-3">
+            <GuestAvatar name={booking.guest_name} size="lg" />
+            <div className="min-w-0 flex-1">
+              <p className="text-base font-bold text-foreground truncate">{booking.guest_name}</p>
+              <p className="text-[11px] text-muted-foreground font-mono truncate">{booking.booking_code}</p>
+              <div className="flex items-center gap-2 mt-2 flex-wrap">
+                <BookingStatusBadge status={status} />
+                <PaymentStatusBadge status={booking.payment_status} />
               </div>
             </div>
-
-            <div className="flex items-center justify-end gap-2 pt-2 border-t border-border">
-              <Button variant="outline" size="sm" className="h-7 rounded text-[11px] gap-1.5" onClick={onEdit}>
-                <Edit2 size={11} /> Edit
-              </Button>
-              <Button variant="outline" size="sm" className="h-7 rounded text-[11px] gap-1.5 text-red-600 border-red-200 hover:bg-red-50 dark:text-red-400 dark:border-red-800 dark:hover:bg-red-900/20" onClick={onDelete}>
-                <Trash2 size={11} /> Delete
-              </Button>
-            </div>
-
+            <button onClick={onClose} className="p-1 rounded hover:bg-muted text-muted-foreground flex-shrink-0"><X size={16} /></button>
           </div>
-        </motion.div>
-      </td>
-    </tr>
+        </div>
+
+        {/* Body */}
+        <div className="flex-1 overflow-y-auto p-4 space-y-3">
+
+          {/* Action buttons */}
+          <div className="flex items-center justify-end gap-2 flex-wrap">
+            {!isCompleted && (
+              <Button variant="outline" size="sm" className="h-7 rounded text-[11px] gap-1.5" onClick={onAddPayment}>
+                <Plus size={11} /> Add Payment
+              </Button>
+            )}
+            {canExtend && (
+              <Button variant="outline" size="sm" className="h-7 rounded text-[11px] gap-1.5" onClick={onExtend}>
+                <Calendar size={11} /> Extend Stay
+              </Button>
+            )}
+            {!isCompleted && (
+              <Button
+                variant="outline"
+                size="sm"
+                className={cn(
+                  'h-7 rounded text-[11px] gap-1.5',
+                  canComplete
+                    ? 'text-emerald-600 border-emerald-200 hover:bg-emerald-50 dark:text-emerald-400 dark:border-emerald-800 dark:hover:bg-emerald-900/20'
+                    : 'text-muted-foreground border-border cursor-not-allowed opacity-60'
+                )}
+                onClick={canComplete ? onComplete : undefined}
+                disabled={!canComplete}
+                title={
+                  isCompleted ? 'Already completed'
+                    : !guestLeft ? 'Guest has not left yet'
+                    : !isPaid ? `Guest still owes ${formatMoney(booking.balance)}. Collect the balance first.`
+                    : 'Mark as completed'
+                }
+              >
+                <CheckCircle2 size={11} /> Mark as Completed
+              </Button>
+            )}
+          </div>
+
+          <SectionCard title="Unit" icon={Building2}>
+            <div className="space-y-1">
+              <div className="flex items-baseline gap-2 pb-2 mb-2 border-b border-border">
+                <span className="font-mono text-sm font-bold text-foreground">{booking.units?.unit_code || '—'}</span>
+                <span className="text-[11px] text-muted-foreground truncate">{booking.units?.building || '—'}</span>
+              </div>
+              <div className="flex items-center gap-2 py-0.5">
+                <span className="text-[10px] uppercase tracking-wider text-muted-foreground font-semibold min-w-[72px]">Booked by</span>
+                <span className="text-xs font-semibold text-foreground">{booking.booker_name || '—'}</span>
+              </div>
+              <div className="flex items-center gap-2 py-0.5">
+                <span className="text-[10px] uppercase tracking-wider text-muted-foreground font-semibold min-w-[72px]">Code</span>
+                <span className="text-xs font-mono text-foreground">{booking.booking_code}</span>
+              </div>
+            </div>
+          </SectionCard>
+
+          <SectionCard title="Guest" icon={User}>
+            <div className="flex items-center gap-2.5 pb-2 mb-2 border-b border-border">
+              <GuestAvatar name={booking.guest_name} size="lg" />
+              <div className="min-w-0 flex-1">
+                <p className="text-sm font-semibold truncate">{booking.guest_name}</p>
+                <p className="text-[11px] text-muted-foreground truncate">{booking.guest_email || 'No email'}</p>
+              </div>
+            </div>
+            <EditableField label="Name" value={booking.guest_name} onSave={(v) => updateField('guest_name', v)} auditTag="guest_name" />
+            <EditableField label="Email" value={booking.guest_email} type="email" onSave={(v) => updateField('guest_email', v)} auditTag="guest_email" />
+            <EditableField label="Contact" value={booking.guest_contact} type="tel" onSave={(v) => updateField('guest_contact', v)} auditTag="guest_contact" />
+            <EditableField label="Guests" value={booking.guests} type="number" onSave={(v) => updateField('guests', Number(v) || 1)} auditTag="guests" />
+          </SectionCard>
+
+          <SectionCard title="Dates & Amount" icon={Calendar}>
+            <EditableField label="Check-in" value={booking.check_in} type="date" onSave={(v) => updateField('check_in', v)} auditTag="check_in" />
+            <EditableField label="Check-out" value={booking.check_out} type="date" onSave={(v) => updateField('check_out', v)} auditTag="check_out" />
+            <div className="flex items-center gap-2 py-0.5">
+              <span className="text-[10px] uppercase tracking-wider text-muted-foreground font-semibold min-w-[72px] flex-shrink-0">Nights</span>
+              <span className="text-xs tabular-nums font-semibold">{nights}</span>
+            </div>
+            <EditableField label="Total" value={booking.total_amount} type="number" onSave={(v) => updateMoney('total_amount', v)} auditTag="total_amount" />
+            <EditableField label="Notes" value={booking.notes} onSave={(v) => updateField('notes', v)} auditTag="notes" />
+          </SectionCard>
+
+          <SectionCard title="Summary" icon={Wallet}>
+            <div className="space-y-1 text-xs">
+              <div className="flex justify-between"><span className="text-muted-foreground">Total</span><span className="font-semibold tabular-nums">{formatMoney(booking.total_amount)}</span></div>
+              <div className="flex justify-between"><span className="text-muted-foreground">Paid</span><span className="font-semibold tabular-nums text-emerald-600 dark:text-emerald-400">{formatMoney(booking.amount_paid)}</span></div>
+              <div className="flex justify-between pt-1 border-t border-border"><span className="text-muted-foreground font-semibold">Balance</span><span className={cn('font-bold tabular-nums', Number(booking.balance) > 0 ? 'text-amber-600 dark:text-amber-400' : 'text-emerald-600 dark:text-emerald-400')}>{formatMoney(booking.balance)}</span></div>
+              <div className="pt-2"><PaymentStatusBadge status={booking.payment_status} /></div>
+            </div>
+          </SectionCard>
+
+          <SectionCard title="Affiliate / Commission" icon={Wallet}>
+            <EditableField label="Code" value={booking.affiliate_code} onSave={(v) => updateField('affiliate_code', v)} auditTag="affiliate_code" />
+            <EditableField label="Commission" value={booking.affiliate_commission} type="number" onSave={(v) => updateMoney('affiliate_commission', v)} auditTag="affiliate_commission" />
+            <EditableField label="Notes" value={booking.affiliate_notes} onSave={(v) => updateField('affiliate_notes', v)} auditTag="affiliate_notes" />
+          </SectionCard>
+
+          <div className="rounded-md bg-card border border-border overflow-hidden">
+            <div className="flex items-center justify-between gap-2 px-3 py-2 border-b border-border bg-muted/30">
+              <div className="flex items-center gap-2 min-w-0">
+                <Wallet size={13} className="text-muted-foreground flex-shrink-0" />
+                <h4 className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground truncate">Payment History · {transactions.length}</h4>
+              </div>
+            </div>
+            <div className="p-2">
+              {transactions.length === 0 ? (
+                <div className="py-4 text-center text-xs text-muted-foreground">No payments recorded yet</div>
+              ) : (
+                <div className="space-y-1.5">
+                  {transactions.map((t, i) => (
+                    <div key={i} className="flex items-center gap-3 px-3 py-2 rounded-md border border-border bg-background">
+                      <div className="flex items-center gap-2 min-w-0 flex-1">
+                        <span className="text-[10px] uppercase tracking-wider font-bold text-muted-foreground min-w-[60px]">{formatDateShort(t.date)}</span>
+                        <span className="text-xs font-semibold text-foreground tabular-nums">{formatMoney(t.amount)}</span>
+                        {t.method && <span className="text-[11px] text-muted-foreground truncate">{t.method}</span>}
+                        {t.reference && <span className="text-[10px] text-muted-foreground font-mono truncate">· {t.reference}</span>}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          </div>
+
+          <div className="flex items-center justify-end gap-2 pt-2 border-t border-border">
+            <Button variant="outline" size="sm" className="h-7 rounded text-[11px] gap-1.5" onClick={onEdit}>
+              <Edit2 size={11} /> Edit
+            </Button>
+            <Button variant="outline" size="sm" className="h-7 rounded text-[11px] gap-1.5 text-red-600 border-red-200 hover:bg-red-50 dark:text-red-400 dark:border-red-800 dark:hover:bg-red-900/20" onClick={onDelete}>
+              <Trash2 size={11} /> Delete
+            </Button>
+          </div>
+
+        </div>
+      </div>
+    </motion.div>
+  )
+}
+
+// ============================================================
+// BOOKING LIST ROW
+// ============================================================
+function BookingListRow({ booking, selected, onClick }) {
+  const status = deriveBookingStatus(booking)
+  const nights = computeNights(booking.check_in, booking.check_out)
+  return (
+    <motion.button
+      type="button"
+      onClick={onClick}
+      initial={false}
+      animate={{
+        backgroundColor: selected ? 'rgba(45, 86, 142, 0.10)' : 'rgba(45, 86, 142, 0)',
+      }}
+      transition={{ duration: 0.22, ease: [0.4, 0, 0.2, 1] }}
+      whileHover={{ backgroundColor: selected ? 'rgba(45, 86, 142, 0.14)' : 'rgba(45, 86, 142, 0.05)' }}
+      whileTap={{ scale: 0.998 }}
+      className={cn('group/row w-full text-left px-4 py-3 border-b border-border cursor-pointer select-none', ROW_GRID)}
+    >
+      {/* Guest */}
+      <div className="flex items-center gap-2 min-w-0">
+        <GuestAvatar name={booking.guest_name} size="sm" />
+        <div className="min-w-0 flex-1">
+          <p className="text-sm font-semibold text-foreground truncate">{booking.guest_name}</p>
+          <p className="text-[10px] text-muted-foreground truncate">
+            {booking.guest_email || booking.guest_contact || `${booking.guests || 1} guest${booking.guests > 1 ? 's' : ''}`}
+          </p>
+        </div>
+      </div>
+
+      {/* Code */}
+      <span className="font-mono text-xs text-foreground truncate">
+        {booking.booking_code}
+      </span>
+
+      {/* Unit */}
+      <div className="min-w-0">
+        <span className="font-mono text-xs font-bold text-foreground truncate block">
+          {booking.units?.unit_code || '—'}
+        </span>
+        <span className="text-[10px] text-muted-foreground truncate block">
+          {booking.units?.building || '—'}
+        </span>
+      </div>
+
+      {/* Dates */}
+      <div className="text-[11px] tabular-nums text-muted-foreground min-w-0">
+        <div className="truncate">{formatDateShort(booking.check_in)} → {formatDateShort(booking.check_out)}</div>
+        <div className="text-[10px] text-muted-foreground/70">{nights} night{nights === 1 ? '' : 's'}</div>
+      </div>
+
+      {/* Payment */}
+      <div className="flex items-center min-w-0">
+        <PaymentStatusBadge status={booking.payment_status} />
+      </div>
+
+      {/* Status + chevron */}
+      <div className="flex items-center gap-2 justify-end flex-shrink-0">
+        <BookingStatusBadge status={status} />
+        <ChevronRight
+          size={14}
+          className={cn(
+            'text-muted-foreground/40 transition-transform duration-300 ease-out',
+            selected && 'rotate-180 text-primary'
+          )}
+        />
+      </div>
+    </motion.button>
   )
 }
 
@@ -1252,10 +1320,7 @@ export default function BookingsPage() {
   const [debouncedSearch, setDebouncedSearch] = useState('')
   const [filterOpen, setFilterOpen] = useState(false)
 
-  const [sortField, setSortField] = useState('check_in')
-  const [sortDir, setSortDir] = useState('desc')
-  const [expandedId, setExpandedId] = useState(null)
-
+  const [selectedId, setSelectedId] = useState(null)
   const [cardsHidden, setCardsHidden] = useState(false)
 
   const [formOpen, setFormOpen] = useState(false)
@@ -1264,9 +1329,7 @@ export default function BookingsPage() {
   const [extendForBooking, setExtendForBooking] = useState(null)
   const [completeForBooking, setCompleteForBooking] = useState(null)
 
-  const tableScrollRef = useRef(null)
-  const expandedRowRef = useRef(null)
-  const clickedRowRef = useRef(null)
+  const listScrollRef = useRef(null)
   const headerRef = useRef(null)
   const filterWrapRef = useRef(null)
   const hasLoadedOnce = useRef(false)
@@ -1275,22 +1338,6 @@ export default function BookingsPage() {
     const t = setTimeout(() => setDebouncedSearch(search), 300)
     return () => clearTimeout(t)
   }, [search])
-
-  useEffect(() => {
-    if (!expandedId || !clickedRowRef.current || !tableScrollRef.current) return
-    const t = setTimeout(() => {
-      const scrollEl = tableScrollRef.current
-      const rowEl = clickedRowRef.current
-      const headerEl = headerRef.current
-      if (!scrollEl || !rowEl) return
-      const scrollRect = scrollEl.getBoundingClientRect()
-      const rowRect = rowEl.getBoundingClientRect()
-      const headerHeight = headerEl?.offsetHeight ?? 0
-      const delta = (rowRect.top - scrollRect.top) - headerHeight - 4
-      scrollEl.scrollTo({ top: Math.max(0, scrollEl.scrollTop + delta), behavior: 'smooth' })
-    }, 150)
-    return () => clearTimeout(t)
-  }, [expandedId])
 
   const fetchData = useCallback(async () => {
     if (!hasLoadedOnce.current) setIsFirstLoad(true)
@@ -1395,22 +1442,16 @@ export default function BookingsPage() {
   const sorted = useMemo(() => {
     const copy = [...filtered]
     copy.sort((a, b) => {
-      let av, bv
-      if (sortField === 'unit_code') { av = a.units?.unit_code ?? ''; bv = b.units?.unit_code ?? '' }
-      else if (sortField === 'building') { av = a.units?.building ?? ''; bv = b.units?.building ?? '' }
-      else if (sortField === 'guest_name') { av = a.guest_name ?? ''; bv = b.guest_name ?? '' }
-      else { av = a[sortField] ?? ''; bv = b[sortField] ?? '' }
-      if (av < bv) return sortDir === 'asc' ? -1 : 1
-      if (av > bv) return sortDir === 'asc' ? 1 : -1
+      const av = a.check_in ?? ''
+      const bv = b.check_in ?? ''
+      if (av > bv) return -1
+      if (av < bv) return 1
       return 0
     })
     return copy
-  }, [filtered, sortField, sortDir])
+  }, [filtered])
 
-  const toggleSort = (field) => {
-    if (sortField === field) setSortDir((d) => (d === 'asc' ? 'desc' : 'asc'))
-    else { setSortField(field); setSortDir('asc') }
-  }
+  const selected = useMemo(() => sorted.find((b) => b.id === selectedId) || null, [sorted, selectedId])
 
   const handleExport = () => {
     if (filtered.length === 0) { toast.error('Nothing to export'); return }
@@ -1422,7 +1463,9 @@ export default function BookingsPage() {
     setBookings((prev) => prev.map((b) => (b.id === updated.id ? { ...b, ...updated } : b)))
   }
 
-  const handleRowClick = (booking) => setExpandedId((prev) => (prev === booking.id ? null : booking.id))
+  const handleSelect = (booking) => {
+    setSelectedId((prev) => (prev === booking.id ? null : booking.id))
+  }
 
   const openEdit = (booking) => { setEditing(booking); setFormOpen(true) }
   const openNew = () => { setEditing(null); setFormOpen(true) }
@@ -1445,7 +1488,7 @@ export default function BookingsPage() {
       if (error) throw error
       logAudit('DELETE_BOOKING', 'bookings', booking.id, { booking_code: booking.booking_code }).catch(() => {})
       toast.success('Booking deleted')
-      setExpandedId(null)
+      setSelectedId(null)
       fetchData()
     } catch (err) {
       console.error(err)
@@ -1453,23 +1496,27 @@ export default function BookingsPage() {
     }
   }
 
-  const handleTableMouseMove = useCallback((e) => {
+  const handleListMouseMove = useCallback((e) => {
     const headerEl = headerRef.current
     if (!headerEl) return
     const headerRect = headerEl.getBoundingClientRect()
     setCardsHidden(e.clientY > headerRect.bottom)
   }, [])
-  const handleTableMouseLeave = useCallback(() => setCardsHidden(false), [])
+  const handleListMouseLeave = useCallback(() => setCardsHidden(false), [])
 
   return (
-    <div className="h-full flex flex-col gap-3 min-h-0">
-      <div className={cn('flex-shrink-0 transition-all duration-300 ease-out overflow-hidden', cardsHidden ? 'max-h-0 opacity-0 -mb-3' : 'max-h-40 opacity-100')}>
-        <SummaryCards bookings={bookings} />
-      </div>
-
+    <div className="h-full flex min-h-0">
+      {/* Left: list */}
       <div className="flex-1 min-h-0 flex flex-col overflow-hidden bg-card border border-border rounded-md">
         <div className="p-3 flex-1 min-h-0 flex flex-col gap-2.5">
-          <div className="flex-shrink-0 flex items-center gap-2">
+
+          {/* Summary cards */}
+          <div className={cn('flex-shrink-0 transition-all duration-300 ease-out overflow-hidden', cardsHidden ? 'max-h-0 opacity-0 -mb-3' : 'max-h-40 opacity-100')}>
+            <SummaryCards bookings={bookings} />
+          </div>
+
+          {/* Toolbar */}
+          <div ref={headerRef} className="flex-shrink-0 flex items-center gap-2">
             <div className="relative flex-1 min-w-0">
               <Search size={13} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-muted-foreground" />
               <Input placeholder="Search guest, booking code, unit, email, booker, notes..." value={search} onChange={(e) => setSearch(e.target.value)} className="pl-8 h-8 text-xs rounded" />
@@ -1503,90 +1550,72 @@ export default function BookingsPage() {
 
           <div className="flex-shrink-0 flex items-center justify-between gap-3 flex-wrap">
             <StatusPills statusFilter={statusFilter} onStatusFilter={setStatusFilter} counts={counts} />
-            <WarningsStrip needsCompletion={needsCompletion} endingSoon={endingSoon} onSelect={(b) => setExpandedId(b.id)} />
+            <WarningsStrip needsCompletion={needsCompletion} endingSoon={endingSoon} onSelect={(b) => setSelectedId(b.id)} />
           </div>
 
+          {/* List (header inside scroll) */}
           <div className="flex-1 min-h-0 rounded border border-border overflow-hidden">
-            <div ref={tableScrollRef} className="h-full overflow-y-auto overflow-x-auto" onMouseMove={handleTableMouseMove} onMouseLeave={handleTableMouseLeave}>
+            <div
+              ref={listScrollRef}
+              className="h-full overflow-y-auto"
+              style={{ scrollbarGutter: 'stable' }}
+              onMouseMove={handleListMouseMove}
+              onMouseLeave={handleListMouseLeave}
+            >
+              {/* Sticky column header */}
+              <div className={cn('sticky top-0 z-10 px-4 py-2 border-b border-border bg-card', ROW_GRID)}>
+                <span className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground truncate">Guest</span>
+                <span className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground truncate">Code</span>
+                <span className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground truncate">Unit</span>
+                <span className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground truncate">Check-in → Check-out</span>
+                <span className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground truncate">Payment</span>
+                <span className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground tabular-nums text-right whitespace-nowrap">
+                  {sorted.length}
+                  {sorted.length !== bookings.length && <span className="text-muted-foreground/60"> / {bookings.length}</span>}
+                </span>
+              </div>
+
               {isFirstLoad ? (
-                <div className="space-y-2 p-3">{[...Array(8)].map((_, i) => <Skeleton key={i} className="h-10 w-full" />)}</div>
+                <div className="space-y-2 p-3">{[...Array(8)].map((_, i) => <Skeleton key={i} className="h-14 w-full" />)}</div>
+              ) : sorted.length === 0 ? (
+                <div className="h-full flex items-center justify-center text-center py-12">
+                  <div>
+                    <Calendar size={36} className="text-muted-foreground/40 mx-auto mb-3" />
+                    <p className="text-sm text-muted-foreground font-semibold">No bookings match your filters</p>
+                    <p className="text-xs text-muted-foreground mt-1">Try clearing filters or creating a new booking</p>
+                  </div>
+                </div>
               ) : (
-                <table className="w-full border-collapse table-fixed">
-                  <colgroup>
-                    <col className={COL_WIDTHS.building} />
-                    <col className={COL_WIDTHS.unit} />
-                    <col className={COL_WIDTHS.code} />
-                    <col className={COL_WIDTHS.dates} />
-                    <col className={COL_WIDTHS.total} />
-                    <col className={COL_WIDTHS.payment} />
-                    <col className={COL_WIDTHS.status} />
-                    <col className={COL_WIDTHS.chevron} />
-                  </colgroup>
-                  <thead ref={headerRef} className="sticky top-0 z-20 bg-card">
-                    <tr>
-                      <SortHead field="building" sortField={sortField} sortDir={sortDir} onSort={toggleSort}>Building</SortHead>
-                      <SortHead field="unit_code" sortField={sortField} sortDir={sortDir} onSort={toggleSort}>Unit</SortHead>
-                      <SortHead field="booking_code" sortField={sortField} sortDir={sortDir} onSort={toggleSort}>Code</SortHead>
-                      <SortHead field="check_in" sortField={sortField} sortDir={sortDir} onSort={toggleSort}>Check-in → Check-out</SortHead>
-                      <SortHead field="total_amount" sortField={sortField} sortDir={sortDir} onSort={toggleSort} align="right">Total</SortHead>
-                      <SortHead field="payment_status" sortField={sortField} sortDir={sortDir} onSort={toggleSort} align="center">Payment</SortHead>
-                      <SortHead field="booking_status" sortField={sortField} sortDir={sortDir} onSort={toggleSort} align="center">Status</SortHead>
-                      <th className="bg-card py-2.5 border-b border-border"></th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {sorted.length === 0 ? (
-                      <tr><td colSpan={8} className="h-32 text-center text-muted-foreground text-sm">No bookings match your filters</td></tr>
-                    ) : (
-                      sorted.map((b) => {
-                        const isExpanded = expandedId === b.id
-                        const status = deriveBookingStatus(b)
-                        return (
-                          <Fragment key={b.id}>
-                            <tr
-                              ref={isExpanded ? clickedRowRef : null}
-                              onClick={() => handleRowClick(b)}
-                              className={cn('cursor-pointer transition-colors duration-100 border-b border-border', isExpanded ? 'text-white' : 'hover:bg-muted/50')}
-                              style={isExpanded ? { backgroundColor: BRAND } : undefined}
-                            >
-                              <td className={cn('text-xs py-2.5 px-4 truncate', isExpanded && 'text-white/90')}>{b.units?.building || '—'}</td>
-                              <td className={cn('font-mono text-xs font-bold py-2.5 px-4 truncate', isExpanded ? 'text-white' : 'text-foreground')}>{b.units?.unit_code || '—'}</td>
-                              <td className={cn('font-mono text-xs py-2.5 px-4 truncate', isExpanded && 'text-white/90')}>{b.booking_code}</td>
-                              <td className={cn('text-xs py-2.5 px-4 truncate tabular-nums', isExpanded && 'text-white/90')}>
-                                {formatDateShort(b.check_in)}
-                                <span className={cn('mx-1.5', isExpanded ? 'text-white/50' : 'text-muted-foreground')}>→</span>
-                                {formatDateShort(b.check_out)}
-                              </td>
-                              <td className={cn('text-xs py-2.5 px-4 truncate text-right tabular-nums font-semibold', isExpanded && 'text-white/95')}>{formatMoney(b.total_amount)}</td>
-                              <td className="py-2.5 px-4 text-center"><PaymentStatusBadge status={b.payment_status} /></td>
-                              <td className="py-2.5 px-4 text-center"><BookingStatusBadge status={status} /></td>
-                              <td className={cn('py-2.5 px-2 text-center', isExpanded && 'text-white/80')}>
-                                <ChevronRight size={14} className={cn('transition-transform inline-block', isExpanded && 'rotate-90')} />
-                              </td>
-                            </tr>
-                            {isExpanded && (
-                              <ExpandedRow
-                                booking={b}
-                                rowRef={expandedRowRef}
-                                onBookingChange={handleBookingChange}
-                                onAddPayment={() => setPayForBooking(b)}
-                                onExtend={() => setExtendForBooking(b)}
-                                onComplete={() => setCompleteForBooking(b)}
-                                onEdit={() => openEdit(b)}
-                                onDelete={() => handleDelete(b)}
-                              />
-                            )}
-                          </Fragment>
-                        )
-                      })
-                    )}
-                  </tbody>
-                </table>
+                sorted.map((booking) => (
+                  <BookingListRow
+                    key={booking.id}
+                    booking={booking}
+                    selected={selectedId === booking.id}
+                    onClick={() => handleSelect(booking)}
+                  />
+                ))
               )}
             </div>
           </div>
         </div>
       </div>
+
+      {/* Right: detail panel */}
+      <AnimatePresence initial={false}>
+        {selected && (
+          <BookingDetailPanel
+            key={selected.id}
+            booking={selected}
+            onBookingChange={handleBookingChange}
+            onClose={() => setSelectedId(null)}
+            onAddPayment={() => setPayForBooking(selected)}
+            onExtend={() => setExtendForBooking(selected)}
+            onComplete={() => setCompleteForBooking(selected)}
+            onEdit={() => openEdit(selected)}
+            onDelete={() => handleDelete(selected)}
+          />
+        )}
+      </AnimatePresence>
 
       <BookingFormModal
         open={formOpen}

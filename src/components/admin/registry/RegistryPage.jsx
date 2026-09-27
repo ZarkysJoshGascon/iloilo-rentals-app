@@ -4,7 +4,7 @@ import {
   ArrowUpDown, ArrowUp, ArrowDown, Camera, Check, Download, Loader2, Mail, Phone,
   Plus, RefreshCw, Search, SlidersHorizontal, X, Pencil, Tag, Layers,
   Building2, CheckCircle2, Clock, AlertTriangle, UserPlus, Trash2, PhoneCall,
-  ChevronRight,
+  ChevronRight, User,
 } from 'lucide-react'
 import toast from 'react-hot-toast'
 import { Button } from '@/components/ui/button'
@@ -78,10 +78,8 @@ const DEFAULT_CHANNELS = [
   'Trip.com', 'Expedia', 'Vrbo', 'Facebook Marketplace',
 ]
 
-const COL_WIDTHS = {
-  photo: 'w-14', building: 'w-[150px]', unit: 'w-[120px]', owner: 'w-[200px]',
-  type: 'w-[110px]', effective: 'w-[110px]', expiry: 'w-[130px]', status: 'w-[130px]',
-}
+// Grid: last column is FIXED width (160px) so header and rows always match
+const ROW_GRID = 'grid grid-cols-[1.4fr_1fr_1fr_1fr_1fr_160px] gap-4 items-center'
 
 // ============================================================
 // HELPERS
@@ -238,7 +236,7 @@ function OwnerAvatar({ name, email, size = 'md' }) {
   )
 }
 function UnitAvatar({ unit, size = 'md' }) {
-  const sizeClasses = size === 'lg' ? 'w-12 h-12' : 'w-8 h-8'
+  const sizeClasses = size === 'lg' ? 'w-12 h-12' : size === 'sm' ? 'w-8 h-8' : 'w-10 h-10'
   return (
     <div className={cn('rounded-md flex items-center justify-center flex-shrink-0 overflow-hidden border border-border bg-muted', sizeClasses)}>
       {unit.photo_url ? <img src={unit.photo_url} alt="" className="w-full h-full object-cover" />
@@ -263,28 +261,16 @@ function ExpiryBadge({ expiryDate }) {
   const days = Math.round((expiry - today) / 86400000)
 
   let label, className
-  if (days < 0) {
-    label = `Expired ${formatDaysAgo(Math.abs(days))} ago`
-    className = 'bg-red-600 text-white hover:bg-red-600 border-0'
-  } else if (days === 0) {
-    label = 'Expires today'
-    className = 'bg-red-600 text-white hover:bg-red-600 border-0'
-  } else if (days <= 14) {
-    label = `Expires in ${days}d`
-    className = 'bg-red-600 text-white hover:bg-red-600 border-0'
-  } else if (days <= 30) {
-    label = `Expires in ${days}d`
-    className = 'bg-amber-600 text-white hover:bg-amber-600 border-0'
-  } else if (days <= 60) {
-    label = `Expires in ${days}d`
-    className = 'bg-blue-600 text-white hover:bg-blue-600 border-0'
-  } else {
-    return null
-  }
+  if (days < 0) { label = `Expired ${formatDaysAgo(Math.abs(days))} ago`; className = 'bg-red-600 text-white' }
+  else if (days === 0) { label = 'Expires today'; className = 'bg-red-600 text-white' }
+  else if (days <= 14) { label = `Expires in ${days}d`; className = 'bg-red-600 text-white' }
+  else if (days <= 30) { label = `Expires in ${days}d`; className = 'bg-amber-600 text-white' }
+  else if (days <= 60) { label = `Expires in ${days}d`; className = 'bg-blue-600 text-white' }
+  else return null
 
   return (
     <div className="px-1.5 pt-1">
-      <Badge className={cn('text-[11px] font-semibold rounded-full px-2.5 py-0.5', className)}>{label}</Badge>
+      <Badge className={cn('text-[11px] font-semibold rounded-full px-2.5 py-0.5 border-0', className)}>{label}</Badge>
     </div>
   )
 }
@@ -330,25 +316,6 @@ function SummaryCards({ units }) {
         </motion.div>
       ))}
     </div>
-  )
-}
-
-// ============================================================
-// SORT HEAD
-// ============================================================
-function SortHead({ field, children, sortField, sortDir, onSort, align = 'left' }) {
-  const isActive = sortField === field
-  const alignClass = align === 'center' ? 'text-center' : align === 'right' ? 'text-right' : 'text-left'
-  return (
-    <th className={cn('bg-card px-4 py-2.5 border-b border-border', alignClass)}>
-      <button type="button" onClick={() => onSort(field)}
-        className={cn('inline-flex items-center gap-1 transition-colors duration-150', 'text-[11px] font-bold uppercase tracking-wider',
-          isActive ? 'text-primary' : 'text-muted-foreground hover:text-foreground')}>
-        {children}
-        {isActive ? (sortDir === 'asc' ? <ArrowUp size={11} className="text-primary" /> : <ArrowDown size={11} className="text-primary" />)
-          : <ArrowUpDown size={11} className="text-muted-foreground/40" />}
-      </button>
-    </th>
   )
 }
 
@@ -500,7 +467,7 @@ function OtaEditor({ unit, onSave, channelOptions = [] }) {
 
   const persist = async (next) => {
     setSaving(true)
-    try { await onSave(next) } catch { toast.error('Failed to save'); throw new Error('save') } finally { setSaving(false) }
+    try { await onSave(next) } catch (e) { toast.error('Failed to save'); throw e } finally { setSaving(false) }
   }
   const validateDraft = () => {
     const errs = { channel: '', name: '' }
@@ -518,27 +485,18 @@ function OtaEditor({ unit, onSave, channelOptions = [] }) {
       await persist([...listings, { channel, name }])
       if (!DEFAULT_CHANNELS.includes(channel)) supabase.from('ota_channel_names').insert({ name: channel }).then(() => {}).catch(() => {})
       setDrafting(false); setDraftChannel(''); setDraftName(''); setDraftErrors({ channel: '', name: '' })
-    } catch {
-      // persist already showed a toast
-    }
+    } catch { /* already toasted */ }
   }
   const commitEdit = async (i) => {
     const nm = editDraft.trim()
     if (!nm) { setEditError('Listing name required'); return }
     try {
       await persist(listings.map((l, idx) => idx === i ? { ...l, name: nm } : l))
-      setEditingIndex(null)
-      setEditError('')
-    } catch {
-      // persist already showed a toast
-    }
+      setEditingIndex(null); setEditError('')
+    } catch { /* already toasted */ }
   }
   const removeAt = async (i) => {
-    try {
-      await persist(listings.filter((_, idx) => idx !== i))
-    } catch {
-      // persist already showed a toast
-    }
+    try { await persist(listings.filter((_, idx) => idx !== i)) } catch { /* already toasted */ }
   }
   const dupes = findDuplicateChannels(listings)
 
@@ -611,24 +569,12 @@ function OtaEditor({ unit, onSave, channelOptions = [] }) {
 function WarningChip({ icon: Icon, label, count, active, onClick, children }) {
   return (
     <div className="relative">
-      <button
-        type="button"
-        onClick={onClick}
-        className={cn(
-          'inline-flex items-center gap-2 h-8 px-3 rounded-lg text-xs font-medium border transition-colors',
-          active
-            ? 'bg-foreground text-background border-foreground'
-            : 'bg-card text-foreground border-border hover:bg-muted'
-        )}
-      >
+      <button type="button" onClick={onClick}
+        className={cn('inline-flex items-center gap-2 h-8 px-3 rounded-lg text-xs font-medium border transition-colors',
+          active ? 'bg-foreground text-background border-foreground' : 'bg-card text-foreground border-border hover:bg-muted')}>
         <Icon size={13} className={active ? 'opacity-90' : 'opacity-60'} />
         <span>{label}</span>
-        <span
-          className={cn(
-            'min-w-[20px] h-[18px] inline-flex items-center justify-center px-1.5 rounded text-[10px] font-semibold tabular-nums',
-            active ? 'bg-background/20' : 'bg-muted'
-          )}
-        >
+        <span className={cn('min-w-[20px] h-[18px] inline-flex items-center justify-center px-1.5 rounded text-[10px] font-semibold tabular-nums', active ? 'bg-background/20' : 'bg-muted')}>
           {count}
         </span>
       </button>
@@ -639,25 +585,14 @@ function WarningChip({ icon: Icon, label, count, active, onClick, children }) {
 
 function DropdownPanel({ title, subtitle, onClose, children }) {
   return (
-    <motion.div
-      initial={{ opacity: 0, y: -4 }}
-      animate={{ opacity: 1, y: 0 }}
-      exit={{ opacity: 0, y: -4 }}
-      transition={{ duration: 0.12 }}
-      className="absolute right-0 top-full mt-2 w-[420px] max-h-[520px] bg-popover border border-border rounded-lg shadow-lg z-50 overflow-hidden flex flex-col"
-    >
+    <motion.div initial={{ opacity: 0, y: -4 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -4 }} transition={{ duration: 0.12 }}
+      className="absolute right-0 top-full mt-2 w-[420px] max-h-[520px] bg-popover border border-border rounded-lg shadow-lg z-50 overflow-hidden flex flex-col">
       <div className="flex items-start justify-between gap-3 px-4 py-3 border-b border-border">
         <div className="min-w-0">
           <p className="text-xs font-semibold text-foreground">{title}</p>
           <p className="text-[10px] text-muted-foreground mt-0.5">{subtitle}</p>
         </div>
-        <button
-          type="button"
-          onClick={onClose}
-          className="p-1 -m-1 rounded hover:bg-muted text-muted-foreground"
-        >
-          <X size={12} />
-        </button>
+        <button type="button" onClick={onClose} className="p-1 -m-1 rounded hover:bg-muted text-muted-foreground"><X size={12} /></button>
       </div>
       <div className="flex-1 overflow-y-auto">{children}</div>
     </motion.div>
@@ -665,51 +600,32 @@ function DropdownPanel({ title, subtitle, onClose, children }) {
 }
 
 function SectionHeader({ label, tone, count }) {
-  const color = tone === 'red'
-    ? 'text-red-600 dark:text-red-400'
-    : 'text-amber-600 dark:text-amber-400'
+  const color = tone === 'red' ? 'text-red-600 dark:text-red-400' : 'text-amber-600 dark:text-amber-400'
   const dot = tone === 'red' ? 'bg-red-500' : 'bg-amber-500'
   return (
     <div className="sticky top-0 z-10 flex items-center gap-2 px-4 py-2 bg-muted/40 border-b border-border">
       <span className={cn('w-1.5 h-1.5 rounded-full', dot)} />
-      <span className={cn('text-[10px] font-semibold uppercase tracking-wider', color)}>
-        {label}
-      </span>
+      <span className={cn('text-[10px] font-semibold uppercase tracking-wider', color)}>{label}</span>
       <span className="ml-auto text-[10px] text-muted-foreground tabular-nums">{count}</span>
     </div>
   )
 }
 
 function UnitRow({ unit, date, chip, chipTone, onClick }) {
-  const chipClass = chipTone === 'red'
-    ? 'bg-red-600 text-white'
-    : chipTone === 'amber'
-    ? 'bg-amber-600 text-white'
-    : 'bg-blue-600 text-white'
-
+  const chipClass = chipTone === 'red' ? 'bg-red-600 text-white' : chipTone === 'amber' ? 'bg-amber-600 text-white' : 'bg-blue-600 text-white'
   return (
-    <button
-      type="button"
-      onClick={onClick}
-      className="w-full text-left px-4 py-2.5 border-b border-border last:border-0 hover:bg-muted/40 transition-colors flex items-center gap-3 group"
-    >
+    <button type="button" onClick={onClick}
+      className="w-full text-left px-4 py-2.5 border-b border-border last:border-0 hover:bg-muted/40 transition-colors flex items-center gap-3 group">
       <div className="min-w-0 flex-1">
         <div className="flex items-baseline gap-2">
-          <span className="font-mono text-xs font-semibold text-foreground truncate">
-            {unit.unit_code}
-          </span>
-          <span className="text-[11px] text-muted-foreground truncate">
-            {unit.building}
-          </span>
+          <span className="font-mono text-xs font-semibold text-foreground truncate">{unit.unit_code}</span>
+          <span className="text-[11px] text-muted-foreground truncate">{unit.building}</span>
         </div>
         <p className="text-[10px] text-muted-foreground mt-0.5 truncate">
-          {unit.owner_name || 'No owner'}
-          {date ? ` · ${formatDate(date)}` : ''}
+          {unit.owner_name || 'No owner'}{date ? ` · ${formatDate(date)}` : ''}
         </p>
       </div>
-      <span className={cn('inline-flex items-center px-2.5 py-0.5 rounded-full text-[11px] font-semibold whitespace-nowrap flex-shrink-0', chipClass)}>
-        {chip}
-      </span>
+      <span className={cn('inline-flex items-center px-2.5 py-0.5 rounded-full text-[11px] font-semibold whitespace-nowrap flex-shrink-0', chipClass)}>{chip}</span>
       <ChevronRight size={12} className="text-muted-foreground/40 group-hover:text-muted-foreground transition-colors flex-shrink-0" />
     </button>
   )
@@ -721,21 +637,15 @@ function WarningsStrip({ missingUnits, expiryWarnings, onSelectUnit }) {
 
   const safeMissing = Array.isArray(missingUnits) ? missingUnits : []
   const safeExpiry = (expiryWarnings && Array.isArray(expiryWarnings.expired) && Array.isArray(expiryWarnings.soon))
-    ? expiryWarnings
-    : { expired: [], soon: [] }
+    ? expiryWarnings : { expired: [], soon: [] }
 
   useEffect(() => {
     if (!open) return
-    const onDown = (e) => {
-      if (wrapRef.current && !wrapRef.current.contains(e.target)) setOpen(null)
-    }
+    const onDown = (e) => { if (wrapRef.current && !wrapRef.current.contains(e.target)) setOpen(null) }
     const onKey = (e) => { if (e.key === 'Escape') setOpen(null) }
     document.addEventListener('mousedown', onDown)
     window.addEventListener('keydown', onKey)
-    return () => {
-      document.removeEventListener('mousedown', onDown)
-      window.removeEventListener('keydown', onKey)
-    }
+    return () => { document.removeEventListener('mousedown', onDown); window.removeEventListener('keydown', onKey) }
   }, [open])
 
   const missingCount = safeMissing.length
@@ -750,49 +660,22 @@ function WarningsStrip({ missingUnits, expiryWarnings, onSelectUnit }) {
   return (
     <div className="flex items-center gap-2" ref={wrapRef}>
       {missingCount > 0 && (
-        <WarningChip
-          icon={AlertTriangle}
-          label="Missing fields"
-          count={missingCount}
-          active={open === 'missing'}
-          onClick={() => toggle('missing')}
-        >
+        <WarningChip icon={AlertTriangle} label="Missing fields" count={missingCount} active={open === 'missing'} onClick={() => toggle('missing')}>
           <AnimatePresence>
             {open === 'missing' && (
-              <DropdownPanel
-                title="Missing fields"
-                subtitle={`${missingCount} unit${missingCount === 1 ? '' : 's'} with incomplete data`}
-                onClose={() => setOpen(null)}
-              >
+              <DropdownPanel title="Missing fields" subtitle={`${missingCount} unit${missingCount === 1 ? '' : 's'} with incomplete data`} onClose={() => setOpen(null)}>
                 {safeMissing.map(({ unit, missing }) => (
-                  <button
-                    key={unit.id}
-                    type="button"
-                    onClick={() => { onSelectUnit(unit); setOpen(null) }}
-                    className="w-full text-left px-4 py-3 border-b border-border last:border-0 hover:bg-muted/40 transition-colors group"
-                  >
+                  <button key={unit.id} type="button" onClick={() => { onSelectUnit(unit); setOpen(null) }}
+                    className="w-full text-left px-4 py-3 border-b border-border last:border-0 hover:bg-muted/40 transition-colors group">
                     <div className="flex items-baseline gap-2 mb-2">
-                      <span className="font-mono text-xs font-semibold text-foreground">
-                        {unit.unit_code}
-                      </span>
-                      <span className="text-[11px] text-muted-foreground truncate">
-                        {unit.building}
-                      </span>
-                      <span className="ml-auto text-[10px] text-muted-foreground tabular-nums">
-                        {missing.total}
-                      </span>
+                      <span className="font-mono text-xs font-semibold text-foreground">{unit.unit_code}</span>
+                      <span className="text-[11px] text-muted-foreground truncate">{unit.building}</span>
+                      <span className="ml-auto text-[10px] text-muted-foreground tabular-nums">{missing.total}</span>
                     </div>
                     <div className="flex flex-wrap gap-1">
                       {[...missing.critical, ...missing.warnings].map((f) => (
-                        <span
-                          key={f.key}
-                          className={cn(
-                            'inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-semibold',
-                            f.severity === 'critical'
-                              ? 'bg-red-600 text-white'
-                              : 'bg-amber-600 text-white'
-                          )}
-                        >
+                        <span key={f.key} className={cn('inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-semibold',
+                          f.severity === 'critical' ? 'bg-red-600 text-white' : 'bg-amber-600 text-white')}>
                           {f.label}
                         </span>
                       ))}
@@ -806,46 +689,21 @@ function WarningsStrip({ missingUnits, expiryWarnings, onSelectUnit }) {
       )}
 
       {expiryCount > 0 && (
-        <WarningChip
-          icon={Clock}
-          label="Contract expiry"
-          count={expiryCount}
-          active={open === 'expiry'}
-          onClick={() => toggle('expiry')}
-        >
+        <WarningChip icon={Clock} label="Contract expiry" count={expiryCount} active={open === 'expiry'} onClick={() => toggle('expiry')}>
           <AnimatePresence>
             {open === 'expiry' && (
-              <DropdownPanel
-                title="Contract expiry"
-                subtitle={`${expiredCount} expired · ${soonCount} expiring soon`}
-                onClose={() => setOpen(null)}
-              >
-                {safeExpiry.expired.length > 0 && (
-                  <SectionHeader label="Expired" tone="red" count={expiredCount} />
-                )}
+              <DropdownPanel title="Contract expiry" subtitle={`${expiredCount} expired · ${soonCount} expiring soon`} onClose={() => setOpen(null)}>
+                {safeExpiry.expired.length > 0 && <SectionHeader label="Expired" tone="red" count={expiredCount} />}
                 {safeExpiry.expired.map(({ unit, days, date }) => (
-                  <UnitRow
-                    key={unit.id}
-                    unit={unit}
-                    date={date}
-                    chip={`Expired ${formatDaysAgo(Math.abs(days))} ago`}
-                    chipTone="red"
-                    onClick={() => { onSelectUnit(unit); setOpen(null) }}
-                  />
+                  <UnitRow key={unit.id} unit={unit} date={date}
+                    chip={`Expired ${formatDaysAgo(Math.abs(days))} ago`} chipTone="red"
+                    onClick={() => { onSelectUnit(unit); setOpen(null) }} />
                 ))}
-
-                {safeExpiry.soon.length > 0 && (
-                  <SectionHeader label="Expiring soon" tone="amber" count={soonCount} />
-                )}
+                {safeExpiry.soon.length > 0 && <SectionHeader label="Expiring soon" tone="amber" count={soonCount} />}
                 {safeExpiry.soon.map(({ unit, days, date }) => (
-                  <UnitRow
-                    key={unit.id}
-                    unit={unit}
-                    date={date}
-                    chip={days === 0 ? 'Expires today' : `Expires in ${days} days`}
-                    chipTone="amber"
-                    onClick={() => { onSelectUnit(unit); setOpen(null) }}
-                  />
+                  <UnitRow key={unit.id} unit={unit} date={date}
+                    chip={days === 0 ? 'Expires today' : `Expires in ${days} days`} chipTone="amber"
+                    onClick={() => { onSelectUnit(unit); setOpen(null) }} />
                 ))}
               </DropdownPanel>
             )}
@@ -970,37 +828,26 @@ function InteractionRow({ record, onUpdated, onDeleted }) {
       toast.success('Interaction updated')
       setEditing(false)
       onUpdated?.(updated)
-    } catch (err) {
-      console.error(err)
-      toast.error('Failed to update')
-    } finally { setSaving(false) }
+    } catch (err) { console.error(err); toast.error('Failed to update') }
+    finally { setSaving(false) }
   }
 
   const handleDelete = async () => {
     const preview = (record.content || '').slice(0, 80)
     const confirmed = window.confirm(
-      `Delete this interaction?\n\n` +
-      `Type: ${record.type}\n` +
-      `Date: ${formatDate(record.created_at)}\n` +
-      `Note: ${preview}${record.content?.length > 80 ? '…' : ''}\n\n` +
-      `This cannot be undone.`
+      `Delete this interaction?\n\nType: ${record.type}\nDate: ${formatDate(record.created_at)}\nNote: ${preview}${record.content?.length > 80 ? '…' : ''}\n\nThis cannot be undone.`
     )
     if (!confirmed) return
     setDeleting(true)
     try {
       await deleteInteraction(record.id)
       logAudit('DELETE_UNIT_INTERACTION', 'unit_interactions', record.id, {
-        unit_id: record.unit_id,
-        type: record.type,
-        outcome: record.outcome,
-        content: record.content,
+        unit_id: record.unit_id, type: record.type, outcome: record.outcome, content: record.content,
       }).catch(() => {})
       toast.success('Interaction deleted')
       onDeleted?.(record.id)
-    } catch (err) {
-      console.error(err)
-      toast.error('Failed to delete')
-    } finally { setDeleting(false) }
+    } catch (err) { console.error(err); toast.error('Failed to delete') }
+    finally { setDeleting(false) }
   }
 
   const outcomeClasses =
@@ -1021,20 +868,9 @@ function InteractionRow({ record, onUpdated, onDeleted }) {
             <SelectTrigger className="h-7 text-xs rounded"><SelectValue /></SelectTrigger>
             <SelectContent>{OUTCOME_OPTIONS.map((o) => <SelectItem key={o} value={o} className="text-xs">{o}</SelectItem>)}</SelectContent>
           </Select>
-          <Input
-            type="date"
-            value={draft.next_follow_up_date}
-            onChange={(e) => setDraft((p) => ({ ...p, next_follow_up_date: e.target.value }))}
-            className="h-7 text-xs rounded"
-          />
+          <Input type="date" value={draft.next_follow_up_date} onChange={(e) => setDraft((p) => ({ ...p, next_follow_up_date: e.target.value }))} className="h-7 text-xs rounded" />
         </div>
-        <Textarea
-          value={draft.content}
-          onChange={(e) => setDraft((p) => ({ ...p, content: e.target.value }))}
-          rows={2}
-          className="text-xs rounded resize-none"
-          placeholder="What was discussed?"
-        />
+        <Textarea value={draft.content} onChange={(e) => setDraft((p) => ({ ...p, content: e.target.value }))} rows={2} className="text-xs rounded resize-none" placeholder="What was discussed?" />
         <div className="flex items-center justify-end gap-2">
           <Button variant="outline" size="sm" className="h-7 rounded text-[11px]" onClick={() => setEditing(false)} disabled={saving}>Cancel</Button>
           <Button size="sm" className="h-7 rounded text-[11px]" onClick={handleSave} disabled={saving} style={{ backgroundColor: BRAND }}>
@@ -1050,16 +886,12 @@ function InteractionRow({ record, onUpdated, onDeleted }) {
     <div className="group flex items-start gap-2 px-3 py-2 rounded-md border border-border bg-card hover:bg-muted/40 transition-colors">
       <div className="flex flex-col gap-1 pt-0.5 flex-shrink-0 w-[86px]">
         <span className="text-[10px] uppercase tracking-wider font-bold text-muted-foreground">{record.type}</span>
-        <span className={cn('inline-flex items-center justify-center px-2.5 py-0.5 rounded-full text-[11px] font-semibold', outcomeClasses)}>
-          {record.outcome}
-        </span>
+        <span className={cn('inline-flex items-center justify-center px-2.5 py-0.5 rounded-full text-[11px] font-semibold', outcomeClasses)}>{record.outcome}</span>
       </div>
       <div className="min-w-0 flex-1">
         <p className="text-xs text-foreground whitespace-pre-wrap break-words">{record.content}</p>
         <div className="flex items-center gap-3 mt-1 flex-wrap">
-          <span className="text-[10px] text-muted-foreground tabular-nums">
-            {formatDate(record.created_at)}
-          </span>
+          <span className="text-[10px] text-muted-foreground tabular-nums">{formatDate(record.created_at)}</span>
           {record.next_follow_up_date && (
             <span className="text-[10px] text-primary dark:text-blue-400 font-medium tabular-nums">
               Next follow-up: {formatDate(record.next_follow_up_date)}
@@ -1068,21 +900,8 @@ function InteractionRow({ record, onUpdated, onDeleted }) {
         </div>
       </div>
       <div className="flex items-center gap-1 flex-shrink-0 opacity-0 group-hover:opacity-100 transition-opacity">
-        <button
-          type="button"
-          onClick={() => setEditing(true)}
-          className="p-1.5 rounded hover:bg-muted text-muted-foreground hover:text-foreground transition-colors"
-          title="Edit"
-        >
-          <Pencil size={12} />
-        </button>
-        <button
-          type="button"
-          onClick={handleDelete}
-          disabled={deleting}
-          className="p-1.5 rounded hover:bg-red-500/10 text-muted-foreground hover:text-red-500 transition-colors disabled:opacity-40"
-          title="Delete"
-        >
+        <button type="button" onClick={() => setEditing(true)} className="p-1.5 rounded hover:bg-muted text-muted-foreground hover:text-foreground transition-colors" title="Edit"><Pencil size={12} /></button>
+        <button type="button" onClick={handleDelete} disabled={deleting} className="p-1.5 rounded hover:bg-red-500/10 text-muted-foreground hover:text-red-500 transition-colors disabled:opacity-40" title="Delete">
           {deleting ? <Loader2 size={12} className="animate-spin" /> : <Trash2 size={12} />}
         </button>
       </div>
@@ -1101,27 +920,17 @@ function InteractionsSection({ unit, onLogCall, refreshKey = 0 }) {
     setLoading(true)
     try {
       const { data, error } = await supabase
-        .from('unit_interactions')
-        .select('*')
-        .eq('unit_id', unit.id)
-        .order('created_at', { ascending: false })
+        .from('unit_interactions').select('*').eq('unit_id', unit.id).order('created_at', { ascending: false })
       if (error) throw error
       setItems(data || [])
-    } catch (err) {
-      console.error('Failed to load interactions:', err)
-    } finally {
-      setLoading(false)
-    }
+    } catch (err) { console.error('Failed to load interactions:', err) }
+    finally { setLoading(false) }
   }, [unit.id])
 
   useEffect(() => { load() }, [load, refreshKey])
 
-  const handleUpdated = (updated) => {
-    setItems((prev) => prev.map((x) => (x.id === updated.id ? updated : x)))
-  }
-  const handleDeleted = (id) => {
-    setItems((prev) => prev.filter((x) => x.id !== id))
-  }
+  const handleUpdated = (updated) => setItems((prev) => prev.map((x) => (x.id === updated.id ? updated : x)))
+  const handleDeleted = (id) => setItems((prev) => prev.filter((x) => x.id !== id))
 
   return (
     <div className="rounded-md bg-card border border-border overflow-hidden">
@@ -1132,12 +941,7 @@ function InteractionsSection({ unit, onLogCall, refreshKey = 0 }) {
             Interactions {items.length > 0 ? `· ${items.length}` : ''}
           </h4>
         </div>
-        <Button
-          variant="outline"
-          size="sm"
-          className="h-6 rounded text-[10px] gap-1 px-2"
-          onClick={onLogCall}
-        >
+        <Button variant="outline" size="sm" className="h-6 rounded text-[10px] gap-1 px-2" onClick={onLogCall}>
           <Plus size={10} /> Log
         </Button>
       </div>
@@ -1148,12 +952,7 @@ function InteractionsSection({ unit, onLogCall, refreshKey = 0 }) {
           <div className="py-4 text-center text-xs text-muted-foreground">No interactions yet</div>
         ) : (
           items.map((rec) => (
-            <InteractionRow
-              key={rec.id}
-              record={rec}
-              onUpdated={handleUpdated}
-              onDeleted={handleDeleted}
-            />
+            <InteractionRow key={rec.id} record={rec} onUpdated={handleUpdated} onDeleted={handleDeleted} />
           ))
         )}
       </div>
@@ -1162,9 +961,11 @@ function InteractionsSection({ unit, onLogCall, refreshKey = 0 }) {
 }
 
 // ============================================================
-// EXPANDED ROW  ← FIXED (single colSpan, no empty leading cell)
+// REGISTRY DETAIL PANEL
 // ============================================================
-function ExpandedRow({ unit, onUnitChange, rowRef, channelOptions, onLogCall, onDelete, interactionsRefreshKey }) {
+const PANEL_WIDTH = 448
+
+function RegistryDetailPanel({ unit, onUnitChange, onClose, channelOptions, onLogCall, onDelete, interactionsRefreshKey }) {
   const handleUnitField = async (field, value) => {
     await updateUnit(unit.id, { [field]: value })
     onUnitChange({ ...unit, [field]: value })
@@ -1191,71 +992,91 @@ function ExpandedRow({ unit, onUnitChange, rowRef, channelOptions, onLogCall, on
   }
 
   return (
-    <tr ref={rowRef} className="bg-muted/40 border-b border-border">
-      <td colSpan={8} className="p-0 bg-muted/40">
-        <motion.div initial={{ opacity: 0, height: 0 }} animate={{ opacity: 1, height: 'auto' }} transition={{ duration: 0.22, ease: [0.4, 0, 0.2, 1] }} className="overflow-hidden">
-          <div className="px-4 py-4 space-y-3">
-            <div className="flex items-center justify-end gap-2">
-              <Button variant="outline" size="sm" className="h-7 rounded text-[11px] gap-1.5" onClick={onLogCall}>
-                <PhoneCall size={11} /> Log Interaction
-              </Button>
-              <Button variant="outline" size="sm" className="h-7 rounded text-[11px] gap-1.5 text-red-600 border-red-200 hover:bg-red-50 dark:text-red-400 dark:border-red-800 dark:hover:bg-red-900/20" onClick={onDelete}>
-                <Trash2 size={11} /> Delete Unit
-              </Button>
+    <motion.div
+      initial={{ width: 0, opacity: 0 }}
+      animate={{ width: PANEL_WIDTH, opacity: 1 }}
+      exit={{ width: 0, opacity: 0 }}
+      transition={{
+        width: { duration: 0.32, ease: [0.4, 0, 0.2, 1] },
+        opacity: { duration: 0.2, ease: 'easeOut' },
+      }}
+      className="bg-card border-l border-border h-full overflow-hidden flex-shrink-0"
+      style={{ maxWidth: '100%' }}
+    >
+      <div className="flex flex-col h-full" style={{ width: PANEL_WIDTH }}>
+        <div className="flex-shrink-0 px-5 py-4 border-b border-border bg-muted/30">
+          <div className="flex items-start gap-3">
+            <UnitAvatar unit={unit} size="lg" />
+            <div className="min-w-0 flex-1">
+              <p className="text-base font-bold text-foreground truncate">{unit.unit_code}</p>
+              <p className="text-[11px] text-muted-foreground truncate">{unit.building}</p>
+              <div className="flex items-center gap-2 mt-2 flex-wrap">
+                <StatusBadge status={unit.status} />
+                {unit.unit_type && (
+                  <span className="inline-flex items-center px-2 py-0.5 rounded text-[10px] font-semibold bg-muted text-muted-foreground uppercase">
+                    {unit.unit_type}
+                  </span>
+                )}
+              </div>
             </div>
-
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
-              <SectionCard title="Unit" icon={Building2}>
-                <UnitPhotoUpload unit={unit} onSave={handlePhotoSave} />
-                <div className="pt-2 mt-2 border-t border-border space-y-0.5">
-                  <EditableField label="Code" value={unit.unit_code} onSave={(v) => handleUnitField('unit_code', v)} auditTag="unit_code" />
-                  <EditableField label="Building" value={unit.building} onSave={(v) => handleUnitField('building', v)} auditTag="building" />
-                  <EditableField label="Type" value={unit.unit_type} options={UNIT_TYPES} onSave={(v) => handleUnitField('unit_type', v)} auditTag="unit_type" />
-                  <EditableField label="Status" value={unit.status} options={STATUS_OPTIONS} onSave={(v) => handleUnitField('status', v)} auditTag="status" />
-                </div>
-              </SectionCard>
-
-              <SectionCard title="Owner" icon={UserPlus}>
-                <div className="flex items-center gap-2.5 mb-2 pb-2 border-b border-border">
-                  <OwnerAvatar name={unit.owner_name} email={unit.owner_email} size="lg" />
-                  <div className="min-w-0 flex-1">
-                    <p className="text-sm font-semibold truncate">{unit.owner_name || 'No owner'}</p>
-                    <p className="text-[11px] text-muted-foreground truncate">{unit.owner_email || 'No email'}</p>
-                  </div>
-                </div>
-                <EditableField label="Email" value={unit.owner_email} type="email" onSave={(v) => handleUnitField('owner_email', v)} actionHref={unit.owner_email ? `mailto:${unit.owner_email}` : null} actionIcon={Mail} actionTitle="Send email" auditTag="owner_email" />
-                <EditableField label="Phone" value={unit.owner_phone} type="tel" onSave={(v) => handleUnitField('owner_phone', v)} actionHref={unit.owner_phone ? `tel:${unit.owner_phone}` : null} actionIcon={Phone} actionTitle="Call" auditTag="owner_phone" />
-                <EditableField label="GC" value={unit.gc_status} options={GC_STATUS_OPTIONS} onSave={(v) => handleUnitField('gc_status', v)} auditTag="gc_status" />
-              </SectionCard>
-
-              <SectionCard title="Contract" icon={Tag}>
-                <EditableField label="Effective" value={unit.effective_date} type="date" onSave={(v) => handleContractField('effective_date', v)} auditTag="effective_date" />
-                <EditableField label="Expiry" value={unit.expiry_date} type="date" onSave={(v) => handleContractField('expiry_date', v)} auditTag="expiry_date" />
-                <ExpiryBadge expiryDate={unit.expiry_date} />
-                <EditableField label="Class" value={unit.classification} options={CLASSIFICATION_OPTIONS} onSave={(v) => handleContractField('classification', v)} auditTag="classification" />
-                <EditableField label="PDF" value={unit.contract_pdf_url} onSave={(v) => handleContractField('contract_pdf_url', v)} auditTag="contract_pdf_url" />
-              </SectionCard>
-            </div>
-
-            <div className="grid grid-cols-1 lg:grid-cols-3 gap-3">
-              <SectionCard title="Marketing" icon={Layers}>
-                <EditableField label="Title" value={unit.marketing_title} onSave={(v) => handleUnitField('marketing_title', v)} auditTag="marketing_title" />
-                <EditableField label="Inventory" value={unit.inventory_list} onSave={(v) => handleUnitField('inventory_list', v)} auditTag="inventory_list" />
-              </SectionCard>
-              <SectionCard title="OTA Channels" icon={Tag} className="lg:col-span-2">
-                <OtaEditor unit={unit} onSave={handleOtaSave} channelOptions={channelOptions} />
-              </SectionCard>
-            </div>
-
-            <InteractionsSection
-              unit={unit}
-              onLogCall={onLogCall}
-              refreshKey={interactionsRefreshKey}
-            />
+            <button onClick={onClose} className="p-1 rounded hover:bg-muted text-muted-foreground flex-shrink-0"><X size={16} /></button>
           </div>
-        </motion.div>
-      </td>
-    </tr>
+        </div>
+
+        <div className="flex-1 overflow-y-auto p-4 space-y-3">
+          <div className="flex items-center justify-end gap-2">
+            <Button variant="outline" size="sm" className="h-7 rounded text-[11px] gap-1.5" onClick={onLogCall}>
+              <PhoneCall size={11} /> Log Interaction
+            </Button>
+            <Button variant="outline" size="sm" className="h-7 rounded text-[11px] gap-1.5 text-red-600 border-red-200 hover:bg-red-50 dark:text-red-400 dark:border-red-800 dark:hover:bg-red-900/20" onClick={onDelete}>
+              <Trash2 size={11} /> Delete Unit
+            </Button>
+          </div>
+
+          <SectionCard title="Unit" icon={Building2}>
+            <UnitPhotoUpload unit={unit} onSave={handlePhotoSave} />
+            <div className="pt-2 mt-2 border-t border-border space-y-0.5">
+              <EditableField label="Code" value={unit.unit_code} onSave={(v) => handleUnitField('unit_code', v)} auditTag="unit_code" />
+              <EditableField label="Building" value={unit.building} onSave={(v) => handleUnitField('building', v)} auditTag="building" />
+              <EditableField label="Type" value={unit.unit_type} options={UNIT_TYPES} onSave={(v) => handleUnitField('unit_type', v)} auditTag="unit_type" />
+              <EditableField label="Status" value={unit.status} options={STATUS_OPTIONS} onSave={(v) => handleUnitField('status', v)} auditTag="status" />
+            </div>
+          </SectionCard>
+
+          <SectionCard title="Owner" icon={UserPlus}>
+            <div className="flex items-center gap-2.5 mb-2 pb-2 border-b border-border">
+              <OwnerAvatar name={unit.owner_name} email={unit.owner_email} size="lg" />
+              <div className="min-w-0 flex-1">
+                <p className="text-sm font-semibold truncate">{unit.owner_name || 'No owner'}</p>
+                <p className="text-[11px] text-muted-foreground truncate">{unit.owner_email || 'No email'}</p>
+              </div>
+            </div>
+            <EditableField label="Email" value={unit.owner_email} type="email" onSave={(v) => handleUnitField('owner_email', v)} actionHref={unit.owner_email ? `mailto:${unit.owner_email}` : null} actionIcon={Mail} actionTitle="Send email" auditTag="owner_email" />
+            <EditableField label="Phone" value={unit.owner_phone} type="tel" onSave={(v) => handleUnitField('owner_phone', v)} actionHref={unit.owner_phone ? `tel:${unit.owner_phone}` : null} actionIcon={Phone} actionTitle="Call" auditTag="owner_phone" />
+            <EditableField label="GC" value={unit.gc_status} options={GC_STATUS_OPTIONS} onSave={(v) => handleUnitField('gc_status', v)} auditTag="gc_status" />
+          </SectionCard>
+
+          <SectionCard title="Contract" icon={Tag}>
+            <EditableField label="Effective" value={unit.effective_date} type="date" onSave={(v) => handleContractField('effective_date', v)} auditTag="effective_date" />
+            <EditableField label="Expiry" value={unit.expiry_date} type="date" onSave={(v) => handleContractField('expiry_date', v)} auditTag="expiry_date" />
+            <ExpiryBadge expiryDate={unit.expiry_date} />
+            <EditableField label="Class" value={unit.classification} options={CLASSIFICATION_OPTIONS} onSave={(v) => handleContractField('classification', v)} auditTag="classification" />
+            <EditableField label="PDF" value={unit.contract_pdf_url} onSave={(v) => handleContractField('contract_pdf_url', v)} auditTag="contract_pdf_url" />
+          </SectionCard>
+
+          <SectionCard title="Marketing" icon={Layers}>
+            <EditableField label="Title" value={unit.marketing_title} onSave={(v) => handleUnitField('marketing_title', v)} auditTag="marketing_title" />
+            <EditableField label="Inventory" value={unit.inventory_list} onSave={(v) => handleUnitField('inventory_list', v)} auditTag="inventory_list" />
+          </SectionCard>
+
+          <SectionCard title="OTA Channels" icon={Tag}>
+            <OtaEditor unit={unit} onSave={handleOtaSave} channelOptions={channelOptions} />
+          </SectionCard>
+
+          <InteractionsSection unit={unit} onLogCall={onLogCall} refreshKey={interactionsRefreshKey} />
+        </div>
+      </div>
+    </motion.div>
   )
 }
 
@@ -1485,8 +1306,7 @@ function downloadCSV(units, filename) {
     const exp = getExpiryInfo(u)
     const expiryLabel =
       exp.status === 'expired' ? `Expired ${Math.abs(exp.days)}d ago` :
-      exp.status === 'soon' ? `Expires in ${exp.days}d` :
-      ''
+      exp.status === 'soon' ? `Expires in ${exp.days}d` : ''
     return [
       u.building, u.unit_code, u.owner_name || '', u.owner_email || '', u.owner_phone || '',
       u.unit_type || '', u.status || '', u.effective_date || '', u.expiry_date || '',
@@ -1596,6 +1416,75 @@ function StatusPills({ statusFilter, onStatusFilter, counts }) {
 }
 
 // ============================================================
+// UNIT LIST ROW
+// ============================================================
+function UnitListRow({ unit, selected, onClick }) {
+  const exp = getExpiryInfo(unit)
+  return (
+    <motion.button
+      type="button"
+      onClick={onClick}
+      initial={false}
+      animate={{
+        backgroundColor: selected ? 'rgba(45, 86, 142, 0.10)' : 'rgba(45, 86, 142, 0)',
+      }}
+      transition={{ duration: 0.22, ease: [0.4, 0, 0.2, 1] }}
+      whileHover={{ backgroundColor: selected ? 'rgba(45, 86, 142, 0.14)' : 'rgba(45, 86, 142, 0.05)' }}
+      whileTap={{ scale: 0.998 }}
+      className={cn('group/row w-full text-left px-4 py-3 border-b border-border cursor-pointer select-none', ROW_GRID)}
+    >
+      {/* Building */}
+      <span className="text-sm font-semibold text-foreground truncate">
+        {unit.building || '—'}
+      </span>
+
+      {/* Unit Code */}
+      <span className="font-mono text-sm font-bold text-foreground truncate">
+        {unit.unit_code || '—'}
+      </span>
+
+      {/* Effective */}
+      <span className="text-xs tabular-nums text-muted-foreground truncate">
+        {unit.effective_date ? formatDate(unit.effective_date) : '—'}
+      </span>
+
+      {/* Expiry */}
+      <span
+        className={cn(
+          'text-xs tabular-nums truncate font-medium',
+          unit.expiry_date
+            ? exp.status === 'expired'
+              ? 'text-red-600 dark:text-red-400'
+              : exp.status === 'soon'
+                ? 'text-amber-600 dark:text-amber-400'
+                : 'text-muted-foreground'
+            : 'text-muted-foreground'
+        )}
+      >
+        {unit.expiry_date ? formatDate(unit.expiry_date) : '—'}
+      </span>
+
+      {/* Class */}
+      <span className="text-xs text-muted-foreground truncate">
+        {unit.classification || '—'}
+      </span>
+
+      {/* Status + chevron */}
+      <div className="flex items-center gap-2 justify-end flex-shrink-0">
+        <StatusBadge status={unit.status} />
+        <ChevronRight
+          size={14}
+          className={cn(
+            'text-muted-foreground/40 transition-transform duration-300 ease-out',
+            selected && 'rotate-180 text-primary'
+          )}
+        />
+      </div>
+    </motion.button>
+  )
+}
+
+// ============================================================
 // MAIN PAGE
 // ============================================================
 export default function RegistryPage() {
@@ -1612,19 +1501,14 @@ export default function RegistryPage() {
   const [filterOpen, setFilterOpen] = useState(false)
   const [addUnitOpen, setAddUnitOpen] = useState(false)
 
-  const [sortField, setSortField] = useState('unit_code')
-  const [sortDir, setSortDir] = useState('asc')
-  const [expandedId, setExpandedId] = useState(null)
-
+  const [selectedId, setSelectedId] = useState(null)
   const [cardsHidden, setCardsHidden] = useState(false)
   const [channelOptions, setChannelOptions] = useState([])
 
   const [logCallUnit, setLogCallUnit] = useState(null)
   const [interactionsRefreshKey, setInteractionsRefreshKey] = useState(0)
 
-  const tableScrollRef = useRef(null)
-  const expandedRowRef = useRef(null)
-  const clickedRowRef = useRef(null)
+  const listScrollRef = useRef(null)
   const headerRef = useRef(null)
   const filterWrapRef = useRef(null)
   const hasLoadedOnce = useRef(false)
@@ -1633,22 +1517,6 @@ export default function RegistryPage() {
     const t = setTimeout(() => setDebouncedSearch(search), 300)
     return () => clearTimeout(t)
   }, [search])
-
-  useEffect(() => {
-    if (!expandedId || !clickedRowRef.current || !tableScrollRef.current) return
-    const t = setTimeout(() => {
-      const scrollEl = tableScrollRef.current
-      const rowEl = clickedRowRef.current
-      const headerEl = headerRef.current
-      if (!scrollEl || !rowEl) return
-      const scrollRect = scrollEl.getBoundingClientRect()
-      const rowRect = rowEl.getBoundingClientRect()
-      const headerHeight = headerEl?.offsetHeight ?? 0
-      const delta = (rowRect.top - scrollRect.top) - headerHeight - 4
-      scrollEl.scrollTo({ top: Math.max(0, scrollEl.scrollTop + delta), behavior: 'smooth' })
-    }, 150)
-    return () => clearTimeout(t)
-  }, [expandedId])
 
   const fetchChannelOptions = useCallback(async () => {
     const { data } = await supabase.from('ota_channel_names').select('name').order('name')
@@ -1671,7 +1539,6 @@ export default function RegistryPage() {
 
   useEffect(() => { fetchUnits(); fetchChannelOptions() }, [fetchUnits, fetchChannelOptions])
 
-  // Realtime
   useEffect(() => {
     const channels = [
       supabase.channel('registry-units').on('postgres_changes', { event: '*', schema: 'public', table: 'units' }, () => fetchUnits()).subscribe(),
@@ -1758,19 +1625,16 @@ export default function RegistryPage() {
   const sorted = useMemo(() => {
     const copy = [...filteredUnits]
     copy.sort((a, b) => {
-      const av = a[sortField] ?? ''
-      const bv = b[sortField] ?? ''
-      if (av < bv) return sortDir === 'asc' ? -1 : 1
-      if (av > bv) return sortDir === 'asc' ? 1 : -1
+      const av = a.unit_code ?? ''
+      const bv = b.unit_code ?? ''
+      if (av < bv) return -1
+      if (av > bv) return 1
       return 0
     })
     return copy
-  }, [filteredUnits, sortField, sortDir])
+  }, [filteredUnits])
 
-  const toggleSort = (field) => {
-    if (sortField === field) setSortDir((d) => (d === 'asc' ? 'desc' : 'asc'))
-    else { setSortField(field); setSortDir('asc') }
-  }
+  const selected = useMemo(() => sorted.find((u) => u.id === selectedId) || null, [sorted, selectedId])
 
   const handleExport = () => {
     if (filteredUnits.length === 0) { toast.error('Nothing to export'); return }
@@ -1785,17 +1649,14 @@ export default function RegistryPage() {
 
   const handleDeleteUnit = async (unit) => {
     const confirmed = window.confirm(
-      `Delete unit "${unit.unit_code}"?\n\n` +
-      `Building: ${unit.building || '—'}\n` +
-      `Owner: ${unit.owner_name || '—'}\n\n` +
-      `This will also delete its contracts and interactions. This cannot be undone.`
+      `Delete unit "${unit.unit_code}"?\n\nBuilding: ${unit.building || '—'}\nOwner: ${unit.owner_name || '—'}\n\nThis will also delete its contracts and interactions. This cannot be undone.`
     )
     if (!confirmed) return
     try {
       await deleteUnit(unit.id)
       logAudit('DELETE_UNIT', 'units', unit.id, { unit_code: unit.unit_code, building: unit.building }).catch(() => {})
       toast.success('Unit deleted')
-      setExpandedId(null)
+      setSelectedId(null)
       fetchUnits()
     } catch (err) {
       console.error(err)
@@ -1803,29 +1664,29 @@ export default function RegistryPage() {
     }
   }
 
-  const handleTableMouseMove = useCallback((e) => {
+  const handleListMouseMove = useCallback((e) => {
     const headerEl = headerRef.current
     if (!headerEl) return
     const headerRect = headerEl.getBoundingClientRect()
     setCardsHidden(e.clientY > headerRect.bottom)
   }, [])
-
-  const handleTableMouseLeave = useCallback(() => setCardsHidden(false), [])
+  const handleListMouseLeave = useCallback(() => setCardsHidden(false), [])
 
   const handleSelectUnit = (unit) => {
-    setExpandedId(unit.id)
-    setStatusFilter('all')
+    setSelectedId((prev) => (prev === unit.id ? null : unit.id))
   }
 
   return (
-    <div className="h-full flex flex-col gap-3 min-h-0">
-      <div className={cn('flex-shrink-0 transition-all duration-300 ease-out overflow-hidden', cardsHidden ? 'max-h-0 opacity-0 -mb-3' : 'max-h-40 opacity-100')}>
-        <SummaryCards units={allUnits} />
-      </div>
-
+    <div className="h-full flex min-h-0">
+      {/* Left: list */}
       <div className="flex-1 min-h-0 flex flex-col overflow-hidden bg-card border border-border rounded-md">
         <div className="p-3 flex-1 min-h-0 flex flex-col gap-2.5">
-          <div className="flex-shrink-0 flex items-center gap-2">
+
+          <div className={cn('flex-shrink-0 transition-all duration-300 ease-out overflow-hidden', cardsHidden ? 'max-h-0 opacity-0 -mb-3' : 'max-h-40 opacity-100')}>
+            <SummaryCards units={allUnits} />
+          </div>
+
+          <div ref={headerRef} className="flex-shrink-0 flex items-center gap-2">
             <div className="relative flex-1 min-w-0">
               <Search size={13} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-muted-foreground" />
               <Input placeholder="Search unit, owner, email, phone, building..." value={search} onChange={(e) => setSearch(e.target.value)} className="pl-8 h-8 text-xs rounded" />
@@ -1864,81 +1725,66 @@ export default function RegistryPage() {
           </div>
 
           <div className="flex-1 min-h-0 rounded border border-border overflow-hidden">
-            <div ref={tableScrollRef} className="h-full overflow-y-auto overflow-x-auto" onMouseMove={handleTableMouseMove} onMouseLeave={handleTableMouseLeave}>
+            <div
+              ref={listScrollRef}
+              className="h-full overflow-y-auto"
+              style={{ scrollbarGutter: 'stable' }}
+              onMouseMove={handleListMouseMove}
+              onMouseLeave={handleListMouseLeave}
+            >
+              {/* Sticky header */}
+              <div className={cn('sticky top-0 z-10 px-4 py-2 border-b border-border bg-card', ROW_GRID)}>
+                <span className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground truncate">Building</span>
+                <span className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground truncate">Unit</span>
+                <span className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground truncate">Effective</span>
+                <span className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground truncate">Expiry</span>
+                <span className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground truncate">Class</span>
+                <span className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground tabular-nums text-right whitespace-nowrap">
+                  {sorted.length}
+                  {sorted.length !== allUnits.length && <span className="text-muted-foreground/60"> / {allUnits.length}</span>}
+                </span>
+              </div>
+
               {isFirstLoad ? (
-                <div className="space-y-2 p-3">{[...Array(10)].map((_, i) => <Skeleton key={i} className="h-10 w-full" />)}</div>
+                <div className="space-y-2 p-3">{[...Array(10)].map((_, i) => <Skeleton key={i} className="h-12 w-full" />)}</div>
+              ) : sorted.length === 0 ? (
+                <div className="h-full flex items-center justify-center text-center py-12">
+                  <div>
+                    <Building2 size={36} className="text-muted-foreground/40 mx-auto mb-3" />
+                    <p className="text-sm text-muted-foreground font-semibold">No units match your filters</p>
+                    <p className="text-xs text-muted-foreground mt-1">Try clearing filters or adding a new unit</p>
+                  </div>
+                </div>
               ) : (
-                <table className="w-full border-collapse table-fixed">
-                  <colgroup>
-                    <col className={COL_WIDTHS.photo} />
-                    <col className={COL_WIDTHS.building} />
-                    <col className={COL_WIDTHS.unit} />
-                    <col className={COL_WIDTHS.owner} />
-                    <col className={COL_WIDTHS.type} />
-                    <col className={COL_WIDTHS.effective} />
-                    <col className={COL_WIDTHS.expiry} />
-                    <col className={COL_WIDTHS.status} />
-                  </colgroup>
-                  <thead ref={headerRef} className="sticky top-0 z-20 bg-card">
-                    <tr>
-                      <th className="bg-card py-2.5 border-b border-border"></th>
-                      <SortHead field="building" sortField={sortField} sortDir={sortDir} onSort={toggleSort}>Building</SortHead>
-                      <SortHead field="unit_code" sortField={sortField} sortDir={sortDir} onSort={toggleSort}>Unit</SortHead>
-                      <SortHead field="owner_name" sortField={sortField} sortDir={sortDir} onSort={toggleSort}>Owner</SortHead>
-                      <SortHead field="unit_type" sortField={sortField} sortDir={sortDir} onSort={toggleSort} align="center">Type</SortHead>
-                      <SortHead field="effective_date" sortField={sortField} sortDir={sortDir} onSort={toggleSort} align="right">Effective</SortHead>
-                      <SortHead field="expiry_date" sortField={sortField} sortDir={sortDir} onSort={toggleSort} align="right">Expiry</SortHead>
-                      <SortHead field="status" sortField={sortField} sortDir={sortDir} onSort={toggleSort} align="center">Status</SortHead>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {sorted.length === 0 ? (
-                      <tr><td colSpan={8} className="h-32 text-center text-muted-foreground text-sm">No units match your filters</td></tr>
-                    ) : (
-                      sorted.map((unit) => {
-                        const isExpanded = expandedId === unit.id
-                        return (
-                          <Fragment key={unit.id}>
-                            <tr ref={isExpanded ? clickedRowRef : null} onClick={() => setExpandedId(isExpanded ? null : unit.id)}
-                              className={cn('cursor-pointer transition-colors duration-100 border-b border-border', isExpanded ? 'text-white' : 'hover:bg-muted/50')}
-                              style={isExpanded ? { backgroundColor: BRAND } : undefined}>
-                              <td className="py-2.5 px-4"><UnitAvatar unit={unit} size="sm" /></td>
-                              <td className={cn('text-xs py-2.5 px-4 truncate', isExpanded && 'text-white/90')}>{unit.building}</td>
-                              <td className={cn('font-mono text-xs font-bold py-2.5 px-4 truncate', isExpanded ? 'text-white' : 'text-foreground')}>{unit.unit_code}</td>
-                              <td className={cn('text-xs py-2.5 px-4 truncate', isExpanded ? 'text-white/90' : '')}>
-                                {unit.owner_name || <span className={cn('italic', isExpanded ? 'text-white/60' : 'text-muted-foreground')}>No owner</span>}
-                              </td>
-                              <td className={cn('text-xs py-2.5 px-4 truncate text-center', isExpanded ? 'text-white/70' : 'text-muted-foreground')}>{unit.unit_type || '—'}</td>
-                              <td className="py-2.5 px-4">
-                                <div className="flex items-center justify-end h-5">
-                                  <span className={cn('text-xs tabular-nums', isExpanded && 'text-white/95')}>{unit.effective_date ? formatDate(unit.effective_date) : '—'}</span>
-                                </div>
-                              </td>
-                              <td className="py-2.5 px-4">
-                                <div className="flex items-center justify-end h-5">
-                                  <span className={cn('text-xs tabular-nums', isExpanded && 'text-white/95')}>{unit.expiry_date ? formatDate(unit.expiry_date) : '—'}</span>
-                                </div>
-                              </td>
-                              <td className="py-2.5 px-4 text-center"><StatusBadge status={unit.status} /></td>
-                            </tr>
-                            {isExpanded && (
-                              <ExpandedRow unit={unit} onUnitChange={handleUnitUpdate} rowRef={expandedRowRef}
-                                channelOptions={channelOptions}
-                                onLogCall={() => setLogCallUnit(unit)}
-                                onDelete={() => handleDeleteUnit(unit)}
-                                interactionsRefreshKey={interactionsRefreshKey} />
-                            )}
-                          </Fragment>
-                        )
-                      })
-                    )}
-                  </tbody>
-                </table>
+                sorted.map((unit) => (
+                  <UnitListRow
+                    key={unit.id}
+                    unit={unit}
+                    selected={selectedId === unit.id}
+                    onClick={() => handleSelectUnit(unit)}
+                  />
+                ))
               )}
             </div>
           </div>
         </div>
       </div>
+
+      {/* Right: detail panel */}
+      <AnimatePresence initial={false}>
+        {selected && (
+          <RegistryDetailPanel
+            key={selected.id}
+            unit={selected}
+            onUnitChange={handleUnitUpdate}
+            onClose={() => setSelectedId(null)}
+            channelOptions={channelOptions}
+            onLogCall={() => setLogCallUnit(selected)}
+            onDelete={() => handleDeleteUnit(selected)}
+            interactionsRefreshKey={interactionsRefreshKey}
+          />
+        )}
+      </AnimatePresence>
 
       <AddUnitModal open={addUnitOpen} onClose={() => setAddUnitOpen(false)}
         onCreated={() => { fetchUnits(); fetchChannelOptions() }}
