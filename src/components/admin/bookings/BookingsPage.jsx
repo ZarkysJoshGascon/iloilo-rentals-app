@@ -1,10 +1,10 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import {
-  ArrowUpDown, ArrowUp, ArrowDown, Check, Download, Loader2,
+  Check, Download, Loader2,
   Plus, RefreshCw, Search, SlidersHorizontal, X, Trash2,
   Building2, CheckCircle2, Clock, AlertTriangle, Calendar, User, Wallet,
-  ChevronRight, Edit2, Mail, Phone,
+  ChevronRight, Edit2,
 } from 'lucide-react'
 import toast from 'react-hot-toast'
 import { Button } from '@/components/ui/button'
@@ -61,7 +61,7 @@ const PAYMENT_STATUS_CONFIG = {
   paid: { label: 'Paid', className: 'bg-emerald-600 text-white hover:bg-emerald-600 border-0' },
 }
 
-// Row grid — last column fixed so header + rows align perfectly
+// Row grid — 6 columns + trailing status column (fixed width)
 const ROW_GRID = 'grid grid-cols-[1.4fr_1fr_1.2fr_1.1fr_1fr_160px] gap-4 items-center'
 
 const PANEL_WIDTH = 448
@@ -122,6 +122,14 @@ function generateBookingCode() {
   let s = ''
   for (let i = 0; i < 8; i++) s += chars[Math.floor(Math.random() * chars.length)]
   return `BK-${s}`
+}
+
+function unitLabel(u) {
+  if (!u) return '—'
+  const b = u.building || ''
+  const c = u.unit_code || ''
+  if (b && c) return `${b} — ${c}`
+  return c || b || '—'
 }
 
 // ============================================================
@@ -275,6 +283,79 @@ function EditableField({ label, value, type = 'text', onSave, auditTag }) {
         {status === 'saving' && <Loader2 size={11} className="flex-shrink-0 animate-spin text-primary" />}
         {status === 'saved' && <Check size={11} className="flex-shrink-0 text-emerald-500" />}
       </div>
+    </div>
+  )
+}
+
+// ============================================================
+// BOOKER COMBOBOX (custom, styled — replaces datalist)
+// ============================================================
+function BookerCombobox({ value, onChange, options, placeholder = 'e.g. Nelix' }) {
+  const [open, setOpen] = useState(false)
+  const [query, setQuery] = useState(value || '')
+  const wrapRef = useRef(null)
+
+  useEffect(() => { setQuery(value || '') }, [value])
+
+  useEffect(() => {
+    if (!open) return
+    const onDown = (e) => { if (wrapRef.current && !wrapRef.current.contains(e.target)) setOpen(false) }
+    const onKey = (e) => { if (e.key === 'Escape') setOpen(false) }
+    document.addEventListener('mousedown', onDown)
+    window.addEventListener('keydown', onKey)
+    return () => { document.removeEventListener('mousedown', onDown); window.removeEventListener('keydown', onKey) }
+  }, [open])
+
+  const filtered = useMemo(() => {
+    const q = (query || '').trim().toLowerCase()
+    if (!q) return options
+    return options.filter((o) => o.toLowerCase().includes(q))
+  }, [query, options])
+
+  const commit = () => {
+    onChange(query.trim())
+    setOpen(false)
+  }
+
+  return (
+    <div className="relative" ref={wrapRef}>
+      <Input
+        value={query}
+        onChange={(e) => { setQuery(e.target.value); setOpen(true) }}
+        onFocus={() => setOpen(true)}
+        onBlur={() => setTimeout(commit, 120)}
+        onKeyDown={(e) => {
+          if (e.key === 'Enter') { e.preventDefault(); commit(); e.target.blur() }
+          if (e.key === 'Escape') { e.preventDefault(); setOpen(false); e.target.blur() }
+        }}
+        placeholder={placeholder}
+        className="h-8 text-xs rounded"
+      />
+      <AnimatePresence>
+        {open && filtered.length > 0 && (
+          <motion.div
+            initial={{ opacity: 0, y: -4 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: -4 }}
+            transition={{ duration: 0.12 }}
+            className="absolute left-0 right-0 top-full mt-1 z-30 bg-popover border border-border rounded-md shadow-lg max-h-48 overflow-y-auto"
+          >
+            {filtered.map((o) => (
+              <button
+                key={o}
+                type="button"
+                onMouseDown={(e) => { e.preventDefault(); onChange(o); setQuery(o); setOpen(false) }}
+                className={cn(
+                  'w-full text-left px-3 py-1.5 text-xs hover:bg-muted transition-colors',
+                  o === value && 'bg-muted/60 font-semibold text-primary'
+                )}
+              >
+                {o}
+              </button>
+            ))}
+          </motion.div>
+        )}
+      </AnimatePresence>
     </div>
   )
 }
@@ -508,7 +589,7 @@ function FilterPanel({ open, onClose, building, setBuilding, dateFilter, setDate
 }
 
 // ============================================================
-// BOOKING FORM MODAL (unchanged behavior)
+// BOOKING FORM MODAL
 // ============================================================
 const emptyForm = () => ({
   unit_id: '',
@@ -570,7 +651,8 @@ function BookingFormModal({ open, onClose, onSaved, units, editing, existingBook
   const willBePartial = initialAmount > 0 && initialAmount < totalAmount
   const willBePaid = initialAmount >= totalAmount && totalAmount > 0
 
-  const unitLabel = (u) => `${u.building || '—'} — ${u.unit_code || '—'}`
+  // Selected unit label for the trigger
+  const selectedUnit = useMemo(() => units.find((u) => u.id === form.unit_id) || null, [units, form.unit_id])
 
   const handleSubmit = async () => {
     if (!form.unit_id) { toast.error('Select a unit'); return }
@@ -640,7 +722,8 @@ function BookingFormModal({ open, onClose, onSaved, units, editing, existingBook
       <div className="absolute inset-0 bg-black/50" onClick={onClose} />
       <motion.div initial={{ opacity: 0, scale: 0.98 }} animate={{ opacity: 1, scale: 1 }} transition={{ duration: 0.15 }}
         className="relative bg-card rounded-md shadow-2xl max-w-3xl w-full max-h-[92vh] flex flex-col overflow-hidden border border-border">
-        <div className="flex items-center justify-between px-5 py-3 border-b border-border">
+        {/* Header */}
+        <div className="flex items-center justify-between px-5 py-3 border-b border-border flex-shrink-0">
           <div>
             <h2 className="text-sm font-bold text-foreground">{editing ? 'Edit Booking' : 'New Booking'}</h2>
             {editing && <p className="text-[11px] text-muted-foreground font-mono mt-0.5">{editing.booking_code}</p>}
@@ -648,40 +731,54 @@ function BookingFormModal({ open, onClose, onSaved, units, editing, existingBook
           <button onClick={onClose} className="p-1 rounded hover:bg-muted transition-colors"><X size={16} /></button>
         </div>
 
-        <div className="flex-1 overflow-y-auto px-5 py-4 space-y-4">
-          <div>
-            <h3 className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground mb-2 pb-1.5 border-b border-border">Booking</h3>
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+        {/* Body */}
+        <div className="flex-1 overflow-y-auto px-5 py-5 space-y-5">
+          {/* Booking */}
+          <section>
+            <h3 className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground mb-3">Booking</h3>
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-x-4 gap-y-3">
               <div>
                 <label className={labelClass}>Unit *</label>
                 <Select value={form.unit_id} onValueChange={(v) => setField('unit_id', v)}>
-                  <SelectTrigger className={inputClass}><SelectValue placeholder="Select a unit..." /></SelectTrigger>
+                  <SelectTrigger className={cn(inputClass, 'w-full')}>
+                    <SelectValue placeholder="Select a unit...">
+                      {selectedUnit ? unitLabel(selectedUnit) : null}
+                    </SelectValue>
+                  </SelectTrigger>
                   <SelectContent>
-                    {units.map((u) => <SelectItem key={u.id} value={u.id} className="text-xs">{unitLabel(u)}</SelectItem>)}
+                    {units.map((u) => (
+                      <SelectItem key={u.id} value={u.id} className="text-xs">{unitLabel(u)}</SelectItem>
+                    ))}
                   </SelectContent>
                 </Select>
               </div>
               <div>
                 <label className={labelClass}>Booked by</label>
-                <Input value={form.booker_name} onChange={(e) => setField('booker_name', e.target.value)} placeholder="e.g. Nelix" list="bookers-datalist" className={inputClass} />
-                <datalist id="bookers-datalist">{existingBookers.map((b) => <option key={b} value={b} />)}</datalist>
+                <BookerCombobox
+                  value={form.booker_name}
+                  onChange={(v) => setField('booker_name', v)}
+                  options={existingBookers}
+                  placeholder="e.g. Nelix"
+                />
               </div>
             </div>
-          </div>
+          </section>
 
-          <div>
-            <h3 className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground mb-2 pb-1.5 border-b border-border">Guest</h3>
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+          {/* Guest */}
+          <section>
+            <h3 className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground mb-3">Guest</h3>
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-x-4 gap-y-3">
               <div><label className={labelClass}>Guest Name *</label><Input value={form.guest_name} onChange={(e) => setField('guest_name', e.target.value)} className={inputClass} autoFocus /></div>
               <div><label className={labelClass}>Guests</label><Input type="number" min={1} value={form.guests} onChange={(e) => setField('guests', e.target.value)} className={inputClass} /></div>
               <div><label className={labelClass}>Email</label><Input type="email" value={form.guest_email} onChange={(e) => setField('guest_email', e.target.value)} className={inputClass} /></div>
               <div><label className={labelClass}>Contact</label><Input type="tel" value={form.guest_contact} onChange={(e) => setField('guest_contact', e.target.value)} className={inputClass} /></div>
             </div>
-          </div>
+          </section>
 
-          <div>
-            <h3 className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground mb-2 pb-1.5 border-b border-border">Dates & Amount</h3>
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+          {/* Dates & Amount */}
+          <section>
+            <h3 className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground mb-3">Dates & Amount</h3>
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-x-4 gap-y-3">
               <div><label className={labelClass}>Check-in *</label><Input type="date" value={form.check_in} onChange={(e) => setField('check_in', e.target.value)} className={inputClass} /></div>
               <div><label className={labelClass}>Check-out *</label><Input type="date" value={form.check_out} onChange={(e) => setField('check_out', e.target.value)} className={inputClass} /></div>
               <div>
@@ -689,16 +786,17 @@ function BookingFormModal({ open, onClose, onSaved, units, editing, existingBook
                 <Input value={nights} readOnly className={cn(inputClass, 'bg-muted/50')} />
               </div>
             </div>
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-3 mt-3">
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-x-4 gap-y-3 mt-3">
               <div><label className={labelClass}>Total Amount (₱) *</label><Input type="number" min={0} value={form.total_amount} onChange={(e) => setField('total_amount', e.target.value)} className={inputClass} /></div>
               <div><label className={labelClass}>Notes</label><Input value={form.notes} onChange={(e) => setField('notes', e.target.value)} className={inputClass} /></div>
             </div>
-          </div>
+          </section>
 
+          {/* Initial Payment */}
           {!editing && (
-            <div>
-              <h3 className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground mb-2 pb-1.5 border-b border-border">Initial Payment (optional)</h3>
-              <div className="grid grid-cols-1 md:grid-cols-4 gap-3">
+            <section>
+              <h3 className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground mb-3">Initial Payment (optional)</h3>
+              <div className="grid grid-cols-2 md:grid-cols-4 gap-x-4 gap-y-3">
                 <div><label className={labelClass}>Amount (₱)</label><Input type="number" min={0} value={form.initial_amount} onChange={(e) => setField('initial_amount', e.target.value)} className={inputClass} /></div>
                 <div><label className={labelClass}>Method</label><Input value={form.initial_method} onChange={(e) => setField('initial_method', e.target.value)} placeholder="GCash, Bank, Cash..." className={inputClass} /></div>
                 <div><label className={labelClass}>Reference</label><Input value={form.initial_reference} onChange={(e) => setField('initial_reference', e.target.value)} className={inputClass} /></div>
@@ -710,20 +808,22 @@ function BookingFormModal({ open, onClose, onSaved, units, editing, existingBook
                   {willBePaid ? <span className="font-semibold text-emerald-600 dark:text-emerald-400">Fully Paid</span> : willBePartial ? <><span className="font-semibold text-amber-600 dark:text-amber-400">Partial</span><span className="text-muted-foreground"> — remaining {formatMoney(remaining)}</span></> : null}
                 </p>
               )}
-            </div>
+            </section>
           )}
 
-          <div>
-            <h3 className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground mb-2 pb-1.5 border-b border-border">Affiliate / Commission</h3>
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+          {/* Affiliate */}
+          <section>
+            <h3 className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground mb-3">Affiliate / Commission</h3>
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-x-4 gap-y-3">
               <div><label className={labelClass}>Affiliate Code</label><Input value={form.affiliate_code} onChange={(e) => setField('affiliate_code', e.target.value)} className={inputClass} /></div>
               <div><label className={labelClass}>Affiliate Commission (₱)</label><Input type="number" min={0} value={form.affiliate_commission} onChange={(e) => setField('affiliate_commission', e.target.value)} className={inputClass} /></div>
             </div>
             <div className="mt-3"><label className={labelClass}>Affiliate Notes</label><Textarea value={form.affiliate_notes} onChange={(e) => setField('affiliate_notes', e.target.value)} rows={2} className="text-xs rounded resize-none" /></div>
-          </div>
+          </section>
         </div>
 
-        <div className="flex items-center justify-end gap-2 px-5 py-3 border-t border-border bg-muted/30">
+        {/* Footer */}
+        <div className="flex items-center justify-end gap-2 px-5 py-3 border-t border-border bg-muted/30 flex-shrink-0">
           <Button variant="outline" size="sm" className="h-8 rounded text-xs" onClick={onClose} disabled={saving}>Cancel</Button>
           <Button size="sm" className="h-8 rounded text-xs" onClick={handleSubmit} disabled={saving} style={{ backgroundColor: BRAND }}>
             {saving ? <Loader2 size={12} className="mr-1.5 animate-spin" /> : <Check size={12} className="mr-1.5" />}
@@ -1060,7 +1160,7 @@ function BookingDetailPanel({ booking, onBookingChange, onClose, onAddPayment, o
         {/* Body */}
         <div className="flex-1 overflow-y-auto p-4 space-y-3">
 
-          {/* Action buttons */}
+          {/* Actions */}
           <div className="flex items-center justify-end gap-2 flex-wrap">
             {!isCompleted && (
               <Button variant="outline" size="sm" className="h-7 rounded text-[11px] gap-1.5" onClick={onAddPayment}>
@@ -1096,48 +1196,7 @@ function BookingDetailPanel({ booking, onBookingChange, onClose, onAddPayment, o
             )}
           </div>
 
-          <SectionCard title="Unit" icon={Building2}>
-            <div className="space-y-1">
-              <div className="flex items-baseline gap-2 pb-2 mb-2 border-b border-border">
-                <span className="font-mono text-sm font-bold text-foreground">{booking.units?.unit_code || '—'}</span>
-                <span className="text-[11px] text-muted-foreground truncate">{booking.units?.building || '—'}</span>
-              </div>
-              <div className="flex items-center gap-2 py-0.5">
-                <span className="text-[10px] uppercase tracking-wider text-muted-foreground font-semibold min-w-[72px]">Booked by</span>
-                <span className="text-xs font-semibold text-foreground">{booking.booker_name || '—'}</span>
-              </div>
-              <div className="flex items-center gap-2 py-0.5">
-                <span className="text-[10px] uppercase tracking-wider text-muted-foreground font-semibold min-w-[72px]">Code</span>
-                <span className="text-xs font-mono text-foreground">{booking.booking_code}</span>
-              </div>
-            </div>
-          </SectionCard>
-
-          <SectionCard title="Guest" icon={User}>
-            <div className="flex items-center gap-2.5 pb-2 mb-2 border-b border-border">
-              <GuestAvatar name={booking.guest_name} size="lg" />
-              <div className="min-w-0 flex-1">
-                <p className="text-sm font-semibold truncate">{booking.guest_name}</p>
-                <p className="text-[11px] text-muted-foreground truncate">{booking.guest_email || 'No email'}</p>
-              </div>
-            </div>
-            <EditableField label="Name" value={booking.guest_name} onSave={(v) => updateField('guest_name', v)} auditTag="guest_name" />
-            <EditableField label="Email" value={booking.guest_email} type="email" onSave={(v) => updateField('guest_email', v)} auditTag="guest_email" />
-            <EditableField label="Contact" value={booking.guest_contact} type="tel" onSave={(v) => updateField('guest_contact', v)} auditTag="guest_contact" />
-            <EditableField label="Guests" value={booking.guests} type="number" onSave={(v) => updateField('guests', Number(v) || 1)} auditTag="guests" />
-          </SectionCard>
-
-          <SectionCard title="Dates & Amount" icon={Calendar}>
-            <EditableField label="Check-in" value={booking.check_in} type="date" onSave={(v) => updateField('check_in', v)} auditTag="check_in" />
-            <EditableField label="Check-out" value={booking.check_out} type="date" onSave={(v) => updateField('check_out', v)} auditTag="check_out" />
-            <div className="flex items-center gap-2 py-0.5">
-              <span className="text-[10px] uppercase tracking-wider text-muted-foreground font-semibold min-w-[72px] flex-shrink-0">Nights</span>
-              <span className="text-xs tabular-nums font-semibold">{nights}</span>
-            </div>
-            <EditableField label="Total" value={booking.total_amount} type="number" onSave={(v) => updateMoney('total_amount', v)} auditTag="total_amount" />
-            <EditableField label="Notes" value={booking.notes} onSave={(v) => updateField('notes', v)} auditTag="notes" />
-          </SectionCard>
-
+          {/* Summary — moved to top */}
           <SectionCard title="Summary" icon={Wallet}>
             <div className="space-y-1 text-xs">
               <div className="flex justify-between"><span className="text-muted-foreground">Total</span><span className="font-semibold tabular-nums">{formatMoney(booking.total_amount)}</span></div>
@@ -1147,12 +1206,7 @@ function BookingDetailPanel({ booking, onBookingChange, onClose, onAddPayment, o
             </div>
           </SectionCard>
 
-          <SectionCard title="Affiliate / Commission" icon={Wallet}>
-            <EditableField label="Code" value={booking.affiliate_code} onSave={(v) => updateField('affiliate_code', v)} auditTag="affiliate_code" />
-            <EditableField label="Commission" value={booking.affiliate_commission} type="number" onSave={(v) => updateMoney('affiliate_commission', v)} auditTag="affiliate_commission" />
-            <EditableField label="Notes" value={booking.affiliate_notes} onSave={(v) => updateField('affiliate_notes', v)} auditTag="affiliate_notes" />
-          </SectionCard>
-
+          {/* Payment History — moved to top, right after Summary */}
           <div className="rounded-md bg-card border border-border overflow-hidden">
             <div className="flex items-center justify-between gap-2 px-3 py-2 border-b border-border bg-muted/30">
               <div className="flex items-center gap-2 min-w-0">
@@ -1179,6 +1233,58 @@ function BookingDetailPanel({ booking, onBookingChange, onClose, onAddPayment, o
               )}
             </div>
           </div>
+
+          {/* Unit */}
+          <SectionCard title="Unit" icon={Building2}>
+            <div className="space-y-1">
+              <div className="flex items-baseline gap-2 pb-2 mb-2 border-b border-border">
+                <span className="font-mono text-sm font-bold text-foreground">{booking.units?.unit_code || '—'}</span>
+                <span className="text-[11px] text-muted-foreground truncate">{booking.units?.building || '—'}</span>
+              </div>
+              <div className="flex items-center gap-2 py-0.5">
+                <span className="text-[10px] uppercase tracking-wider text-muted-foreground font-semibold min-w-[72px]">Booked by</span>
+                <span className="text-xs font-semibold text-foreground">{booking.booker_name || '—'}</span>
+              </div>
+              <div className="flex items-center gap-2 py-0.5">
+                <span className="text-[10px] uppercase tracking-wider text-muted-foreground font-semibold min-w-[72px]">Code</span>
+                <span className="text-xs font-mono text-foreground">{booking.booking_code}</span>
+              </div>
+            </div>
+          </SectionCard>
+
+          {/* Guest */}
+          <SectionCard title="Guest" icon={User}>
+            <div className="flex items-center gap-2.5 pb-2 mb-2 border-b border-border">
+              <GuestAvatar name={booking.guest_name} size="lg" />
+              <div className="min-w-0 flex-1">
+                <p className="text-sm font-semibold truncate">{booking.guest_name}</p>
+                <p className="text-[11px] text-muted-foreground truncate">{booking.guest_email || 'No email'}</p>
+              </div>
+            </div>
+            <EditableField label="Name" value={booking.guest_name} onSave={(v) => updateField('guest_name', v)} auditTag="guest_name" />
+            <EditableField label="Email" value={booking.guest_email} type="email" onSave={(v) => updateField('guest_email', v)} auditTag="guest_email" />
+            <EditableField label="Contact" value={booking.guest_contact} type="tel" onSave={(v) => updateField('guest_contact', v)} auditTag="guest_contact" />
+            <EditableField label="Guests" value={booking.guests} type="number" onSave={(v) => updateField('guests', Number(v) || 1)} auditTag="guests" />
+          </SectionCard>
+
+          {/* Dates & Amount */}
+          <SectionCard title="Dates & Amount" icon={Calendar}>
+            <EditableField label="Check-in" value={booking.check_in} type="date" onSave={(v) => updateField('check_in', v)} auditTag="check_in" />
+            <EditableField label="Check-out" value={booking.check_out} type="date" onSave={(v) => updateField('check_out', v)} auditTag="check_out" />
+            <div className="flex items-center gap-2 py-0.5">
+              <span className="text-[10px] uppercase tracking-wider text-muted-foreground font-semibold min-w-[72px] flex-shrink-0">Nights</span>
+              <span className="text-xs tabular-nums font-semibold">{nights}</span>
+            </div>
+            <EditableField label="Total" value={booking.total_amount} type="number" onSave={(v) => updateMoney('total_amount', v)} auditTag="total_amount" />
+            <EditableField label="Notes" value={booking.notes} onSave={(v) => updateField('notes', v)} auditTag="notes" />
+          </SectionCard>
+
+          {/* Affiliate */}
+          <SectionCard title="Affiliate / Commission" icon={Wallet}>
+            <EditableField label="Code" value={booking.affiliate_code} onSave={(v) => updateField('affiliate_code', v)} auditTag="affiliate_code" />
+            <EditableField label="Commission" value={booking.affiliate_commission} type="number" onSave={(v) => updateMoney('affiliate_commission', v)} auditTag="affiliate_commission" />
+            <EditableField label="Notes" value={booking.affiliate_notes} onSave={(v) => updateField('affiliate_notes', v)} auditTag="affiliate_notes" />
+          </SectionCard>
 
           <div className="flex items-center justify-end gap-2 pt-2 border-t border-border">
             <Button variant="outline" size="sm" className="h-7 rounded text-[11px] gap-1.5" onClick={onEdit}>
@@ -1214,7 +1320,6 @@ function BookingListRow({ booking, selected, onClick }) {
       whileTap={{ scale: 0.998 }}
       className={cn('group/row w-full text-left px-4 py-3 border-b border-border cursor-pointer select-none', ROW_GRID)}
     >
-      {/* Guest */}
       <div className="flex items-center gap-2 min-w-0">
         <GuestAvatar name={booking.guest_name} size="sm" />
         <div className="min-w-0 flex-1">
@@ -1225,12 +1330,10 @@ function BookingListRow({ booking, selected, onClick }) {
         </div>
       </div>
 
-      {/* Code */}
       <span className="font-mono text-xs text-foreground truncate">
         {booking.booking_code}
       </span>
 
-      {/* Unit */}
       <div className="min-w-0">
         <span className="font-mono text-xs font-bold text-foreground truncate block">
           {booking.units?.unit_code || '—'}
@@ -1240,18 +1343,15 @@ function BookingListRow({ booking, selected, onClick }) {
         </span>
       </div>
 
-      {/* Dates */}
       <div className="text-[11px] tabular-nums text-muted-foreground min-w-0">
         <div className="truncate">{formatDateShort(booking.check_in)} → {formatDateShort(booking.check_out)}</div>
         <div className="text-[10px] text-muted-foreground/70">{nights} night{nights === 1 ? '' : 's'}</div>
       </div>
 
-      {/* Payment */}
       <div className="flex items-center min-w-0">
         <PaymentStatusBadge status={booking.payment_status} />
       </div>
 
-      {/* Status + chevron */}
       <div className="flex items-center gap-2 justify-end flex-shrink-0">
         <BookingStatusBadge status={status} />
         <ChevronRight
@@ -1562,17 +1662,14 @@ export default function BookingsPage() {
               onMouseMove={handleListMouseMove}
               onMouseLeave={handleListMouseLeave}
             >
-              {/* Sticky column header */}
+              {/* Sticky column header — NO count number, empty right cell */}
               <div className={cn('sticky top-0 z-10 px-4 py-2 border-b border-border bg-card', ROW_GRID)}>
                 <span className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground truncate">Guest</span>
                 <span className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground truncate">Code</span>
                 <span className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground truncate">Unit</span>
                 <span className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground truncate">Check-in → Check-out</span>
                 <span className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground truncate">Payment</span>
-                <span className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground tabular-nums text-right whitespace-nowrap">
-                  {sorted.length}
-                  {sorted.length !== bookings.length && <span className="text-muted-foreground/60"> / {bookings.length}</span>}
-                </span>
+                <span className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground text-right truncate">Status</span>
               </div>
 
               {isFirstLoad ? (
