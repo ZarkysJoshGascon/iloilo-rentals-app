@@ -71,7 +71,11 @@ export async function deleteCleaning(id) {
   try {
     const { data: cleaning } = await supabase
       .from('cleanings')
-      .select('photos_before, photos_after, photos_report, laundry_used_photo, laundry_cleaned_photo')
+      .select(`
+        photos_before, photos_after, photos_report,
+        amenities_used_photo, amenities_replaced_photo,
+        laundry_used_photo, laundry_replaced_photo
+      `)
       .eq('id', id)
       .single()
 
@@ -80,8 +84,10 @@ export async function deleteCleaning(id) {
       for (const p of cleaning.photos_before || []) if (p.path) paths.push(p.path)
       for (const p of cleaning.photos_after || []) if (p.path) paths.push(p.path)
       for (const p of cleaning.photos_report || []) if (p.path) paths.push(p.path)
+      if (cleaning.amenities_used_photo?.path) paths.push(cleaning.amenities_used_photo.path)
+      if (cleaning.amenities_replaced_photo?.path) paths.push(cleaning.amenities_replaced_photo.path)
       if (cleaning.laundry_used_photo?.path) paths.push(cleaning.laundry_used_photo.path)
-      if (cleaning.laundry_cleaned_photo?.path) paths.push(cleaning.laundry_cleaned_photo.path)
+      if (cleaning.laundry_replaced_photo?.path) paths.push(cleaning.laundry_replaced_photo.path)
       if (paths.length > 0) {
         await supabase.storage.from(BUCKET).remove(paths)
       }
@@ -132,10 +138,15 @@ function randomId() {
 }
 
 // ============================================================
-// PHOTO UPLOAD (single, low-level)
+// PHOTO UPLOAD
 // ============================================================
 export async function uploadCleaningPhoto({ cleaningId, file, category }) {
-  if (!['before', 'after', 'report', 'laundry_used', 'laundry_cleaned'].includes(category)) {
+  const validCategories = [
+    'before', 'after', 'report',
+    'amenities_used', 'amenities_replaced',
+    'laundry_used', 'laundry_replaced',
+  ]
+  if (!validCategories.includes(category)) {
     throw new Error('Invalid photo category')
   }
 
@@ -170,7 +181,7 @@ export async function deleteCleaningPhoto(path) {
 }
 
 // ============================================================
-// HIGH-LEVEL PHOTO OPS (used by CRM admin panels)
+// HIGH-LEVEL PHOTO OPS (used by CRM admin panels — live edit)
 // ============================================================
 export async function addPhotoToCleaning(cleaning, category, file) {
   const photo = await uploadCleaningPhoto({
@@ -211,7 +222,7 @@ export async function removePhotoFromCleaning(cleaning, category, path) {
 }
 
 // ============================================================
-// INVENTORY
+// LIST PARSERS
 // ============================================================
 export function parseInventory(raw) {
   if (!Array.isArray(raw)) return []
@@ -224,67 +235,88 @@ export function parseInventory(raw) {
     }))
 }
 
-export async function setInventory(cleaningId, inventory) {
-  const clean = parseInventory(inventory).filter((x) => x.name.trim().length > 0)
-  await updateCleaning(cleaningId, { inventory: clean })
-  return clean
+// Kept as an alias for backwards compat — same as parseInventory
+export function parseLaundryItems(raw) {
+  return parseInventory(raw)
 }
 
 // ============================================================
-// LAUNDRY HELPERS
+// LAUNDRY PAYMENT RPC
 // ============================================================
-export function parseLaundryItems(raw) {
-  if (!Array.isArray(raw)) return []
-  return raw
-    .filter((x) => x && typeof x === 'object')
-    .map((x) => ({
-      name: typeof x.name === 'string' ? x.name : '',
-      quantity: Number(x.quantity) || 0,
-    }))
+export async function updateLaundryPayment({
+  cleaningId,
+  amount,
+  method,
+  reference,
+  note,
+}) {
+  if (!cleaningId) throw new Error('Missing cleaning')
+  const amt = Number(amount)
+  if (!amt || amt <= 0) throw new Error('Amount must be greater than 0')
+  if (!method || !method.trim()) throw new Error('Payment method is required')
+
+  const { error } = await supabase.rpc('update_laundry_payment', {
+    p_cleaning_id: cleaningId,
+    p_amount: amt,
+    p_method: method.trim(),
+    p_reference: reference?.trim() || null,
+    p_note: note?.trim() || null,
+  })
+  if (error) throw error
 }
 
 // ============================================================
 // SUBMIT — housekeeper side
-//   Takes local state (blobs for new photos), uploads them,
-//   then calls the submit RPC in one shot.
+//   Takes local state (blobs), uploads new photos, then
+//   calls the submit RPC. Sets status='submitted'.
 // ============================================================
 export async function submitCleaning({
   cleaning,
-  newPhotosBefore = [],   // File[]
+  // Multi-photo arrays (File[])
+  newPhotosBefore = [],
   newPhotosAfter = [],
   newPhotosReport = [],
-  newLaundryUsedPhoto = null,     // File | null (replacement)
-  newLaundryCleanedPhoto = null,
-  keepPhotosBefore,               // optional: array of existing photos to keep (if removed)
+  // Single photo replacements (File | null)
+  newAmenitiesUsedPhoto = null,
+  newAmenitiesReplacedPhoto = null,
+  newLaundryUsedPhoto = null,
+  newLaundryReplacedPhoto = null,
+  // Existing photos to keep (in case some were removed)
+  keepPhotosBefore,
   keepPhotosAfter,
   keepPhotosReport,
-  inventory = [],
+  // Item lists (already cleaned locally)
+  amenitiesUsedItems = [],
+  amenitiesReplacedItems = [],
   laundryUsedItems = [],
-  laundryCleanedItems = [],
+  laundryReplacedItems = [],
+  // Laundry payment (optional, housekeeper-submitted)
+  laundryPaymentAmount = null,
+  laundryPaymentMethod = null,
+  laundryPaymentReference = null,
+  laundryPaymentNote = null,
+  // Misc
   notes = '',
 }) {
   const id = cleaning.id
 
-  // Upload new before photos
+  // Upload multi-photo batches
   const beforeUploaded = []
   for (const file of newPhotosBefore) {
     const photo = await uploadCleaningPhoto({ cleaningId: id, file, category: 'before' })
     beforeUploaded.push(photo)
   }
-
   const afterUploaded = []
   for (const file of newPhotosAfter) {
     const photo = await uploadCleaningPhoto({ cleaningId: id, file, category: 'after' })
     afterUploaded.push(photo)
   }
-
   const reportUploaded = []
   for (const file of newPhotosReport) {
     const photo = await uploadCleaningPhoto({ cleaningId: id, file, category: 'report' })
     reportUploaded.push(photo)
   }
 
-  // Final photo arrays
   const existingBefore = Array.isArray(cleaning.photos_before) ? cleaning.photos_before : []
   const existingAfter = Array.isArray(cleaning.photos_after) ? cleaning.photos_after : []
   const existingReport = Array.isArray(cleaning.photos_report) ? cleaning.photos_report : []
@@ -293,46 +325,64 @@ export async function submitCleaning({
   const finalAfter = keepPhotosAfter !== undefined ? [...keepPhotosAfter, ...afterUploaded] : [...existingAfter, ...afterUploaded]
   const finalReport = keepPhotosReport !== undefined ? [...keepPhotosReport, ...reportUploaded] : [...existingReport, ...reportUploaded]
 
-  // Laundry photos (replace semantics — one per category)
+  // Single-photo categories
+  let amenitiesUsedPhoto = cleaning.amenities_used_photo || null
+  if (newAmenitiesUsedPhoto) {
+    amenitiesUsedPhoto = await uploadCleaningPhoto({ cleaningId: id, file: newAmenitiesUsedPhoto, category: 'amenities_used' })
+    if (cleaning.amenities_used_photo?.path) deleteCleaningPhoto(cleaning.amenities_used_photo.path).catch(() => {})
+  }
+
+  let amenitiesReplacedPhoto = cleaning.amenities_replaced_photo || null
+  if (newAmenitiesReplacedPhoto) {
+    amenitiesReplacedPhoto = await uploadCleaningPhoto({ cleaningId: id, file: newAmenitiesReplacedPhoto, category: 'amenities_replaced' })
+    if (cleaning.amenities_replaced_photo?.path) deleteCleaningPhoto(cleaning.amenities_replaced_photo.path).catch(() => {})
+  }
+
   let laundryUsedPhoto = cleaning.laundry_used_photo || null
   if (newLaundryUsedPhoto) {
     laundryUsedPhoto = await uploadCleaningPhoto({ cleaningId: id, file: newLaundryUsedPhoto, category: 'laundry_used' })
-    if (cleaning.laundry_used_photo?.path) {
-      deleteCleaningPhoto(cleaning.laundry_used_photo.path).catch(() => {})
-    }
+    if (cleaning.laundry_used_photo?.path) deleteCleaningPhoto(cleaning.laundry_used_photo.path).catch(() => {})
   }
 
-  let laundryCleanedPhoto = cleaning.laundry_cleaned_photo || null
-  if (newLaundryCleanedPhoto) {
-    laundryCleanedPhoto = await uploadCleaningPhoto({ cleaningId: id, file: newLaundryCleanedPhoto, category: 'laundry_cleaned' })
-    if (cleaning.laundry_cleaned_photo?.path) {
-      deleteCleaningPhoto(cleaning.laundry_cleaned_photo.path).catch(() => {})
-    }
+  let laundryReplacedPhoto = cleaning.laundry_replaced_photo || null
+  if (newLaundryReplacedPhoto) {
+    laundryReplacedPhoto = await uploadCleaningPhoto({ cleaningId: id, file: newLaundryReplacedPhoto, category: 'laundry_replaced' })
+    if (cleaning.laundry_replaced_photo?.path) deleteCleaningPhoto(cleaning.laundry_replaced_photo.path).catch(() => {})
   }
 
-  // Clean input arrays
-  const cleanInventory = parseInventory(inventory).filter((x) => x.name.trim().length > 0)
-  const cleanLaundryUsed = parseLaundryItems(laundryUsedItems).filter((x) => x.name.trim().length > 0)
-  const cleanLaundryCleaned = parseLaundryItems(laundryCleanedItems).filter((x) => x.name.trim().length > 0)
+  const cleanAmenitiesUsed = parseInventory(amenitiesUsedItems).filter((x) => x.name.trim().length > 0)
+  const cleanAmenitiesReplaced = parseInventory(amenitiesReplacedItems).filter((x) => x.name.trim().length > 0)
+  const cleanLaundryUsed = parseInventory(laundryUsedItems).filter((x) => x.name.trim().length > 0)
+  const cleanLaundryReplaced = parseInventory(laundryReplacedItems).filter((x) => x.name.trim().length > 0)
 
-  // Submit via RPC
+  // Laundry payment (only send if amount + method are provided)
+  const lpAmount = laundryPaymentAmount != null && Number(laundryPaymentAmount) > 0 ? Number(laundryPaymentAmount) : null
+  const lpMethod = laundryPaymentMethod && laundryPaymentMethod.trim() ? laundryPaymentMethod.trim() : null
+
   const { error } = await supabase.rpc('housekeeper_submit_cleaning', {
     p_cleaning_id: id,
     p_photos_before: finalBefore,
     p_photos_after: finalAfter,
     p_photos_report: finalReport,
-    p_inventory: cleanInventory,
+    p_amenities_used_photo: amenitiesUsedPhoto,
+    p_amenities_replaced_photo: amenitiesReplacedPhoto,
+    p_amenities_used_items: cleanAmenitiesUsed,
+    p_amenities_replaced_items: cleanAmenitiesReplaced,
     p_laundry_used_photo: laundryUsedPhoto,
-    p_laundry_cleaned_photo: laundryCleanedPhoto,
+    p_laundry_replaced_photo: laundryReplacedPhoto,
     p_laundry_used_items: cleanLaundryUsed,
-    p_laundry_cleaned_items: cleanLaundryCleaned,
+    p_laundry_replaced_items: cleanLaundryReplaced,
+    p_laundry_payment_amount: lpAmount,
+    p_laundry_payment_method: lpMethod,
+    p_laundry_payment_reference: laundryPaymentReference?.trim() || null,
+    p_laundry_payment_note: laundryPaymentNote?.trim() || null,
     p_notes: notes.trim() || null,
   })
   if (error) throw error
 }
 
 // ============================================================
-// ADMIN — APPROVE + PAY
+// ADMIN — APPROVE + PAY (housekeeper payment)
 // ============================================================
 export async function approveAndPayCleaning({
   cleaningId,
@@ -364,9 +414,10 @@ export function downloadCleaningsCSV(cleanings, filename = 'cleanings.csv') {
     'Booking Code', 'Unit', 'Building', 'Type', 'Status',
     'Housekeeper', 'Scheduled', 'Submitted', 'Completed',
     'Photos Before', 'Photos After', 'Photos Report',
-    'Laundry Used Items', 'Laundry Cleaned Items',
-    'Inventory',
-    'Payment Amount', 'Payment Method', 'Payment Reference', 'Payment Note', 'Paid At',
+    'Amenities Used Items', 'Amenities Replaced Items',
+    'Laundry Used Items', 'Laundry Replaced Items',
+    'Housekeeper Payment Amount', 'Housekeeper Payment Method', 'Housekeeper Payment Reference', 'Housekeeper Paid At',
+    'Laundry Payment Amount', 'Laundry Payment Method', 'Laundry Payment Reference', 'Laundry Paid At',
     'Notes',
   ]
   const rows = cleanings.map((c) => [
@@ -382,17 +433,14 @@ export function downloadCleaningsCSV(cleanings, filename = 'cleanings.csv') {
     Array.isArray(c.photos_before) ? c.photos_before.length : 0,
     Array.isArray(c.photos_after) ? c.photos_after.length : 0,
     Array.isArray(c.photos_report) ? c.photos_report.length : 0,
-    Array.isArray(c.laundry_used_items)
-      ? c.laundry_used_items.map((i) => `${i.name} x${i.quantity}`).join('; ') : '',
-    Array.isArray(c.laundry_cleaned_items)
-      ? c.laundry_cleaned_items.map((i) => `${i.name} x${i.quantity}`).join('; ') : '',
-    Array.isArray(c.inventory)
-      ? c.inventory.map((i) => `${i.name} x${i.quantity}`).join('; ') : '',
-    c.payment_amount ?? '',
-    c.payment_method || '',
-    c.payment_reference || '',
-    c.payment_note || '',
+    Array.isArray(c.amenities_used_items) ? c.amenities_used_items.map((i) => `${i.name} x${i.quantity}`).join('; ') : '',
+    Array.isArray(c.amenities_replaced_items) ? c.amenities_replaced_items.map((i) => `${i.name} x${i.quantity}`).join('; ') : '',
+    Array.isArray(c.laundry_used_items) ? c.laundry_used_items.map((i) => `${i.name} x${i.quantity}`).join('; ') : '',
+    Array.isArray(c.laundry_replaced_items) ? c.laundry_replaced_items.map((i) => `${i.name} x${i.quantity}`).join('; ') : '',
+    c.payment_amount ?? '', c.payment_method || '', c.payment_reference || '',
     c.paid_at ? new Date(c.paid_at).toISOString().slice(0, 10) : '',
+    c.laundry_payment_amount ?? '', c.laundry_payment_method || '', c.laundry_payment_reference || '',
+    c.laundry_paid_at ? new Date(c.laundry_paid_at).toISOString().slice(0, 10) : '',
     c.notes || '',
   ])
 

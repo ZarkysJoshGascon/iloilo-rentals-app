@@ -2,9 +2,9 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import {
   Plus, Search, RefreshCw, X, Check, Loader2, Trash2,
-  Sparkles, Droplets, AlertTriangle, Calendar, User, Camera,
+  Sparkles, Droplets, AlertTriangle, User, Camera,
   ChevronRight, Download, Building2, Clock, CheckCircle2,
-  Image as ImageIcon, Package, FileText, Shirt, Wallet, Send,
+  Image as ImageIcon, FileText, Shirt, Wallet, Send, Coffee,
 } from 'lucide-react'
 import toast from 'react-hot-toast'
 import { Button } from '@/components/ui/button'
@@ -21,12 +21,20 @@ import { cn } from '@/lib/utils'
 import {
   listCleanings, createCleaning, updateCleaning, deleteCleaning,
   addPhotoToCleaning, removePhotoFromCleaning,
-  parseInventory, parseLaundryItems, setInventory,
-  approveAndPayCleaning,
+  uploadCleaningPhoto, deleteCleaningPhoto,
+  parseInventory, approveAndPayCleaning, updateLaundryPayment,
   downloadCleaningsCSV,
 } from '@/lib/cleanings'
 
 const BRAND = '#2d568e'
+
+function getEffectiveStatus(cleaning) {
+  if (cleaning.status === 'submitted' || cleaning.status === 'completed') return cleaning.status
+  if (!cleaning.bookings?.check_out) return 'ready'
+  const today = new Date(); today.setHours(0, 0, 0, 0)
+  const co = new Date(cleaning.bookings.check_out); co.setHours(0, 0, 0, 0)
+  return co <= today ? 'ready' : 'scheduled'
+}
 
 const TYPE_CONFIG = {
   basic: { label: 'Basic', className: 'bg-blue-600 text-white border-0', icon: Droplets },
@@ -34,15 +42,16 @@ const TYPE_CONFIG = {
 }
 
 const STATUS_CONFIG = {
-  pending:     { label: 'Pending',     className: 'bg-amber-600 text-white border-0' },
-  in_progress: { label: 'In Progress', className: 'bg-blue-600 text-white border-0' },
-  submitted:   { label: 'Submitted',   className: 'bg-violet-600 text-white border-0' },
-  completed:   { label: 'Completed',   className: 'bg-emerald-600 text-white border-0' },
+  scheduled: { label: 'Scheduled', className: 'bg-amber-600 text-white border-0' },
+  ready:     { label: 'Ready',     className: 'bg-blue-600 text-white border-0' },
+  submitted: { label: 'Submitted', className: 'bg-violet-600 text-white border-0' },
+  completed: { label: 'Completed', className: 'bg-emerald-600 text-white border-0' },
 }
 
 const STATUS_PILLS = [
   { id: 'all', label: 'All' },
-  { id: 'pending', label: 'Pending' },
+  { id: 'scheduled', label: 'Scheduled' },
+  { id: 'ready', label: 'Ready' },
   { id: 'submitted', label: 'Submitted' },
   { id: 'completed', label: 'Completed' },
   { id: 'deep', label: 'Deep' },
@@ -51,8 +60,8 @@ const STATUS_PILLS = [
 
 const PILL_TEXT_ACTIVE = {
   all: 'text-foreground',
-  pending: 'text-amber-700 dark:text-amber-400',
-  in_progress: 'text-blue-700 dark:text-blue-400',
+  scheduled: 'text-amber-700 dark:text-amber-400',
+  ready: 'text-blue-700 dark:text-blue-400',
   submitted: 'text-violet-700 dark:text-violet-400',
   completed: 'text-emerald-700 dark:text-emerald-400',
   deep: 'text-purple-700 dark:text-purple-400',
@@ -82,7 +91,6 @@ function formatMoney(n) {
   const v = Number(n || 0)
   return `₱${v.toLocaleString('en-PH', { minimumFractionDigits: 0, maximumFractionDigits: 2 })}`
 }
-
 function initials(name) {
   if (!name) return '?'
   return name.trim().split(/\s+/).slice(0, 2).map((p) => p[0]?.toUpperCase() || '').join('') || '?'
@@ -107,9 +115,7 @@ function avatarColor(seed) {
 function WorkerAvatar({ name, photo_url, size = 'md' }) {
   const [bg, text, dbg, dtext] = avatarColor(name)
   const sizeClasses = size === 'lg' ? 'w-12 h-12 text-base' : size === 'sm' ? 'w-8 h-8 text-[11px]' : 'w-10 h-10 text-sm'
-  if (photo_url) {
-    return <img src={photo_url} alt={name} className={cn('rounded-full object-cover flex-shrink-0', sizeClasses)} />
-  }
+  if (photo_url) return <img src={photo_url} alt={name} className={cn('rounded-full object-cover flex-shrink-0', sizeClasses)} />
   return (
     <div className={cn('rounded-full flex items-center justify-center font-semibold flex-shrink-0', sizeClasses, bg, text, dbg, dtext)}>
       {initials(name)}
@@ -127,8 +133,9 @@ function TypeBadge({ type }) {
     </Badge>
   )
 }
-function StatusBadge({ status }) {
-  const config = STATUS_CONFIG[status] || STATUS_CONFIG.pending
+function StatusBadge({ cleaning }) {
+  const effective = getEffectiveStatus(cleaning)
+  const config = STATUS_CONFIG[effective] || STATUS_CONFIG.scheduled
   return <Badge className={cn('text-[11px] font-semibold rounded-full px-2.5 py-0.5', config.className)}>{config.label}</Badge>
 }
 
@@ -175,80 +182,6 @@ function StatusPills({ active, onChange, counts }) {
           </button>
         )
       })}
-    </div>
-  )
-}
-
-function InventoryEditor({ cleaning, onChange }) {
-  const [items, setItems] = useState(() => parseInventory(cleaning.inventory))
-  const [draftName, setDraftName] = useState('')
-  const [draftQty, setDraftQty] = useState('1')
-  const [saving, setSaving] = useState(false)
-
-  useEffect(() => { setItems(parseInventory(cleaning.inventory)) }, [cleaning.id, cleaning.inventory])
-
-  const persist = async (next) => {
-    setSaving(true)
-    try {
-      await setInventory(cleaning.id, next)
-      setItems(next)
-      onChange?.()
-    } catch (err) {
-      console.error(err)
-      toast.error('Failed to save inventory')
-    } finally {
-      setSaving(false)
-    }
-  }
-
-  const handleAdd = () => {
-    const name = draftName.trim()
-    const qty = Number(draftQty) || 0
-    if (!name) { toast.error('Enter an item name'); return }
-    if (qty <= 0) { toast.error('Quantity must be > 0'); return }
-    const next = [...items, { name, quantity: qty, note: '' }]
-    setDraftName('')
-    setDraftQty('1')
-    persist(next)
-  }
-
-  const handleUpdate = (idx, patch) => {
-    const next = items.map((it, i) => (i === idx ? { ...it, ...patch } : it))
-    setItems(next)
-  }
-  const handleUpdateCommit = (idx) => {
-    const next = items.map((it, i) => {
-      if (i !== idx) return it
-      return { ...it, quantity: Math.max(0, Number(it.quantity) || 0) }
-    })
-    persist(next)
-  }
-  const handleRemove = (idx) => persist(items.filter((_, i) => i !== idx))
-
-  return (
-    <div className="space-y-2">
-      {items.length === 0 ? (
-        <p className="text-xs text-muted-foreground italic py-2 text-center">No inventory added yet</p>
-      ) : (
-        <div className="space-y-1">
-          {items.map((it, idx) => (
-            <div key={idx} className="flex items-center gap-2 px-2 py-1.5 rounded bg-background border border-border">
-              <Input value={it.name} onChange={(e) => handleUpdate(idx, { name: e.target.value })} onBlur={() => persist(items)} className="h-7 text-xs rounded bg-background flex-1" />
-              <Input type="number" min={0} value={it.quantity} onChange={(e) => handleUpdate(idx, { quantity: e.target.value })} onBlur={() => handleUpdateCommit(idx)} className="h-7 text-xs rounded bg-background w-16 tabular-nums" />
-              <button type="button" onClick={() => handleRemove(idx)} disabled={saving} className="p-1 rounded hover:bg-red-500/10 text-muted-foreground hover:text-red-500 disabled:opacity-50">
-                <Trash2 size={12} />
-              </button>
-            </div>
-          ))}
-        </div>
-      )}
-      <div className="flex items-center gap-2 pt-2 border-t border-border">
-        <Input value={draftName} onChange={(e) => setDraftName(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); handleAdd() } }} placeholder="e.g. Coffee, Water" className="h-7 text-xs rounded bg-background flex-1" />
-        <Input type="number" min={1} value={draftQty} onChange={(e) => setDraftQty(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); handleAdd() } }} className="h-7 text-xs rounded bg-background w-16 tabular-nums" />
-        <Button size="sm" className="h-7 px-2 rounded text-[11px]" onClick={handleAdd} disabled={saving}>
-          {saving ? <Loader2 size={11} className="animate-spin" /> : <Plus size={11} />}
-        </Button>
-      </div>
     </div>
   )
 }
@@ -341,7 +274,7 @@ function PhotoSection({ cleaning, onChanged }) {
     <div className="rounded-md bg-card border border-border overflow-hidden">
       <div className="flex items-center gap-2 px-3 py-2 border-b border-border bg-muted/30">
         <ImageIcon size={13} className="text-muted-foreground" />
-        <h4 className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground">Photos</h4>
+        <h4 className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground">Cleaning Photos</h4>
       </div>
       <div className="flex items-center gap-1 p-2 border-b border-border bg-muted/20">
         {tabs.map((t) => (
@@ -361,56 +294,215 @@ function PhotoSection({ cleaning, onChanged }) {
 }
 
 // ============================================================
-// LAUNDRY VIEW (read-only; housekeeper sets it on submit)
+// SINGLE PHOTO (Amenities / Laundry, admin-editable)
 // ============================================================
-function LaundrySection({ cleaning }) {
-  const used = cleaning.laundry_used_photo
-  const cleaned = cleaning.laundry_cleaned_photo
-  const usedItems = parseLaundryItems(cleaning.laundry_used_items)
-  const cleanedItems = parseLaundryItems(cleaning.laundry_cleaned_items)
+function SinglePhotoCRM({ cleaning, field, category, label, onChanged }) {
+  const [uploading, setUploading] = useState(false)
+  const inputRef = useRef(null)
+  const existing = cleaning[field] || null
+
+  const handleFiles = async (e) => {
+    const file = e.target.files?.[0]
+    if (!file) return
+    setUploading(true)
+    try {
+      const photo = await uploadCleaningPhoto({ cleaningId: cleaning.id, file, category })
+      await updateCleaning(cleaning.id, { [field]: photo })
+      if (existing?.path) deleteCleaningPhoto(existing.path).catch(() => {})
+      toast.success(`${label} photo updated`)
+      onChanged?.()
+    } catch (err) {
+      console.error(err)
+      toast.error(err?.message || 'Upload failed')
+    } finally {
+      setUploading(false)
+      if (inputRef.current) inputRef.current.value = ''
+    }
+  }
+
+  const handleRemove = async () => {
+    if (!existing) return
+    if (!window.confirm(`Remove ${label} photo?`)) return
+    try {
+      await updateCleaning(cleaning.id, { [field]: null })
+      if (existing.path) deleteCleaningPhoto(existing.path).catch(() => {})
+      toast.success('Photo removed')
+      onChanged?.()
+    } catch (err) {
+      console.error(err)
+      toast.error('Failed to remove')
+    }
+  }
 
   return (
-    <SectionCard title="Laundry" icon={Shirt}>
+    <div>
+      <div className="flex items-center justify-between mb-2">
+        <p className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground">{label}</p>
+        {existing && (
+          <button type="button" onClick={handleRemove}
+            className="text-[10px] font-semibold uppercase tracking-wider text-red-500 hover:underline">
+            Remove
+          </button>
+        )}
+      </div>
+
+      {existing?.url ? (
+        <div className="relative aspect-video rounded-md overflow-hidden border border-border bg-muted group">
+          <img src={existing.url} alt="" className="w-full h-full object-cover" loading="lazy" />
+          <button type="button" onClick={() => inputRef.current?.click()} disabled={uploading}
+            className="absolute inset-0 bg-black/50 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center text-white text-xs font-semibold gap-1.5 disabled:opacity-30">
+            {uploading ? <Loader2 size={12} className="animate-spin" /> : <Camera size={12} />}
+            Replace
+          </button>
+        </div>
+      ) : (
+        <button type="button" onClick={() => inputRef.current?.click()} disabled={uploading}
+          className="w-full aspect-video rounded-md border-2 border-dashed border-border flex flex-col items-center justify-center gap-1 text-muted-foreground text-[11px] active:bg-muted/50 transition-colors disabled:opacity-50">
+          {uploading ? <Loader2 size={16} className="animate-spin" /> : <Camera size={16} />}
+          {uploading ? 'Uploading…' : 'Add photo'}
+        </button>
+      )}
+
+      <input
+        ref={inputRef}
+        type="file"
+        accept="image/*"
+        className="hidden"
+        onChange={handleFiles}
+        disabled={uploading}
+      />
+    </div>
+  )
+}
+
+// ============================================================
+// ITEM LIST (Amenities / Laundry, admin-editable)
+// ============================================================
+function ListEditorCRM({ items, onChange, placeholder = 'Item name' }) {
+  const parsed = parseInventory(items)
+  const [name, setName] = useState('')
+  const [qty, setQty] = useState('1')
+  const [saving, setSaving] = useState(false)
+
+  const persist = async (next) => {
+    setSaving(true)
+    try {
+      await onChange(next)
+    } catch (err) {
+      console.error(err)
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  const handleAdd = () => {
+    const n = name.trim()
+    const q = Number(qty) || 0
+    if (!n) { toast.error('Enter item name'); return }
+    if (q <= 0) { toast.error('Quantity must be > 0'); return }
+    persist([...parsed, { name: n, quantity: q, note: '' }])
+    setName(''); setQty('1')
+  }
+
+  const handleNameCommit = (i, v) => {
+    if (v === parsed[i].name) return
+    const next = parsed.map((it, idx) => idx === i ? { ...it, name: v } : it)
+    persist(next)
+  }
+  const handleQtyCommit = (i, v) => {
+    const n = Math.max(0, Number(v) || 0)
+    if (n === parsed[i].quantity) return
+    const next = parsed.map((it, idx) => idx === i ? { ...it, quantity: n } : it)
+    persist(next)
+  }
+  const handleRemove = (i) => persist(parsed.filter((_, idx) => idx !== i))
+
+  return (
+    <div className="space-y-1.5">
+      {parsed.length === 0 ? (
+        <p className="text-[11px] italic text-muted-foreground text-center py-1">No items</p>
+      ) : (
+        parsed.map((it, i) => (
+          <div key={i} className="flex items-center gap-1.5 px-2 py-1 rounded bg-background border border-border">
+            <Input
+              defaultValue={it.name}
+              onBlur={(e) => handleNameCommit(i, e.target.value)}
+              onKeyDown={(e) => { if (e.key === 'Enter') e.target.blur() }}
+              className="h-6 text-xs rounded bg-background flex-1 border-transparent hover:border-border"
+            />
+            <Input
+              type="number"
+              min={0}
+              defaultValue={it.quantity}
+              onBlur={(e) => handleQtyCommit(i, e.target.value)}
+              onKeyDown={(e) => { if (e.key === 'Enter') e.target.blur() }}
+              className="h-6 text-xs rounded bg-background w-14 tabular-nums border-transparent hover:border-border"
+            />
+            <button type="button" onClick={() => handleRemove(i)} disabled={saving}
+              className="p-1 rounded hover:bg-red-500/10 text-muted-foreground hover:text-red-500 disabled:opacity-50">
+              <Trash2 size={11} />
+            </button>
+          </div>
+        ))
+      )}
+
+      <div className="flex items-center gap-1.5 pt-1.5 border-t border-border">
+        <Input
+          value={name}
+          onChange={(e) => setName(e.target.value)}
+          onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); handleAdd() } }}
+          placeholder={placeholder}
+          className="h-6 text-xs rounded bg-background flex-1"
+        />
+        <Input
+          type="number"
+          min={1}
+          value={qty}
+          onChange={(e) => setQty(e.target.value)}
+          onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); handleAdd() } }}
+          className="h-6 text-xs rounded bg-background w-14 tabular-nums"
+        />
+        <Button size="sm" className="h-6 px-2 rounded text-[10px]" onClick={handleAdd} disabled={saving}>
+          {saving ? <Loader2 size={10} className="animate-spin" /> : <Plus size={10} />}
+        </Button>
+      </div>
+    </div>
+  )
+}
+
+// ============================================================
+// CATEGORY PAIR (amenities / laundry) — admin-editable
+// ============================================================
+function CategoryPair({ title, Icon, cleaning, usedPhotoField, replacedPhotoField,
+  usedItemsField, replacedItemsField, usedCategory, replacedCategory, onChanged }) {
+
+  const handleFieldUpdate = async (field, value) => {
+    try {
+      await updateCleaning(cleaning.id, { [field]: value })
+      onChanged?.()
+    } catch (err) {
+      console.error(err)
+      toast.error('Failed to save')
+      throw err
+    }
+  }
+
+  return (
+    <SectionCard title={title} icon={Icon}>
       <div className="grid grid-cols-2 gap-3">
         <div>
-          <p className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground mb-2">Used (dirty)</p>
-          {used?.url ? (
-            <div className="aspect-video rounded-md overflow-hidden border border-border bg-muted">
-              <img src={used.url} alt="" className="w-full h-full object-cover" />
-            </div>
-          ) : (
-            <div className="aspect-video rounded-md border border-dashed border-border flex items-center justify-center text-[10px] text-muted-foreground">No photo</div>
-          )}
-          <ul className="mt-2 space-y-0.5 text-xs">
-            {usedItems.length === 0 ? (
-              <li className="italic text-muted-foreground text-[11px] text-center py-1">No items</li>
-            ) : usedItems.map((it, i) => (
-              <li key={i} className="flex justify-between text-foreground">
-                <span className="truncate">{it.name}</span>
-                <span className="tabular-nums text-muted-foreground">×{it.quantity}</span>
-              </li>
-            ))}
-          </ul>
+          <p className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground mb-2">Used</p>
+          <SinglePhotoCRM cleaning={cleaning} field={usedPhotoField} category={usedCategory} label="Used" onChanged={onChanged} />
+          <div className="mt-2">
+            <ListEditorCRM items={cleaning[usedItemsField]} onChange={(next) => handleFieldUpdate(usedItemsField, next)} />
+          </div>
         </div>
         <div>
-          <p className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground mb-2">Cleaned (fresh)</p>
-          {cleaned?.url ? (
-            <div className="aspect-video rounded-md overflow-hidden border border-border bg-muted">
-              <img src={cleaned.url} alt="" className="w-full h-full object-cover" />
-            </div>
-          ) : (
-            <div className="aspect-video rounded-md border border-dashed border-border flex items-center justify-center text-[10px] text-muted-foreground">No photo</div>
-          )}
-          <ul className="mt-2 space-y-0.5 text-xs">
-            {cleanedItems.length === 0 ? (
-              <li className="italic text-muted-foreground text-[11px] text-center py-1">No items</li>
-            ) : cleanedItems.map((it, i) => (
-              <li key={i} className="flex justify-between text-foreground">
-                <span className="truncate">{it.name}</span>
-                <span className="tabular-nums text-muted-foreground">×{it.quantity}</span>
-              </li>
-            ))}
-          </ul>
+          <p className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground mb-2">Replaced</p>
+          <SinglePhotoCRM cleaning={cleaning} field={replacedPhotoField} category={replacedCategory} label="Replaced" onChanged={onChanged} />
+          <div className="mt-2">
+            <ListEditorCRM items={cleaning[replacedItemsField]} onChange={(next) => handleFieldUpdate(replacedItemsField, next)} />
+          </div>
         </div>
       </div>
     </SectionCard>
@@ -418,9 +510,9 @@ function LaundrySection({ cleaning }) {
 }
 
 // ============================================================
-// PAYMENT + APPROVE SECTION
+// HOUSEKEEPER PAYMENT
 // ============================================================
-function PaymentSection({ cleaning, onChanged }) {
+function HousekeeperPaymentSection({ cleaning, onChanged }) {
   const [amount, setAmount] = useState(cleaning.payment_amount != null ? String(cleaning.payment_amount) : '')
   const [method, setMethod] = useState(cleaning.payment_method || '')
   const [reference, setReference] = useState(cleaning.payment_reference || '')
@@ -435,7 +527,6 @@ function PaymentSection({ cleaning, onChanged }) {
   }, [cleaning.id])
 
   const isCompleted = cleaning.status === 'completed'
-
   const amountOk = Number(amount) > 0
   const methodOk = method.trim().length > 0
   const canApprove = amountOk && methodOk && !isCompleted
@@ -443,7 +534,7 @@ function PaymentSection({ cleaning, onChanged }) {
   const handleApprove = async () => {
     if (!canApprove) return
     const confirmed = window.confirm(
-      `Approve this cleaning and record payment?\n\nAmount: ${formatMoney(amount)}\nMethod: ${method}\n${reference ? `Reference: ${reference}\n` : ''}\nThis will mark the cleaning as completed.`
+      `Approve this cleaning and record housekeeper payment?\n\nAmount: ${formatMoney(amount)}\nMethod: ${method}\n\nThis will mark the cleaning as completed.`
     )
     if (!confirmed) return
     setSaving(true)
@@ -471,15 +562,13 @@ function PaymentSection({ cleaning, onChanged }) {
 
   return (
     <div className={cn('rounded-md border overflow-hidden',
-      isCompleted
-        ? 'bg-emerald-500/5 border-emerald-500/30'
-        : 'bg-card border-border')}>
+      isCompleted ? 'bg-emerald-500/5 border-emerald-500/30' : 'bg-card border-border')}>
       <div className={cn('flex items-center gap-2 px-3 py-2 border-b',
         isCompleted ? 'border-emerald-500/30 bg-emerald-500/10' : 'border-border bg-muted/30')}>
         <Wallet size={13} className={cn(isCompleted ? 'text-emerald-700 dark:text-emerald-400' : 'text-muted-foreground')} />
         <h4 className={cn('text-[10px] font-bold uppercase tracking-wider',
           isCompleted ? 'text-emerald-700 dark:text-emerald-400' : 'text-muted-foreground')}>
-          Payment {isCompleted && '· Paid'}
+          Housekeeper Payment {isCompleted && '· Paid'}
         </h4>
       </div>
 
@@ -494,69 +583,30 @@ function PaymentSection({ cleaning, onChanged }) {
         <div className="grid grid-cols-2 gap-3">
           <div>
             <label className={labelClass}>Amount (₱) *</label>
-            <Input
-              type="number"
-              min={0}
-              value={amount}
-              onChange={(e) => setAmount(e.target.value)}
-              disabled={isCompleted}
-              placeholder="0"
-              className={inputClass}
-            />
+            <Input type="number" min={0} value={amount} onChange={(e) => setAmount(e.target.value)} disabled={isCompleted} placeholder="0" className={inputClass} />
           </div>
           <div>
             <label className={labelClass}>Method *</label>
-            <Input
-              value={method}
-              onChange={(e) => setMethod(e.target.value)}
-              disabled={isCompleted}
-              placeholder="GCash, BPI, Cash…"
-              className={inputClass}
-            />
+            <Input value={method} onChange={(e) => setMethod(e.target.value)} disabled={isCompleted} placeholder="GCash, BPI, Cash…" className={inputClass} />
           </div>
         </div>
 
         <div>
           <label className={labelClass}>Reference</label>
-          <Input
-            value={reference}
-            onChange={(e) => setReference(e.target.value)}
-            disabled={isCompleted}
-            placeholder="Transaction ID, check no., etc."
-            className={inputClass}
-          />
+          <Input value={reference} onChange={(e) => setReference(e.target.value)} disabled={isCompleted} className={inputClass} />
         </div>
 
         <div>
           <label className={labelClass}>Note</label>
-          <Textarea
-            value={note}
-            onChange={(e) => setNote(e.target.value)}
-            disabled={isCompleted}
-            rows={2}
-            placeholder="Optional note"
-            className="text-xs rounded resize-none w-full"
-          />
+          <Textarea value={note} onChange={(e) => setNote(e.target.value)} disabled={isCompleted} rows={2} className="text-xs rounded resize-none w-full" />
         </div>
 
         {!isCompleted && (
-          <Button
-            size="sm"
-            className="h-8 rounded text-xs w-full gap-1.5 text-white"
-            style={{ backgroundColor: '#059669' }}
-            onClick={handleApprove}
-            disabled={!canApprove || saving}
-            title={
-              !amountOk ? 'Enter an amount greater than 0'
-              : !methodOk ? 'Enter a payment method'
-              : 'Approve and mark as completed'
-            }
-          >
+          <Button size="sm" className="h-8 rounded text-xs w-full gap-1.5 text-white" style={{ backgroundColor: '#059669' }} onClick={handleApprove} disabled={!canApprove || saving}>
             {saving ? <Loader2 size={12} className="animate-spin" /> : <Send size={12} />}
             {saving ? 'Processing…' : 'Approve & Mark Completed'}
           </Button>
         )}
-
         {!isCompleted && (!amountOk || !methodOk) && (
           <p className="text-[10px] text-muted-foreground text-center">
             Fill amount and method to enable the approve button
@@ -568,7 +618,109 @@ function PaymentSection({ cleaning, onChanged }) {
 }
 
 // ============================================================
-// NEW CLEANING MODAL (unchanged)
+// LAUNDRY PAYMENT (independent)
+// ============================================================
+function LaundryPaymentSection({ cleaning, onChanged }) {
+  const [amount, setAmount] = useState(cleaning.laundry_payment_amount != null ? String(cleaning.laundry_payment_amount) : '')
+  const [method, setMethod] = useState(cleaning.laundry_payment_method || '')
+  const [reference, setReference] = useState(cleaning.laundry_payment_reference || '')
+  const [note, setNote] = useState(cleaning.laundry_payment_note || '')
+  const [saving, setSaving] = useState(false)
+
+  useEffect(() => {
+    setAmount(cleaning.laundry_payment_amount != null ? String(cleaning.laundry_payment_amount) : '')
+    setMethod(cleaning.laundry_payment_method || '')
+    setReference(cleaning.laundry_payment_reference || '')
+    setNote(cleaning.laundry_payment_note || '')
+  }, [cleaning.id])
+
+  const hasAmount = Number(amount) > 0
+  const hasMethod = method.trim().length > 0
+  const canSave = hasAmount && hasMethod
+
+  const handleSave = async () => {
+    if (!canSave) return
+    setSaving(true)
+    try {
+      await updateLaundryPayment({
+        cleaningId: cleaning.id,
+        amount: Number(amount),
+        method,
+        reference,
+        note,
+      })
+      logAudit('UPDATE_LAUNDRY_PAYMENT', 'cleanings', cleaning.id, { amount: Number(amount), method }).catch(() => {})
+      toast.success('Laundry payment saved')
+      onChanged()
+    } catch (err) {
+      console.error(err)
+      toast.error(err?.message || 'Failed to save')
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  const labelClass = 'text-[10px] uppercase tracking-wider text-muted-foreground font-semibold mb-1 block'
+  const inputClass = 'h-8 text-xs rounded w-full'
+  const hasStoredPayment = cleaning.laundry_paid_at
+
+  return (
+    <div className={cn('rounded-md border overflow-hidden',
+      hasStoredPayment ? 'bg-blue-500/5 border-blue-500/30' : 'bg-card border-border')}>
+      <div className={cn('flex items-center gap-2 px-3 py-2 border-b',
+        hasStoredPayment ? 'border-blue-500/30 bg-blue-500/10' : 'border-border bg-muted/30')}>
+        <Wallet size={13} className={cn(hasStoredPayment ? 'text-blue-700 dark:text-blue-400' : 'text-muted-foreground')} />
+        <h4 className={cn('text-[10px] font-bold uppercase tracking-wider',
+          hasStoredPayment ? 'text-blue-700 dark:text-blue-400' : 'text-muted-foreground')}>
+          Laundry Payment {hasStoredPayment && '· Saved'}
+        </h4>
+      </div>
+
+      <div className="p-3 space-y-3">
+        {hasStoredPayment && (
+          <div className="flex items-center justify-between text-xs">
+            <span className="text-muted-foreground">Paid at</span>
+            <span className="text-foreground font-semibold">{formatDateTime(cleaning.laundry_paid_at)}</span>
+          </div>
+        )}
+
+        <div className="grid grid-cols-2 gap-3">
+          <div>
+            <label className={labelClass}>Amount (₱) *</label>
+            <Input type="number" min={0} value={amount} onChange={(e) => setAmount(e.target.value)} placeholder="0" className={inputClass} />
+          </div>
+          <div>
+            <label className={labelClass}>Method *</label>
+            <Input value={method} onChange={(e) => setMethod(e.target.value)} placeholder="GCash, Cash…" className={inputClass} />
+          </div>
+        </div>
+
+        <div>
+          <label className={labelClass}>Reference</label>
+          <Input value={reference} onChange={(e) => setReference(e.target.value)} className={inputClass} />
+        </div>
+
+        <div>
+          <label className={labelClass}>Note</label>
+          <Textarea value={note} onChange={(e) => setNote(e.target.value)} rows={2} className="text-xs rounded resize-none w-full" />
+        </div>
+
+        <Button size="sm" className="h-8 rounded text-xs w-full gap-1.5 text-white" style={{ backgroundColor: BRAND }} onClick={handleSave} disabled={!canSave || saving}>
+          {saving ? <Loader2 size={12} className="animate-spin" /> : <Wallet size={12} />}
+          {saving ? 'Saving…' : hasStoredPayment ? 'Update Laundry Payment' : 'Save Laundry Payment'}
+        </Button>
+        {!canSave && (
+          <p className="text-[10px] text-muted-foreground text-center">
+            Optional — fill amount and method to save
+          </p>
+        )}
+      </div>
+    </div>
+  )
+}
+
+// ============================================================
+// NEW CLEANING MODAL
 // ============================================================
 const emptyNewCleaning = () => ({
   unit_id: '',
@@ -587,7 +739,6 @@ function NewCleaningModal({ open, onClose, onCreated, units, bookings, housekeep
   if (!open) return null
 
   const setField = (k, v) => setForm((p) => ({ ...p, [k]: v }))
-
   const handleBookingChange = (bookingId) => {
     if (bookingId === '__none__') { setField('booking_id', ''); return }
     const b = bookings.find((x) => x.id === bookingId)
@@ -602,7 +753,7 @@ function NewCleaningModal({ open, onClose, onCreated, units, bookings, housekeep
         unit_id: form.unit_id,
         booking_id: form.booking_id || null,
         type: form.type,
-        status: 'pending',
+        status: 'scheduled',
         scheduled_date: form.scheduled_date || null,
         housekeeper_id: form.housekeeper_id || null,
         notes: form.notes.trim() || null,
@@ -614,9 +765,7 @@ function NewCleaningModal({ open, onClose, onCreated, units, bookings, housekeep
     } catch (err) {
       console.error(err)
       toast.error(err?.message || 'Failed to create')
-    } finally {
-      setSaving(false)
-    }
+    } finally { setSaving(false) }
   }
 
   const labelClass = 'text-[10px] uppercase tracking-wider text-muted-foreground font-semibold mb-1 block'
@@ -727,9 +876,7 @@ function CleaningDetailPanel({ cleaning, onClose, onChanged, onDelete, housekeep
     } catch (err) {
       console.error(err)
       toast.error(err?.message || 'Failed to update')
-    } finally {
-      setSaving(false)
-    }
+    } finally { setSaving(false) }
   }
 
   const booking = cleaning.bookings
@@ -759,7 +906,7 @@ function CleaningDetailPanel({ cleaning, onClose, onChanged, onDelete, housekeep
               <p className="text-[11px] text-muted-foreground truncate">{cleaning.units?.building || '—'}</p>
               <div className="flex items-center gap-2 mt-2 flex-wrap">
                 <TypeBadge type={cleaning.type} />
-                <StatusBadge status={cleaning.status} />
+                <StatusBadge cleaning={cleaning} />
               </div>
             </div>
             <button onClick={onClose} className="p-1 rounded hover:bg-muted text-muted-foreground flex-shrink-0"><X size={16} /></button>
@@ -767,7 +914,6 @@ function CleaningDetailPanel({ cleaning, onClose, onChanged, onDelete, housekeep
         </div>
 
         <div className="flex-1 overflow-y-auto p-4 space-y-3">
-
           <SectionCard title="Overview" icon={Clock}>
             {booking && (
               <div className="flex items-center gap-2 py-0.5">
@@ -785,16 +931,11 @@ function CleaningDetailPanel({ cleaning, onClose, onChanged, onDelete, housekeep
             {suggestDeep && (
               <div className="mt-2 flex items-center gap-2 px-2.5 py-1.5 rounded-md bg-amber-500/10 border border-amber-500/30">
                 <AlertTriangle size={12} className="text-amber-600 dark:text-amber-400 flex-shrink-0" />
-                <span className="text-[11px] text-amber-700 dark:text-amber-300 flex-1">
-                  {stayNights}-night stay — consider deep clean
-                </span>
+                <span className="text-[11px] text-amber-700 dark:text-amber-300 flex-1">{stayNights}-night stay — consider deep clean</span>
                 <button type="button" onClick={() => updateField('type', 'deep')} disabled={saving}
-                  className="text-[10px] font-semibold uppercase tracking-wider text-amber-700 dark:text-amber-300 hover:underline disabled:opacity-50">
-                  Set Deep
-                </button>
+                  className="text-[10px] font-semibold uppercase tracking-wider text-amber-700 dark:text-amber-300 hover:underline disabled:opacity-50">Set Deep</button>
               </div>
             )}
-
             <div className="flex items-center gap-2 py-0.5">
               <span className="text-[10px] uppercase tracking-wider text-muted-foreground font-semibold min-w-[72px] flex-shrink-0">Type</span>
               <div className="flex-1">
@@ -807,32 +948,28 @@ function CleaningDetailPanel({ cleaning, onClose, onChanged, onDelete, housekeep
                 </Select>
               </div>
             </div>
-
             <div className="flex items-center gap-2 py-0.5">
               <span className="text-[10px] uppercase tracking-wider text-muted-foreground font-semibold min-w-[72px] flex-shrink-0">Status</span>
               <div className="flex-1">
                 <Select value={cleaning.status} onValueChange={(v) => updateField('status', v)}>
                   <SelectTrigger className="h-7 text-xs rounded"><SelectValue /></SelectTrigger>
                   <SelectContent>
-                    <SelectItem value="pending" className="text-xs">Pending</SelectItem>
-                    <SelectItem value="in_progress" className="text-xs">In Progress</SelectItem>
+                    <SelectItem value="scheduled" className="text-xs">Scheduled</SelectItem>
+                    <SelectItem value="ready" className="text-xs">Ready</SelectItem>
                     <SelectItem value="submitted" className="text-xs">Submitted</SelectItem>
                     <SelectItem value="completed" className="text-xs">Completed</SelectItem>
                   </SelectContent>
                 </Select>
               </div>
             </div>
-
             <div className="flex items-center gap-2 py-0.5">
               <span className="text-[10px] uppercase tracking-wider text-muted-foreground font-semibold min-w-[72px] flex-shrink-0">Scheduled</span>
               <Input type="date" value={cleaning.scheduled_date || ''} onChange={(e) => updateField('scheduled_date', e.target.value || null)} className="h-7 text-xs rounded bg-background flex-1" />
             </div>
-
             <div className="flex items-center gap-2 py-0.5">
               <span className="text-[10px] uppercase tracking-wider text-muted-foreground font-semibold min-w-[72px] flex-shrink-0">Submitted</span>
               <span className="text-xs tabular-nums text-foreground">{cleaning.submitted_at ? formatDateTime(cleaning.submitted_at) : '—'}</span>
             </div>
-
             <div className="flex items-center gap-2 py-0.5">
               <span className="text-[10px] uppercase tracking-wider text-muted-foreground font-semibold min-w-[72px] flex-shrink-0">Completed</span>
               <span className="text-xs tabular-nums text-foreground">{cleaning.completed_at ? formatDateTime(cleaning.completed_at) : '—'}</span>
@@ -864,11 +1001,31 @@ function CleaningDetailPanel({ cleaning, onClose, onChanged, onDelete, housekeep
 
           <PhotoSection cleaning={cleaning} onChanged={onChanged} />
 
-          <LaundrySection cleaning={cleaning} />
+          <CategoryPair
+            title="Amenities"
+            Icon={Coffee}
+            cleaning={cleaning}
+            usedPhotoField="amenities_used_photo"
+            replacedPhotoField="amenities_replaced_photo"
+            usedItemsField="amenities_used_items"
+            replacedItemsField="amenities_replaced_items"
+            usedCategory="amenities_used"
+            replacedCategory="amenities_replaced"
+            onChanged={onChanged}
+          />
 
-          <SectionCard title={`Inventory · ${parseInventory(cleaning.inventory).length}`} icon={Package}>
-            <InventoryEditor cleaning={cleaning} onChange={onChanged} />
-          </SectionCard>
+          <CategoryPair
+            title="Laundry"
+            Icon={Shirt}
+            cleaning={cleaning}
+            usedPhotoField="laundry_used_photo"
+            replacedPhotoField="laundry_replaced_photo"
+            usedItemsField="laundry_used_items"
+            replacedItemsField="laundry_replaced_items"
+            usedCategory="laundry_used"
+            replacedCategory="laundry_replaced"
+            onChanged={onChanged}
+          />
 
           <SectionCard title="Notes" icon={FileText}>
             <Textarea
@@ -888,7 +1045,9 @@ function CleaningDetailPanel({ cleaning, onClose, onChanged, onDelete, housekeep
             />
           </SectionCard>
 
-          <PaymentSection cleaning={cleaning} onChanged={onChanged} />
+          <HousekeeperPaymentSection cleaning={cleaning} onChanged={onChanged} />
+
+          <LaundryPaymentSection cleaning={cleaning} onChanged={onChanged} />
 
           <div className="pt-2 border-t border-border">
             <Button variant="outline" size="sm"
@@ -897,16 +1056,12 @@ function CleaningDetailPanel({ cleaning, onClose, onChanged, onDelete, housekeep
               <Trash2 size={12} /> Delete Cleaning
             </Button>
           </div>
-
         </div>
       </div>
     </motion.div>
   )
 }
 
-// ============================================================
-// LIST ROW
-// ============================================================
 function CleaningListRow({ cleaning, selected, onClick }) {
   return (
     <motion.button
@@ -948,16 +1103,13 @@ function CleaningListRow({ cleaning, selected, onClick }) {
         <div className="truncate">{formatDate(cleaning.scheduled_date)}</div>
       </div>
       <div className="flex items-center gap-2 justify-end flex-shrink-0">
-        <StatusBadge status={cleaning.status} />
+        <StatusBadge cleaning={cleaning} />
         <ChevronRight size={14} className={cn('text-muted-foreground/40 transition-transform duration-300 ease-out', selected && 'rotate-180 text-primary')} />
       </div>
     </motion.button>
   )
 }
 
-// ============================================================
-// MAIN PAGE
-// ============================================================
 export default function HousekeepingPage() {
   const [cleanings, setCleanings] = useState([])
   const [units, setUnits] = useState([])
@@ -1001,9 +1153,7 @@ export default function HousekeepingPage() {
       console.error('Failed to load housekeeping data:', err)
       toast.error('Failed to load cleanings')
     } finally {
-      setIsFirstLoad(false)
-      setIsRefreshing(false)
-      hasLoadedOnce.current = true
+      setIsFirstLoad(false); setIsRefreshing(false); hasLoadedOnce.current = true
     }
   }, [])
 
@@ -1012,17 +1162,16 @@ export default function HousekeepingPage() {
   useEffect(() => {
     const ch = supabase
       .channel(`housekeeping-admin-${Math.random().toString(36).slice(2, 10)}`)
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'cleanings' }, () => {
-        fetchData()
-      })
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'cleanings' }, () => fetchData())
       .subscribe()
     return () => { supabase.removeChannel(ch) }
   }, [fetchData])
 
   const counts = useMemo(() => {
-    const c = { all: cleanings.length, pending: 0, in_progress: 0, submitted: 0, completed: 0, deep: 0, basic: 0 }
+    const c = { all: cleanings.length, scheduled: 0, ready: 0, submitted: 0, completed: 0, deep: 0, basic: 0 }
     for (const x of cleanings) {
-      if (x.status && c[x.status] !== undefined) c[x.status]++
+      const eff = getEffectiveStatus(x)
+      if (c[eff] !== undefined) c[eff]++
       if (x.type && c[x.type] !== undefined) c[x.type]++
     }
     return c
@@ -1034,7 +1183,10 @@ export default function HousekeepingPage() {
       if (statusFilter !== 'all') {
         if (statusFilter === 'deep' && c.type !== 'deep') return false
         else if (statusFilter === 'basic' && c.type !== 'basic') return false
-        else if (statusFilter !== 'deep' && statusFilter !== 'basic' && c.status !== statusFilter) return false
+        else {
+          const eff = getEffectiveStatus(c)
+          if (statusFilter !== eff) return false
+        }
       }
       if (q) {
         const hay = [
@@ -1050,7 +1202,6 @@ export default function HousekeepingPage() {
   }, [cleanings, statusFilter, debouncedSearch])
 
   const selected = useMemo(() => cleanings.find((c) => c.id === selectedId) || null, [cleanings, selectedId])
-
   const handleSelect = (c) => setSelectedId((prev) => (prev === c.id ? null : c.id))
 
   const handleDelete = async (cleaning) => {
@@ -1080,7 +1231,6 @@ export default function HousekeepingPage() {
     <div className="h-full flex min-h-0">
       <div className="flex-1 min-h-0 flex flex-col overflow-hidden bg-card border border-border rounded-md">
         <div className="p-3 flex-1 min-h-0 flex flex-col gap-2.5">
-
           <div className="flex-shrink-0 flex items-center gap-2">
             <div className="relative flex-1 min-w-0">
               <Search size={13} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-muted-foreground" />

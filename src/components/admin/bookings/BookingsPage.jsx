@@ -18,10 +18,12 @@ import {
 import { supabase } from '@/lib/supabase'
 import { logAudit } from '@/lib/auditLog'
 import { cn } from '@/lib/utils'
+import {
+  getTierInfo, SPECIALIST_FLAT_RATE,
+  computeSpecialistCommission, computeAffiliateCommission,
+  fetchAffiliateCounts, fetchSpecialistCounts,
+} from '@/lib/commissions'
 
-// ============================================================
-// CONFIG
-// ============================================================
 const BRAND = '#2d568e'
 
 const DATE_FILTERS = [
@@ -64,9 +66,6 @@ const PAYMENT_STATUS_CONFIG = {
 const ROW_GRID = 'grid grid-cols-[1.4fr_1fr_1.2fr_1.1fr_1fr_160px] gap-4 items-center'
 const PANEL_WIDTH = 448
 
-// ============================================================
-// HELPERS
-// ============================================================
 function today() { const d = new Date(); d.setHours(0, 0, 0, 0); return d }
 function parseDateOnly(d) { if (!d) return null; const dt = new Date(d); dt.setHours(0, 0, 0, 0); return dt }
 function deriveBookingStatus(b) {
@@ -100,9 +99,6 @@ function unitLabel(u) {
   return c || b || '—'
 }
 
-// ============================================================
-// AVATAR
-// ============================================================
 const AVATAR_COLORS = [
   ['bg-blue-100', 'text-blue-700', 'dark:bg-blue-900/40', 'dark:text-blue-300'],
   ['bg-emerald-100', 'text-emerald-700', 'dark:bg-emerald-900/40', 'dark:text-emerald-300'],
@@ -133,9 +129,6 @@ function GuestAvatar({ name, size = 'md' }) {
   )
 }
 
-// ============================================================
-// SUMMARY CARDS
-// ============================================================
 function SummaryCards({ bookings }) {
   const stats = useMemo(() => {
     let upcoming = 0, active = 0, finished = 0
@@ -171,9 +164,6 @@ function SummaryCards({ bookings }) {
   )
 }
 
-// ============================================================
-// BADGES
-// ============================================================
 function BookingStatusBadge({ status }) {
   const config = STATUS_BADGE_CONFIG[status]
   if (!config) return null
@@ -185,9 +175,6 @@ function PaymentStatusBadge({ status }) {
   return <Badge className={cn('text-[11px] font-semibold rounded-full px-2.5 py-0.5', config.className)}>{config.label}</Badge>
 }
 
-// ============================================================
-// SECTION CARD
-// ============================================================
 function SectionCard({ title, icon: Icon, children, className, action }) {
   return (
     <div className={cn('rounded-md bg-card border border-border overflow-hidden', className)}>
@@ -203,9 +190,6 @@ function SectionCard({ title, icon: Icon, children, className, action }) {
   )
 }
 
-// ============================================================
-// EDITABLE FIELD
-// ============================================================
 function EditableField({ label, value, type = 'text', onSave, auditTag }) {
   const [draft, setDraft] = useState(value ?? '')
   const [status, setStatus] = useState('idle')
@@ -222,8 +206,10 @@ function EditableField({ label, value, type = 'text', onSave, auditTag }) {
       if (auditTag) logAudit(`UPDATE_BOOKING_FIELD:${auditTag}`, 'bookings', null, { field: auditTag, from: value, to: next }).catch(() => {})
       setTimeout(() => setStatus('idle'), 1200)
     } catch (err) {
-      console.error(err); toast.error(err?.message || 'Save failed')
-      setDraft(value ?? ''); setStatus('idle')
+      console.error(err)
+      toast.error(err?.message || 'Save failed')
+      setDraft(value ?? '')
+      setStatus('idle')
     }
   }
   const cancel = () => setDraft(value ?? '')
@@ -245,9 +231,6 @@ function EditableField({ label, value, type = 'text', onSave, auditTag }) {
   )
 }
 
-// ============================================================
-// WARNING CHIP + DROPDOWN
-// ============================================================
 function WarningChip({ icon: Icon, label, count, active, onClick, children }) {
   return (
     <div className="relative">
@@ -349,9 +332,6 @@ function WarningsStrip({ needsCompletion, endingSoon, onSelect }) {
   )
 }
 
-// ============================================================
-// STATUS PILLS
-// ============================================================
 function StatusPills({ statusFilter, onStatusFilter, counts }) {
   const containerRef = useRef(null)
   const [indicator, setIndicator] = useState({ left: 0, width: 0 })
@@ -384,9 +364,6 @@ function StatusPills({ statusFilter, onStatusFilter, counts }) {
   )
 }
 
-// ============================================================
-// FILTER PANEL
-// ============================================================
 function FilterPanel({ open, onClose, building, setBuilding, dateFilter, setDateFilter, bookerCode, setBookerCode, buildings, specialists, activeCount, onClear }) {
   const panelRef = useRef(null)
   useEffect(() => {
@@ -446,9 +423,6 @@ function FilterPanel({ open, onClose, building, setBuilding, dateFilter, setDate
   )
 }
 
-// ============================================================
-// BOOKING FORM MODAL
-// ============================================================
 const emptyForm = () => ({
   unit_id: '',
   guest_name: '',
@@ -459,10 +433,8 @@ const emptyForm = () => ({
   check_out: '',
   total_amount: 0,
   booker_code: '',
-  booker_name: '',
-  booker_commission: 0,
   affiliate_code: '',
-  affiliate_name: '',
+  booker_commission: 0,
   affiliate_commission: 0,
   affiliate_notes: '',
   notes: '',
@@ -472,7 +444,7 @@ const emptyForm = () => ({
   initial_date: '',
 })
 
-function BookingFormModal({ open, onClose, onSaved, units, editing, specialists, affiliates }) {
+function BookingFormModal({ open, onClose, onSaved, units, editing, specialists, affiliates, affiliateCounts }) {
   const [form, setForm] = useState(emptyForm())
   const [saving, setSaving] = useState(false)
 
@@ -489,10 +461,8 @@ function BookingFormModal({ open, onClose, onSaved, units, editing, specialists,
         check_out: editing.check_out || '',
         total_amount: editing.total_amount || 0,
         booker_code: editing.booker_code || '',
-        booker_name: editing.booker_name || '',
-        booker_commission: editing.booker_commission || 0,
         affiliate_code: editing.affiliate_code || '',
-        affiliate_name: editing.affiliate_name || '',
+        booker_commission: editing.booker_commission || 0,
         affiliate_commission: editing.affiliate_commission || 0,
         affiliate_notes: editing.affiliate_notes || '',
         notes: editing.notes || '',
@@ -508,23 +478,26 @@ function BookingFormModal({ open, onClose, onSaved, units, editing, specialists,
 
   const setField = (k, v) => setForm((p) => ({ ...p, [k]: v }))
 
-  const handleBookerChange = (code) => {
-    if (code === '__none__') {
-      setForm((p) => ({ ...p, booker_code: '', booker_name: '' }))
-      return
-    }
-    const s = specialists.find((x) => x.code === code)
-    setForm((p) => ({ ...p, booker_code: code, booker_name: s?.name || '' }))
-  }
+  // Auto-recalc commissions when total/booker/affiliate changes
+  useEffect(() => {
+    if (!open) return
+    const total = Number(form.total_amount) || 0
 
-  const handleAffiliateChange = (code) => {
-    if (code === '__none__') {
-      setForm((p) => ({ ...p, affiliate_code: '', affiliate_name: '' }))
-      return
+    const newBookerComm = form.booker_code && total > 0
+      ? computeSpecialistCommission(total)
+      : 0
+
+    let newAffComm = 0
+    if (form.affiliate_code && total > 0) {
+      const count = affiliateCounts?.[form.affiliate_code] || 0
+      newAffComm = computeAffiliateCommission(total, count)
     }
-    const a = affiliates.find((x) => x.code === code)
-    setForm((p) => ({ ...p, affiliate_code: code, affiliate_name: a?.name || '' }))
-  }
+
+    setForm((p) => {
+      if (p.booker_commission === newBookerComm && p.affiliate_commission === newAffComm) return p
+      return { ...p, booker_commission: newBookerComm, affiliate_commission: newAffComm }
+    })
+  }, [open, form.booker_code, form.affiliate_code, form.total_amount, affiliateCounts])
 
   const nights = computeNights(form.check_in, form.check_out)
   const initialAmount = Number(form.initial_amount) || 0
@@ -532,7 +505,6 @@ function BookingFormModal({ open, onClose, onSaved, units, editing, specialists,
   const remaining = Math.max(0, totalAmount - initialAmount)
   const willBePartial = initialAmount > 0 && initialAmount < totalAmount
   const willBePaid = initialAmount >= totalAmount && totalAmount > 0
-
   const selectedUnit = useMemo(() => units.find((u) => u.id === form.unit_id) || null, [units, form.unit_id])
 
   const handleSubmit = async () => {
@@ -555,6 +527,10 @@ function BookingFormModal({ open, onClose, onSaved, units, editing, specialists,
         })
       }
 
+      // Look up booker_name / affiliate_name from codes so display works
+      const booker = specialists.find((s) => s.code === form.booker_code)
+      const affiliate = affiliates.find((a) => a.code === form.affiliate_code)
+
       const payload = {
         unit_id: form.unit_id,
         guest_name: form.guest_name.trim(),
@@ -565,10 +541,10 @@ function BookingFormModal({ open, onClose, onSaved, units, editing, specialists,
         check_out: form.check_out,
         total_amount: totalAmount,
         booker_code: form.booker_code || null,
-        booker_name: form.booker_name || null,
-        booker_commission: Number(form.booker_commission) || 0,
+        booker_name: booker?.name || null,
         affiliate_code: form.affiliate_code || null,
-        affiliate_name: form.affiliate_name || null,
+        affiliate_name: affiliate?.name || null,
+        booker_commission: Number(form.booker_commission) || 0,
         affiliate_commission: Number(form.affiliate_commission) || 0,
         affiliate_notes: form.affiliate_notes.trim() || null,
         notes: form.notes.trim() || null,
@@ -615,7 +591,6 @@ function BookingFormModal({ open, onClose, onSaved, units, editing, specialists,
         </div>
 
         <div className="flex-1 overflow-y-auto px-5 py-5 space-y-5">
-          {/* Booking */}
           <section>
             <h3 className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground mb-3">Booking</h3>
             <div className="grid grid-cols-1 md:grid-cols-2 gap-x-4 gap-y-3">
@@ -628,19 +603,17 @@ function BookingFormModal({ open, onClose, onSaved, units, editing, specialists,
                     </SelectValue>
                   </SelectTrigger>
                   <SelectContent>
-                    {units.map((u) => (
-                      <SelectItem key={u.id} value={u.id} className="text-xs">{unitLabel(u)}</SelectItem>
-                    ))}
+                    {units.map((u) => <SelectItem key={u.id} value={u.id} className="text-xs">{unitLabel(u)}</SelectItem>)}
                   </SelectContent>
                 </Select>
               </div>
               <div>
                 <label className={labelClass}>Booked by</label>
-                <Select value={form.booker_code || '__none__'} onValueChange={handleBookerChange}>
+                <Select value={form.booker_code || '__none__'} onValueChange={(v) => setField('booker_code', v === '__none__' ? '' : v)}>
                   <SelectTrigger className={cn(inputClass, 'w-full')}>
                     <SelectValue placeholder="No specialist">
                       {form.booker_code
-                        ? (form.booker_name || specialists.find((s) => s.code === form.booker_code)?.name || form.booker_code)
+                        ? (specialists.find((s) => s.code === form.booker_code)?.name || form.booker_code)
                         : <span className="text-muted-foreground italic">No specialist</span>}
                     </SelectValue>
                   </SelectTrigger>
@@ -657,7 +630,6 @@ function BookingFormModal({ open, onClose, onSaved, units, editing, specialists,
             </div>
           </section>
 
-          {/* Guest */}
           <section>
             <h3 className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground mb-3">Guest</h3>
             <div className="grid grid-cols-1 md:grid-cols-2 gap-x-4 gap-y-3">
@@ -668,16 +640,12 @@ function BookingFormModal({ open, onClose, onSaved, units, editing, specialists,
             </div>
           </section>
 
-          {/* Dates & Amount */}
           <section>
             <h3 className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground mb-3">Dates & Amount</h3>
             <div className="grid grid-cols-1 md:grid-cols-3 gap-x-4 gap-y-3">
               <div><label className={labelClass}>Check-in *</label><Input type="date" value={form.check_in} onChange={(e) => setField('check_in', e.target.value)} className={inputClass} /></div>
               <div><label className={labelClass}>Check-out *</label><Input type="date" value={form.check_out} onChange={(e) => setField('check_out', e.target.value)} className={inputClass} /></div>
-              <div>
-                <label className={labelClass}>Nights</label>
-                <Input value={nights} readOnly className={cn(inputClass, 'bg-muted/50')} />
-              </div>
+              <div><label className={labelClass}>Nights</label><Input value={nights} readOnly className={cn(inputClass, 'bg-muted/50')} /></div>
             </div>
             <div className="grid grid-cols-1 md:grid-cols-2 gap-x-4 gap-y-3 mt-3">
               <div><label className={labelClass}>Total Amount (₱) *</label><Input type="number" min={0} value={form.total_amount} onChange={(e) => setField('total_amount', e.target.value)} className={inputClass} /></div>
@@ -703,34 +671,55 @@ function BookingFormModal({ open, onClose, onSaved, units, editing, specialists,
             </section>
           )}
 
-          {/* Affiliate */}
           <section>
-            <h3 className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground mb-3">Affiliate / Commission</h3>
+            <h3 className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground mb-3">Affiliate / Commissions</h3>
             <div className="grid grid-cols-1 md:grid-cols-2 gap-x-4 gap-y-3">
               <div>
                 <label className={labelClass}>Affiliate</label>
-                <Select value={form.affiliate_code || '__none__'} onValueChange={handleAffiliateChange}>
+                <Select value={form.affiliate_code || '__none__'} onValueChange={(v) => setField('affiliate_code', v === '__none__' ? '' : v)}>
                   <SelectTrigger className={cn(inputClass, 'w-full')}>
                     <SelectValue placeholder="No affiliate">
                       {form.affiliate_code
-                        ? (form.affiliate_name || affiliates.find((a) => a.code === form.affiliate_code)?.name || form.affiliate_code)
+                        ? (affiliates.find((a) => a.code === form.affiliate_code)?.name || form.affiliate_code)
                         : <span className="text-muted-foreground italic">No affiliate</span>}
                     </SelectValue>
                   </SelectTrigger>
                   <SelectContent>
                     <SelectItem value="__none__" className="text-xs italic text-muted-foreground">No affiliate</SelectItem>
-                    {affiliates.map((a) => (
-                      <SelectItem key={a.id} value={a.code} className="text-xs">
-                        {a.name} <span className="text-muted-foreground font-mono ml-1">· {a.code}</span>
-                      </SelectItem>
-                    ))}
+                    {affiliates.map((a) => {
+                      const cnt = affiliateCounts?.[a.code] || 0
+                      const tier = getTierInfo(cnt)
+                      return (
+                        <SelectItem key={a.id} value={a.code} className="text-xs">
+                          {a.name} <span className="text-muted-foreground font-mono ml-1">· {a.code}</span>
+                          <span className="text-muted-foreground ml-2">({tier.tier} · {tier.rate}%)</span>
+                        </SelectItem>
+                      )
+                    })}
                   </SelectContent>
                 </Select>
               </div>
-              <div><label className={labelClass}>Affiliate Commission (₱)</label><Input type="number" min={0} value={form.affiliate_commission} onChange={(e) => setField('affiliate_commission', e.target.value)} className={inputClass} /></div>
+              <div>
+                <label className={labelClass}>Affiliate Commission (₱)</label>
+                <Input type="number" min={0} value={form.affiliate_commission} onChange={(e) => setField('affiliate_commission', e.target.value)} className={inputClass} />
+                {form.affiliate_code && (
+                  <p className="text-[10px] text-muted-foreground mt-1">
+                    {getTierInfo(affiliateCounts?.[form.affiliate_code] || 0).tier} · {getTierInfo(affiliateCounts?.[form.affiliate_code] || 0).rate}% of {formatMoney(totalAmount)}
+                  </p>
+                )}
+              </div>
             </div>
+
             <div className="grid grid-cols-1 md:grid-cols-2 gap-x-4 gap-y-3 mt-3">
-              <div><label className={labelClass}>Booker Commission (₱)</label><Input type="number" min={0} value={form.booker_commission} onChange={(e) => setField('booker_commission', e.target.value)} className={inputClass} /></div>
+              <div>
+                <label className={labelClass}>Booker Commission (₱)</label>
+                <Input type="number" min={0} value={form.booker_commission} onChange={(e) => setField('booker_commission', e.target.value)} className={inputClass} />
+                {form.booker_code && (
+                  <p className="text-[10px] text-muted-foreground mt-1">
+                    Flat {SPECIALIST_FLAT_RATE}% of {formatMoney(totalAmount)}
+                  </p>
+                )}
+              </div>
               <div><label className={labelClass}>Affiliate Notes</label><Input value={form.affiliate_notes} onChange={(e) => setField('affiliate_notes', e.target.value)} className={inputClass} /></div>
             </div>
           </section>
@@ -748,9 +737,6 @@ function BookingFormModal({ open, onClose, onSaved, units, editing, specialists,
   )
 }
 
-// ============================================================
-// ADD PAYMENT MODAL
-// ============================================================
 function AddPaymentModal({ open, onClose, booking, onSaved }) {
   const [amount, setAmount] = useState('')
   const [method, setMethod] = useState('')
@@ -783,8 +769,11 @@ function AddPaymentModal({ open, onClose, booking, onSaved }) {
       onSaved()
       onClose()
     } catch (err) {
-      console.error(err); toast.error(err?.message || 'Failed to add payment')
-    } finally { setSaving(false) }
+      console.error(err)
+      toast.error(err?.message || 'Failed to add payment')
+    } finally {
+      setSaving(false)
+    }
   }
 
   const labelClass = 'text-[10px] uppercase tracking-wider text-muted-foreground font-semibold mb-1 block'
@@ -828,9 +817,6 @@ function AddPaymentModal({ open, onClose, booking, onSaved }) {
   )
 }
 
-// ============================================================
-// EXTEND STAY MODAL
-// ============================================================
 function ExtendStayModal({ open, onClose, booking, onSaved }) {
   const [newCheckOut, setNewCheckOut] = useState('')
   const [newTotal, setNewTotal] = useState('')
@@ -881,9 +867,30 @@ function ExtendStayModal({ open, onClose, booking, onSaved }) {
           date: payDate || new Date().toISOString().slice(0, 10),
         })
       }
-      const patch = { check_out: newCheckOut, total_amount: total, transactions: tx }
+
+      // Recalc commissions based on new total
+      const bookerCode = booking.booker_code
+      const affiliateCode = booking.affiliate_code
+
+      let newBookerComm = booking.booker_commission || 0
+      let newAffComm = booking.affiliate_commission || 0
+
+      if (bookerCode) newBookerComm = computeSpecialistCommission(total)
+      if (affiliateCode) {
+        const { data: countData } = await supabase.rpc('affiliate_completed_count', { p_code: affiliateCode })
+        newAffComm = computeAffiliateCommission(total, Number(countData) || 0)
+      }
+
+      const patch = {
+        check_out: newCheckOut,
+        total_amount: total,
+        transactions: tx,
+        booker_commission: newBookerComm,
+        affiliate_commission: newAffComm,
+      }
       const { error } = await supabase.from('bookings').update(patch).eq('id', booking.id)
       if (error) throw error
+
       logAudit('EXTEND_BOOKING', 'bookings', booking.id, {
         booking_code: booking.booking_code,
         old_check_out: booking.check_out,
@@ -896,8 +903,11 @@ function ExtendStayModal({ open, onClose, booking, onSaved }) {
       onSaved()
       onClose()
     } catch (err) {
-      console.error(err); toast.error(err?.message || 'Failed to extend')
-    } finally { setSaving(false) }
+      console.error(err)
+      toast.error(err?.message || 'Failed to extend')
+    } finally {
+      setSaving(false)
+    }
   }
 
   const oldNights = computeNights(booking.check_in, booking.check_out)
@@ -949,9 +959,6 @@ function ExtendStayModal({ open, onClose, booking, onSaved }) {
   )
 }
 
-// ============================================================
-// COMPLETE CONFIRM MODAL
-// ============================================================
 function CompleteConfirmModal({ open, onClose, booking, onConfirmed }) {
   const [saving, setSaving] = useState(false)
   if (!open || !booking) return null
@@ -966,7 +973,8 @@ function CompleteConfirmModal({ open, onClose, booking, onConfirmed }) {
       onConfirmed()
       onClose()
     } catch (err) {
-      console.error(err); toast.error(err?.message || 'Failed to complete')
+      console.error(err)
+      toast.error(err?.message || 'Failed to complete')
     } finally { setSaving(false) }
   }
 
@@ -1000,9 +1008,6 @@ function CompleteConfirmModal({ open, onClose, booking, onConfirmed }) {
   )
 }
 
-// ============================================================
-// BOOKING DETAIL PANEL
-// ============================================================
 function BookingDetailPanel({ booking, onBookingChange, onClose, onAddPayment, onExtend, onComplete, onEdit, onDelete }) {
   const status = deriveBookingStatus(booking)
   const isCompleted = status === 'completed'
@@ -1018,9 +1023,49 @@ function BookingDetailPanel({ booking, onBookingChange, onClose, onAddPayment, o
     onBookingChange({ ...booking, [field]: value })
   }
 
+  // When total_amount changes, recalc commissions too
   const updateMoney = async (field, value) => {
     const n = value === '' || value === null ? 0 : Number(value)
     if (Number.isNaN(n)) throw new Error('Invalid number')
+
+    if (field === 'total_amount') {
+      let newBookerComm = booking.booker_commission || 0
+      let newAffComm = booking.affiliate_commission || 0
+
+      if (booking.booker_code && n > 0) {
+        newBookerComm = computeSpecialistCommission(n)
+      }
+      if (booking.affiliate_code && n > 0) {
+        const { data: countData } = await supabase.rpc('affiliate_completed_count', { p_code: booking.affiliate_code })
+        newAffComm = computeAffiliateCommission(n, Number(countData) || 0)
+      }
+
+      const { error } = await supabase
+        .from('bookings')
+        .update({
+          total_amount: n,
+          booker_commission: newBookerComm,
+          affiliate_commission: newAffComm,
+        })
+        .eq('id', booking.id)
+      if (error) throw error
+
+      logAudit('UPDATE_BOOKING_FIELD:total_amount', 'bookings', booking.id, {
+        from: booking.total_amount,
+        to: n,
+        booker_commission: newBookerComm,
+        affiliate_commission: newAffComm,
+      }).catch(() => {})
+
+      onBookingChange({
+        ...booking,
+        total_amount: n,
+        booker_commission: newBookerComm,
+        affiliate_commission: newAffComm,
+      })
+      return
+    }
+
     await updateField(field, n)
   }
 
@@ -1032,10 +1077,7 @@ function BookingDetailPanel({ booking, onBookingChange, onClose, onAddPayment, o
       initial={{ width: 0, opacity: 0 }}
       animate={{ width: PANEL_WIDTH, opacity: 1 }}
       exit={{ width: 0, opacity: 0 }}
-      transition={{
-        width: { duration: 0.32, ease: [0.4, 0, 0.2, 1] },
-        opacity: { duration: 0.2, ease: 'easeOut' },
-      }}
+      transition={{ width: { duration: 0.32, ease: [0.4, 0, 0.2, 1] }, opacity: { duration: 0.2, ease: 'easeOut' } }}
       className="bg-card border-l border-border h-full overflow-hidden flex-shrink-0"
       style={{ maxWidth: '100%' }}
     >
@@ -1056,7 +1098,6 @@ function BookingDetailPanel({ booking, onBookingChange, onClose, onAddPayment, o
         </div>
 
         <div className="flex-1 overflow-y-auto p-4 space-y-3">
-
           <div className="flex items-center justify-end gap-2 flex-wrap">
             {!isCompleted && (
               <Button variant="outline" size="sm" className="h-7 rounded text-[11px] gap-1.5" onClick={onAddPayment}>
@@ -1172,7 +1213,7 @@ function BookingDetailPanel({ booking, onBookingChange, onClose, onAddPayment, o
           <SectionCard title="Commissions" icon={Wallet}>
             <div className="space-y-1 text-xs">
               <div className="flex justify-between">
-                <span className="text-muted-foreground">Booker commission</span>
+                <span className="text-muted-foreground">Booker commission ({SPECIALIST_FLAT_RATE}%)</span>
                 <span className="font-semibold tabular-nums">
                   {formatMoney(booking.booker_commission)}
                   {booking.booker_name && <span className="text-muted-foreground"> · {booking.booker_name}</span>}
@@ -1200,16 +1241,12 @@ function BookingDetailPanel({ booking, onBookingChange, onClose, onAddPayment, o
               <Trash2 size={11} /> Delete
             </Button>
           </div>
-
         </div>
       </div>
     </motion.div>
   )
 }
 
-// ============================================================
-// BOOKING LIST ROW
-// ============================================================
 function BookingListRow({ booking, selected, onClick }) {
   const status = deriveBookingStatus(booking)
   const nights = computeNights(booking.check_in, booking.check_out)
@@ -1218,9 +1255,7 @@ function BookingListRow({ booking, selected, onClick }) {
       type="button"
       onClick={onClick}
       initial={false}
-      animate={{
-        backgroundColor: selected ? 'rgba(45, 86, 142, 0.10)' : 'rgba(45, 86, 142, 0)',
-      }}
+      animate={{ backgroundColor: selected ? 'rgba(45, 86, 142, 0.10)' : 'rgba(45, 86, 142, 0)' }}
       transition={{ duration: 0.22, ease: [0.4, 0, 0.2, 1] }}
       whileHover={{ backgroundColor: selected ? 'rgba(45, 86, 142, 0.14)' : 'rgba(45, 86, 142, 0.05)' }}
       whileTap={{ scale: 0.998 }}
@@ -1235,23 +1270,18 @@ function BookingListRow({ booking, selected, onClick }) {
           </p>
         </div>
       </div>
-
       <span className="font-mono text-xs text-foreground truncate">{booking.booking_code}</span>
-
       <div className="min-w-0">
         <span className="font-mono text-xs font-bold text-foreground truncate block">{booking.units?.unit_code || '—'}</span>
         <span className="text-[10px] text-muted-foreground truncate block">{booking.units?.building || '—'}</span>
       </div>
-
       <div className="text-[11px] tabular-nums text-muted-foreground min-w-0">
         <div className="truncate">{formatDateShort(booking.check_in)} → {formatDateShort(booking.check_out)}</div>
         <div className="text-[10px] text-muted-foreground/70">{nights} night{nights === 1 ? '' : 's'}</div>
       </div>
-
       <div className="flex items-center min-w-0">
         <PaymentStatusBadge status={booking.payment_status} />
       </div>
-
       <div className="flex items-center gap-2 justify-end flex-shrink-0">
         <BookingStatusBadge status={status} />
         <ChevronRight size={14} className={cn('text-muted-foreground/40 transition-transform duration-300 ease-out', selected && 'rotate-180 text-primary')} />
@@ -1260,21 +1290,31 @@ function BookingListRow({ booking, selected, onClick }) {
   )
 }
 
-// ============================================================
-// CSV EXPORT
-// ============================================================
 function downloadCSV(bookings, filename) {
-  const headers = ['Booking Code', 'Building', 'Unit', 'Guest', 'Email', 'Contact', 'Guests', 'Check-in', 'Check-out', 'Nights', 'Total', 'Paid', 'Balance', 'Payment Status', 'Booking Status', 'Booker Code', 'Booker Name', 'Booker Commission', 'Affiliate Code', 'Affiliate Name', 'Affiliate Commission', 'Notes']
+  const headers = [
+    'Booking Code', 'Building', 'Unit', 'Guest', 'Email', 'Contact', 'Guests',
+    'Check-in', 'Check-out', 'Nights', 'Total', 'Paid', 'Balance',
+    'Payment Status', 'Booking Status',
+    'Booker Code', 'Booker Name', 'Booker Commission', 'Booker Rate %',
+    'Affiliate Code', 'Affiliate Name', 'Affiliate Commission', 'Affiliate Rate %',
+    'Notes',
+  ]
   const rows = bookings.map((b) => {
     const s = deriveBookingStatus(b)
+    const bookerRate = Number(b.booker_commission) > 0 && Number(b.total_amount) > 0
+      ? Math.round((Number(b.booker_commission) / Number(b.total_amount)) * 100)
+      : 0
+    const affiliateRate = Number(b.affiliate_commission) > 0 && Number(b.total_amount) > 0
+      ? Math.round((Number(b.affiliate_commission) / Number(b.total_amount)) * 100)
+      : 0
     return [
       b.booking_code || '', b.units?.building || '', b.units?.unit_code || '',
       b.guest_name || '', b.guest_email || '', b.guest_contact || '', b.guests || '',
       b.check_in || '', b.check_out || '', computeNights(b.check_in, b.check_out),
       b.total_amount || 0, b.amount_paid || 0, b.balance || 0,
       b.payment_status || '', s,
-      b.booker_code || '', b.booker_name || '', b.booker_commission || 0,
-      b.affiliate_code || '', b.affiliate_name || '', b.affiliate_commission || 0,
+      b.booker_code || '', b.booker_name || '', b.booker_commission || 0, bookerRate,
+      b.affiliate_code || '', b.affiliate_name || '', b.affiliate_commission || 0, affiliateRate,
       b.notes || '',
     ]
   })
@@ -1286,14 +1326,13 @@ function downloadCSV(bookings, filename) {
   URL.revokeObjectURL(url)
 }
 
-// ============================================================
-// MAIN PAGE
-// ============================================================
 export default function BookingsPage() {
   const [bookings, setBookings] = useState([])
   const [units, setUnits] = useState([])
   const [specialists, setSpecialists] = useState([])
   const [affiliates, setAffiliates] = useState([])
+  const [affiliateCounts, setAffiliateCounts] = useState({})
+
   const [isFirstLoad, setIsFirstLoad] = useState(true)
   const [isRefreshing, setIsRefreshing] = useState(false)
 
@@ -1329,7 +1368,7 @@ export default function BookingsPage() {
     else setIsRefreshing(true)
     try {
       const [bRes, uRes, sRes, aRes] = await Promise.all([
-        supabase.from('bookings').select('*, units:unit_id ( id, unit_code, building )').order('check_in', { ascending: false }),
+        supabase.from('bookings').select('*, units:unit_id ( id, unit_code, building )').is('deleted_at', null).order('check_in', { ascending: false }),
         supabase.from('units').select('id, unit_code, building, status').order('unit_code'),
         supabase.from('specialists').select('id, code, name').order('name'),
         supabase.from('affiliates').select('id, code, name').order('name'),
@@ -1342,6 +1381,9 @@ export default function BookingsPage() {
       setUnits(uRes.data || [])
       setSpecialists(sRes.data || [])
       setAffiliates(aRes.data || [])
+
+      const affCounts = await fetchAffiliateCounts((aRes.data || []).map((a) => a.code))
+      setAffiliateCounts(affCounts)
     } catch (err) {
       console.error('Failed to load bookings:', err)
       toast.error('Failed to load bookings')
@@ -1353,7 +1395,7 @@ export default function BookingsPage() {
   useEffect(() => { fetchData() }, [fetchData])
 
   useEffect(() => {
-    const ch = supabase.channel('bookings-realtime')
+    const ch = supabase.channel(`bookings-realtime-${Math.random().toString(36).slice(2, 10)}`)
       .on('postgres_changes', { event: '*', schema: 'public', table: 'bookings' }, () => fetchData())
       .subscribe()
     return () => { supabase.removeChannel(ch) }
@@ -1453,20 +1495,21 @@ export default function BookingsPage() {
 
   const handleDelete = async (booking) => {
     const confirmed = window.confirm(
-      `Delete booking "${booking.booking_code}"?\n\nGuest: ${booking.guest_name}\nUnit: ${booking.units?.unit_code || '—'}\nDates: ${formatDate(booking.check_in)} → ${formatDate(booking.check_out)}\nTotal: ${formatMoney(booking.total_amount)}\nPaid: ${formatMoney(booking.amount_paid)}\n\nThis cannot be undone.`
+      `Delete booking "${booking.booking_code}"?\n\nGuest: ${booking.guest_name}\nUnit: ${booking.units?.unit_code || '—'}\nDates: ${formatDate(booking.check_in)} → ${formatDate(booking.check_out)}\nTotal: ${formatMoney(booking.total_amount)}\nPaid: ${formatMoney(booking.amount_paid)}\n\nThis will soft-delete the booking (keeps commission history).`
     )
     if (!confirmed) return
-    const doubleCheck = window.confirm('Are you absolutely sure? This will permanently delete the booking and its payment history.')
+    const doubleCheck = window.confirm('Are you absolutely sure?')
     if (!doubleCheck) return
     try {
-      const { error } = await supabase.from('bookings').delete().eq('id', booking.id)
+      const { error } = await supabase.from('bookings').update({ deleted_at: new Date().toISOString() }).eq('id', booking.id)
       if (error) throw error
       logAudit('DELETE_BOOKING', 'bookings', booking.id, { booking_code: booking.booking_code }).catch(() => {})
       toast.success('Booking deleted')
       setSelectedId(null)
       fetchData()
     } catch (err) {
-      console.error(err); toast.error(err?.message || 'Failed to delete')
+      console.error(err)
+      toast.error(err?.message || 'Failed to delete')
     }
   }
 
@@ -1482,7 +1525,6 @@ export default function BookingsPage() {
     <div className="h-full flex min-h-0">
       <div className="flex-1 min-h-0 flex flex-col overflow-hidden bg-card border border-border rounded-md">
         <div className="p-3 flex-1 min-h-0 flex flex-col gap-2.5">
-
           <div className={cn('flex-shrink-0 transition-all duration-300 ease-out overflow-hidden', cardsHidden ? 'max-h-0 opacity-0 -mb-3' : 'max-h-40 opacity-100')}>
             <SummaryCards bookings={bookings} />
           </div>
@@ -1580,6 +1622,7 @@ export default function BookingsPage() {
         editing={editing}
         specialists={specialists}
         affiliates={affiliates}
+        affiliateCounts={affiliateCounts}
       />
 
       <AddPaymentModal open={!!payForBooking} onClose={() => setPayForBooking(null)} booking={payForBooking} onSaved={fetchData} />

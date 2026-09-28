@@ -2,8 +2,8 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import {
   Plus, Search, RefreshCw, X, Check, Loader2, Trash2, Camera,
-  UserPlus, Users, Award, TrendingUp, Edit2, User,
-  Calendar,
+  UserPlus, Users, Award, TrendingUp, Mail, Phone, Edit2, User, Wallet,
+  Calendar, ChevronRight,
 } from 'lucide-react'
 import toast from 'react-hot-toast'
 import { Button } from '@/components/ui/button'
@@ -17,10 +17,11 @@ import {
 import { supabase } from '@/lib/supabase'
 import { logAudit } from '@/lib/auditLog'
 import { cn } from '@/lib/utils'
+import {
+  getTierInfo, nextTierInfo, TIER_LADDER,
+  fetchAffiliateCompletedCount, fetchSpecialistCompletedCount,
+} from '@/lib/commissions'
 
-// ============================================================
-// CONFIG
-// ============================================================
 const BRAND = '#2d568e'
 
 const TABS = [
@@ -29,28 +30,6 @@ const TABS = [
   { id: 'housekeepers', label: 'Housekeepers', icon: Users },
 ]
 
-const TIER_LADDER = [
-  { tier: 'Unranked',  min: 0,   max: 19,        rate: 0,  badge: 'bg-gray-500 text-white' },
-  { tier: 'Bronze',    min: 20,  max: 49,        rate: 5,  badge: 'bg-amber-700 text-white' },
-  { tier: 'Silver',    min: 50,  max: 79,        rate: 7,  badge: 'bg-slate-400 text-white' },
-  { tier: 'Gold',      min: 80,  max: 99,        rate: 10, badge: 'bg-amber-500 text-white' },
-  { tier: 'Platinum',  min: 100, max: Infinity,  rate: 12, badge: 'bg-cyan-600 text-white' },
-]
-
-function getTierInfo(count) {
-  const c = Number(count) || 0
-  for (const t of TIER_LADDER) if (c >= t.min && c <= t.max) return t
-  return TIER_LADDER[0]
-}
-function nextTierInfo(count) {
-  const c = Number(count) || 0
-  for (const t of TIER_LADDER) if (c < t.min) return t
-  return null
-}
-
-// ============================================================
-// HELPERS
-// ============================================================
 function initials(name) {
   if (!name) return '?'
   return name.trim().split(/\s+/).slice(0, 2).map((p) => p[0]?.toUpperCase() || '').join('') || '?'
@@ -118,9 +97,6 @@ function TierBadge({ count }) {
   )
 }
 
-// ============================================================
-// SECTION CARD
-// ============================================================
 function SectionCard({ title, icon: Icon, children, className }) {
   return (
     <div className={cn('rounded-md bg-card border border-border overflow-hidden', className)}>
@@ -133,9 +109,6 @@ function SectionCard({ title, icon: Icon, children, className }) {
   )
 }
 
-// ============================================================
-// EDITABLE FIELD
-// ============================================================
 function EditableField({ label, value, type = 'text', onSave }) {
   const [draft, setDraft] = useState(value ?? '')
   const [status, setStatus] = useState('idle')
@@ -163,15 +136,12 @@ function EditableField({ label, value, type = 'text', onSave }) {
     <div className="flex items-center gap-2 py-0.5">
       <span className="text-[10px] uppercase tracking-wider text-muted-foreground font-semibold min-w-[72px] flex-shrink-0">{label}</span>
       <div className="flex items-center gap-1 flex-1 min-w-0">
-        <Input
-          type={type}
-          value={draft}
+        <Input type={type} value={draft}
           onChange={(e) => setDraft(e.target.value)}
           onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); e.target.blur() } if (e.key === 'Escape') { e.preventDefault(); cancel(); e.target.blur() } }}
           onBlur={commit}
           className={cn('h-7 text-xs rounded bg-background flex-1 transition-colors', !value && 'border-border', value && 'border-transparent hover:border-border')}
-          placeholder="—"
-        />
+          placeholder="—" />
         {status === 'saving' && <Loader2 size={11} className="flex-shrink-0 animate-spin text-primary" />}
         {status === 'saved' && <Check size={11} className="flex-shrink-0 text-emerald-500" />}
       </div>
@@ -180,7 +150,7 @@ function EditableField({ label, value, type = 'text', onSave }) {
 }
 
 // ============================================================
-// WORKER BOOKINGS — matches by CODE
+// WORKER BOOKINGS SECTION (shows recent bookings)
 // ============================================================
 function WorkerBookingsSection({ worker, role, onCountChange }) {
   const [bookings, setBookings] = useState([])
@@ -196,6 +166,7 @@ function WorkerBookingsSection({ worker, role, onCountChange }) {
         let query = supabase
           .from('bookings')
           .select('id, booking_code, guest_name, check_in, check_out, completed_at, payment_status, unit_id, units:unit_id ( unit_code, building )')
+          .is('deleted_at', null)
           .order('check_in', { ascending: false })
           .limit(50)
 
@@ -422,10 +393,26 @@ function WorkerFormModal({ open, onClose, onSaved, role, editing }) {
 }
 
 // ============================================================
-// DETAIL PANEL — live count, tier from bookings
+// DETAIL PANEL
 // ============================================================
 function DetailPanel({ worker, role, onClose, onChanged, onEdit, onDelete }) {
   const [liveCount, setLiveCount] = useState(0)
+
+  useEffect(() => {
+    let cancelled = false
+    async function load() {
+      if (!worker?.code) return
+      const count = role === 'affiliates'
+        ? await fetchAffiliateCompletedCount(worker.code)
+        : role === 'specialists'
+          ? await fetchSpecialistCompletedCount(worker.code)
+          : 0
+      if (!cancelled) setLiveCount(count)
+    }
+    load()
+    return () => { cancelled = true }
+  }, [worker?.code, role])
+
   if (!worker) return null
 
   const isAffiliate = role === 'affiliates'
@@ -447,10 +434,7 @@ function DetailPanel({ worker, role, onClose, onChanged, onEdit, onDelete }) {
       initial={{ width: 0, opacity: 0 }}
       animate={{ width: 420, opacity: 1 }}
       exit={{ width: 0, opacity: 0 }}
-      transition={{
-        width: { duration: 0.3, ease: [0.4, 0, 0.2, 1] },
-        opacity: { duration: 0.2, ease: 'easeOut' },
-      }}
+      transition={{ width: { duration: 0.3, ease: [0.4, 0, 0.2, 1] }, opacity: { duration: 0.2, ease: 'easeOut' } }}
       className="bg-card border-l border-border h-full overflow-hidden flex-shrink-0"
       style={{ maxWidth: '100%' }}
     >
@@ -478,7 +462,7 @@ function DetailPanel({ worker, role, onClose, onChanged, onEdit, onDelete }) {
             <SectionCard title="Stats" icon={TrendingUp}>
               <div className="space-y-1 text-xs">
                 <div className="flex justify-between">
-                  <span className="text-muted-foreground">{isAffiliate ? 'Bookings referred' : 'Bookings handled'}</span>
+                  <span className="text-muted-foreground">Completed bookings</span>
                   <span className="font-semibold tabular-nums">{liveCount}</span>
                 </div>
                 <div className="flex justify-between">
@@ -559,7 +543,7 @@ function DetailPanel({ worker, role, onClose, onChanged, onEdit, onDelete }) {
 export default function TeamPage() {
   const [activeTab, setActiveTab] = useState('specialists')
   const [data, setData] = useState({ specialists: [], affiliates: [], housekeepers: [] })
-  const [bookingCounts, setBookingCounts] = useState({ specialists: {}, affiliates: {} })
+  const [counts, setCounts] = useState({ specialists: {}, affiliates: {} })
   const [loading, setLoading] = useState(true)
   const [refreshing, setRefreshing] = useState(false)
   const [search, setSearch] = useState('')
@@ -588,6 +572,19 @@ export default function TeamPage() {
       if (a.error) throw a.error
       if (h.error) throw h.error
       setData({ specialists: s.data || [], affiliates: a.data || [], housekeepers: h.data || [] })
+
+      // Live counts for tier display
+      const specCodes = (s.data || []).map((x) => x.code).filter(Boolean)
+      const affCodes = (a.data || []).map((x) => x.code).filter(Boolean)
+
+      const [specCounts, affCounts] = await Promise.all([
+        Promise.all(specCodes.map(async (c) => [c, await fetchSpecialistCompletedCount(c)])),
+        Promise.all(affCodes.map(async (c) => [c, await fetchAffiliateCompletedCount(c)])),
+      ])
+      setCounts({
+        specialists: Object.fromEntries(specCounts),
+        affiliates: Object.fromEntries(affCounts),
+      })
     } catch (err) {
       console.error('Failed to load team:', err)
       toast.error('Failed to load team')
@@ -596,35 +593,17 @@ export default function TeamPage() {
     }
   }, [])
 
-  const fetchBookingCounts = useCallback(async () => {
-    try {
-      const { data: rows, error } = await supabase
-        .from('bookings')
-        .select('booker_code, affiliate_code')
-      if (error) throw error
-      const bySpecialist = {}
-      const byAffiliate = {}
-      for (const b of rows || []) {
-        if (b.booker_code) bySpecialist[b.booker_code] = (bySpecialist[b.booker_code] || 0) + 1
-        if (b.affiliate_code) byAffiliate[b.affiliate_code] = (byAffiliate[b.affiliate_code] || 0) + 1
-      }
-      setBookingCounts({ specialists: bySpecialist, affiliates: byAffiliate })
-    } catch (err) {
-      console.error('Failed to load booking counts:', err)
-    }
-  }, [])
-
-  useEffect(() => { fetchAll(); fetchBookingCounts() }, [fetchAll, fetchBookingCounts])
+  useEffect(() => { fetchAll() }, [fetchAll])
 
   useEffect(() => {
     const chs = [
       supabase.channel('team-specialists').on('postgres_changes', { event: '*', schema: 'public', table: 'specialists' }, () => fetchAll()).subscribe(),
       supabase.channel('team-affiliates').on('postgres_changes', { event: '*', schema: 'public', table: 'affiliates' }, () => fetchAll()).subscribe(),
       supabase.channel('team-housekeepers').on('postgres_changes', { event: '*', schema: 'public', table: 'housekeepers' }, () => fetchAll()).subscribe(),
-      supabase.channel('team-bookings').on('postgres_changes', { event: '*', schema: 'public', table: 'bookings' }, () => fetchBookingCounts()).subscribe(),
+      supabase.channel('team-bookings').on('postgres_changes', { event: '*', schema: 'public', table: 'bookings' }, () => fetchAll()).subscribe(),
     ]
     return () => { chs.forEach((c) => supabase.removeChannel(c)) }
-  }, [fetchAll, fetchBookingCounts])
+  }, [fetchAll])
 
   const activeList = data[activeTab] || []
 
@@ -640,8 +619,8 @@ export default function TeamPage() {
   }, [activeList, debouncedSearch])
 
   const liveCountFor = (worker) => {
-    if (activeTab === 'specialists') return bookingCounts.specialists[worker.code] || 0
-    if (activeTab === 'affiliates') return bookingCounts.affiliates[worker.code] || 0
+    if (activeTab === 'specialists') return counts.specialists[worker.code] || 0
+    if (activeTab === 'affiliates') return counts.affiliates[worker.code] || 0
     return 0
   }
 
@@ -682,7 +661,7 @@ export default function TeamPage() {
           <div className="flex-shrink-0 flex items-center gap-2 flex-wrap">
             <div className="relative flex bg-muted/60 rounded-full p-1 gap-1">
               {TABS.map((tab) => {
-                const count = (data[tab.id] || []).length
+                const tabCount = (data[tab.id] || []).length
                 const isActive = activeTab === tab.id
                 return (
                   <button key={tab.id} type="button"
@@ -694,7 +673,7 @@ export default function TeamPage() {
                   >
                     <tab.icon size={12} />
                     {tab.label}
-                    <span className="opacity-60">{count}</span>
+                    <span className="opacity-60">{tabCount}</span>
                   </button>
                 )
               })}
@@ -710,7 +689,7 @@ export default function TeamPage() {
               <span className="hidden sm:inline ml-1">New</span>
             </Button>
 
-            <Button variant="outline" size="sm" onClick={() => { fetchAll(); fetchBookingCounts() }} disabled={refreshing} className="h-8 rounded">
+            <Button variant="outline" size="sm" onClick={fetchAll} disabled={refreshing} className="h-8 rounded">
               <RefreshCw size={13} className={cn(refreshing && 'animate-spin')} />
             </Button>
           </div>
@@ -734,7 +713,7 @@ export default function TeamPage() {
                       <th className="text-left text-[10px] font-bold uppercase tracking-wider text-muted-foreground px-4 py-2.5">Worker</th>
                       <th className="text-left text-[10px] font-bold uppercase tracking-wider text-muted-foreground px-4 py-2.5">Code</th>
                       <th className="text-left text-[10px] font-bold uppercase tracking-wider text-muted-foreground px-4 py-2.5">Email / Phone</th>
-                      {activeTab !== 'housekeepers' && <th className="text-center text-[10px] font-bold uppercase tracking-wider text-muted-foreground px-4 py-2.5">Bookings</th>}
+                      {activeTab !== 'housekeepers' && <th className="text-center text-[10px] font-bold uppercase tracking-wider text-muted-foreground px-4 py-2.5">Completed</th>}
                       {activeTab !== 'housekeepers' && <th className="text-center text-[10px] font-bold uppercase tracking-wider text-muted-foreground px-4 py-2.5">Tier</th>}
                       <th className="text-center text-[10px] font-bold uppercase tracking-wider text-muted-foreground px-4 py-2.5">Status</th>
                     </tr>
