@@ -4,20 +4,28 @@ import {
   Check, Download, Loader2,
   Plus, RefreshCw, Search, SlidersHorizontal, X, Trash2,
   Building2, CheckCircle2, Clock, AlertTriangle, Calendar, User, Wallet,
-  ChevronRight, Edit2,
+  ChevronRight, Edit2, Lock,
 } from 'lucide-react'
 import toast from 'react-hot-toast'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { Input } from '@/components/ui/input'
 import { Skeleton } from '@/components/ui/skeleton'
-import { Textarea } from '@/components/ui/textarea'
 import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from '@/components/ui/select'
 import { supabase } from '@/lib/supabase'
 import { logAudit } from '@/lib/auditLog'
-import { cn } from '@/lib/utils'
+import {
+  cn,
+  generateBookingCode,
+  sanitizeText,
+  sanitizeEmail,
+  sanitizePhone,
+  sanitizeMoney,
+  sanitizeInt,
+  sanitizeDateOnly,
+} from '@/lib/utils'
 import {
   getTierInfo, SPECIALIST_FLAT_RATE,
   computeSpecialistCommission, computeAffiliateCommission,
@@ -68,6 +76,7 @@ const PANEL_WIDTH = 448
 
 function today() { const d = new Date(); d.setHours(0, 0, 0, 0); return d }
 function parseDateOnly(d) { if (!d) return null; const dt = new Date(d); dt.setHours(0, 0, 0, 0); return dt }
+
 function deriveBookingStatus(b) {
   if (b.completed_at) return 'completed'
   const t = today()
@@ -78,19 +87,23 @@ function deriveBookingStatus(b) {
   if (ci <= t && co >= t) return 'active'
   return 'needs-action'
 }
-function formatDate(d) { if (!d) return '—'; return new Date(d).toLocaleDateString('en-PH', { month: 'short', day: 'numeric', year: 'numeric' }) }
-function formatDateShort(d) { if (!d) return '—'; return new Date(d).toLocaleDateString('en-PH', { month: 'short', day: 'numeric' }) }
-function formatMoney(n) { const v = Number(n || 0); return `₱${v.toLocaleString('en-PH', { minimumFractionDigits: 0, maximumFractionDigits: 2 })}` }
+
+function formatDate(d) {
+  if (!d) return '—'
+  return new Date(d).toLocaleDateString('en-PH', { month: 'short', day: 'numeric', year: 'numeric' })
+}
+function formatDateShort(d) {
+  if (!d) return '—'
+  return new Date(d).toLocaleDateString('en-PH', { month: 'short', day: 'numeric' })
+}
+function formatMoney(n) {
+  const v = Number(n || 0)
+  return `₱${v.toLocaleString('en-PH', { minimumFractionDigits: 0, maximumFractionDigits: 2 })}`
+}
 function computeNights(checkIn, checkOut) {
   if (!checkIn || !checkOut) return 0
   const a = parseDateOnly(checkIn), b = parseDateOnly(checkOut)
   return Math.max(0, Math.round((b - a) / 86400000))
-}
-function generateBookingCode() {
-  const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789'
-  let s = ''
-  for (let i = 0; i < 8; i++) s += chars[Math.floor(Math.random() * chars.length)]
-  return `BK-${s}`
 }
 function unitLabel(u) {
   if (!u) return '—'
@@ -109,6 +122,7 @@ const AVATAR_COLORS = [
   ['bg-amber-100', 'text-amber-700', 'dark:bg-amber-900/40', 'dark:text-amber-300'],
   ['bg-indigo-100', 'text-indigo-700', 'dark:bg-indigo-900/40', 'dark:text-indigo-300'],
 ]
+
 function initials(name) {
   if (!name) return '?'
   return name.trim().split(/\s+/).slice(0, 2).map((p) => p[0]?.toUpperCase() || '').join('') || '?'
@@ -190,7 +204,26 @@ function SectionCard({ title, icon: Icon, children, className, action }) {
   )
 }
 
-function EditableField({ label, value, type = 'text', onSave, auditTag }) {
+/**
+ * Read-only display for auto-computed commission values.
+ * Shows a lock icon so admins know it's derived from total_amount.
+ */
+function ComputedCommissionRow({ label, value, hint }) {
+  return (
+    <div className="flex items-center gap-2 py-0.5">
+      <span className="text-[10px] uppercase tracking-wider text-muted-foreground font-semibold min-w-[72px] flex-shrink-0 flex items-center gap-1">
+        <Lock size={9} className="opacity-60" />
+        {label}
+      </span>
+      <div className="flex-1 min-w-0 flex items-center justify-between gap-2 px-2 h-7 rounded bg-muted/40 border border-border">
+        <span className="text-xs font-semibold tabular-nums text-foreground truncate">{value}</span>
+        {hint && <span className="text-[10px] text-muted-foreground flex-shrink-0">{hint}</span>}
+      </div>
+    </div>
+  )
+}
+
+function EditableField({ label, value, type = 'text', onSave, auditTag, maxLength = 500, sanitizer }) {
   const [draft, setDraft] = useState(value ?? '')
   const [status, setStatus] = useState('idle')
 
@@ -200,7 +233,8 @@ function EditableField({ label, value, type = 'text', onSave, auditTag }) {
     if (draft === (value ?? '')) return
     setStatus('saving')
     try {
-      const next = draft === '' ? null : draft
+      const cleaned = sanitizer ? sanitizer(draft) : (draft === '' ? null : String(draft).slice(0, maxLength))
+      const next = cleaned === '' ? null : cleaned
       await onSave(next)
       setStatus('saved')
       if (auditTag) logAudit(`UPDATE_BOOKING_FIELD:${auditTag}`, 'bookings', null, { field: auditTag, from: value, to: next }).catch(() => {})
@@ -222,6 +256,7 @@ function EditableField({ label, value, type = 'text', onSave, auditTag }) {
           onChange={(e) => setDraft(e.target.value)}
           onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); e.target.blur() } if (e.key === 'Escape') { e.preventDefault(); cancel(); e.target.blur() } }}
           onBlur={commit}
+          maxLength={maxLength}
           className={cn('h-7 text-xs rounded bg-background flex-1 transition-colors', !value && 'border-border', value && 'border-transparent hover:border-border')}
           placeholder="—" />
         {status === 'saving' && <Loader2 size={11} className="flex-shrink-0 animate-spin text-primary" />}
@@ -434,8 +469,6 @@ const emptyForm = () => ({
   total_amount: 0,
   booker_code: '',
   affiliate_code: '',
-  booker_commission: 0,
-  affiliate_commission: 0,
   affiliate_notes: '',
   notes: '',
   initial_amount: '',
@@ -462,8 +495,6 @@ function BookingFormModal({ open, onClose, onSaved, units, editing, specialists,
         total_amount: editing.total_amount || 0,
         booker_code: editing.booker_code || '',
         affiliate_code: editing.affiliate_code || '',
-        booker_commission: editing.booker_commission || 0,
-        affiliate_commission: editing.affiliate_commission || 0,
         affiliate_notes: editing.affiliate_notes || '',
         notes: editing.notes || '',
         initial_amount: '',
@@ -478,83 +509,99 @@ function BookingFormModal({ open, onClose, onSaved, units, editing, specialists,
 
   const setField = (k, v) => setForm((p) => ({ ...p, [k]: v }))
 
-  // Auto-recalc commissions when total/booker/affiliate changes
-  useEffect(() => {
-    if (!open) return
-    const total = Number(form.total_amount) || 0
-
-    const newBookerComm = form.booker_code && total > 0
-      ? computeSpecialistCommission(total)
-      : 0
-
-    let newAffComm = 0
-    if (form.affiliate_code && total > 0) {
-      const count = affiliateCounts?.[form.affiliate_code] || 0
-      newAffComm = computeAffiliateCommission(total, count)
-    }
-
-    setForm((p) => {
-      if (p.booker_commission === newBookerComm && p.affiliate_commission === newAffComm) return p
-      return { ...p, booker_commission: newBookerComm, affiliate_commission: newAffComm }
-    })
-  }, [open, form.booker_code, form.affiliate_code, form.total_amount, affiliateCounts])
+  // ============================================================
+  // Auto-compute commissions — always derived from total_amount
+  // and the current tier/codes. Never stored on form state; the
+  // values are recomputed whenever inputs change.
+  // ============================================================
+  const totalAmount = Number(form.total_amount) || 0
+  const bookerCommission = useMemo(
+    () => (form.booker_code && totalAmount > 0 ? computeSpecialistCommission(totalAmount) : 0),
+    [form.booker_code, totalAmount],
+  )
+  const affiliateCommission = useMemo(() => {
+    if (!form.affiliate_code || totalAmount <= 0) return 0
+    const count = affiliateCounts?.[form.affiliate_code] || 0
+    return computeAffiliateCommission(totalAmount, count)
+  }, [form.affiliate_code, totalAmount, affiliateCounts])
 
   const nights = computeNights(form.check_in, form.check_out)
   const initialAmount = Number(form.initial_amount) || 0
-  const totalAmount = Number(form.total_amount) || 0
   const remaining = Math.max(0, totalAmount - initialAmount)
   const willBePartial = initialAmount > 0 && initialAmount < totalAmount
   const willBePaid = initialAmount >= totalAmount && totalAmount > 0
   const selectedUnit = useMemo(() => units.find((u) => u.id === form.unit_id) || null, [units, form.unit_id])
 
   const handleSubmit = async () => {
+    const guestName = sanitizeText(form.guest_name, { max: 120 })
+    const guestEmail = sanitizeEmail(form.guest_email)
+    const guestContact = sanitizePhone(form.guest_contact)
+    const notes = sanitizeText(form.notes, { max: 2000, allowNewlines: true })
+    const affiliateNotes = sanitizeText(form.affiliate_notes, { max: 2000, allowNewlines: true })
+    const checkIn = sanitizeDateOnly(form.check_in)
+    const checkOut = sanitizeDateOnly(form.check_out)
+    const guests = sanitizeInt(form.guests, { min: 1, max: 50, fallback: 1 })
+    const totalAmt = sanitizeMoney(form.total_amount)
+    const initialAmt = sanitizeMoney(form.initial_amount)
+    const initialMethod = sanitizeText(form.initial_method, { max: 60 })
+    const initialReference = sanitizeText(form.initial_reference, { max: 100 })
+    const initialDate = sanitizeDateOnly(form.initial_date)
+
     if (!form.unit_id) { toast.error('Select a unit'); return }
-    if (!form.guest_name.trim()) { toast.error('Guest name is required'); return }
-    if (!form.check_in || !form.check_out) { toast.error('Set check-in and check-out'); return }
-    if (nights <= 0) { toast.error('Check-out must be after check-in'); return }
-    if (totalAmount <= 0) { toast.error('Total amount must be greater than 0'); return }
-    if (initialAmount < 0) { toast.error('Initial payment cannot be negative'); return }
+    if (!guestName) { toast.error('Guest name is required'); return }
+    if (form.guest_email && !guestEmail) { toast.error('Invalid email'); return }
+    if (!checkIn || !checkOut) { toast.error('Set check-in and check-out'); return }
+    if (checkOut <= checkIn) { toast.error('Check-out must be after check-in'); return }
+    if (totalAmt <= 0) { toast.error('Total amount must be greater than 0'); return }
+    if (initialAmt > totalAmt) { toast.error('Initial payment cannot exceed total'); return }
+
+    const stayNights = computeNights(checkIn, checkOut)
+    if (stayNights <= 0) { toast.error('Invalid stay length'); return }
 
     setSaving(true)
     try {
       const transactions = Array.isArray(editing?.transactions) ? [...editing.transactions] : []
-      if (initialAmount > 0) {
+      if (initialAmt > 0) {
         transactions.push({
-          amount: initialAmount,
-          method: form.initial_method.trim() || '',
-          reference: form.initial_reference.trim() || '',
-          date: form.initial_date || form.check_in,
+          amount: initialAmt,
+          method: initialMethod || '',
+          reference: initialReference || '',
+          date: initialDate || checkIn,
         })
       }
 
-      // Look up booker_name / affiliate_name from codes so display works
       const booker = specialists.find((s) => s.code === form.booker_code)
       const affiliate = affiliates.find((a) => a.code === form.affiliate_code)
 
       const payload = {
         unit_id: form.unit_id,
-        guest_name: form.guest_name.trim(),
-        guest_email: form.guest_email.trim() || null,
-        guest_contact: form.guest_contact.trim() || null,
-        guests: Number(form.guests) || 1,
-        check_in: form.check_in,
-        check_out: form.check_out,
-        total_amount: totalAmount,
-        booker_code: form.booker_code || null,
-        booker_name: booker?.name || null,
-        affiliate_code: form.affiliate_code || null,
-        affiliate_name: affiliate?.name || null,
-        booker_commission: Number(form.booker_commission) || 0,
-        affiliate_commission: Number(form.affiliate_commission) || 0,
-        affiliate_notes: form.affiliate_notes.trim() || null,
-        notes: form.notes.trim() || null,
+        guest_name: guestName,
+        guest_email: guestEmail,
+        guest_contact: guestContact,
+        guests,
+        check_in: checkIn,
+        check_out: checkOut,
+        total_amount: totalAmt,
+        booker_code: sanitizeText(form.booker_code, { max: 40 }) || null,
+        booker_name: booker?.name ? sanitizeText(booker.name, { max: 120 }) : null,
+        affiliate_code: sanitizeText(form.affiliate_code, { max: 40 }) || null,
+        affiliate_name: affiliate?.name ? sanitizeText(affiliate.name, { max: 120 }) : null,
+        // Computed values — never user input
+        booker_commission: bookerCommission,
+        affiliate_commission: affiliateCommission,
+        affiliate_notes: affiliateNotes,
+        notes,
         transactions,
       }
 
       if (editing) {
         const { error } = await supabase.from('bookings').update(payload).eq('id', editing.id)
         if (error) throw error
-        logAudit('UPDATE_BOOKING', 'bookings', editing.id, { booking_code: editing.booking_code }).catch(() => {})
+        logAudit('UPDATE_BOOKING', 'bookings', editing.id, {
+          booking_code: editing.booking_code,
+          booker_commission: bookerCommission,
+          affiliate_commission: affiliateCommission,
+        }).catch(() => {})
         toast.success('Booking updated')
       } else {
         payload.booking_code = generateBookingCode()
@@ -576,6 +623,13 @@ function BookingFormModal({ open, onClose, onSaved, units, editing, specialists,
   if (!open) return null
   const labelClass = 'text-[10px] uppercase tracking-wider text-muted-foreground font-semibold mb-1 block'
   const inputClass = 'h-8 text-xs rounded'
+  const bookerTierHint = form.booker_code ? `Flat ${SPECIALIST_FLAT_RATE}%` : null
+  const affiliateTierHint = form.affiliate_code
+    ? (() => {
+        const t = getTierInfo(affiliateCounts?.[form.affiliate_code] || 0)
+        return `${t.tier} · ${t.rate}%`
+      })()
+    : null
 
   return (
     <div className="fixed inset-0 z-[9999] flex items-center justify-center p-4">
@@ -633,10 +687,10 @@ function BookingFormModal({ open, onClose, onSaved, units, editing, specialists,
           <section>
             <h3 className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground mb-3">Guest</h3>
             <div className="grid grid-cols-1 md:grid-cols-2 gap-x-4 gap-y-3">
-              <div><label className={labelClass}>Guest Name *</label><Input value={form.guest_name} onChange={(e) => setField('guest_name', e.target.value)} className={inputClass} autoFocus /></div>
-              <div><label className={labelClass}>Guests</label><Input type="number" min={1} value={form.guests} onChange={(e) => setField('guests', e.target.value)} className={inputClass} /></div>
-              <div><label className={labelClass}>Email</label><Input type="email" value={form.guest_email} onChange={(e) => setField('guest_email', e.target.value)} className={inputClass} /></div>
-              <div><label className={labelClass}>Contact</label><Input type="tel" value={form.guest_contact} onChange={(e) => setField('guest_contact', e.target.value)} className={inputClass} /></div>
+              <div><label className={labelClass}>Guest Name *</label><Input value={form.guest_name} onChange={(e) => setField('guest_name', e.target.value)} className={inputClass} maxLength={120} autoFocus /></div>
+              <div><label className={labelClass}>Guests</label><Input type="number" min={1} max={50} value={form.guests} onChange={(e) => setField('guests', e.target.value)} className={inputClass} /></div>
+              <div><label className={labelClass}>Email</label><Input type="email" value={form.guest_email} onChange={(e) => setField('guest_email', e.target.value)} className={inputClass} maxLength={254} /></div>
+              <div><label className={labelClass}>Contact</label><Input type="tel" value={form.guest_contact} onChange={(e) => setField('guest_contact', e.target.value)} className={inputClass} maxLength={40} /></div>
             </div>
           </section>
 
@@ -649,7 +703,7 @@ function BookingFormModal({ open, onClose, onSaved, units, editing, specialists,
             </div>
             <div className="grid grid-cols-1 md:grid-cols-2 gap-x-4 gap-y-3 mt-3">
               <div><label className={labelClass}>Total Amount (₱) *</label><Input type="number" min={0} value={form.total_amount} onChange={(e) => setField('total_amount', e.target.value)} className={inputClass} /></div>
-              <div><label className={labelClass}>Notes</label><Input value={form.notes} onChange={(e) => setField('notes', e.target.value)} className={inputClass} /></div>
+              <div><label className={labelClass}>Notes</label><Input value={form.notes} onChange={(e) => setField('notes', e.target.value)} className={inputClass} maxLength={2000} /></div>
             </div>
           </section>
 
@@ -658,8 +712,8 @@ function BookingFormModal({ open, onClose, onSaved, units, editing, specialists,
               <h3 className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground mb-3">Initial Payment (optional)</h3>
               <div className="grid grid-cols-2 md:grid-cols-4 gap-x-4 gap-y-3">
                 <div><label className={labelClass}>Amount (₱)</label><Input type="number" min={0} value={form.initial_amount} onChange={(e) => setField('initial_amount', e.target.value)} className={inputClass} /></div>
-                <div><label className={labelClass}>Method</label><Input value={form.initial_method} onChange={(e) => setField('initial_method', e.target.value)} placeholder="GCash, Bank..." className={inputClass} /></div>
-                <div><label className={labelClass}>Reference</label><Input value={form.initial_reference} onChange={(e) => setField('initial_reference', e.target.value)} className={inputClass} /></div>
+                <div><label className={labelClass}>Method</label><Input value={form.initial_method} onChange={(e) => setField('initial_method', e.target.value)} placeholder="GCash, Bank..." className={inputClass} maxLength={60} /></div>
+                <div><label className={labelClass}>Reference</label><Input value={form.initial_reference} onChange={(e) => setField('initial_reference', e.target.value)} className={inputClass} maxLength={100} /></div>
                 <div><label className={labelClass}>Date</label><Input type="date" value={form.initial_date} onChange={(e) => setField('initial_date', e.target.value)} className={inputClass} /></div>
               </div>
               {initialAmount > 0 && totalAmount > 0 && (
@@ -672,7 +726,14 @@ function BookingFormModal({ open, onClose, onSaved, units, editing, specialists,
           )}
 
           <section>
-            <h3 className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground mb-3">Affiliate / Commissions</h3>
+            <div className="flex items-center justify-between mb-3">
+              <h3 className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground">Affiliate / Commissions</h3>
+              <span className="text-[10px] text-muted-foreground flex items-center gap-1">
+                <Lock size={9} className="opacity-60" />
+                Auto-calculated from total
+              </span>
+            </div>
+
             <div className="grid grid-cols-1 md:grid-cols-2 gap-x-4 gap-y-3">
               <div>
                 <label className={labelClass}>Affiliate</label>
@@ -701,11 +762,25 @@ function BookingFormModal({ open, onClose, onSaved, units, editing, specialists,
               </div>
               <div>
                 <label className={labelClass}>Affiliate Commission (₱)</label>
-                <Input type="number" min={0} value={form.affiliate_commission} onChange={(e) => setField('affiliate_commission', e.target.value)} className={inputClass} />
-                {form.affiliate_code && (
+                <div className="relative">
+                  <Input
+                    type="number"
+                    value={affiliateCommission}
+                    readOnly
+                    tabIndex={-1}
+                    className={cn(inputClass, 'bg-muted/50 cursor-not-allowed pr-20')}
+                  />
+                  <span className="absolute right-2 top-1/2 -translate-y-1/2 text-[10px] text-muted-foreground flex items-center gap-1">
+                    <Lock size={9} className="opacity-60" />
+                    Auto
+                  </span>
+                </div>
+                {form.affiliate_code ? (
                   <p className="text-[10px] text-muted-foreground mt-1">
                     {getTierInfo(affiliateCounts?.[form.affiliate_code] || 0).tier} · {getTierInfo(affiliateCounts?.[form.affiliate_code] || 0).rate}% of {formatMoney(totalAmount)}
                   </p>
+                ) : (
+                  <p className="text-[10px] text-muted-foreground italic mt-1">Select an affiliate to enable</p>
                 )}
               </div>
             </div>
@@ -713,14 +788,28 @@ function BookingFormModal({ open, onClose, onSaved, units, editing, specialists,
             <div className="grid grid-cols-1 md:grid-cols-2 gap-x-4 gap-y-3 mt-3">
               <div>
                 <label className={labelClass}>Booker Commission (₱)</label>
-                <Input type="number" min={0} value={form.booker_commission} onChange={(e) => setField('booker_commission', e.target.value)} className={inputClass} />
-                {form.booker_code && (
+                <div className="relative">
+                  <Input
+                    type="number"
+                    value={bookerCommission}
+                    readOnly
+                    tabIndex={-1}
+                    className={cn(inputClass, 'bg-muted/50 cursor-not-allowed pr-20')}
+                  />
+                  <span className="absolute right-2 top-1/2 -translate-y-1/2 text-[10px] text-muted-foreground flex items-center gap-1">
+                    <Lock size={9} className="opacity-60" />
+                    Auto
+                  </span>
+                </div>
+                {form.booker_code ? (
                   <p className="text-[10px] text-muted-foreground mt-1">
                     Flat {SPECIALIST_FLAT_RATE}% of {formatMoney(totalAmount)}
                   </p>
+                ) : (
+                  <p className="text-[10px] text-muted-foreground italic mt-1">Select a specialist to enable</p>
                 )}
               </div>
-              <div><label className={labelClass}>Affiliate Notes</label><Input value={form.affiliate_notes} onChange={(e) => setField('affiliate_notes', e.target.value)} className={inputClass} /></div>
+              <div><label className={labelClass}>Affiliate Notes</label><Input value={form.affiliate_notes} onChange={(e) => setField('affiliate_notes', e.target.value)} className={inputClass} maxLength={2000} /></div>
             </div>
           </section>
         </div>
@@ -751,20 +840,27 @@ function AddPaymentModal({ open, onClose, booking, onSaved }) {
   if (!open || !booking) return null
 
   const save = async () => {
-    const amt = Number(amount)
+    const amt = sanitizeMoney(amount)
     if (!amt || amt <= 0) { toast.error('Enter a valid amount'); return }
+    if (amt > 100_000_000) { toast.error('Amount too large'); return }
+
+    const cleanMethod = sanitizeText(method, { max: 60 })
+    const cleanReference = sanitizeText(reference, { max: 100 })
+    const cleanDate = sanitizeDateOnly(date) || new Date().toISOString().slice(0, 10)
+
     setSaving(true)
     try {
       const tx = Array.isArray(booking.transactions) ? [...booking.transactions] : []
+      if (tx.length >= 500) { toast.error('Too many payments on this booking'); return }
       tx.push({
         amount: amt,
-        method: method.trim() || '',
-        reference: reference.trim() || '',
-        date: date || new Date().toISOString().slice(0, 10),
+        method: cleanMethod || '',
+        reference: cleanReference || '',
+        date: cleanDate,
       })
       const { error } = await supabase.from('bookings').update({ transactions: tx }).eq('id', booking.id)
       if (error) throw error
-      logAudit('ADD_BOOKING_PAYMENT', 'bookings', booking.id, { amount: amt, method: method.trim() || '' }).catch(() => {})
+      logAudit('ADD_BOOKING_PAYMENT', 'bookings', booking.id, { amount: amt, method: cleanMethod || '' }).catch(() => {})
       toast.success('Payment added')
       onSaved()
       onClose()
@@ -801,8 +897,8 @@ function AddPaymentModal({ open, onClose, booking, onSaved }) {
             <div><div className="text-muted-foreground">Balance</div><div className="font-semibold tabular-nums">{formatMoney(balance)}</div></div>
           </div>
           <div><label className={labelClass}>Amount (₱) *</label><Input type="number" min={0} value={amount} onChange={(e) => setAmount(e.target.value)} className={inputClass} autoFocus /></div>
-          <div><label className={labelClass}>Method</label><Input value={method} onChange={(e) => setMethod(e.target.value)} placeholder="GCash, Bank transfer, Cash..." className={inputClass} /></div>
-          <div><label className={labelClass}>Reference</label><Input value={reference} onChange={(e) => setReference(e.target.value)} className={inputClass} /></div>
+          <div><label className={labelClass}>Method</label><Input value={method} onChange={(e) => setMethod(e.target.value)} placeholder="GCash, Bank transfer, Cash..." className={inputClass} maxLength={60} /></div>
+          <div><label className={labelClass}>Reference</label><Input value={reference} onChange={(e) => setReference(e.target.value)} className={inputClass} maxLength={100} /></div>
           <div><label className={labelClass}>Date</label><Input type="date" value={date} onChange={(e) => setDate(e.target.value)} className={inputClass} /></div>
         </div>
         <div className="flex items-center justify-end gap-2 px-5 py-3 border-t border-border bg-muted/30">
@@ -817,7 +913,7 @@ function AddPaymentModal({ open, onClose, booking, onSaved }) {
   )
 }
 
-function ExtendStayModal({ open, onClose, booking, onSaved }) {
+function ExtendStayModal({ open, onClose, booking, onSaved, affiliateCounts }) {
   const [newCheckOut, setNewCheckOut] = useState('')
   const [newTotal, setNewTotal] = useState('')
   const [addPayment, setAddPayment] = useState(false)
@@ -842,18 +938,36 @@ function ExtendStayModal({ open, onClose, booking, onSaved }) {
   const labelClass = 'text-[10px] uppercase tracking-wider text-muted-foreground font-semibold mb-1 block'
   const inputClass = 'h-8 text-xs rounded'
 
+  // Preview the recomputed commissions live
+  const previewTotal = Number(newTotal) || 0
+  const previewBooker = booking.booker_code && previewTotal > 0
+    ? computeSpecialistCommission(previewTotal)
+    : 0
+  const previewAffiliate = booking.affiliate_code && previewTotal > 0
+    ? computeAffiliateCommission(previewTotal, affiliateCounts?.[booking.affiliate_code] || 0)
+    : 0
+
   const save = async () => {
-    if (!newCheckOut) { toast.error('Set a new check-out date'); return }
+    const newCheckOutClean = sanitizeDateOnly(newCheckOut)
+    if (!newCheckOutClean) { toast.error('Set a new check-out date'); return }
+
     const oldCheckOut = parseDateOnly(booking.check_out)
-    const parsed = parseDateOnly(newCheckOut)
+    const parsed = parseDateOnly(newCheckOutClean)
     if (parsed <= oldCheckOut) { toast.error('New check-out must be after the current one'); return }
 
-    const total = Number(newTotal) || 0
+    const total = sanitizeMoney(newTotal)
     if (total <= 0) { toast.error('Total amount must be greater than 0'); return }
 
+    let payAmt = 0
+    let payMethodClean = null
+    let payRefClean = null
+    let payDateClean = null
     if (addPayment) {
-      const amt = Number(payAmount)
-      if (!amt || amt <= 0) { toast.error('Enter a valid extension payment amount'); return }
+      payAmt = sanitizeMoney(payAmount)
+      if (!payAmt || payAmt <= 0) { toast.error('Enter a valid extension payment amount'); return }
+      payMethodClean = sanitizeText(payMethod, { max: 60 })
+      payRefClean = sanitizeText(payReference, { max: 100 })
+      payDateClean = sanitizeDateOnly(payDate) || new Date().toISOString().slice(0, 10)
     }
 
     setSaving(true)
@@ -861,28 +975,23 @@ function ExtendStayModal({ open, onClose, booking, onSaved }) {
       const tx = Array.isArray(booking.transactions) ? [...booking.transactions] : []
       if (addPayment) {
         tx.push({
-          amount: Number(payAmount),
-          method: payMethod.trim() || '',
-          reference: payReference.trim() || '',
-          date: payDate || new Date().toISOString().slice(0, 10),
+          amount: payAmt,
+          method: payMethodClean || '',
+          reference: payRefClean || '',
+          date: payDateClean,
         })
       }
 
-      // Recalc commissions based on new total
-      const bookerCode = booking.booker_code
-      const affiliateCode = booking.affiliate_code
-
-      let newBookerComm = booking.booker_commission || 0
-      let newAffComm = booking.affiliate_commission || 0
-
-      if (bookerCode) newBookerComm = computeSpecialistCommission(total)
-      if (affiliateCode) {
-        const { data: countData } = await supabase.rpc('affiliate_completed_count', { p_code: affiliateCode })
-        newAffComm = computeAffiliateCommission(total, Number(countData) || 0)
-      }
+      // Commissions recomputed from new total
+      const newBookerComm = booking.booker_code
+        ? computeSpecialistCommission(total)
+        : 0
+      const newAffComm = booking.affiliate_code
+        ? computeAffiliateCommission(total, affiliateCounts?.[booking.affiliate_code] || 0)
+        : 0
 
       const patch = {
-        check_out: newCheckOut,
+        check_out: newCheckOutClean,
         total_amount: total,
         transactions: tx,
         booker_commission: newBookerComm,
@@ -894,10 +1003,10 @@ function ExtendStayModal({ open, onClose, booking, onSaved }) {
       logAudit('EXTEND_BOOKING', 'bookings', booking.id, {
         booking_code: booking.booking_code,
         old_check_out: booking.check_out,
-        new_check_out: newCheckOut,
+        new_check_out: newCheckOutClean,
         old_total: booking.total_amount,
         new_total: total,
-        added_payment: addPayment ? Number(payAmount) : 0,
+        added_payment: addPayment ? payAmt : 0,
       }).catch(() => {})
       toast.success('Booking extended')
       onSaved()
@@ -934,6 +1043,27 @@ function ExtendStayModal({ open, onClose, booking, onSaved }) {
           <div><label className={labelClass}>New Total Amount (₱) *</label><Input type="number" min={0} value={newTotal} onChange={(e) => setNewTotal(e.target.value)} className={inputClass} /></div>
           {newNights > oldNights && <p className="text-[10px] text-muted-foreground">Extended by {newNights - oldNights} night{newNights - oldNights === 1 ? '' : 's'} · new total {newNights} night{newNights === 1 ? '' : 's'}</p>}
 
+          {(booking.booker_code || booking.affiliate_code) && previewTotal > 0 && (
+            <div className="rounded-md bg-muted/40 border border-border p-2.5 space-y-1">
+              <p className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground flex items-center gap-1">
+                <Lock size={9} className="opacity-60" />
+                Recalculated commissions
+              </p>
+              {booking.booker_code && (
+                <div className="flex justify-between text-xs">
+                  <span className="text-muted-foreground">Booker ({SPECIALIST_FLAT_RATE}%)</span>
+                  <span className="font-semibold tabular-nums">{formatMoney(previewBooker)}</span>
+                </div>
+              )}
+              {booking.affiliate_code && (
+                <div className="flex justify-between text-xs">
+                  <span className="text-muted-foreground">Affiliate ({getTierInfo(affiliateCounts?.[booking.affiliate_code] || 0).rate}%)</span>
+                  <span className="font-semibold tabular-nums">{formatMoney(previewAffiliate)}</span>
+                </div>
+              )}
+            </div>
+          )}
+
           <label className="flex items-center gap-2 text-xs pt-2 border-t border-border">
             <input type="checkbox" checked={addPayment} onChange={(e) => setAddPayment(e.target.checked)} className="rounded border-border" />
             <span>Add extension payment now</span>
@@ -941,8 +1071,8 @@ function ExtendStayModal({ open, onClose, booking, onSaved }) {
           {addPayment && (
             <div className="space-y-2 pl-5 border-l-2 border-border">
               <div><label className={labelClass}>Amount (₱)</label><Input type="number" min={0} value={payAmount} onChange={(e) => setPayAmount(e.target.value)} className={inputClass} /></div>
-              <div><label className={labelClass}>Method</label><Input value={payMethod} onChange={(e) => setPayMethod(e.target.value)} placeholder="GCash, Bank..." className={inputClass} /></div>
-              <div><label className={labelClass}>Reference</label><Input value={payReference} onChange={(e) => setPayReference(e.target.value)} className={inputClass} /></div>
+              <div><label className={labelClass}>Method</label><Input value={payMethod} onChange={(e) => setPayMethod(e.target.value)} placeholder="GCash, Bank..." className={inputClass} maxLength={60} /></div>
+              <div><label className={labelClass}>Reference</label><Input value={payReference} onChange={(e) => setPayReference(e.target.value)} className={inputClass} maxLength={100} /></div>
               <div><label className={labelClass}>Date</label><Input type="date" value={payDate} onChange={(e) => setPayDate(e.target.value)} className={inputClass} /></div>
             </div>
           )}
@@ -1008,7 +1138,7 @@ function CompleteConfirmModal({ open, onClose, booking, onConfirmed }) {
   )
 }
 
-function BookingDetailPanel({ booking, onBookingChange, onClose, onAddPayment, onExtend, onComplete, onEdit, onDelete }) {
+function BookingDetailPanel({ booking, affiliateCounts, onBookingChange, onClose, onAddPayment, onExtend, onComplete, onEdit, onDelete }) {
   const status = deriveBookingStatus(booking)
   const isCompleted = status === 'completed'
   const isPaid = booking.payment_status === 'paid'
@@ -1023,54 +1153,54 @@ function BookingDetailPanel({ booking, onBookingChange, onClose, onAddPayment, o
     onBookingChange({ ...booking, [field]: value })
   }
 
-  // When total_amount changes, recalc commissions too
-  const updateMoney = async (field, value) => {
+  // When total_amount changes, recalc commissions too — always derived, never user-set.
+  const updateTotalAmount = async (value) => {
     const n = value === '' || value === null ? 0 : Number(value)
     if (Number.isNaN(n)) throw new Error('Invalid number')
 
-    if (field === 'total_amount') {
-      let newBookerComm = booking.booker_commission || 0
-      let newAffComm = booking.affiliate_commission || 0
+    const newBookerComm = booking.booker_code && n > 0
+      ? computeSpecialistCommission(n)
+      : 0
+    const newAffComm = booking.affiliate_code && n > 0
+      ? computeAffiliateCommission(n, affiliateCounts?.[booking.affiliate_code] || 0)
+      : 0
 
-      if (booking.booker_code && n > 0) {
-        newBookerComm = computeSpecialistCommission(n)
-      }
-      if (booking.affiliate_code && n > 0) {
-        const { data: countData } = await supabase.rpc('affiliate_completed_count', { p_code: booking.affiliate_code })
-        newAffComm = computeAffiliateCommission(n, Number(countData) || 0)
-      }
-
-      const { error } = await supabase
-        .from('bookings')
-        .update({
-          total_amount: n,
-          booker_commission: newBookerComm,
-          affiliate_commission: newAffComm,
-        })
-        .eq('id', booking.id)
-      if (error) throw error
-
-      logAudit('UPDATE_BOOKING_FIELD:total_amount', 'bookings', booking.id, {
-        from: booking.total_amount,
-        to: n,
-        booker_commission: newBookerComm,
-        affiliate_commission: newAffComm,
-      }).catch(() => {})
-
-      onBookingChange({
-        ...booking,
+    const { error } = await supabase
+      .from('bookings')
+      .update({
         total_amount: n,
         booker_commission: newBookerComm,
         affiliate_commission: newAffComm,
       })
-      return
-    }
+      .eq('id', booking.id)
+    if (error) throw error
 
-    await updateField(field, n)
+    logAudit('UPDATE_BOOKING_FIELD:total_amount', 'bookings', booking.id, {
+      from: booking.total_amount,
+      to: n,
+      booker_commission: newBookerComm,
+      affiliate_commission: newAffComm,
+    }).catch(() => {})
+
+    onBookingChange({
+      ...booking,
+      total_amount: n,
+      booker_commission: newBookerComm,
+      affiliate_commission: newAffComm,
+    })
   }
 
   const transactions = Array.isArray(booking.transactions) ? booking.transactions : []
   const nights = computeNights(booking.check_in, booking.check_out)
+  const bookerTier = booking.booker_code
+    ? `Flat ${SPECIALIST_FLAT_RATE}%`
+    : null
+  const affiliateTier = booking.affiliate_code
+    ? (() => {
+        const t = getTierInfo(affiliateCounts?.[booking.affiliate_code] || 0)
+        return `${t.tier} · ${t.rate}%`
+      })()
+    : null
 
   return (
     <motion.div
@@ -1193,10 +1323,10 @@ function BookingDetailPanel({ booking, onBookingChange, onClose, onAddPayment, o
                 <p className="text-[11px] text-muted-foreground truncate">{booking.guest_email || 'No email'}</p>
               </div>
             </div>
-            <EditableField label="Name" value={booking.guest_name} onSave={(v) => updateField('guest_name', v)} auditTag="guest_name" />
-            <EditableField label="Email" value={booking.guest_email} type="email" onSave={(v) => updateField('guest_email', v)} auditTag="guest_email" />
-            <EditableField label="Contact" value={booking.guest_contact} type="tel" onSave={(v) => updateField('guest_contact', v)} auditTag="guest_contact" />
-            <EditableField label="Guests" value={booking.guests} type="number" onSave={(v) => updateField('guests', Number(v) || 1)} auditTag="guests" />
+            <EditableField label="Name" value={booking.guest_name} onSave={(v) => updateField('guest_name', v)} auditTag="guest_name" maxLength={120} sanitizer={(v) => sanitizeText(v, { max: 120 })} />
+            <EditableField label="Email" value={booking.guest_email} type="email" onSave={(v) => updateField('guest_email', v)} auditTag="guest_email" maxLength={254} sanitizer={sanitizeEmail} />
+            <EditableField label="Contact" value={booking.guest_contact} type="tel" onSave={(v) => updateField('guest_contact', v)} auditTag="guest_contact" maxLength={40} sanitizer={sanitizePhone} />
+            <EditableField label="Guests" value={booking.guests} type="number" onSave={(v) => updateField('guests', sanitizeInt(v, { min: 1, max: 50, fallback: 1 }))} auditTag="guests" maxLength={4} />
           </SectionCard>
 
           <SectionCard title="Dates & Amount" icon={Calendar}>
@@ -1206,31 +1336,29 @@ function BookingDetailPanel({ booking, onBookingChange, onClose, onAddPayment, o
               <span className="text-[10px] uppercase tracking-wider text-muted-foreground font-semibold min-w-[72px] flex-shrink-0">Nights</span>
               <span className="text-xs tabular-nums font-semibold">{nights}</span>
             </div>
-            <EditableField label="Total" value={booking.total_amount} type="number" onSave={(v) => updateMoney('total_amount', v)} auditTag="total_amount" />
-            <EditableField label="Notes" value={booking.notes} onSave={(v) => updateField('notes', v)} auditTag="notes" />
+            <EditableField label="Total" value={booking.total_amount} type="number" onSave={updateTotalAmount} auditTag="total_amount" maxLength={14} sanitizer={(v) => sanitizeMoney(v)} />
+            <EditableField label="Notes" value={booking.notes} onSave={(v) => updateField('notes', v)} auditTag="notes" maxLength={2000} sanitizer={(v) => sanitizeText(v, { max: 2000, allowNewlines: true })} />
           </SectionCard>
 
           <SectionCard title="Commissions" icon={Wallet}>
-            <div className="space-y-1 text-xs">
-              <div className="flex justify-between">
-                <span className="text-muted-foreground">Booker commission ({SPECIALIST_FLAT_RATE}%)</span>
-                <span className="font-semibold tabular-nums">
-                  {formatMoney(booking.booker_commission)}
-                  {booking.booker_name && <span className="text-muted-foreground"> · {booking.booker_name}</span>}
-                </span>
-              </div>
-              <div className="flex justify-between">
-                <span className="text-muted-foreground">Affiliate commission</span>
-                <span className="font-semibold tabular-nums">
-                  {formatMoney(booking.affiliate_commission)}
-                  {booking.affiliate_name && <span className="text-muted-foreground"> · {booking.affiliate_name}</span>}
-                </span>
-              </div>
-            </div>
+            <ComputedCommissionRow
+              label="Booker"
+              value={formatMoney(booking.booker_commission)}
+              hint={bookerTier ? `${bookerTier} · ${booking.booker_name || booking.booker_code || '—'}` : '—'}
+            />
+            <ComputedCommissionRow
+              label="Affiliate"
+              value={formatMoney(booking.affiliate_commission)}
+              hint={affiliateTier ? `${affiliateTier} · ${booking.affiliate_name || booking.affiliate_code || '—'}` : '—'}
+            />
+            <p className="pt-2 mt-1 border-t border-border text-[10px] text-muted-foreground italic flex items-center gap-1">
+              <Lock size={9} className="opacity-60" />
+              Auto-calculated from the total amount. Update the Total above to recalculate.
+            </p>
           </SectionCard>
 
           <SectionCard title="Affiliate Notes" icon={Wallet}>
-            <EditableField label="Notes" value={booking.affiliate_notes} onSave={(v) => updateField('affiliate_notes', v)} auditTag="affiliate_notes" />
+            <EditableField label="Notes" value={booking.affiliate_notes} onSave={(v) => updateField('affiliate_notes', v)} auditTag="affiliate_notes" maxLength={2000} sanitizer={(v) => sanitizeText(v, { max: 2000, allowNewlines: true })} />
           </SectionCard>
 
           <div className="flex items-center justify-end gap-2 pt-2 border-t border-border">
@@ -1501,7 +1629,11 @@ export default function BookingsPage() {
     const doubleCheck = window.confirm('Are you absolutely sure?')
     if (!doubleCheck) return
     try {
-      const { error } = await supabase.from('bookings').update({ deleted_at: new Date().toISOString() }).eq('id', booking.id)
+      const { error } = await supabase
+        .from('bookings')
+        .update({ deleted_at: new Date().toISOString() })
+        .eq('id', booking.id)
+        .is('deleted_at', null)
       if (error) throw error
       logAudit('DELETE_BOOKING', 'bookings', booking.id, { booking_code: booking.booking_code }).catch(() => {})
       toast.success('Booking deleted')
@@ -1603,6 +1735,7 @@ export default function BookingsPage() {
           <BookingDetailPanel
             key={selected.id}
             booking={selected}
+            affiliateCounts={affiliateCounts}
             onBookingChange={handleBookingChange}
             onClose={() => setSelectedId(null)}
             onAddPayment={() => setPayForBooking(selected)}
@@ -1626,7 +1759,7 @@ export default function BookingsPage() {
       />
 
       <AddPaymentModal open={!!payForBooking} onClose={() => setPayForBooking(null)} booking={payForBooking} onSaved={fetchData} />
-      <ExtendStayModal open={!!extendForBooking} onClose={() => setExtendForBooking(null)} booking={extendForBooking} onSaved={fetchData} />
+      <ExtendStayModal open={!!extendForBooking} onClose={() => setExtendForBooking(null)} booking={extendForBooking} onSaved={fetchData} affiliateCounts={affiliateCounts} />
       <CompleteConfirmModal open={!!completeForBooking} onClose={() => setCompleteForBooking(null)} booking={completeForBooking} onConfirmed={fetchData} />
     </div>
   )

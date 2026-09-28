@@ -3,8 +3,24 @@ import { useNavigate, useSearchParams } from 'react-router-dom'
 import { motion } from 'framer-motion'
 import { supabase } from "../../lib/supabase";
 import { useAuth } from "../../context/AuthContext";
-import { Loader2, ExternalLink } from 'lucide-react'
+import { Loader2, ExternalLink, Copy, Check } from 'lucide-react'
 import toast from 'react-hot-toast'
+
+// ------------------------------------------------------------
+// In-app browser detection
+// These UAs can't complete a Google OAuth redirect reliably.
+// ------------------------------------------------------------
+function isEmbeddedBrowser() {
+  if (typeof navigator === 'undefined') return false
+  const ua = navigator.userAgent || navigator.vendor || ''
+  return (
+    ua.includes('FBAN') || ua.includes('FBAV') ||
+    ua.includes('Instagram') || ua.includes('Messenger') ||
+    ua.includes('WhatsApp') || ua.includes('Twitter') ||
+    ua.includes('LinkedIn') || ua.includes('Line/') ||
+    ua.includes('MicroMessenger')
+  )
+}
 
 export default function LoginPage() {
   const navigate = useNavigate()
@@ -12,66 +28,42 @@ export default function LoginPage() {
   const { user, loading: authLoading } = useAuth()
   const [isLoading, setIsLoading] = useState(false)
   const [showWarning, setShowWarning] = useState(false)
+  const [copied, setCopied] = useState(false)
   const warningChecked = useRef(false)
   const redirectHandled = useRef(false)
+  const urlInputRef = useRef(null)
 
+  // ------------------------------------------------------------
+  // Post-login redirect
+  // ------------------------------------------------------------
   useEffect(() => {
     if (authLoading || !user || redirectHandled.current) return
     redirectHandled.current = true
 
-    const setupUser = async () => {
-      try {
-        const { data: adminData } = await supabase
-          .from('admin_users')
-          .select('user_id')
-          .eq('user_id', user.id)
-          .maybeSingle()
+    const redirect = searchParams.get('redirect')
+    const safeRedirect =
+      redirect &&
+      redirect.startsWith('/') &&
+      !redirect.startsWith('//') &&
+      !redirect.includes('://')
+        ? redirect
+        : null
 
-        const redirect = searchParams.get('redirect')
-        const safeRedirect =
-          redirect &&
-          redirect.startsWith('/') &&
-          !redirect.startsWith('//') &&
-          !redirect.includes('://')
-            ? redirect
-            : null
-
-        if (safeRedirect) {
-          navigate(safeRedirect)
-        } else {
-          navigate('/post-login')
-        }
-      } catch (err) {
-        console.error('Post-login setup error:', err)
-        const redirect = searchParams.get('redirect')
-        const safeRedirect =
-          redirect &&
-          redirect.startsWith('/') &&
-          !redirect.startsWith('//') &&
-          !redirect.includes('://')
-            ? redirect
-            : null
-        navigate(safeRedirect || '/post-login')
-      }
-    }
-
-    setupUser()
+    navigate(safeRedirect || '/post-login', { replace: true })
   }, [authLoading, user, navigate, searchParams])
 
+  // ------------------------------------------------------------
+  // Embedded-browser detection (once)
+  // ------------------------------------------------------------
   useEffect(() => {
-    if (!warningChecked.current) {
-      warningChecked.current = true
-      const ua = navigator.userAgent || navigator.vendor || window.opera
-      const isEmbedded = (
-        ua.includes('FBAN') || ua.includes('FBAV') ||
-        ua.includes('Instagram') || ua.includes('Messenger') ||
-        ua.includes('WhatsApp') || ua.includes('Twitter') ||
-        ua.includes('LinkedIn')
-      )
-      setShowWarning(isEmbedded)
-    }
+    if (warningChecked.current) return
+    warningChecked.current = true
+    setShowWarning(isEmbeddedBrowser())
   }, [])
 
+  // ------------------------------------------------------------
+  // Google OAuth
+  // ------------------------------------------------------------
   const handleGoogleLogin = async () => {
     setIsLoading(true)
     try {
@@ -103,35 +95,54 @@ export default function LoginPage() {
     }
   }
 
-  const openInExternalBrowser = () => {
-    const currentUrl = window.location.href
-    if (navigator.share) {
-      navigator.share({
-        title: 'Iloilo Rentals',
-        text: 'Please open this link in your external browser to sign in:',
-        url: currentUrl,
-      }).catch(() => {
-        prompt('Copy this URL and open in your browser:', currentUrl)
-      })
-    } else if (/iPhone|iPad|iPod/.test(navigator.userAgent)) {
-      prompt('Copy this link and open in Safari:', currentUrl)
-    } else {
-      const link = document.createElement('a')
-      link.href = currentUrl
-      link.target = '_blank'
-      link.rel = 'noopener noreferrer'
-      document.body.appendChild(link)
-      link.click()
-      document.body.removeChild(link)
+  // ------------------------------------------------------------
+  // Copy current URL to clipboard (external-browser escape hatch)
+  // ------------------------------------------------------------
+  const handleCopyLink = async () => {
+    const url = window.location.href
+
+    // Preferred path: async clipboard API (Chrome/Safari/Firefox, HTTPS only)
+    try {
+      if (navigator.clipboard && window.isSecureContext) {
+        await navigator.clipboard.writeText(url)
+        setCopied(true)
+        toast.success('Link copied — paste it in Safari or Chrome')
+        setTimeout(() => setCopied(false), 2000)
+        return
+      }
+    } catch {
+      // fall through to manual selection
     }
+
+    // Fallback: focus + select the URL so the user can copy manually
+    try {
+      const input = urlInputRef.current
+      if (input) {
+        input.focus()
+        input.select()
+        // Some mobile browsers need execCommand for the copy to actually work
+        document.execCommand?.('copy')
+        setCopied(true)
+        toast.success('URL selected — long-press to copy')
+        setTimeout(() => setCopied(false), 2000)
+        return
+      }
+    } catch {
+      // nothing else to try
+    }
+
+    toast.error('Could not copy automatically. Please copy from the address bar.')
   }
 
+  // ------------------------------------------------------------
+  // Animation variants
+  // ------------------------------------------------------------
   const containerVariants = {
     hidden: { opacity: 0, scale: 0.9 },
     visible: {
       opacity: 1,
       scale: 1,
-      transition: { duration: 0.5, type: "spring", stiffness: 200, damping: 20 },
+      transition: { duration: 0.5, type: 'spring', stiffness: 200, damping: 20 },
     },
   }
   const logoVariants = {
@@ -139,7 +150,7 @@ export default function LoginPage() {
     visible: {
       scale: 1,
       rotate: 0,
-      transition: { duration: 0.5, type: "spring", stiffness: 260, damping: 20 },
+      transition: { duration: 0.5, type: 'spring', stiffness: 260, damping: 20 },
     },
   }
   const titleVariants = {
@@ -152,15 +163,15 @@ export default function LoginPage() {
   }
   const dividerVariants = {
     hidden: { width: 0, opacity: 0 },
-    visible: { width: "100%", opacity: 1, transition: { delay: 0.4, duration: 0.6 } },
+    visible: { width: '100%', opacity: 1, transition: { delay: 0.4, duration: 0.6 } },
   }
   const buttonVariants = {
     hidden: { opacity: 0, y: 20 },
     visible: { opacity: 1, y: 0, transition: { delay: 0.5, duration: 0.5 } },
     hover: {
       scale: 1.02,
-      borderColor: "#2d568e",
-      boxShadow: "0 10px 25px -5px rgba(45,86,142,0.2)",
+      borderColor: '#2d568e',
+      boxShadow: '0 10px 25px -5px rgba(45,86,142,0.2)',
       transition: { duration: 0.2 },
     },
     tap: { scale: 0.98 },
@@ -180,20 +191,21 @@ export default function LoginPage() {
 
   return (
     <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-[#2d568e]/5 via-white to-[#2d568e]/10 overflow-hidden pb-24 md:pb-0">
+      {/* Ambient background blobs */}
       <div className="absolute inset-0 overflow-hidden pointer-events-none">
         <motion.div
           animate={{ y: [0, -20, 0], x: [0, 10, 0] }}
-          transition={{ repeat: Infinity, duration: 8, ease: "easeInOut" }}
+          transition={{ repeat: Infinity, duration: 8, ease: 'easeInOut' }}
           className="absolute -top-40 -right-40 w-80 h-80 bg-[#2d568e]/10 rounded-full blur-3xl"
         />
         <motion.div
           animate={{ y: [0, 20, 0], x: [0, -10, 0] }}
-          transition={{ repeat: Infinity, duration: 10, ease: "easeInOut" }}
+          transition={{ repeat: Infinity, duration: 10, ease: 'easeInOut' }}
           className="absolute -bottom-40 -left-40 w-80 h-80 bg-[#2d568e]/10 rounded-full blur-3xl"
         />
         <motion.div
           animate={{ scale: [1, 1.2, 1], opacity: [0.3, 0.5, 0.3] }}
-          transition={{ repeat: Infinity, duration: 6, ease: "easeInOut" }}
+          transition={{ repeat: Infinity, duration: 6, ease: 'easeInOut' }}
           className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-96 h-96 bg-[#2d568e]/5 rounded-full blur-3xl"
         />
       </div>
@@ -205,6 +217,9 @@ export default function LoginPage() {
         whileHover={{ scale: 1.02 }}
         className="relative bg-white rounded-2xl shadow-2xl max-w-md w-full mx-4 p-6 md:p-10 transition-all duration-500"
       >
+        {/* --------------------------------------------------
+            Embedded-browser warning
+            -------------------------------------------------- */}
         {showWarning && (
           <motion.div
             initial={{ opacity: 0, y: -10 }}
@@ -214,29 +229,62 @@ export default function LoginPage() {
             <div className="flex items-start gap-3">
               <div className="flex-shrink-0">
                 <svg className="h-5 w-5 text-amber-500" viewBox="0 0 20 20" fill="currentColor">
-                  <path fillRule="evenodd" d="M8.257 3.099c.765-1.36 2.722-1.36 3.486 0l5.58 9.92c.75 1.334-.213 2.98-1.742 2.98H4.42c-1.53 0-2.493-1.646-1.743-2.98l5.58-9.92zM11 13a1 1 0 11-2 0 1 1 0 012 0zm-1-8a1 1 0 00-1 1v3a1 1 0 002 0V6a1 1 0 00-1-1z" clipRule="evenodd" />
+                  <path
+                    fillRule="evenodd"
+                    d="M8.257 3.099c.765-1.36 2.722-1.36 3.486 0l5.58 9.92c.75 1.334-.213 2.98-1.742 2.98H4.42c-1.53 0-2.493-1.646-1.743-2.98l5.58-9.92zM11 13a1 1 0 11-2 0 1 1 0 012 0zm-1-8a1 1 0 00-1 1v3a1 1 0 002 0V6a1 1 0 00-1-1z"
+                    clipRule="evenodd"
+                  />
                 </svg>
               </div>
-              <div className="flex-1">
-                <p className="text-sm font-semibold text-amber-800">Sign in requires external browser</p>
+              <div className="flex-1 min-w-0">
+                <p className="text-sm font-semibold text-amber-800">
+                  Open this page in Safari or Chrome to sign in
+                </p>
                 <p className="text-xs text-amber-700 mt-1">
-                  Google Sign-In doesn't work in Messenger, Facebook, or Instagram browsers.
+                  Google Sign-In doesn't work inside Messenger, Facebook, or Instagram.
+                  Copy the link below and paste it into your browser.
                 </p>
               </div>
             </div>
-            <button
-              onClick={openInExternalBrowser}
-              className="mt-3 w-full bg-amber-500 hover:bg-amber-600 text-white font-semibold py-3 px-4 rounded-lg transition-all flex items-center justify-center gap-2 text-sm"
-            >
-              <ExternalLink size={16} />
-              Open in External Browser
-            </button>
-            <p className="text-xs text-amber-600 text-center mt-3">
-              Your phone will ask which browser to use
-            </p>
+
+            {/* URL display + copy button */}
+            <div className="mt-3 flex items-center gap-2">
+              <input
+                ref={urlInputRef}
+                readOnly
+                value={typeof window !== 'undefined' ? window.location.href : ''}
+                onFocus={(e) => e.target.select()}
+                className="flex-1 min-w-0 text-[11px] font-mono px-2.5 py-2 rounded-md border border-amber-200 bg-white text-amber-900 focus:outline-none focus:ring-2 focus:ring-amber-400/40"
+              />
+              <button
+                type="button"
+                onClick={handleCopyLink}
+                className="flex-shrink-0 inline-flex items-center gap-1.5 px-3 py-2 rounded-md bg-amber-500 hover:bg-amber-600 text-white text-xs font-semibold transition-colors"
+              >
+                {copied ? (
+                  <>
+                    <Check size={13} />
+                    Copied
+                  </>
+                ) : (
+                  <>
+                    <Copy size={13} />
+                    Copy
+                  </>
+                )}
+              </button>
+            </div>
+
+            <div className="mt-3 flex items-center gap-2 text-[11px] text-amber-700">
+              <ExternalLink size={12} className="flex-shrink-0" />
+              <span>After copying, open Safari/Chrome and paste the link.</span>
+            </div>
           </motion.div>
         )}
 
+        {/* --------------------------------------------------
+            Logo
+            -------------------------------------------------- */}
         <div className="flex justify-center mb-4 md:mb-6">
           <motion.div
             variants={logoVariants}
@@ -261,6 +309,9 @@ export default function LoginPage() {
           </motion.div>
         </div>
 
+        {/* --------------------------------------------------
+            Headings
+            -------------------------------------------------- */}
         <motion.h1
           variants={titleVariants}
           className="text-2xl md:text-4xl font-bold text-center bg-gradient-to-r from-[#2d568e] to-[#1e3a5f] bg-clip-text text-transparent mb-3"
@@ -282,11 +333,11 @@ export default function LoginPage() {
           in Iloilo City
         </motion.p>
 
+        {/* --------------------------------------------------
+            Divider
+            -------------------------------------------------- */}
         <div className="relative mb-6 md:mb-8">
-          <motion.div
-            variants={dividerVariants}
-            className="absolute inset-0 flex items-center"
-          >
+          <motion.div variants={dividerVariants} className="absolute inset-0 flex items-center">
             <div className="w-full border-t border-gray-200"></div>
           </motion.div>
           <div className="relative flex justify-center text-sm">
@@ -301,12 +352,15 @@ export default function LoginPage() {
           </div>
         </div>
 
+        {/* --------------------------------------------------
+            Google Sign-In
+            -------------------------------------------------- */}
         <motion.button
           variants={buttonVariants}
           initial="hidden"
           animate="visible"
-          whileHover={!showWarning ? "hover" : {}}
-          whileTap={!showWarning ? "tap" : {}}
+          whileHover={!showWarning ? 'hover' : {}}
+          whileTap={!showWarning ? 'tap' : {}}
           onClick={handleGoogleLogin}
           disabled={isLoading || showWarning}
           className={`group relative w-full py-3.5 rounded-xl font-semibold flex items-center justify-center gap-3 overflow-hidden transition-all duration-300 ${
@@ -317,8 +371,8 @@ export default function LoginPage() {
         >
           <motion.span
             className="absolute inset-0 bg-gradient-to-r from-[#2d568e]/0 via-[#2d568e]/5 to-[#2d568e]/0"
-            initial={{ x: "-100%" }}
-            whileHover={!showWarning ? { x: "100%" } : {}}
+            initial={{ x: '-100%' }}
+            whileHover={!showWarning ? { x: '100%' } : {}}
             transition={{ duration: 0.7 }}
           />
 
@@ -326,7 +380,7 @@ export default function LoginPage() {
             <>
               <motion.div
                 animate={{ rotate: 360 }}
-                transition={{ duration: 1, repeat: Infinity, ease: "linear" }}
+                transition={{ duration: 1, repeat: Infinity, ease: 'linear' }}
               >
                 <Loader2 className="w-5 h-5" />
               </motion.div>
@@ -360,6 +414,9 @@ export default function LoginPage() {
           )}
         </motion.button>
 
+        {/* --------------------------------------------------
+            Feature row
+            -------------------------------------------------- */}
         <motion.div
           variants={featuresVariants}
           initial="hidden"
@@ -368,12 +425,12 @@ export default function LoginPage() {
         >
           <div className="flex flex-col gap-2 text-center text-xs text-gray-400">
             <div className="flex justify-center gap-4">
-              {["✓ Secure login", "✓ No password needed", "✓ Instant access"].map((feature, idx) => (
+              {['✓ Secure login', '✓ No password needed', '✓ Instant access'].map((feature, idx) => (
                 <motion.span
                   key={idx}
                   variants={featureItemVariants}
                   className="flex items-center gap-1"
-                  whileHover={{ scale: 1.05, color: "#2d568e" }}
+                  whileHover={{ scale: 1.05, color: '#2d568e' }}
                 >
                   {feature}
                 </motion.span>
@@ -382,6 +439,9 @@ export default function LoginPage() {
           </div>
         </motion.div>
 
+        {/* --------------------------------------------------
+            Legal footer
+            -------------------------------------------------- */}
         <motion.p
           variants={footerVariants}
           initial="hidden"
@@ -396,8 +456,8 @@ export default function LoginPage() {
             whileTap={{ scale: 0.98 }}
           >
             Terms of Service
-          </motion.a>
-          {' '}and{' '}
+          </motion.a>{' '}
+          and{' '}
           <motion.a
             href="/privacy"
             className="text-[#2d568e] hover:underline inline-block"

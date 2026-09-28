@@ -1,8 +1,8 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { motion, AnimatePresence } from 'framer-motion'
+import { motion } from 'framer-motion'
 import {
-  Loader2, ArrowLeft, Camera, X, Trash2,
+  ArrowLeft, Camera, X, Trash2,
   AlertTriangle, CheckCircle2, Image as ImageIcon,
   Plus, Home, Clock, Sparkles, Coffee, Shirt, Wallet, Send,
 } from 'lucide-react'
@@ -10,7 +10,10 @@ import toast from 'react-hot-toast'
 import { supabase } from '@/lib/supabase'
 import { useAuth } from '@/context/AuthContext'
 import { useUserRole } from '@/hooks/useUserRole'
-import { submitCleaning, parseInventory } from '@/lib/cleanings'
+import {
+  submitCleaning, parseInventory,
+  getSignedUrl, getSignedUrls,
+} from '@/lib/cleanings'
 import { cn } from '@/lib/utils'
 
 const PHOTO_LIMITS = { before: 15, after: 15, report: 10 }
@@ -23,9 +26,7 @@ const STATUS_META = {
 }
 
 function getEffectiveStatus(cleaning) {
-  if (cleaning.status === 'submitted' || cleaning.status === 'completed') {
-    return cleaning.status
-  }
+  if (cleaning.status === 'submitted' || cleaning.status === 'completed') return cleaning.status
   if (!cleaning.bookings?.check_out) return 'ready'
   const today = new Date(); today.setHours(0, 0, 0, 0)
   const co = new Date(cleaning.bookings.check_out); co.setHours(0, 0, 0, 0)
@@ -74,6 +75,98 @@ function SectionCard({ title, icon: Icon, children, className }) {
 }
 
 // ============================================================
+// SKELETON PRIMITIVES
+// ============================================================
+function SkeletonBlock({ className }) {
+  return <div className={cn('animate-pulse rounded-md bg-muted', className)} />
+}
+
+function TaskCardSkeleton() {
+  return (
+    <div className="w-full bg-card border border-border rounded-md p-4">
+      <div className="flex items-start justify-between gap-3 mb-3">
+        <div className="min-w-0 flex-1">
+          <SkeletonBlock className="h-4 w-24 mb-2" />
+          <SkeletonBlock className="h-3 w-32" />
+        </div>
+        <SkeletonBlock className="h-5 w-20 rounded-full" />
+      </div>
+      <SkeletonBlock className="h-3 w-40 mt-3" />
+      <div className="flex items-center justify-between mt-3">
+        <SkeletonBlock className="h-3 w-16" />
+        <SkeletonBlock className="h-3 w-10" />
+      </div>
+    </div>
+  )
+}
+
+function TaskListSkeleton() {
+  return (
+    <div className="space-y-3">
+      {[0, 1, 2, 3].map((i) => <TaskCardSkeleton key={i} />)}
+    </div>
+  )
+}
+
+function PhotoTileSkeleton() {
+  return <SkeletonBlock className="aspect-square w-full rounded-md" />
+}
+
+function SinglePhotoSkeleton() {
+  return <SkeletonBlock className="aspect-video w-full rounded-md" />
+}
+
+// ============================================================
+// SIGNED-URL HOOKS
+// ============================================================
+function useSignedUrls(photos) {
+  const paths = useMemo(
+    () => (photos || []).map((p) => p?.path).filter(Boolean),
+    [photos],
+  )
+  const key = paths.join('|')
+  const [map, setMap] = useState({})
+  const [loading, setLoading] = useState(paths.length > 0)
+
+  useEffect(() => {
+    let cancelled = false
+    if (paths.length === 0) { setMap({}); setLoading(false); return }
+    setLoading(true)
+    getSignedUrls(paths)
+      .then((m) => { if (!cancelled) { setMap(m); setLoading(false) } })
+      .catch((err) => {
+        console.error('Signed URL fetch failed:', err)
+        if (!cancelled) setLoading(false)
+      })
+    return () => { cancelled = true }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [key])
+
+  return { map, loading }
+}
+
+function useSignedUrl(photo) {
+  const path = photo?.path || null
+  const [url, setUrl] = useState(null)
+  const [loading, setLoading] = useState(!!path)
+
+  useEffect(() => {
+    let cancelled = false
+    if (!path) { setUrl(null); setLoading(false); return }
+    setLoading(true)
+    getSignedUrl(path)
+      .then((u) => { if (!cancelled) { setUrl(u); setLoading(false) } })
+      .catch((err) => {
+        console.error('Signed URL fetch failed:', err)
+        if (!cancelled) setLoading(false)
+      })
+    return () => { cancelled = true }
+  }, [path])
+
+  return { url, loading }
+}
+
+// ============================================================
 // PHOTO GRID (multi) — before/after/report
 // ============================================================
 function PhotoGridLocal({ label, existing = [], newFiles = [], limit = 15, onAdd, onRemoveExisting, onRemoveNew }) {
@@ -81,6 +174,8 @@ function PhotoGridLocal({ label, existing = [], newFiles = [], limit = 15, onAdd
   const galleryRef = useRef(null)
   const total = existing.length + newFiles.length
   const canUpload = total < limit
+
+  const { map: signedMap, loading: signedLoading } = useSignedUrls(existing)
 
   const handleFiles = (e) => {
     const files = Array.from(e.target.files || [])
@@ -99,15 +194,22 @@ function PhotoGridLocal({ label, existing = [], newFiles = [], limit = 15, onAdd
       </div>
       {(existing.length > 0 || newFiles.length > 0) && (
         <div className="grid grid-cols-3 gap-2 mb-3">
-          {existing.map((p, i) => (
-            <div key={`e-${p.path || i}`} className="relative aspect-square rounded-md overflow-hidden bg-muted border border-border">
-              <img src={p.url} alt="" className="w-full h-full object-cover" />
-              <button type="button" onClick={() => onRemoveExisting(p)}
-                className="absolute top-1 right-1 w-7 h-7 rounded-full bg-black/60 text-white flex items-center justify-center active:scale-90 transition-transform">
-                <X size={14} />
-              </button>
-            </div>
-          ))}
+          {existing.map((p, i) => {
+            const src = signedMap[p.path]
+            return (
+              <div key={`e-${p.path || i}`} className="relative aspect-square rounded-md overflow-hidden bg-muted border border-border">
+                {src ? (
+                  <img src={src} alt="" className="w-full h-full object-cover" />
+                ) : (
+                  <PhotoTileSkeleton />
+                )}
+                <button type="button" onClick={() => onRemoveExisting(p)}
+                  className="absolute top-1 right-1 w-7 h-7 rounded-full bg-black/60 text-white flex items-center justify-center active:scale-90 transition-transform">
+                  <X size={14} />
+                </button>
+              </div>
+            )
+          })}
           {newFiles.map((f, i) => (
             <div key={`n-${i}`} className="relative aspect-square rounded-md overflow-hidden bg-muted border-2 border-dashed border-primary/40">
               <img src={f.preview} alt="" className="w-full h-full object-cover" />
@@ -122,8 +224,8 @@ function PhotoGridLocal({ label, existing = [], newFiles = [], limit = 15, onAdd
       )}
       {canUpload && (
         <>
-          <input ref={cameraRef} type="file" accept="image/*" capture="environment" multiple className="hidden" onChange={handleFiles} />
-          <input ref={galleryRef} type="file" accept="image/*" multiple className="hidden" onChange={handleFiles} />
+          <input ref={cameraRef} type="file" accept="image/jpeg,image/png,image/webp" capture="environment" multiple className="hidden" onChange={handleFiles} />
+          <input ref={galleryRef} type="file" accept="image/jpeg,image/png,image/webp" multiple className="hidden" onChange={handleFiles} />
           <div className="grid grid-cols-2 gap-2">
             <button type="button" onClick={() => cameraRef.current?.click()}
               className="flex items-center justify-center gap-2 py-3 rounded-md border-2 border-dashed border-border text-muted-foreground text-xs font-medium active:bg-muted/50 transition-colors">
@@ -146,7 +248,10 @@ function PhotoGridLocal({ label, existing = [], newFiles = [], limit = 15, onAdd
 function SinglePhotoLocal({ label, existing, newFile, onPick, onClear }) {
   const cameraRef = useRef(null)
   const galleryRef = useRef(null)
-  const preview = newFile?.preview || existing?.url || null
+
+  const { url: signedUrl, loading: signedLoading } = useSignedUrl(existing)
+
+  const preview = newFile?.preview || signedUrl || null
   const isNew = !!newFile
 
   const handleFiles = (e) => {
@@ -171,10 +276,12 @@ function SinglePhotoLocal({ label, existing, newFile, onPick, onClear }) {
             <span className="absolute top-2 left-2 text-[9px] font-bold uppercase tracking-wider bg-primary text-primary-foreground px-1.5 py-0.5 rounded">NEW</span>
           )}
         </div>
+      ) : existing && signedLoading ? (
+        <SinglePhotoSkeleton />
       ) : (
         <>
-          <input ref={cameraRef} type="file" accept="image/*" capture="environment" className="hidden" onChange={handleFiles} />
-          <input ref={galleryRef} type="file" accept="image/*" className="hidden" onChange={handleFiles} />
+          <input ref={cameraRef} type="file" accept="image/jpeg,image/png,image/webp" capture="environment" className="hidden" onChange={handleFiles} />
+          <input ref={galleryRef} type="file" accept="image/jpeg,image/png,image/webp" className="hidden" onChange={handleFiles} />
           <div className="grid grid-cols-2 gap-2">
             <button type="button" onClick={() => cameraRef.current?.click()}
               className="flex items-center justify-center gap-2 py-3 rounded-md border-2 border-dashed border-border text-muted-foreground text-xs font-medium active:bg-muted/50 transition-colors">
@@ -199,21 +306,22 @@ function ListEditor({ items, onChange, placeholder = 'Item name' }) {
   const [qty, setQty] = useState('1')
 
   const handleAdd = () => {
-    const n = name.trim()
+    const n = name.trim().slice(0, 80)
     const q = Number(qty) || 0
     if (!n) return toast.error('Enter item name')
     if (q <= 0) return toast.error('Quantity must be > 0')
+    if (items.length >= 50) return toast.error('Too many items')
     onChange([...items, { name: n, quantity: q }])
     setName(''); setQty('1')
   }
 
   const handleRemove = (i) => onChange(items.filter((_, idx) => idx !== i))
   const handleQtyChange = (i, q) => {
-    const next = items.map((it, idx) => idx === i ? { ...it, quantity: Math.max(0, Number(q) || 0) } : it)
+    const next = items.map((it, idx) => idx === i ? { ...it, quantity: Math.max(0, Math.min(9999, Number(q) || 0)) } : it)
     onChange(next)
   }
   const handleNameChange = (i, n) => {
-    const next = items.map((it, idx) => idx === i ? { ...it, name: n } : it)
+    const next = items.map((it, idx) => idx === i ? { ...it, name: n.slice(0, 80) } : it)
     onChange(next)
   }
 
@@ -225,9 +333,9 @@ function ListEditor({ items, onChange, placeholder = 'Item name' }) {
         <div className="space-y-1">
           {items.map((it, i) => (
             <div key={i} className="flex items-center gap-2 bg-background rounded border border-border px-3 py-2">
-              <input type="text" value={it.name} onChange={(e) => handleNameChange(i, e.target.value)}
+              <input type="text" value={it.name} maxLength={80} onChange={(e) => handleNameChange(i, e.target.value)}
                 className="flex-1 text-sm bg-transparent border-0 focus:outline-none text-foreground" />
-              <input type="number" min={0} value={it.quantity} onChange={(e) => handleQtyChange(i, e.target.value)}
+              <input type="number" min={0} max={9999} value={it.quantity} onChange={(e) => handleQtyChange(i, e.target.value)}
                 className="w-16 text-right text-sm tabular-nums bg-background border border-border rounded px-2 py-1 focus:outline-none focus:ring-2 focus:ring-ring/30" />
               <button type="button" onClick={() => handleRemove(i)} className="p-1.5 text-muted-foreground active:text-red-500">
                 <Trash2 size={14} />
@@ -237,11 +345,11 @@ function ListEditor({ items, onChange, placeholder = 'Item name' }) {
         </div>
       )}
       <div className="flex items-center gap-2 pt-2 border-t border-border">
-        <input type="text" value={name} onChange={(e) => setName(e.target.value)}
+        <input type="text" value={name} maxLength={80} onChange={(e) => setName(e.target.value)}
           onKeyDown={(e) => e.key === 'Enter' && handleAdd()}
           placeholder={placeholder}
           className="flex-1 text-sm bg-background border border-border rounded px-3 py-2 focus:outline-none focus:ring-2 focus:ring-ring/30" />
-        <input type="number" min={1} value={qty} onChange={(e) => setQty(e.target.value)}
+        <input type="number" min={1} max={9999} value={qty} onChange={(e) => setQty(e.target.value)}
           onKeyDown={(e) => e.key === 'Enter' && handleAdd()}
           className="w-16 text-center text-sm bg-background border border-border rounded px-2 py-2 focus:outline-none focus:ring-2 focus:ring-ring/30 tabular-nums" />
         <button type="button" onClick={handleAdd} className="p-2.5 rounded bg-primary text-primary-foreground active:scale-95 transition-transform">
@@ -253,7 +361,7 @@ function ListEditor({ items, onChange, placeholder = 'Item name' }) {
 }
 
 // ============================================================
-// CATEGORY CARD — used + replaced pair (amenities or laundry)
+// CATEGORY CARD — used + replaced pair
 // ============================================================
 function CategoryCard({ title, Icon, usedPhoto, replacedPhoto, onPickUsed, onPickReplaced, onClearUsed, onClearReplaced,
   usedItems, replacedItems, onUsedItemsChange, onReplacedItemsChange, usedPlaceholder, replacedPlaceholder }) {
@@ -293,7 +401,6 @@ function CleaningDetail({ cleaning, onBack, onChanged }) {
   const [photoTab, setPhotoTab] = useState('before')
   const [submitting, setSubmitting] = useState(false)
 
-  // Multi photos
   const [keepBefore, setKeepBefore] = useState(() => Array.isArray(cleaning.photos_before) ? cleaning.photos_before : [])
   const [keepAfter, setKeepAfter] = useState(() => Array.isArray(cleaning.photos_after) ? cleaning.photos_after : [])
   const [keepReport, setKeepReport] = useState(() => Array.isArray(cleaning.photos_report) ? cleaning.photos_report : [])
@@ -301,7 +408,6 @@ function CleaningDetail({ cleaning, onBack, onChanged }) {
   const [newAfter, setNewAfter] = useState([])
   const [newReport, setNewReport] = useState([])
 
-  // Amenities — single photo per side + list
   const [amenitiesUsedExisting, setAmenitiesUsedExisting] = useState(cleaning.amenities_used_photo || null)
   const [amenitiesUsedFile, setAmenitiesUsedFile] = useState(null)
   const [amenitiesReplacedExisting, setAmenitiesReplacedExisting] = useState(cleaning.amenities_replaced_photo || null)
@@ -309,7 +415,6 @@ function CleaningDetail({ cleaning, onBack, onChanged }) {
   const [amenitiesUsedItems, setAmenitiesUsedItems] = useState(() => parseInventory(cleaning.amenities_used_items))
   const [amenitiesReplacedItems, setAmenitiesReplacedItems] = useState(() => parseInventory(cleaning.amenities_replaced_items))
 
-  // Laundry — single photo per side + list
   const [laundryUsedExisting, setLaundryUsedExisting] = useState(cleaning.laundry_used_photo || null)
   const [laundryUsedFile, setLaundryUsedFile] = useState(null)
   const [laundryReplacedExisting, setLaundryReplacedExisting] = useState(cleaning.laundry_replaced_photo || null)
@@ -317,7 +422,6 @@ function CleaningDetail({ cleaning, onBack, onChanged }) {
   const [laundryUsedItems, setLaundryUsedItems] = useState(() => parseInventory(cleaning.laundry_used_items))
   const [laundryReplacedItems, setLaundryReplacedItems] = useState(() => parseInventory(cleaning.laundry_replaced_items))
 
-  // Laundry payment (optional — housekeeper can fill)
   const [laundryAmount, setLaundryAmount] = useState(cleaning.laundry_payment_amount != null ? String(cleaning.laundry_payment_amount) : '')
   const [laundryMethod, setLaundryMethod] = useState(cleaning.laundry_payment_method || '')
   const [laundryReference, setLaundryReference] = useState(cleaning.laundry_payment_reference || '')
@@ -325,7 +429,6 @@ function CleaningDetail({ cleaning, onBack, onChanged }) {
 
   const [notesDraft, setNotesDraft] = useState(cleaning.notes || '')
 
-  // Reset when cleaning changes
   useEffect(() => {
     setKeepBefore(Array.isArray(cleaning.photos_before) ? cleaning.photos_before : [])
     setKeepAfter(Array.isArray(cleaning.photos_after) ? cleaning.photos_after : [])
@@ -546,7 +649,7 @@ function CleaningDetail({ cleaning, onBack, onChanged }) {
             <div>
               <label className="text-[10px] uppercase tracking-wider text-muted-foreground font-semibold mb-1 block">Method</label>
               <input
-                type="text"
+                type="text" maxLength={60}
                 value={laundryMethod}
                 onChange={(e) => setLaundryMethod(e.target.value)}
                 className="w-full h-8 text-xs bg-background border border-border rounded px-2 focus:outline-none focus:ring-2 focus:ring-ring/30"
@@ -558,7 +661,7 @@ function CleaningDetail({ cleaning, onBack, onChanged }) {
             <div>
               <label className="text-[10px] uppercase tracking-wider text-muted-foreground font-semibold mb-1 block">Reference</label>
               <input
-                type="text"
+                type="text" maxLength={100}
                 value={laundryReference}
                 onChange={(e) => setLaundryReference(e.target.value)}
                 className="w-full h-8 text-xs bg-background border border-border rounded px-2 focus:outline-none focus:ring-2 focus:ring-ring/30"
@@ -567,6 +670,7 @@ function CleaningDetail({ cleaning, onBack, onChanged }) {
             <div>
               <label className="text-[10px] uppercase tracking-wider text-muted-foreground font-semibold mb-1 block">Note</label>
               <textarea
+                maxLength={2000}
                 value={laundryNote}
                 onChange={(e) => setLaundryNote(e.target.value)}
                 rows={2}
@@ -578,7 +682,7 @@ function CleaningDetail({ cleaning, onBack, onChanged }) {
 
         {/* Notes */}
         <SectionCard title="Notes" icon={Sparkles}>
-          <textarea value={notesDraft} onChange={(e) => setNotesDraft(e.target.value)} rows={3}
+          <textarea maxLength={2000} value={notesDraft} onChange={(e) => setNotesDraft(e.target.value)} rows={3}
             placeholder="Any notes about this cleaning…"
             className="w-full text-xs bg-background border border-border rounded px-3 py-2 focus:outline-none focus:ring-2 focus:ring-ring/30 resize-none" />
         </SectionCard>
@@ -599,7 +703,7 @@ function CleaningDetail({ cleaning, onBack, onChanged }) {
           style={{ paddingBottom: 'calc(1rem + env(safe-area-inset-bottom, 0px))' }}>
           <button onClick={handleSubmit} disabled={submitting}
             className="w-full py-3 rounded-md bg-emerald-600 text-white font-semibold text-sm flex items-center justify-center gap-2 active:scale-[0.98] transition-transform disabled:opacity-50">
-            {submitting ? <Loader2 size={16} className="animate-spin" /> : <Send size={16} />}
+            <Send size={16} />
             {submitting ? 'Submitting…' : effective === 'submitted' ? 'Resubmit' : 'Submit Cleaning'}
           </button>
         </div>
@@ -715,7 +819,7 @@ export default function HousekeeperTasksPage() {
 
       <main className="p-4 space-y-3">
         {loading ? (
-          <div className="flex justify-center py-12"><Loader2 className="w-8 h-8 animate-spin text-primary" /></div>
+          <TaskListSkeleton />
         ) : fetchError ? (
           <div className="text-center py-16 px-4">
             <AlertTriangle className="w-12 h-12 text-red-300 mx-auto mb-3" />

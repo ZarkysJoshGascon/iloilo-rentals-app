@@ -2,6 +2,51 @@
 import { supabase } from './supabase'
 
 const BUCKET = 'cleaning-photos'
+const MAX_FILE_BYTES = 15 * 1024 * 1024  // 15 MB
+const SIGNED_URL_TTL = 60 * 60           // 1 hour
+
+// ============================================================
+// FILE VALIDATION — magic bytes, not mime-type string
+// ============================================================
+const ALLOWED_IMAGE_MIMES = new Set(['image/jpeg', 'image/png', 'image/webp'])
+
+function hexFromBytes(bytes, start = 0, length = 12) {
+  return Array.from(bytes.slice(start, start + length))
+    .map((b) => b.toString(16).padStart(2, '0'))
+    .join('')
+}
+
+/**
+ * Read the first 12 bytes of the file and sniff the actual format.
+ * Returns one of: 'image/jpeg' | 'image/png' | 'image/webp' | null
+ */
+async function sniffImageMime(file) {
+  const head = new Uint8Array(await file.slice(0, 12).arrayBuffer())
+  const hex = hexFromBytes(head)
+
+  // JPEG: FF D8 FF
+  if (hex.startsWith('ffd8ff')) return 'image/jpeg'
+  // PNG: 89 50 4E 47 0D 0A 1A 0A
+  if (hex.startsWith('89504e470d0a1a0a')) return 'image/png'
+  // WebP: "RIFF" .... "WEBP"
+  if (hex.startsWith('52494646') && hex.slice(16, 24) === '57454250') return 'image/webp'
+
+  return null
+}
+
+async function validateImageFile(file) {
+  if (!(file instanceof File) && !(file instanceof Blob)) {
+    throw new Error('Invalid file')
+  }
+  if (typeof file.size === 'number' && file.size > MAX_FILE_BYTES) {
+    throw new Error('File is too large (max 15 MB)')
+  }
+  const mime = await sniffImageMime(file)
+  if (!mime || !ALLOWED_IMAGE_MIMES.has(mime)) {
+    throw new Error('Unsupported image format. Use JPEG, PNG, or WebP.')
+  }
+  return mime
+}
 
 // ============================================================
 // QUERIES
@@ -22,7 +67,7 @@ export async function listCleanings({ status, type, housekeeperId, search } = {}
   if (housekeeperId && housekeeperId !== 'all') query = query.eq('housekeeper_id', housekeeperId)
 
   if (search && search.trim()) {
-    const s = search.trim()
+    const s = search.trim().slice(0, 100)
     query = query.or(`notes.ilike.%${s}%`)
   }
 
@@ -101,10 +146,13 @@ export async function deleteCleaning(id) {
 }
 
 // ============================================================
-// IMAGE COMPRESSION
+// IMAGE COMPRESSION — validates first, then re-encodes to JPEG
 // ============================================================
 export async function compressImage(file, { maxDimension = 1600, quality = 0.72 } = {}) {
-  if (!file.type.startsWith('image/')) return file
+  // Reject anything that isn't actually a supported image, before we
+  // even spin up canvas. This blocks SVG, PDF, executables, etc.
+  await validateImageFile(file)
+
   return new Promise((resolve, reject) => {
     const img = new Image()
     const reader = new FileReader()
@@ -121,10 +169,13 @@ export async function compressImage(file, { maxDimension = 1600, quality = 0.72 
       const canvas = document.createElement('canvas')
       canvas.width = width
       canvas.height = height
-      canvas.getContext('2d').drawImage(img, 0, 0, width, height)
+      const ctx = canvas.getContext('2d')
+      if (!ctx) return reject(new Error('Canvas not supported'))
+      ctx.drawImage(img, 0, 0, width, height)
       canvas.toBlob((blob) => {
         if (!blob) return reject(new Error('Compression failed'))
-        blob.name = file.name
+        // Attach original filename for downstream error messages
+        try { blob.name = file.name || 'photo.jpg' } catch { /* read-only on some browsers */ }
         resolve(blob)
       }, 'image/jpeg', quality)
     }
@@ -134,11 +185,14 @@ export async function compressImage(file, { maxDimension = 1600, quality = 0.72 
 }
 
 function randomId() {
-  return Math.random().toString(36).slice(2, 10) + Date.now().toString(36)
+  // crypto-based, ~16 chars
+  const bytes = new Uint8Array(10)
+  crypto.getRandomValues(bytes)
+  return Array.from(bytes).map((b) => b.toString(36).padStart(2, '0')).join('').slice(0, 16)
 }
 
 // ============================================================
-// PHOTO UPLOAD
+// PHOTO UPLOAD — stores path only, no public URL
 // ============================================================
 export async function uploadCleaningPhoto({ cleaningId, file, category }) {
   const validCategories = [
@@ -164,14 +218,39 @@ export async function uploadCleaningPhoto({ cleaningId, file, category }) {
     })
   if (uploadErr) throw uploadErr
 
-  const { data } = supabase.storage.from(BUCKET).getPublicUrl(path)
-
+  // NOTE: we no longer call getPublicUrl(). The bucket is private and
+  // URLs are generated on-demand via createSignedUrl().
   return {
     path,
-    url: data.publicUrl,
     uploaded_at: new Date().toISOString(),
     size: compressed.size,
   }
+}
+
+// ============================================================
+// SIGNED URLS — short-lived, per-request
+// ============================================================
+export async function getSignedUrl(path, expiresIn = SIGNED_URL_TTL) {
+  if (!path) return null
+  const { data, error } = await supabase.storage
+    .from(BUCKET)
+    .createSignedUrl(path, expiresIn)
+  if (error) throw error
+  return data?.signedUrl || null
+}
+
+export async function getSignedUrls(paths, expiresIn = SIGNED_URL_TTL) {
+  const clean = (paths || []).filter(Boolean)
+  if (clean.length === 0) return {}
+  const { data, error } = await supabase.storage
+    .from(BUCKET)
+    .createSignedUrls(clean, expiresIn)
+  if (error) throw error
+  const map = {}
+  for (const row of data || []) {
+    if (row?.path && row?.signedUrl) map[row.path] = row.signedUrl
+  }
+  return map
 }
 
 export async function deleteCleaningPhoto(path) {
@@ -181,7 +260,7 @@ export async function deleteCleaningPhoto(path) {
 }
 
 // ============================================================
-// HIGH-LEVEL PHOTO OPS (used by CRM admin panels — live edit)
+// HIGH-LEVEL PHOTO OPS (CRM admin panels — live edit)
 // ============================================================
 export async function addPhotoToCleaning(cleaning, category, file) {
   const photo = await uploadCleaningPhoto({
@@ -229,10 +308,11 @@ export function parseInventory(raw) {
   return raw
     .filter((x) => x && typeof x === 'object')
     .map((x) => ({
-      name: typeof x.name === 'string' ? x.name : '',
+      name: typeof x.name === 'string' ? x.name.slice(0, 80) : '',
       quantity: Number(x.quantity) || 0,
-      note: typeof x.note === 'string' ? x.note : '',
+      note: typeof x.note === 'string' ? x.note.slice(0, 200) : '',
     }))
+    .filter((x) => x.name.length > 0)
 }
 
 // Kept as an alias for backwards compat — same as parseInventory
@@ -258,44 +338,36 @@ export async function updateLaundryPayment({
   const { error } = await supabase.rpc('update_laundry_payment', {
     p_cleaning_id: cleaningId,
     p_amount: amt,
-    p_method: method.trim(),
-    p_reference: reference?.trim() || null,
-    p_note: note?.trim() || null,
+    p_method: method.trim().slice(0, 60),
+    p_reference: reference?.trim()?.slice(0, 100) || null,
+    p_note: note?.trim()?.slice(0, 2000) || null,
   })
   if (error) throw error
 }
 
 // ============================================================
 // SUBMIT — housekeeper side
-//   Takes local state (blobs), uploads new photos, then
-//   calls the submit RPC. Sets status='submitted'.
 // ============================================================
 export async function submitCleaning({
   cleaning,
-  // Multi-photo arrays (File[])
   newPhotosBefore = [],
   newPhotosAfter = [],
   newPhotosReport = [],
-  // Single photo replacements (File | null)
   newAmenitiesUsedPhoto = null,
   newAmenitiesReplacedPhoto = null,
   newLaundryUsedPhoto = null,
   newLaundryReplacedPhoto = null,
-  // Existing photos to keep (in case some were removed)
   keepPhotosBefore,
   keepPhotosAfter,
   keepPhotosReport,
-  // Item lists (already cleaned locally)
   amenitiesUsedItems = [],
   amenitiesReplacedItems = [],
   laundryUsedItems = [],
   laundryReplacedItems = [],
-  // Laundry payment (optional, housekeeper-submitted)
   laundryPaymentAmount = null,
   laundryPaymentMethod = null,
   laundryPaymentReference = null,
   laundryPaymentNote = null,
-  // Misc
   notes = '',
 }) {
   const id = cleaning.id
@@ -355,9 +427,8 @@ export async function submitCleaning({
   const cleanLaundryUsed = parseInventory(laundryUsedItems).filter((x) => x.name.trim().length > 0)
   const cleanLaundryReplaced = parseInventory(laundryReplacedItems).filter((x) => x.name.trim().length > 0)
 
-  // Laundry payment (only send if amount + method are provided)
   const lpAmount = laundryPaymentAmount != null && Number(laundryPaymentAmount) > 0 ? Number(laundryPaymentAmount) : null
-  const lpMethod = laundryPaymentMethod && laundryPaymentMethod.trim() ? laundryPaymentMethod.trim() : null
+  const lpMethod = laundryPaymentMethod && laundryPaymentMethod.trim() ? laundryPaymentMethod.trim().slice(0, 60) : null
 
   const { error } = await supabase.rpc('housekeeper_submit_cleaning', {
     p_cleaning_id: id,
@@ -374,9 +445,9 @@ export async function submitCleaning({
     p_laundry_replaced_items: cleanLaundryReplaced,
     p_laundry_payment_amount: lpAmount,
     p_laundry_payment_method: lpMethod,
-    p_laundry_payment_reference: laundryPaymentReference?.trim() || null,
-    p_laundry_payment_note: laundryPaymentNote?.trim() || null,
-    p_notes: notes.trim() || null,
+    p_laundry_payment_reference: laundryPaymentReference?.trim()?.slice(0, 100) || null,
+    p_laundry_payment_note: laundryPaymentNote?.trim()?.slice(0, 2000) || null,
+    p_notes: notes.trim()?.slice(0, 2000) || null,
   })
   if (error) throw error
 }
@@ -399,9 +470,9 @@ export async function approveAndPayCleaning({
   const { error } = await supabase.rpc('admin_approve_and_pay_cleaning', {
     p_cleaning_id: cleaningId,
     p_payment_amount: amt,
-    p_payment_method: method.trim(),
-    p_payment_reference: reference?.trim() || null,
-    p_payment_note: note?.trim() || null,
+    p_payment_method: method.trim().slice(0, 60),
+    p_payment_reference: reference?.trim()?.slice(0, 100) || null,
+    p_payment_note: note?.trim()?.slice(0, 2000) || null,
   })
   if (error) throw error
 }

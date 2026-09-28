@@ -12,6 +12,37 @@ import BookingsPage from '../../components/admin/bookings/BookingsPage'
 import TeamPage from '../../components/admin/team/TeamPage'
 import HousekeepingPage from '../../components/admin/housekeeping/HousekeepingPage'
 
+// ============================================================
+// SESSION TIMEOUT CONFIG
+// ============================================================
+const IDLE_LIMIT_MS   = 30 * 60 * 1000   // 30 min of no interaction → sign out
+const HIDDEN_LIMIT_MS = 60 * 60 * 1000   // 60 min hidden tab → sign out
+const TICK_MS         = 15 * 1000        // how often to check idle time
+const ACTIVITY_KEY    = 'ir:admin:lastActivity'
+const HIDDEN_AT_KEY   = 'ir:admin:hiddenAt'
+
+function readStorage(key, fallback = 0) {
+  try {
+    const raw = sessionStorage.getItem(key)
+    if (!raw) return fallback
+    const n = Number(raw)
+    return Number.isFinite(n) ? n : fallback
+  } catch {
+    return fallback
+  }
+}
+
+function writeStorage(key, value) {
+  try { sessionStorage.setItem(key, String(value)) } catch { /* quota / private mode */ }
+}
+
+function clearSessionStorage() {
+  try {
+    sessionStorage.removeItem(ACTIVITY_KEY)
+    sessionStorage.removeItem(HIDDEN_AT_KEY)
+  } catch { /* ignore */ }
+}
+
 function PageTransition({ children, tabKey }) {
   return (
     <motion.div
@@ -50,32 +81,132 @@ export default function AdminDashboardPage() {
   const handleTabChange = (tab) => setActiveTab(tab)
 
   const handleSignOut = useCallback(async () => {
-    await signOut()
-    navigate('/')
+    clearSessionStorage()
+    try {
+      await signOut()
+    } catch (err) {
+      console.error('Sign out failed:', err)
+    }
+    navigate('/', { replace: true })
   }, [signOut, navigate])
 
-  // ============ SESSION TIMEOUT (30 minutes inactivity) ============
-  const timeoutRef = useRef(null)
+  // ============================================================
+  // SESSION TIMEOUT — background-tab-safe
+  // ============================================================
+  // Handles three scenarios:
+  //   1. User is on the tab but idle for > IDLE_LIMIT_MS → sign out
+  //   2. User hides the tab for > HIDDEN_LIMIT_MS → sign out on return
+  //   3. User closes tab and reopens within IDLE_LIMIT_MS → timer persists
+  //
+  // Uses sessionStorage so a page refresh doesn't reset the clock.
+  // A raw setTimeout alone is unreliable: backgrounded tabs get throttled.
+  // ============================================================
+  const tickRef = useRef(null)
+  const handleSignOutRef = useRef(handleSignOut)
 
-  const resetTimeout = useCallback(() => {
-    if (timeoutRef.current) clearTimeout(timeoutRef.current)
-    timeoutRef.current = setTimeout(() => {
-      handleSignOut()
-    }, 30 * 60 * 1000)
-  }, [handleSignOut])
+  // Keep the ref current without restarting the effect
+  useEffect(() => { handleSignOutRef.current = handleSignOut }, [handleSignOut])
 
   useEffect(() => {
-    const events = ['click', 'keydown', 'scroll', 'mousemove', 'touchstart']
-    const handleActivity = () => resetTimeout()
+    if (!user) return
 
-    events.forEach((event) => window.addEventListener(event, handleActivity))
-    resetTimeout()
-
-    return () => {
-      if (timeoutRef.current) clearTimeout(timeoutRef.current)
-      events.forEach((event) => window.removeEventListener(event, handleActivity))
+    // Initialize lastActivity if not present (fresh login)
+    const now = Date.now()
+    let lastActivity = readStorage(ACTIVITY_KEY, 0)
+    if (!lastActivity || lastActivity > now) {
+      lastActivity = now
+      writeStorage(ACTIVITY_KEY, lastActivity)
     }
-  }, [resetTimeout])
+
+    // On mount, check whether we've already exceeded the idle limit
+    // (e.g. user refreshed after being away).
+    if (now - lastActivity >= IDLE_LIMIT_MS) {
+      handleSignOutRef.current()
+      return
+    }
+
+    // ---- activity markers ----
+    const markActive = () => {
+      const t = Date.now()
+      writeStorage(ACTIVITY_KEY, t)
+      // Returning from a long hidden period? handled by visibilitychange.
+    }
+
+    // ---- periodic idle check ----
+    const tick = () => {
+      const nowTs = Date.now()
+
+      // Tab is currently hidden — check the hidden limit
+      if (document.hidden) {
+        const hiddenAt = readStorage(HIDDEN_AT_KEY, 0)
+        if (hiddenAt && nowTs - hiddenAt >= HIDDEN_LIMIT_MS) {
+          handleSignOutRef.current()
+        }
+        return
+      }
+
+      // Tab is visible — check idle limit
+      const last = readStorage(ACTIVITY_KEY, nowTs)
+      if (nowTs - last >= IDLE_LIMIT_MS) {
+        handleSignOutRef.current()
+      }
+    }
+
+    tickRef.current = setInterval(tick, TICK_MS)
+
+    // ---- visibility handling ----
+    const onVisibilityChange = () => {
+      const nowTs = Date.now()
+      if (document.hidden) {
+        writeStorage(HIDDEN_AT_KEY, nowTs)
+      } else {
+        // Tab just became visible. Did we cross the hidden limit?
+        const hiddenAt = readStorage(HIDDEN_AT_KEY, 0)
+        if (hiddenAt && nowTs - hiddenAt >= HIDDEN_LIMIT_MS) {
+          clearSessionStorage()
+          handleSignOutRef.current()
+          return
+        }
+        // Also re-check the idle limit in case the periodic timer
+        // was throttled while hidden.
+        const last = readStorage(ACTIVITY_KEY, nowTs)
+        if (nowTs - last >= IDLE_LIMIT_MS) {
+          handleSignOutRef.current()
+          return
+        }
+        // User is back — treat this as activity
+        writeStorage(ACTIVITY_KEY, nowTs)
+        try { sessionStorage.removeItem(HIDDEN_AT_KEY) } catch { /* ignore */ }
+      }
+    }
+
+    // ---- wire listeners ----
+    const events = ['click', 'keydown', 'scroll', 'mousemove', 'touchstart']
+    events.forEach((e) => window.addEventListener(e, markActive, { passive: true }))
+    document.addEventListener('visibilitychange', onVisibilityChange)
+    window.addEventListener('focus', onVisibilityChange)
+
+    // ---- cleanup ----
+    return () => {
+      events.forEach((e) => window.removeEventListener(e, markActive))
+      document.removeEventListener('visibilitychange', onVisibilityChange)
+      window.removeEventListener('focus', onVisibilityChange)
+      if (tickRef.current) {
+        clearInterval(tickRef.current)
+        tickRef.current = null
+      }
+    }
+  }, [user])
+
+  // ============================================================
+  // PROFILE MENU — close on Escape
+  // ============================================================
+  useEffect(() => {
+    if (!showProfileMenu) return
+    const onKey = (e) => { if (e.key === 'Escape') setShowProfileMenu(false) }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [showProfileMenu])
 
   const tabIcons = {
     registry: ScrollText,
@@ -132,6 +263,7 @@ export default function AdminDashboardPage() {
           <button
             onClick={toggleTheme}
             className="flex items-center gap-2 px-3 py-2 rounded-xl bg-white/80 dark:bg-gray-800/80 backdrop-blur-sm border border-gray-200 dark:border-gray-700 hover:bg-white dark:hover:bg-gray-700 text-gray-700 dark:text-gray-200 transition-all duration-200 shadow-sm"
+            title="Toggle theme"
           >
             {isDark ? <Sun size={17} className="text-amber-400" /> : <Moon size={17} className="text-gray-600" />}
           </button>
