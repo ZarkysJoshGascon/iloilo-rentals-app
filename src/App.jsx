@@ -18,7 +18,7 @@ import TermsPage from './pages/public/TermsPage'
 import PostLoginPage from './pages/public/PostLoginPage'
 import AdminDashboardPage from './pages/admin/AdminDashboardPage'
 import AdminRoute from './components/admin/AdminRoute'
-import HouseKeeperTasksPage from './pages/housekeeper/HouseKeeperTasksPage'
+import HousekeeperTasksPage from './pages/housekeeper/HousekeeperTasksPage'
 import { useUserRole } from './hooks/useUserRole'
 
 // ------------------------------------------------------------
