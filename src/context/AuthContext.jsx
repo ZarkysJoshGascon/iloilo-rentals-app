@@ -14,7 +14,7 @@ export function AuthProvider({ children }) {
       setLoading(false)
     })
 
-    // 2. Listen for any auth state changes (login, logout, token refresh)
+    // 2. Listen for auth state changes
     const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
       setUser(session?.user ?? null)
     })
@@ -24,10 +24,8 @@ export function AuthProvider({ children }) {
 
   const signOut = useCallback(async () => {
     await supabase.auth.signOut()
-    // The listener will automatically set user to null
   }, [])
 
-  // Memoize the context value to prevent unnecessary re‑renders
   const value = useMemo(() => ({
     user,
     loading,

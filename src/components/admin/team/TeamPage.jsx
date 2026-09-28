@@ -2,7 +2,8 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import {
   Plus, Search, RefreshCw, X, Check, Loader2, Trash2, Camera,
-  UserPlus, Users, Award, TrendingUp, Mail, Phone, Edit2, User, Wallet,
+  UserPlus, Users, Award, TrendingUp, Edit2, User,
+  Calendar,
 } from 'lucide-react'
 import toast from 'react-hot-toast'
 import { Button } from '@/components/ui/button'
@@ -38,23 +39,23 @@ const TIER_LADDER = [
 
 function getTierInfo(count) {
   const c = Number(count) || 0
-  for (const t of TIER_LADDER) {
-    if (c >= t.min && c <= t.max) return t
-  }
+  for (const t of TIER_LADDER) if (c >= t.min && c <= t.max) return t
   return TIER_LADDER[0]
 }
-
 function nextTierInfo(count) {
   const c = Number(count) || 0
-  for (const t of TIER_LADDER) {
-    if (c < t.min) return t
-  }
+  for (const t of TIER_LADDER) if (c < t.min) return t
   return null
 }
 
 // ============================================================
 // HELPERS
 // ============================================================
+function initials(name) {
+  if (!name) return '?'
+  return name.trim().split(/\s+/).slice(0, 2).map((p) => p[0]?.toUpperCase() || '').join('') || '?'
+}
+
 const AVATAR_COLORS = [
   ['bg-blue-100', 'text-blue-700', 'dark:bg-blue-900/40', 'dark:text-blue-300'],
   ['bg-emerald-100', 'text-emerald-700', 'dark:bg-emerald-900/40', 'dark:text-emerald-300'],
@@ -65,12 +66,6 @@ const AVATAR_COLORS = [
   ['bg-amber-100', 'text-amber-700', 'dark:bg-amber-900/40', 'dark:text-amber-300'],
   ['bg-indigo-100', 'text-indigo-700', 'dark:bg-indigo-900/40', 'dark:text-indigo-300'],
 ]
-
-function initials(name) {
-  if (!name) return '?'
-  return name.trim().split(/\s+/).slice(0, 2).map((p) => p[0]?.toUpperCase() || '').join('') || '?'
-}
-
 function avatarColor(seed) {
   if (!seed) return AVATAR_COLORS[0]
   let hash = 0
@@ -78,12 +73,35 @@ function avatarColor(seed) {
   return AVATAR_COLORS[Math.abs(hash) % AVATAR_COLORS.length]
 }
 
+function formatDateShort(d) {
+  if (!d) return '—'
+  return new Date(d).toLocaleDateString('en-PH', { month: 'short', day: 'numeric' })
+}
+
+function deriveBookingStatus(b) {
+  if (b.completed_at) return 'completed'
+  const t = new Date(); t.setHours(0, 0, 0, 0)
+  const ci = b.check_in ? new Date(b.check_in) : null
+  const co = b.check_out ? new Date(b.check_out) : null
+  if (ci) ci.setHours(0, 0, 0, 0)
+  if (co) co.setHours(0, 0, 0, 0)
+  if (!ci || !co) return 'upcoming'
+  if (ci > t) return 'upcoming'
+  if (ci <= t && co >= t) return 'active'
+  return 'needs-action'
+}
+
+const BOOKING_STATUS_BADGE = {
+  upcoming: { label: 'Upcoming', className: 'bg-blue-600 text-white border-0' },
+  active: { label: 'Active', className: 'bg-emerald-600 text-white border-0' },
+  'needs-action': { label: 'Needs Action', className: 'bg-amber-600 text-white border-0' },
+  completed: { label: 'Completed', className: 'bg-gray-500 text-white border-0' },
+}
+
 function WorkerAvatar({ name, photo_url, size = 'md' }) {
   const [bg, text, dbg, dtext] = avatarColor(name)
   const sizeClasses = size === 'lg' ? 'w-16 h-16 text-lg' : size === 'sm' ? 'w-8 h-8 text-[11px]' : 'w-10 h-10 text-sm'
-  if (photo_url) {
-    return <img src={photo_url} alt={name} className={cn('rounded-full object-cover flex-shrink-0', sizeClasses)} />
-  }
+  if (photo_url) return <img src={photo_url} alt={name} className={cn('rounded-full object-cover flex-shrink-0', sizeClasses)} />
   return (
     <div className={cn('rounded-full flex items-center justify-center font-semibold flex-shrink-0', sizeClasses, bg, text, dbg, dtext)}>
       {initials(name)}
@@ -103,15 +121,12 @@ function TierBadge({ count }) {
 // ============================================================
 // SECTION CARD
 // ============================================================
-function SectionCard({ title, icon: Icon, children, className, action }) {
+function SectionCard({ title, icon: Icon, children, className }) {
   return (
     <div className={cn('rounded-md bg-card border border-border overflow-hidden', className)}>
-      <div className="flex items-center justify-between gap-2 px-3 py-2 border-b border-border bg-muted/30">
-        <div className="flex items-center gap-2 min-w-0">
-          {Icon && <Icon size={13} className="text-muted-foreground flex-shrink-0" />}
-          <h4 className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground truncate">{title}</h4>
-        </div>
-        {action}
+      <div className="flex items-center gap-2 px-3 py-2 border-b border-border bg-muted/30">
+        {Icon && <Icon size={13} className="text-muted-foreground flex-shrink-0" />}
+        <h4 className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground">{title}</h4>
       </div>
       <div className="p-3 space-y-0.5">{children}</div>
     </div>
@@ -165,7 +180,114 @@ function EditableField({ label, value, type = 'text', onSave }) {
 }
 
 // ============================================================
-// ADD / EDIT WORKER MODAL
+// WORKER BOOKINGS — matches by CODE
+// ============================================================
+function WorkerBookingsSection({ worker, role, onCountChange }) {
+  const [bookings, setBookings] = useState([])
+  const [loading, setLoading] = useState(true)
+  const [error, setError] = useState(null)
+
+  useEffect(() => {
+    let cancelled = false
+    async function load() {
+      setLoading(true)
+      setError(null)
+      try {
+        let query = supabase
+          .from('bookings')
+          .select('id, booking_code, guest_name, check_in, check_out, completed_at, payment_status, unit_id, units:unit_id ( unit_code, building )')
+          .order('check_in', { ascending: false })
+          .limit(50)
+
+        if (role === 'affiliates') {
+          query = query.eq('affiliate_code', worker.code)
+        } else if (role === 'specialists') {
+          query = query.eq('booker_code', worker.code)
+        } else {
+          if (!cancelled) { setBookings([]); onCountChange?.(0); setLoading(false) }
+          return
+        }
+
+        const { data, error: err } = await query
+        if (err) throw err
+        if (!cancelled) {
+          setBookings(data || [])
+          onCountChange?.(data?.length || 0)
+        }
+      } catch (err) {
+        console.error('WorkerBookingsSection query failed:', err)
+        if (!cancelled) {
+          setBookings([])
+          onCountChange?.(0)
+          setError(err?.message || 'Failed to load')
+        }
+      } finally {
+        if (!cancelled) setLoading(false)
+      }
+    }
+    load()
+    return () => { cancelled = true }
+  }, [worker.id, worker.code, role, onCountChange])
+
+  if (role === 'housekeepers') return null
+
+  const roleLabel = role === 'affiliates' ? 'Affiliate' : 'Booked by'
+
+  return (
+    <div className="rounded-md bg-card border border-border overflow-hidden">
+      <div className="flex items-center justify-between gap-2 px-3 py-2 border-b border-border bg-muted/30">
+        <div className="flex items-center gap-2 min-w-0">
+          <Calendar size={13} className="text-muted-foreground flex-shrink-0" />
+          <h4 className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground truncate">
+            Bookings {!loading && !error && `· ${bookings.length}`}
+          </h4>
+        </div>
+        <span className="text-[10px] text-muted-foreground">{roleLabel}</span>
+      </div>
+
+      <div className="p-2 max-h-[320px] overflow-y-auto">
+        {loading ? (
+          <div className="py-4 text-center text-xs text-muted-foreground">Loading…</div>
+        ) : error ? (
+          <div className="py-4 text-center text-xs text-red-500 px-2">Error: {error}</div>
+        ) : bookings.length === 0 ? (
+          <div className="py-4 text-center text-xs text-muted-foreground">No bookings yet</div>
+        ) : (
+          <div className="space-y-1">
+            {bookings.map((b) => {
+              const status = deriveBookingStatus(b)
+              const config = BOOKING_STATUS_BADGE[status] || BOOKING_STATUS_BADGE.upcoming
+              return (
+                <div key={b.id} className="flex items-center gap-2 px-2 py-1.5 rounded-md border border-border bg-background">
+                  <div className="min-w-0 flex-1">
+                    <div className="flex items-center gap-2 min-w-0">
+                      <span className="font-mono text-[11px] font-semibold text-foreground truncate">{b.booking_code}</span>
+                      <span className="text-[11px] text-muted-foreground truncate">{b.guest_name}</span>
+                    </div>
+                    <div className="flex items-center gap-2 mt-0.5">
+                      <span className="text-[10px] tabular-nums text-muted-foreground">
+                        {formatDateShort(b.check_in)} → {formatDateShort(b.check_out)}
+                      </span>
+                      {b.units?.unit_code && (
+                        <span className="text-[10px] text-muted-foreground/70 truncate">· {b.units.unit_code}</span>
+                      )}
+                    </div>
+                  </div>
+                  <Badge className={cn('text-[10px] font-semibold rounded-full px-2 py-0.5 flex-shrink-0', config.className)}>
+                    {config.label}
+                  </Badge>
+                </div>
+              )
+            })}
+          </div>
+        )}
+      </div>
+    </div>
+  )
+}
+
+// ============================================================
+// WORKER FORM MODAL
 // ============================================================
 function WorkerFormModal({ open, onClose, onSaved, role, editing }) {
   const [form, setForm] = useState({ code: '', name: '', email: '', phone: '', notes: '' })
@@ -175,10 +297,6 @@ function WorkerFormModal({ open, onClose, onSaved, role, editing }) {
 
   const isSpecialist = role === 'specialists'
   const isAffiliate = role === 'affiliates'
-  const isHousekeeper = role === 'housekeepers'
-
-  const tableName = role
-  const bucketName = 'team-photos'
 
   useEffect(() => {
     if (!open) return
@@ -212,22 +330,17 @@ function WorkerFormModal({ open, onClose, onSaved, role, editing }) {
   const handleSubmit = async () => {
     if (!form.code.trim()) { toast.error('Code is required'); return }
     if (!form.name.trim()) { toast.error('Name is required'); return }
-
     setSaving(true)
     try {
       let photoUrl = editing?.photo_url || null
-
       if (photoFile) {
         const ext = photoFile.name.split('.').pop() || 'jpg'
         const path = `${role}/${form.code.toUpperCase()}_${Date.now()}.${ext}`
-        const { error: upErr } = await supabase.storage
-          .from(bucketName)
-          .upload(path, photoFile, { cacheControl: '3600', upsert: true })
+        const { error: upErr } = await supabase.storage.from('team-photos').upload(path, photoFile, { cacheControl: '3600', upsert: true })
         if (upErr) throw upErr
-        const { data } = supabase.storage.from(bucketName).getPublicUrl(path)
+        const { data } = supabase.storage.from('team-photos').getPublicUrl(path)
         photoUrl = data.publicUrl
       }
-
       const payload = {
         code: form.code.trim().toUpperCase(),
         name: form.name.trim(),
@@ -236,14 +349,13 @@ function WorkerFormModal({ open, onClose, onSaved, role, editing }) {
         notes: form.notes.trim() || null,
         photo_url: photoUrl,
       }
-
       if (editing) {
-        const { error } = await supabase.from(tableName).update(payload).eq('id', editing.id)
+        const { error } = await supabase.from(role).update(payload).eq('id', editing.id)
         if (error) throw error
         logAudit(`UPDATE_${role.toUpperCase()}`, role, editing.id, { code: payload.code }).catch(() => {})
         toast.success('Updated')
       } else {
-        const { error } = await supabase.from(tableName).insert(payload)
+        const { error } = await supabase.from(role).insert(payload)
         if (error) throw error
         logAudit(`CREATE_${role.toUpperCase()}`, role, null, { code: payload.code }).catch(() => {})
         toast.success('Created')
@@ -274,7 +386,6 @@ function WorkerFormModal({ open, onClose, onSaved, role, editing }) {
           <h2 className="text-sm font-bold text-foreground">{title}</h2>
           <button onClick={onClose} className="p-1 rounded hover:bg-muted transition-colors"><X size={16} /></button>
         </div>
-
         <div className="flex-1 overflow-y-auto px-5 py-4 space-y-4">
           <div className="flex items-center gap-4">
             <div className="relative">
@@ -290,17 +401,14 @@ function WorkerFormModal({ open, onClose, onSaved, role, editing }) {
             </div>
             <p className="text-xs text-muted-foreground">Upload a profile photo</p>
           </div>
-
           <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
             <div><label className={labelClass}>Code *</label><Input value={form.code} onChange={(e) => setField('code', e.target.value)} className={cn(inputClass, 'font-mono uppercase')} /></div>
             <div><label className={labelClass}>Name *</label><Input value={form.name} onChange={(e) => setField('name', e.target.value)} className={inputClass} autoFocus /></div>
             <div><label className={labelClass}>Email</label><Input type="email" value={form.email} onChange={(e) => setField('email', e.target.value)} className={inputClass} /></div>
             <div><label className={labelClass}>Phone</label><Input type="tel" value={form.phone} onChange={(e) => setField('phone', e.target.value)} className={inputClass} /></div>
           </div>
-
           <div><label className={labelClass}>Notes</label><Textarea value={form.notes} onChange={(e) => setField('notes', e.target.value)} rows={2} className="text-xs rounded resize-none" /></div>
         </div>
-
         <div className="flex items-center justify-end gap-2 px-5 py-3 border-t border-border bg-muted/30">
           <Button variant="outline" size="sm" className="h-8 rounded text-xs" onClick={onClose} disabled={saving}>Cancel</Button>
           <Button size="sm" className="h-8 rounded text-xs" onClick={handleSubmit} disabled={saving} style={{ backgroundColor: BRAND }}>
@@ -314,10 +422,12 @@ function WorkerFormModal({ open, onClose, onSaved, role, editing }) {
 }
 
 // ============================================================
-// DETAIL PANEL (right side)
+// DETAIL PANEL — live count, tier from bookings
 // ============================================================
 function DetailPanel({ worker, role, onClose, onChanged, onEdit, onDelete }) {
+  const [liveCount, setLiveCount] = useState(0)
   if (!worker) return null
+
   const isAffiliate = role === 'affiliates'
   const isHousekeeper = role === 'housekeepers'
 
@@ -328,132 +438,116 @@ function DetailPanel({ worker, role, onClose, onChanged, onEdit, onDelete }) {
     onChanged({ ...worker, [field]: value })
   }
 
-  const tierInfo = getTierInfo(worker.commission_count)
-  const nextTier = nextTierInfo(worker.commission_count)
+  const tierInfo = getTierInfo(liveCount)
+  const nextTier = nextTierInfo(liveCount)
 
   return (
     <motion.div
       key={worker.id}
-      initial={{ x: 400, opacity: 0 }}
-      animate={{ x: 0, opacity: 1 }}
-      exit={{ x: 400, opacity: 0 }}
-      transition={{ type: 'spring', stiffness: 300, damping: 30 }}
-      className="w-full max-w-md bg-card border-l border-border flex flex-col h-full overflow-hidden"
+      initial={{ width: 0, opacity: 0 }}
+      animate={{ width: 420, opacity: 1 }}
+      exit={{ width: 0, opacity: 0 }}
+      transition={{
+        width: { duration: 0.3, ease: [0.4, 0, 0.2, 1] },
+        opacity: { duration: 0.2, ease: 'easeOut' },
+      }}
+      className="bg-card border-l border-border h-full overflow-hidden flex-shrink-0"
+      style={{ maxWidth: '100%' }}
     >
-      {/* Header */}
-      <div className="flex-shrink-0 px-5 py-4 border-b border-border bg-muted/30">
-        <div className="flex items-start gap-3">
-          <WorkerAvatar name={worker.name} photo_url={worker.photo_url} size="lg" />
-          <div className="min-w-0 flex-1">
-            <p className="text-base font-bold text-foreground truncate">{worker.name}</p>
-            <p className="text-[11px] font-mono text-muted-foreground">{worker.code}</p>
-            <div className="flex items-center gap-2 mt-2 flex-wrap">
-              <span className={cn('inline-flex items-center px-2 py-0.5 rounded text-[10px] font-bold uppercase', worker.status === 'active' ? 'bg-emerald-600 text-white' : 'bg-gray-500 text-white')}>{worker.status}</span>
-              {!isHousekeeper && <TierBadge count={worker.commission_count} />}
+      <div className="flex flex-col h-full" style={{ width: 420 }}>
+        <div className="flex-shrink-0 px-5 py-4 border-b border-border bg-muted/30">
+          <div className="flex items-start gap-3">
+            <WorkerAvatar name={worker.name} photo_url={worker.photo_url} size="lg" />
+            <div className="min-w-0 flex-1">
+              <p className="text-base font-bold text-foreground truncate">{worker.name}</p>
+              <p className="text-[11px] font-mono text-muted-foreground">{worker.code}</p>
+              <div className="flex items-center gap-2 mt-2 flex-wrap">
+                <span className={cn('inline-flex items-center px-2 py-0.5 rounded text-[10px] font-bold uppercase', worker.status === 'active' ? 'bg-emerald-600 text-white' : 'bg-gray-500 text-white')}>{worker.status}</span>
+                {!isHousekeeper && <TierBadge count={liveCount} />}
+              </div>
             </div>
+            <button onClick={onClose} className="p-1 rounded hover:bg-muted text-muted-foreground flex-shrink-0"><X size={16} /></button>
           </div>
-          <button onClick={onClose} className="p-1 rounded hover:bg-muted text-muted-foreground flex-shrink-0"><X size={16} /></button>
         </div>
-      </div>
 
-      {/* Body */}
-      <div className="flex-1 overflow-y-auto p-4 space-y-3">
+        <div className="flex-1 overflow-y-auto p-4 space-y-3">
 
-        {/* Stats */}
-        {!isHousekeeper && (
-          <SectionCard title="Stats" icon={TrendingUp}>
-            <div className="space-y-1 text-xs">
-              <div className="flex justify-between">
-                <span className="text-muted-foreground">{isAffiliate ? 'Bookings referred' : 'Bookings handled'}</span>
-                <span className="font-semibold tabular-nums">{worker.commission_count || 0}</span>
+          <WorkerBookingsSection worker={worker} role={role} onCountChange={setLiveCount} />
+
+          {!isHousekeeper && (
+            <SectionCard title="Stats" icon={TrendingUp}>
+              <div className="space-y-1 text-xs">
+                <div className="flex justify-between">
+                  <span className="text-muted-foreground">{isAffiliate ? 'Bookings referred' : 'Bookings handled'}</span>
+                  <span className="font-semibold tabular-nums">{liveCount}</span>
+                </div>
+                <div className="flex justify-between">
+                  <span className="text-muted-foreground">Current tier</span>
+                  <span className="font-semibold">{tierInfo.tier} · {tierInfo.rate}%</span>
+                </div>
+                {nextTier && (
+                  <>
+                    <div className="flex justify-between pt-1 border-t border-border">
+                      <span className="text-muted-foreground">Next tier</span>
+                      <span className="font-semibold">{nextTier.tier} · {nextTier.rate}%</span>
+                    </div>
+                    <div className="flex justify-between">
+                      <span className="text-muted-foreground">Needed</span>
+                      <span className="font-semibold tabular-nums">{Math.max(0, nextTier.min - liveCount)} more</span>
+                    </div>
+                  </>
+                )}
               </div>
-              <div className="flex justify-between">
-                <span className="text-muted-foreground">Current tier</span>
-                <span className="font-semibold">{tierInfo.tier} · {tierInfo.rate}%</span>
+            </SectionCard>
+          )}
+
+          <SectionCard title="Contact" icon={User}>
+            <EditableField label="Name" value={worker.name} onSave={(v) => updateField('name', v)} />
+            <EditableField label="Code" value={worker.code} onSave={(v) => updateField('code', v)} />
+            <EditableField label="Email" value={worker.email} type="email" onSave={(v) => updateField('email', v)} />
+            <EditableField label="Phone" value={worker.phone} type="tel" onSave={(v) => updateField('phone', v)} />
+            <div className="flex items-center gap-2 py-0.5">
+              <span className="text-[10px] uppercase tracking-wider text-muted-foreground font-semibold min-w-[72px] flex-shrink-0">Status</span>
+              <div className="flex-1">
+                <Select value={worker.status || 'active'} onValueChange={async (v) => {
+                  try { await updateField('status', v); toast.success('Status updated') }
+                  catch { toast.error('Failed to update') }
+                }}>
+                  <SelectTrigger className="h-7 text-xs rounded"><SelectValue /></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="active" className="text-xs">Active</SelectItem>
+                    <SelectItem value="inactive" className="text-xs">Inactive</SelectItem>
+                  </SelectContent>
+                </Select>
               </div>
-              {nextTier && (
-                <>
-                  <div className="flex justify-between pt-1 border-t border-border">
-                    <span className="text-muted-foreground">Next tier</span>
-                    <span className="font-semibold">{nextTier.tier} · {nextTier.rate}%</span>
-                  </div>
-                  <div className="flex justify-between">
-                    <span className="text-muted-foreground">Needed</span>
-                    <span className="font-semibold tabular-nums">{Math.max(0, nextTier.min - (worker.commission_count || 0))} more</span>
-                  </div>
-                </>
-              )}
             </div>
           </SectionCard>
-        )}
 
-        {/* Contact */}
-        <SectionCard title="Contact" icon={User}>
-          <EditableField label="Name" value={worker.name} onSave={(v) => updateField('name', v)} />
-          <EditableField label="Code" value={worker.code} onSave={(v) => updateField('code', v)} />
-          <EditableField label="Email" value={worker.email} type="email" onSave={(v) => updateField('email', v)} />
-          <EditableField label="Phone" value={worker.phone} type="tel" onSave={(v) => updateField('phone', v)} />
-          <div className="flex items-center gap-2 py-0.5">
-            <span className="text-[10px] uppercase tracking-wider text-muted-foreground font-semibold min-w-[72px] flex-shrink-0">Status</span>
-            <div className="flex-1">
-              <Select value={worker.status || 'active'} onValueChange={async (v) => {
-                try {
-                  await updateField('status', v)
-                  toast.success('Status updated')
-                } catch (err) { toast.error('Failed to update') }
-              }}>
-                <SelectTrigger className="h-7 text-xs rounded"><SelectValue /></SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="active" className="text-xs">Active</SelectItem>
-                  <SelectItem value="inactive" className="text-xs">Inactive</SelectItem>
-                </SelectContent>
-              </Select>
-            </div>
-          </div>
-        </SectionCard>
-
-        {/* Count override for testing */}
-        {!isHousekeeper && (
-          <SectionCard title="Commission Count (manual override)" icon={Wallet}>
-            <EditableField
-              label="Count"
-              value={String(worker.commission_count || 0)}
-              type="number"
-              onSave={(v) => updateField('commission_count', Number(v) || 0)}
+          <SectionCard title="Notes" icon={Edit2}>
+            <Textarea
+              key={worker.id}
+              defaultValue={worker.notes || ''}
+              onBlur={async (e) => {
+                if (e.target.value === (worker.notes || '')) return
+                try { await updateField('notes', e.target.value || null); toast.success('Notes saved') }
+                catch { toast.error('Failed to save') }
+              }}
+              rows={3}
+              className="text-xs rounded resize-none w-full"
+              placeholder="Add notes..."
             />
           </SectionCard>
-        )}
 
-        {/* Notes */}
-        <SectionCard title="Notes" icon={Edit2}>
-          <Textarea
-            defaultValue={worker.notes || ''}
-            onBlur={async (e) => {
-              if (e.target.value === (worker.notes || '')) return
-              try { await updateField('notes', e.target.value || null); toast.success('Notes saved') }
-              catch { toast.error('Failed to save') }
-            }}
-            rows={3}
-            className="text-xs rounded resize-none w-full"
-            placeholder="Add notes..."
-          />
-        </SectionCard>
+        </div>
 
-        {/* Recent activity placeholder */}
-        <SectionCard title="Recent Activity" icon={TrendingUp}>
-          <p className="text-xs text-muted-foreground italic py-2">Activity feed coming soon</p>
-        </SectionCard>
-
-      </div>
-
-      {/* Actions */}
-      <div className="flex-shrink-0 px-4 py-3 border-t border-border bg-muted/30 flex items-center justify-end gap-2">
-        <Button variant="outline" size="sm" className="h-7 rounded text-[11px] gap-1.5" onClick={onEdit}>
-          <Edit2 size={11} /> Edit
-        </Button>
-        <Button variant="outline" size="sm" className="h-7 rounded text-[11px] gap-1.5 text-red-600 border-red-200 hover:bg-red-50 dark:text-red-400 dark:border-red-800 dark:hover:bg-red-900/20" onClick={onDelete}>
-          <Trash2 size={11} /> Delete
-        </Button>
+        <div className="flex-shrink-0 px-4 py-3 border-t border-border bg-muted/30 flex items-center justify-end gap-2">
+          <Button variant="outline" size="sm" className="h-7 rounded text-[11px] gap-1.5" onClick={onEdit}>
+            <Edit2 size={11} /> Edit
+          </Button>
+          <Button variant="outline" size="sm" className="h-7 rounded text-[11px] gap-1.5 text-red-600 border-red-200 hover:bg-red-50 dark:text-red-400 dark:border-red-800 dark:hover:bg-red-900/20" onClick={onDelete}>
+            <Trash2 size={11} /> Delete
+          </Button>
+        </div>
       </div>
     </motion.div>
   )
@@ -465,6 +559,7 @@ function DetailPanel({ worker, role, onClose, onChanged, onEdit, onDelete }) {
 export default function TeamPage() {
   const [activeTab, setActiveTab] = useState('specialists')
   const [data, setData] = useState({ specialists: [], affiliates: [], housekeepers: [] })
+  const [bookingCounts, setBookingCounts] = useState({ specialists: {}, affiliates: {} })
   const [loading, setLoading] = useState(true)
   const [refreshing, setRefreshing] = useState(false)
   const [search, setSearch] = useState('')
@@ -497,23 +592,39 @@ export default function TeamPage() {
       console.error('Failed to load team:', err)
       toast.error('Failed to load team')
     } finally {
-      setLoading(false)
-      setRefreshing(false)
-      hasLoadedOnce.current = true
+      setLoading(false); setRefreshing(false); hasLoadedOnce.current = true
     }
   }, [])
 
-  useEffect(() => { fetchAll() }, [fetchAll])
+  const fetchBookingCounts = useCallback(async () => {
+    try {
+      const { data: rows, error } = await supabase
+        .from('bookings')
+        .select('booker_code, affiliate_code')
+      if (error) throw error
+      const bySpecialist = {}
+      const byAffiliate = {}
+      for (const b of rows || []) {
+        if (b.booker_code) bySpecialist[b.booker_code] = (bySpecialist[b.booker_code] || 0) + 1
+        if (b.affiliate_code) byAffiliate[b.affiliate_code] = (byAffiliate[b.affiliate_code] || 0) + 1
+      }
+      setBookingCounts({ specialists: bySpecialist, affiliates: byAffiliate })
+    } catch (err) {
+      console.error('Failed to load booking counts:', err)
+    }
+  }, [])
 
-  // Realtime
+  useEffect(() => { fetchAll(); fetchBookingCounts() }, [fetchAll, fetchBookingCounts])
+
   useEffect(() => {
     const chs = [
       supabase.channel('team-specialists').on('postgres_changes', { event: '*', schema: 'public', table: 'specialists' }, () => fetchAll()).subscribe(),
       supabase.channel('team-affiliates').on('postgres_changes', { event: '*', schema: 'public', table: 'affiliates' }, () => fetchAll()).subscribe(),
       supabase.channel('team-housekeepers').on('postgres_changes', { event: '*', schema: 'public', table: 'housekeepers' }, () => fetchAll()).subscribe(),
+      supabase.channel('team-bookings').on('postgres_changes', { event: '*', schema: 'public', table: 'bookings' }, () => fetchBookingCounts()).subscribe(),
     ]
     return () => { chs.forEach((c) => supabase.removeChannel(c)) }
-  }, [fetchAll])
+  }, [fetchAll, fetchBookingCounts])
 
   const activeList = data[activeTab] || []
 
@@ -528,7 +639,13 @@ export default function TeamPage() {
     )
   }, [activeList, debouncedSearch])
 
-  const handleSelect = (worker) => setSelected(worker)
+  const liveCountFor = (worker) => {
+    if (activeTab === 'specialists') return bookingCounts.specialists[worker.code] || 0
+    if (activeTab === 'affiliates') return bookingCounts.affiliates[worker.code] || 0
+    return 0
+  }
+
+  const handleSelect = (worker) => setSelected((prev) => (prev?.id === worker.id ? null : worker))
 
   const handleChanged = (updated) => {
     setData((prev) => ({
@@ -539,9 +656,7 @@ export default function TeamPage() {
   }
 
   const handleDelete = async (worker) => {
-    const confirmed = window.confirm(
-      `Delete "${worker.name}" (${worker.code})?\n\nThis cannot be undone.`
-    )
+    const confirmed = window.confirm(`Delete "${worker.name}" (${worker.code})?\n\nThis cannot be undone.`)
     if (!confirmed) return
     try {
       const { error } = await supabase.from(activeTab).delete().eq('id', worker.id)
@@ -561,20 +676,16 @@ export default function TeamPage() {
 
   return (
     <div className="h-full flex min-h-0">
-      {/* Left: list */}
       <div className="flex-1 min-h-0 flex flex-col overflow-hidden bg-card border border-border rounded-md">
         <div className="p-3 flex-1 min-h-0 flex flex-col gap-2.5">
 
-          {/* Tabs + Toolbar */}
           <div className="flex-shrink-0 flex items-center gap-2 flex-wrap">
             <div className="relative flex bg-muted/60 rounded-full p-1 gap-1">
               {TABS.map((tab) => {
                 const count = (data[tab.id] || []).length
                 const isActive = activeTab === tab.id
                 return (
-                  <button
-                    key={tab.id}
-                    type="button"
+                  <button key={tab.id} type="button"
                     onClick={() => { setActiveTab(tab.id); setSelected(null) }}
                     className={cn(
                       'flex items-center gap-2 px-3 py-1.5 rounded-full text-[11px] font-semibold transition-colors',
@@ -599,12 +710,11 @@ export default function TeamPage() {
               <span className="hidden sm:inline ml-1">New</span>
             </Button>
 
-            <Button variant="outline" size="sm" onClick={fetchAll} disabled={refreshing} className="h-8 rounded">
+            <Button variant="outline" size="sm" onClick={() => { fetchAll(); fetchBookingCounts() }} disabled={refreshing} className="h-8 rounded">
               <RefreshCw size={13} className={cn(refreshing && 'animate-spin')} />
             </Button>
           </div>
 
-          {/* Table */}
           <div className="flex-1 min-h-0 rounded border border-border overflow-hidden">
             <div className="h-full overflow-y-auto">
               {loading ? (
@@ -624,7 +734,7 @@ export default function TeamPage() {
                       <th className="text-left text-[10px] font-bold uppercase tracking-wider text-muted-foreground px-4 py-2.5">Worker</th>
                       <th className="text-left text-[10px] font-bold uppercase tracking-wider text-muted-foreground px-4 py-2.5">Code</th>
                       <th className="text-left text-[10px] font-bold uppercase tracking-wider text-muted-foreground px-4 py-2.5">Email / Phone</th>
-                      {activeTab !== 'housekeepers' && <th className="text-center text-[10px] font-bold uppercase tracking-wider text-muted-foreground px-4 py-2.5">Count</th>}
+                      {activeTab !== 'housekeepers' && <th className="text-center text-[10px] font-bold uppercase tracking-wider text-muted-foreground px-4 py-2.5">Bookings</th>}
                       {activeTab !== 'housekeepers' && <th className="text-center text-[10px] font-bold uppercase tracking-wider text-muted-foreground px-4 py-2.5">Tier</th>}
                       <th className="text-center text-[10px] font-bold uppercase tracking-wider text-muted-foreground px-4 py-2.5">Status</th>
                     </tr>
@@ -632,14 +742,13 @@ export default function TeamPage() {
                   <tbody>
                     {filtered.map((worker) => {
                       const isSelected = selected?.id === worker.id
+                      const liveCount = liveCountFor(worker)
                       return (
                         <tr
                           key={worker.id}
                           onClick={() => handleSelect(worker)}
-                          className={cn(
-                            'border-b border-border cursor-pointer transition-colors',
-                            isSelected ? 'bg-[#2d568e]/10' : 'hover:bg-muted/50'
-                          )}
+                          className={cn('border-b border-border cursor-pointer transition-colors',
+                            isSelected ? 'bg-[#2d568e]/10' : 'hover:bg-muted/50')}
                         >
                           <td className="px-4 py-2.5">
                             <div className="flex items-center gap-3">
@@ -653,10 +762,10 @@ export default function TeamPage() {
                             {worker.phone && <span className="block text-[10px]">{worker.phone}</span>}
                           </td>
                           {activeTab !== 'housekeepers' && (
-                            <td className="px-4 py-2.5 text-center tabular-nums text-xs text-foreground font-semibold">{worker.commission_count || 0}</td>
+                            <td className="px-4 py-2.5 text-center tabular-nums text-xs text-foreground font-semibold">{liveCount}</td>
                           )}
                           {activeTab !== 'housekeepers' && (
-                            <td className="px-4 py-2.5 text-center"><TierBadge count={worker.commission_count} /></td>
+                            <td className="px-4 py-2.5 text-center"><TierBadge count={liveCount} /></td>
                           )}
                           <td className="px-4 py-2.5 text-center">
                             <span className={cn('inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-bold uppercase', worker.status === 'active' ? 'bg-emerald-600 text-white' : 'bg-gray-500 text-white')}>
@@ -674,10 +783,10 @@ export default function TeamPage() {
         </div>
       </div>
 
-      {/* Right: detail pane */}
-      <AnimatePresence>
+      <AnimatePresence initial={false}>
         {selected && (
           <DetailPanel
+            key={selected.id}
             worker={selected}
             role={activeTab}
             onClose={() => setSelected(null)}
@@ -688,7 +797,6 @@ export default function TeamPage() {
         )}
       </AnimatePresence>
 
-      {/* Form modal */}
       <WorkerFormModal
         open={formOpen}
         onClose={() => { setFormOpen(false); setEditing(null) }}

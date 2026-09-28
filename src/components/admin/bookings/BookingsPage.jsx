@@ -61,27 +61,14 @@ const PAYMENT_STATUS_CONFIG = {
   paid: { label: 'Paid', className: 'bg-emerald-600 text-white hover:bg-emerald-600 border-0' },
 }
 
-// Row grid — 6 columns + trailing status column (fixed width)
 const ROW_GRID = 'grid grid-cols-[1.4fr_1fr_1.2fr_1.1fr_1fr_160px] gap-4 items-center'
-
 const PANEL_WIDTH = 448
 
 // ============================================================
 // HELPERS
 // ============================================================
-function today() {
-  const d = new Date()
-  d.setHours(0, 0, 0, 0)
-  return d
-}
-
-function parseDateOnly(d) {
-  if (!d) return null
-  const dt = new Date(d)
-  dt.setHours(0, 0, 0, 0)
-  return dt
-}
-
+function today() { const d = new Date(); d.setHours(0, 0, 0, 0); return d }
+function parseDateOnly(d) { if (!d) return null; const dt = new Date(d); dt.setHours(0, 0, 0, 0); return dt }
 function deriveBookingStatus(b) {
   if (b.completed_at) return 'completed'
   const t = today()
@@ -92,42 +79,23 @@ function deriveBookingStatus(b) {
   if (ci <= t && co >= t) return 'active'
   return 'needs-action'
 }
-
-function formatDate(d) {
-  if (!d) return '—'
-  const dt = new Date(d)
-  return dt.toLocaleDateString('en-PH', { month: 'short', day: 'numeric', year: 'numeric' })
-}
-
-function formatDateShort(d) {
-  if (!d) return '—'
-  const dt = new Date(d)
-  return dt.toLocaleDateString('en-PH', { month: 'short', day: 'numeric' })
-}
-
-function formatMoney(n) {
-  const v = Number(n || 0)
-  return `₱${v.toLocaleString('en-PH', { minimumFractionDigits: 0, maximumFractionDigits: 2 })}`
-}
-
+function formatDate(d) { if (!d) return '—'; return new Date(d).toLocaleDateString('en-PH', { month: 'short', day: 'numeric', year: 'numeric' }) }
+function formatDateShort(d) { if (!d) return '—'; return new Date(d).toLocaleDateString('en-PH', { month: 'short', day: 'numeric' }) }
+function formatMoney(n) { const v = Number(n || 0); return `₱${v.toLocaleString('en-PH', { minimumFractionDigits: 0, maximumFractionDigits: 2 })}` }
 function computeNights(checkIn, checkOut) {
   if (!checkIn || !checkOut) return 0
-  const a = parseDateOnly(checkIn)
-  const b = parseDateOnly(checkOut)
+  const a = parseDateOnly(checkIn), b = parseDateOnly(checkOut)
   return Math.max(0, Math.round((b - a) / 86400000))
 }
-
 function generateBookingCode() {
   const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789'
   let s = ''
   for (let i = 0; i < 8; i++) s += chars[Math.floor(Math.random() * chars.length)]
   return `BK-${s}`
 }
-
 function unitLabel(u) {
   if (!u) return '—'
-  const b = u.building || ''
-  const c = u.unit_code || ''
+  const b = u.building || '', c = u.unit_code || ''
   if (b && c) return `${b} — ${c}`
   return c || b || '—'
 }
@@ -190,13 +158,8 @@ function SummaryCards({ bookings }) {
   return (
     <div className="grid grid-cols-2 md:grid-cols-2 lg:grid-cols-4 gap-3">
       {cards.map((card, i) => (
-        <motion.div
-          key={card.label}
-          initial={{ opacity: 0, y: 8 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ delay: i * 0.05, duration: 0.25 }}
-          className="rounded-md bg-card border border-border p-4"
-        >
+        <motion.div key={card.label} initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: i * 0.05, duration: 0.25 }}
+          className="rounded-md bg-card border border-border p-4">
           <div className="flex items-center gap-2 mb-2">
             <card.icon size={15} className="text-muted-foreground" />
             <span className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">{card.label}</span>
@@ -259,10 +222,8 @@ function EditableField({ label, value, type = 'text', onSave, auditTag }) {
       if (auditTag) logAudit(`UPDATE_BOOKING_FIELD:${auditTag}`, 'bookings', null, { field: auditTag, from: value, to: next }).catch(() => {})
       setTimeout(() => setStatus('idle'), 1200)
     } catch (err) {
-      console.error(err)
-      toast.error(err?.message || 'Save failed')
-      setDraft(value ?? '')
-      setStatus('idle')
+      console.error(err); toast.error(err?.message || 'Save failed')
+      setDraft(value ?? ''); setStatus('idle')
     }
   }
   const cancel = () => setDraft(value ?? '')
@@ -271,91 +232,15 @@ function EditableField({ label, value, type = 'text', onSave, auditTag }) {
     <div className="flex items-center gap-2 py-0.5">
       <span className="text-[10px] uppercase tracking-wider text-muted-foreground font-semibold min-w-[72px] flex-shrink-0">{label}</span>
       <div className="flex items-center gap-1 flex-1 min-w-0">
-        <Input
-          type={type}
-          value={draft}
+        <Input type={type} value={draft}
           onChange={(e) => setDraft(e.target.value)}
           onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); e.target.blur() } if (e.key === 'Escape') { e.preventDefault(); cancel(); e.target.blur() } }}
           onBlur={commit}
           className={cn('h-7 text-xs rounded bg-background flex-1 transition-colors', !value && 'border-border', value && 'border-transparent hover:border-border')}
-          placeholder="—"
-        />
+          placeholder="—" />
         {status === 'saving' && <Loader2 size={11} className="flex-shrink-0 animate-spin text-primary" />}
         {status === 'saved' && <Check size={11} className="flex-shrink-0 text-emerald-500" />}
       </div>
-    </div>
-  )
-}
-
-// ============================================================
-// BOOKER COMBOBOX (custom, styled — replaces datalist)
-// ============================================================
-function BookerCombobox({ value, onChange, options, placeholder = 'e.g. Nelix' }) {
-  const [open, setOpen] = useState(false)
-  const [query, setQuery] = useState(value || '')
-  const wrapRef = useRef(null)
-
-  useEffect(() => { setQuery(value || '') }, [value])
-
-  useEffect(() => {
-    if (!open) return
-    const onDown = (e) => { if (wrapRef.current && !wrapRef.current.contains(e.target)) setOpen(false) }
-    const onKey = (e) => { if (e.key === 'Escape') setOpen(false) }
-    document.addEventListener('mousedown', onDown)
-    window.addEventListener('keydown', onKey)
-    return () => { document.removeEventListener('mousedown', onDown); window.removeEventListener('keydown', onKey) }
-  }, [open])
-
-  const filtered = useMemo(() => {
-    const q = (query || '').trim().toLowerCase()
-    if (!q) return options
-    return options.filter((o) => o.toLowerCase().includes(q))
-  }, [query, options])
-
-  const commit = () => {
-    onChange(query.trim())
-    setOpen(false)
-  }
-
-  return (
-    <div className="relative" ref={wrapRef}>
-      <Input
-        value={query}
-        onChange={(e) => { setQuery(e.target.value); setOpen(true) }}
-        onFocus={() => setOpen(true)}
-        onBlur={() => setTimeout(commit, 120)}
-        onKeyDown={(e) => {
-          if (e.key === 'Enter') { e.preventDefault(); commit(); e.target.blur() }
-          if (e.key === 'Escape') { e.preventDefault(); setOpen(false); e.target.blur() }
-        }}
-        placeholder={placeholder}
-        className="h-8 text-xs rounded"
-      />
-      <AnimatePresence>
-        {open && filtered.length > 0 && (
-          <motion.div
-            initial={{ opacity: 0, y: -4 }}
-            animate={{ opacity: 1, y: 0 }}
-            exit={{ opacity: 0, y: -4 }}
-            transition={{ duration: 0.12 }}
-            className="absolute left-0 right-0 top-full mt-1 z-30 bg-popover border border-border rounded-md shadow-lg max-h-48 overflow-y-auto"
-          >
-            {filtered.map((o) => (
-              <button
-                key={o}
-                type="button"
-                onMouseDown={(e) => { e.preventDefault(); onChange(o); setQuery(o); setOpen(false) }}
-                className={cn(
-                  'w-full text-left px-3 py-1.5 text-xs hover:bg-muted transition-colors',
-                  o === value && 'bg-muted/60 font-semibold text-primary'
-                )}
-              >
-                {o}
-              </button>
-            ))}
-          </motion.div>
-        )}
-      </AnimatePresence>
     </div>
   )
 }
@@ -366,19 +251,12 @@ function BookerCombobox({ value, onChange, options, placeholder = 'e.g. Nelix' }
 function WarningChip({ icon: Icon, label, count, active, onClick, children }) {
   return (
     <div className="relative">
-      <button
-        type="button"
-        onClick={onClick}
-        className={cn(
-          'inline-flex items-center gap-2 h-8 px-3 rounded-lg text-xs font-medium border transition-colors',
-          active ? 'bg-foreground text-background border-foreground' : 'bg-card text-foreground border-border hover:bg-muted'
-        )}
-      >
+      <button type="button" onClick={onClick}
+        className={cn('inline-flex items-center gap-2 h-8 px-3 rounded-lg text-xs font-medium border transition-colors',
+          active ? 'bg-foreground text-background border-foreground' : 'bg-card text-foreground border-border hover:bg-muted')}>
         <Icon size={13} className={active ? 'opacity-90' : 'opacity-60'} />
         <span>{label}</span>
-        <span className={cn('min-w-[20px] h-[18px] inline-flex items-center justify-center px-1.5 rounded text-[10px] font-semibold tabular-nums', active ? 'bg-background/20' : 'bg-muted')}>
-          {count}
-        </span>
+        <span className={cn('min-w-[20px] h-[18px] inline-flex items-center justify-center px-1.5 rounded text-[10px] font-semibold tabular-nums', active ? 'bg-background/20' : 'bg-muted')}>{count}</span>
       </button>
       {children}
     </div>
@@ -387,13 +265,8 @@ function WarningChip({ icon: Icon, label, count, active, onClick, children }) {
 
 function DropdownPanel({ title, subtitle, onClose, children }) {
   return (
-    <motion.div
-      initial={{ opacity: 0, y: -4 }}
-      animate={{ opacity: 1, y: 0 }}
-      exit={{ opacity: 0, y: -4 }}
-      transition={{ duration: 0.12 }}
-      className="absolute right-0 top-full mt-2 w-[420px] max-h-[520px] bg-popover border border-border rounded-lg shadow-lg z-50 overflow-hidden flex flex-col"
-    >
+    <motion.div initial={{ opacity: 0, y: -4 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -4 }} transition={{ duration: 0.12 }}
+      className="absolute right-0 top-full mt-2 w-[420px] max-h-[520px] bg-popover border border-border rounded-lg shadow-lg z-50 overflow-hidden flex flex-col">
       <div className="flex items-start justify-between gap-3 px-4 py-3 border-b border-border">
         <div className="min-w-0">
           <p className="text-xs font-semibold text-foreground">{title}</p>
@@ -409,11 +282,8 @@ function DropdownPanel({ title, subtitle, onClose, children }) {
 function WarningRow({ booking, chip, chipTone, onClick }) {
   const chipClass = chipTone === 'red' ? 'bg-red-600 text-white' : chipTone === 'amber' ? 'bg-amber-600 text-white' : 'bg-blue-600 text-white'
   return (
-    <button
-      type="button"
-      onClick={onClick}
-      className="w-full text-left px-4 py-2.5 border-b border-border last:border-0 hover:bg-muted/40 transition-colors flex items-center gap-3 group"
-    >
+    <button type="button" onClick={onClick}
+      className="w-full text-left px-4 py-2.5 border-b border-border last:border-0 hover:bg-muted/40 transition-colors flex items-center gap-3 group">
       <div className="min-w-0 flex-1">
         <div className="flex items-baseline gap-2">
           <span className="font-mono text-xs font-semibold text-foreground truncate">{booking.booking_code}</span>
@@ -439,16 +309,12 @@ function WarningsStrip({ needsCompletion, endingSoon, onSelect }) {
     const onKey = (e) => { if (e.key === 'Escape') setOpen(null) }
     document.addEventListener('mousedown', onDown)
     window.addEventListener('keydown', onKey)
-    return () => {
-      document.removeEventListener('mousedown', onDown)
-      window.removeEventListener('keydown', onKey)
-    }
+    return () => { document.removeEventListener('mousedown', onDown); window.removeEventListener('keydown', onKey) }
   }, [open])
 
   const ncCount = needsCompletion.length
   const esCount = endingSoon.length
   if (ncCount === 0 && esCount === 0) return null
-
   const toggle = (key) => setOpen((v) => (v === key ? null : key))
 
   return (
@@ -457,11 +323,7 @@ function WarningsStrip({ needsCompletion, endingSoon, onSelect }) {
         <WarningChip icon={AlertTriangle} label="Needs Completion" count={ncCount} active={open === 'nc'} onClick={() => toggle('nc')}>
           <AnimatePresence>
             {open === 'nc' && (
-              <DropdownPanel
-                title="Needs Completion"
-                subtitle={`${ncCount} booking${ncCount === 1 ? '' : 's'} past check-out — mark as done or extend`}
-                onClose={() => setOpen(null)}
-              >
+              <DropdownPanel title="Needs Completion" subtitle={`${ncCount} booking${ncCount === 1 ? '' : 's'} past check-out — mark as done or extend`} onClose={() => setOpen(null)}>
                 {needsCompletion.map((b) => (
                   <WarningRow key={b.id} booking={b} chip="Needs Action" chipTone="amber" onClick={() => { onSelect(b); setOpen(null) }} />
                 ))}
@@ -474,11 +336,7 @@ function WarningsStrip({ needsCompletion, endingSoon, onSelect }) {
         <WarningChip icon={Clock} label="Ending Soon" count={esCount} active={open === 'es'} onClick={() => toggle('es')}>
           <AnimatePresence>
             {open === 'es' && (
-              <DropdownPanel
-                title="Ending Soon"
-                subtitle={`${esCount} booking${esCount === 1 ? '' : 's'} ending in the next 2 days with balance due`}
-                onClose={() => setOpen(null)}
-              >
+              <DropdownPanel title="Ending Soon" subtitle={`${esCount} booking${esCount === 1 ? '' : 's'} ending in the next 2 days with balance due`} onClose={() => setOpen(null)}>
                 {endingSoon.map((b) => (
                   <WarningRow key={b.id} booking={b} chip={`${formatMoney(b.balance)} due`} chipTone="red" onClick={() => { onSelect(b); setOpen(null) }} />
                 ))}
@@ -529,7 +387,7 @@ function StatusPills({ statusFilter, onStatusFilter, counts }) {
 // ============================================================
 // FILTER PANEL
 // ============================================================
-function FilterPanel({ open, onClose, building, setBuilding, dateFilter, setDateFilter, booker, setBooker, buildings, bookers, activeCount, onClear }) {
+function FilterPanel({ open, onClose, building, setBuilding, dateFilter, setDateFilter, bookerCode, setBookerCode, buildings, specialists, activeCount, onClear }) {
   const panelRef = useRef(null)
   useEffect(() => {
     if (!open) return
@@ -569,11 +427,11 @@ function FilterPanel({ open, onClose, building, setBuilding, dateFilter, setDate
             </div>
             <div>
               <p className="text-[10px] uppercase tracking-wider text-muted-foreground font-semibold mb-1.5">Booked by</p>
-              <Select value={booker} onValueChange={setBooker}>
+              <Select value={bookerCode} onValueChange={setBookerCode}>
                 <SelectTrigger className="h-8 text-xs rounded"><SelectValue placeholder="All specialists" /></SelectTrigger>
                 <SelectContent>
                   <SelectItem value="all" className="text-xs">All specialists</SelectItem>
-                  {bookers.map((b) => <SelectItem key={b} value={b} className="text-xs">{b}</SelectItem>)}
+                  {specialists.map((s) => <SelectItem key={s.id} value={s.code} className="text-xs">{s.name} · {s.code}</SelectItem>)}
                 </SelectContent>
               </Select>
             </div>
@@ -600,8 +458,11 @@ const emptyForm = () => ({
   check_in: '',
   check_out: '',
   total_amount: 0,
+  booker_code: '',
   booker_name: '',
+  booker_commission: 0,
   affiliate_code: '',
+  affiliate_name: '',
   affiliate_commission: 0,
   affiliate_notes: '',
   notes: '',
@@ -611,7 +472,7 @@ const emptyForm = () => ({
   initial_date: '',
 })
 
-function BookingFormModal({ open, onClose, onSaved, units, editing, existingBookers }) {
+function BookingFormModal({ open, onClose, onSaved, units, editing, specialists, affiliates }) {
   const [form, setForm] = useState(emptyForm())
   const [saving, setSaving] = useState(false)
 
@@ -627,8 +488,11 @@ function BookingFormModal({ open, onClose, onSaved, units, editing, existingBook
         check_in: editing.check_in || '',
         check_out: editing.check_out || '',
         total_amount: editing.total_amount || 0,
+        booker_code: editing.booker_code || '',
         booker_name: editing.booker_name || '',
+        booker_commission: editing.booker_commission || 0,
         affiliate_code: editing.affiliate_code || '',
+        affiliate_name: editing.affiliate_name || '',
         affiliate_commission: editing.affiliate_commission || 0,
         affiliate_notes: editing.affiliate_notes || '',
         notes: editing.notes || '',
@@ -644,6 +508,24 @@ function BookingFormModal({ open, onClose, onSaved, units, editing, existingBook
 
   const setField = (k, v) => setForm((p) => ({ ...p, [k]: v }))
 
+  const handleBookerChange = (code) => {
+    if (code === '__none__') {
+      setForm((p) => ({ ...p, booker_code: '', booker_name: '' }))
+      return
+    }
+    const s = specialists.find((x) => x.code === code)
+    setForm((p) => ({ ...p, booker_code: code, booker_name: s?.name || '' }))
+  }
+
+  const handleAffiliateChange = (code) => {
+    if (code === '__none__') {
+      setForm((p) => ({ ...p, affiliate_code: '', affiliate_name: '' }))
+      return
+    }
+    const a = affiliates.find((x) => x.code === code)
+    setForm((p) => ({ ...p, affiliate_code: code, affiliate_name: a?.name || '' }))
+  }
+
   const nights = computeNights(form.check_in, form.check_out)
   const initialAmount = Number(form.initial_amount) || 0
   const totalAmount = Number(form.total_amount) || 0
@@ -651,7 +533,6 @@ function BookingFormModal({ open, onClose, onSaved, units, editing, existingBook
   const willBePartial = initialAmount > 0 && initialAmount < totalAmount
   const willBePaid = initialAmount >= totalAmount && totalAmount > 0
 
-  // Selected unit label for the trigger
   const selectedUnit = useMemo(() => units.find((u) => u.id === form.unit_id) || null, [units, form.unit_id])
 
   const handleSubmit = async () => {
@@ -683,8 +564,11 @@ function BookingFormModal({ open, onClose, onSaved, units, editing, existingBook
         check_in: form.check_in,
         check_out: form.check_out,
         total_amount: totalAmount,
-        booker_name: form.booker_name.trim() || null,
-        affiliate_code: form.affiliate_code.trim() || null,
+        booker_code: form.booker_code || null,
+        booker_name: form.booker_name || null,
+        booker_commission: Number(form.booker_commission) || 0,
+        affiliate_code: form.affiliate_code || null,
+        affiliate_name: form.affiliate_name || null,
         affiliate_commission: Number(form.affiliate_commission) || 0,
         affiliate_notes: form.affiliate_notes.trim() || null,
         notes: form.notes.trim() || null,
@@ -722,8 +606,7 @@ function BookingFormModal({ open, onClose, onSaved, units, editing, existingBook
       <div className="absolute inset-0 bg-black/50" onClick={onClose} />
       <motion.div initial={{ opacity: 0, scale: 0.98 }} animate={{ opacity: 1, scale: 1 }} transition={{ duration: 0.15 }}
         className="relative bg-card rounded-md shadow-2xl max-w-3xl w-full max-h-[92vh] flex flex-col overflow-hidden border border-border">
-        {/* Header */}
-        <div className="flex items-center justify-between px-5 py-3 border-b border-border flex-shrink-0">
+        <div className="flex items-center justify-between px-5 py-3 border-b border-border">
           <div>
             <h2 className="text-sm font-bold text-foreground">{editing ? 'Edit Booking' : 'New Booking'}</h2>
             {editing && <p className="text-[11px] text-muted-foreground font-mono mt-0.5">{editing.booking_code}</p>}
@@ -731,7 +614,6 @@ function BookingFormModal({ open, onClose, onSaved, units, editing, existingBook
           <button onClick={onClose} className="p-1 rounded hover:bg-muted transition-colors"><X size={16} /></button>
         </div>
 
-        {/* Body */}
         <div className="flex-1 overflow-y-auto px-5 py-5 space-y-5">
           {/* Booking */}
           <section>
@@ -754,12 +636,23 @@ function BookingFormModal({ open, onClose, onSaved, units, editing, existingBook
               </div>
               <div>
                 <label className={labelClass}>Booked by</label>
-                <BookerCombobox
-                  value={form.booker_name}
-                  onChange={(v) => setField('booker_name', v)}
-                  options={existingBookers}
-                  placeholder="e.g. Nelix"
-                />
+                <Select value={form.booker_code || '__none__'} onValueChange={handleBookerChange}>
+                  <SelectTrigger className={cn(inputClass, 'w-full')}>
+                    <SelectValue placeholder="No specialist">
+                      {form.booker_code
+                        ? (form.booker_name || specialists.find((s) => s.code === form.booker_code)?.name || form.booker_code)
+                        : <span className="text-muted-foreground italic">No specialist</span>}
+                    </SelectValue>
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="__none__" className="text-xs italic text-muted-foreground">No specialist</SelectItem>
+                    {specialists.map((s) => (
+                      <SelectItem key={s.id} value={s.code} className="text-xs">
+                        {s.name} <span className="text-muted-foreground font-mono ml-1">· {s.code}</span>
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
               </div>
             </div>
           </section>
@@ -792,13 +685,12 @@ function BookingFormModal({ open, onClose, onSaved, units, editing, existingBook
             </div>
           </section>
 
-          {/* Initial Payment */}
           {!editing && (
             <section>
               <h3 className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground mb-3">Initial Payment (optional)</h3>
               <div className="grid grid-cols-2 md:grid-cols-4 gap-x-4 gap-y-3">
                 <div><label className={labelClass}>Amount (₱)</label><Input type="number" min={0} value={form.initial_amount} onChange={(e) => setField('initial_amount', e.target.value)} className={inputClass} /></div>
-                <div><label className={labelClass}>Method</label><Input value={form.initial_method} onChange={(e) => setField('initial_method', e.target.value)} placeholder="GCash, Bank, Cash..." className={inputClass} /></div>
+                <div><label className={labelClass}>Method</label><Input value={form.initial_method} onChange={(e) => setField('initial_method', e.target.value)} placeholder="GCash, Bank..." className={inputClass} /></div>
                 <div><label className={labelClass}>Reference</label><Input value={form.initial_reference} onChange={(e) => setField('initial_reference', e.target.value)} className={inputClass} /></div>
                 <div><label className={labelClass}>Date</label><Input type="date" value={form.initial_date} onChange={(e) => setField('initial_date', e.target.value)} className={inputClass} /></div>
               </div>
@@ -815,15 +707,36 @@ function BookingFormModal({ open, onClose, onSaved, units, editing, existingBook
           <section>
             <h3 className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground mb-3">Affiliate / Commission</h3>
             <div className="grid grid-cols-1 md:grid-cols-2 gap-x-4 gap-y-3">
-              <div><label className={labelClass}>Affiliate Code</label><Input value={form.affiliate_code} onChange={(e) => setField('affiliate_code', e.target.value)} className={inputClass} /></div>
+              <div>
+                <label className={labelClass}>Affiliate</label>
+                <Select value={form.affiliate_code || '__none__'} onValueChange={handleAffiliateChange}>
+                  <SelectTrigger className={cn(inputClass, 'w-full')}>
+                    <SelectValue placeholder="No affiliate">
+                      {form.affiliate_code
+                        ? (form.affiliate_name || affiliates.find((a) => a.code === form.affiliate_code)?.name || form.affiliate_code)
+                        : <span className="text-muted-foreground italic">No affiliate</span>}
+                    </SelectValue>
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="__none__" className="text-xs italic text-muted-foreground">No affiliate</SelectItem>
+                    {affiliates.map((a) => (
+                      <SelectItem key={a.id} value={a.code} className="text-xs">
+                        {a.name} <span className="text-muted-foreground font-mono ml-1">· {a.code}</span>
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
               <div><label className={labelClass}>Affiliate Commission (₱)</label><Input type="number" min={0} value={form.affiliate_commission} onChange={(e) => setField('affiliate_commission', e.target.value)} className={inputClass} /></div>
             </div>
-            <div className="mt-3"><label className={labelClass}>Affiliate Notes</label><Textarea value={form.affiliate_notes} onChange={(e) => setField('affiliate_notes', e.target.value)} rows={2} className="text-xs rounded resize-none" /></div>
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-x-4 gap-y-3 mt-3">
+              <div><label className={labelClass}>Booker Commission (₱)</label><Input type="number" min={0} value={form.booker_commission} onChange={(e) => setField('booker_commission', e.target.value)} className={inputClass} /></div>
+              <div><label className={labelClass}>Affiliate Notes</label><Input value={form.affiliate_notes} onChange={(e) => setField('affiliate_notes', e.target.value)} className={inputClass} /></div>
+            </div>
           </section>
         </div>
 
-        {/* Footer */}
-        <div className="flex items-center justify-end gap-2 px-5 py-3 border-t border-border bg-muted/30 flex-shrink-0">
+        <div className="flex items-center justify-end gap-2 px-5 py-3 border-t border-border bg-muted/30">
           <Button variant="outline" size="sm" className="h-8 rounded text-xs" onClick={onClose} disabled={saving}>Cancel</Button>
           <Button size="sm" className="h-8 rounded text-xs" onClick={handleSubmit} disabled={saving} style={{ backgroundColor: BRAND }}>
             {saving ? <Loader2 size={12} className="mr-1.5 animate-spin" /> : <Check size={12} className="mr-1.5" />}
@@ -854,7 +767,6 @@ function AddPaymentModal({ open, onClose, booking, onSaved }) {
   const save = async () => {
     const amt = Number(amount)
     if (!amt || amt <= 0) { toast.error('Enter a valid amount'); return }
-
     setSaving(true)
     try {
       const tx = Array.isArray(booking.transactions) ? [...booking.transactions] : []
@@ -871,11 +783,8 @@ function AddPaymentModal({ open, onClose, booking, onSaved }) {
       onSaved()
       onClose()
     } catch (err) {
-      console.error(err)
-      toast.error(err?.message || 'Failed to add payment')
-    } finally {
-      setSaving(false)
-    }
+      console.error(err); toast.error(err?.message || 'Failed to add payment')
+    } finally { setSaving(false) }
   }
 
   const labelClass = 'text-[10px] uppercase tracking-wider text-muted-foreground font-semibold mb-1 block'
@@ -937,9 +846,7 @@ function ExtendStayModal({ open, onClose, booking, onSaved }) {
       setNewCheckOut(booking.check_out || '')
       setNewTotal(booking.total_amount || '')
       setAddPayment(false)
-      setPayAmount('')
-      setPayMethod('')
-      setPayReference('')
+      setPayAmount(''); setPayMethod(''); setPayReference('')
       setPayDate(new Date().toISOString().slice(0, 10))
     }
   }, [open, booking])
@@ -974,11 +881,9 @@ function ExtendStayModal({ open, onClose, booking, onSaved }) {
           date: payDate || new Date().toISOString().slice(0, 10),
         })
       }
-
       const patch = { check_out: newCheckOut, total_amount: total, transactions: tx }
       const { error } = await supabase.from('bookings').update(patch).eq('id', booking.id)
       if (error) throw error
-
       logAudit('EXTEND_BOOKING', 'bookings', booking.id, {
         booking_code: booking.booking_code,
         old_check_out: booking.check_out,
@@ -987,16 +892,12 @@ function ExtendStayModal({ open, onClose, booking, onSaved }) {
         new_total: total,
         added_payment: addPayment ? Number(payAmount) : 0,
       }).catch(() => {})
-
       toast.success('Booking extended')
       onSaved()
       onClose()
     } catch (err) {
-      console.error(err)
-      toast.error(err?.message || 'Failed to extend')
-    } finally {
-      setSaving(false)
-    }
+      console.error(err); toast.error(err?.message || 'Failed to extend')
+    } finally { setSaving(false) }
   }
 
   const oldNights = computeNights(booking.check_in, booking.check_out)
@@ -1053,7 +954,6 @@ function ExtendStayModal({ open, onClose, booking, onSaved }) {
 // ============================================================
 function CompleteConfirmModal({ open, onClose, booking, onConfirmed }) {
   const [saving, setSaving] = useState(false)
-
   if (!open || !booking) return null
 
   const confirm = async () => {
@@ -1066,8 +966,7 @@ function CompleteConfirmModal({ open, onClose, booking, onConfirmed }) {
       onConfirmed()
       onClose()
     } catch (err) {
-      console.error(err)
-      toast.error(err?.message || 'Failed to complete')
+      console.error(err); toast.error(err?.message || 'Failed to complete')
     } finally { setSaving(false) }
   }
 
@@ -1141,7 +1040,6 @@ function BookingDetailPanel({ booking, onBookingChange, onClose, onAddPayment, o
       style={{ maxWidth: '100%' }}
     >
       <div className="flex flex-col h-full" style={{ width: PANEL_WIDTH }}>
-        {/* Header */}
         <div className="flex-shrink-0 px-5 py-4 border-b border-border bg-muted/30">
           <div className="flex items-start gap-3">
             <GuestAvatar name={booking.guest_name} size="lg" />
@@ -1157,10 +1055,8 @@ function BookingDetailPanel({ booking, onBookingChange, onClose, onAddPayment, o
           </div>
         </div>
 
-        {/* Body */}
         <div className="flex-1 overflow-y-auto p-4 space-y-3">
 
-          {/* Actions */}
           <div className="flex items-center justify-end gap-2 flex-wrap">
             {!isCompleted && (
               <Button variant="outline" size="sm" className="h-7 rounded text-[11px] gap-1.5" onClick={onAddPayment}>
@@ -1173,30 +1069,18 @@ function BookingDetailPanel({ booking, onBookingChange, onClose, onAddPayment, o
               </Button>
             )}
             {!isCompleted && (
-              <Button
-                variant="outline"
-                size="sm"
-                className={cn(
-                  'h-7 rounded text-[11px] gap-1.5',
+              <Button variant="outline" size="sm"
+                className={cn('h-7 rounded text-[11px] gap-1.5',
                   canComplete
                     ? 'text-emerald-600 border-emerald-200 hover:bg-emerald-50 dark:text-emerald-400 dark:border-emerald-800 dark:hover:bg-emerald-900/20'
-                    : 'text-muted-foreground border-border cursor-not-allowed opacity-60'
-                )}
+                    : 'text-muted-foreground border-border cursor-not-allowed opacity-60')}
                 onClick={canComplete ? onComplete : undefined}
-                disabled={!canComplete}
-                title={
-                  isCompleted ? 'Already completed'
-                    : !guestLeft ? 'Guest has not left yet'
-                    : !isPaid ? `Guest still owes ${formatMoney(booking.balance)}. Collect the balance first.`
-                    : 'Mark as completed'
-                }
-              >
+                disabled={!canComplete}>
                 <CheckCircle2 size={11} /> Mark as Completed
               </Button>
             )}
           </div>
 
-          {/* Summary — moved to top */}
           <SectionCard title="Summary" icon={Wallet}>
             <div className="space-y-1 text-xs">
               <div className="flex justify-between"><span className="text-muted-foreground">Total</span><span className="font-semibold tabular-nums">{formatMoney(booking.total_amount)}</span></div>
@@ -1206,7 +1090,6 @@ function BookingDetailPanel({ booking, onBookingChange, onClose, onAddPayment, o
             </div>
           </SectionCard>
 
-          {/* Payment History — moved to top, right after Summary */}
           <div className="rounded-md bg-card border border-border overflow-hidden">
             <div className="flex items-center justify-between gap-2 px-3 py-2 border-b border-border bg-muted/30">
               <div className="flex items-center gap-2 min-w-0">
@@ -1234,7 +1117,6 @@ function BookingDetailPanel({ booking, onBookingChange, onClose, onAddPayment, o
             </div>
           </div>
 
-          {/* Unit */}
           <SectionCard title="Unit" icon={Building2}>
             <div className="space-y-1">
               <div className="flex items-baseline gap-2 pb-2 mb-2 border-b border-border">
@@ -1243,16 +1125,25 @@ function BookingDetailPanel({ booking, onBookingChange, onClose, onAddPayment, o
               </div>
               <div className="flex items-center gap-2 py-0.5">
                 <span className="text-[10px] uppercase tracking-wider text-muted-foreground font-semibold min-w-[72px]">Booked by</span>
-                <span className="text-xs font-semibold text-foreground">{booking.booker_name || '—'}</span>
+                <span className="text-xs font-semibold text-foreground">
+                  {booking.booker_name || booking.booker_code || '—'}
+                  {booking.booker_code && booking.booker_name && (
+                    <span className="text-muted-foreground font-mono ml-1">· {booking.booker_code}</span>
+                  )}
+                </span>
               </div>
               <div className="flex items-center gap-2 py-0.5">
-                <span className="text-[10px] uppercase tracking-wider text-muted-foreground font-semibold min-w-[72px]">Code</span>
-                <span className="text-xs font-mono text-foreground">{booking.booking_code}</span>
+                <span className="text-[10px] uppercase tracking-wider text-muted-foreground font-semibold min-w-[72px]">Affiliate</span>
+                <span className="text-xs font-semibold text-foreground">
+                  {booking.affiliate_name || booking.affiliate_code || '—'}
+                  {booking.affiliate_code && booking.affiliate_name && (
+                    <span className="text-muted-foreground font-mono ml-1">· {booking.affiliate_code}</span>
+                  )}
+                </span>
               </div>
             </div>
           </SectionCard>
 
-          {/* Guest */}
           <SectionCard title="Guest" icon={User}>
             <div className="flex items-center gap-2.5 pb-2 mb-2 border-b border-border">
               <GuestAvatar name={booking.guest_name} size="lg" />
@@ -1267,7 +1158,6 @@ function BookingDetailPanel({ booking, onBookingChange, onClose, onAddPayment, o
             <EditableField label="Guests" value={booking.guests} type="number" onSave={(v) => updateField('guests', Number(v) || 1)} auditTag="guests" />
           </SectionCard>
 
-          {/* Dates & Amount */}
           <SectionCard title="Dates & Amount" icon={Calendar}>
             <EditableField label="Check-in" value={booking.check_in} type="date" onSave={(v) => updateField('check_in', v)} auditTag="check_in" />
             <EditableField label="Check-out" value={booking.check_out} type="date" onSave={(v) => updateField('check_out', v)} auditTag="check_out" />
@@ -1279,10 +1169,26 @@ function BookingDetailPanel({ booking, onBookingChange, onClose, onAddPayment, o
             <EditableField label="Notes" value={booking.notes} onSave={(v) => updateField('notes', v)} auditTag="notes" />
           </SectionCard>
 
-          {/* Affiliate */}
-          <SectionCard title="Affiliate / Commission" icon={Wallet}>
-            <EditableField label="Code" value={booking.affiliate_code} onSave={(v) => updateField('affiliate_code', v)} auditTag="affiliate_code" />
-            <EditableField label="Commission" value={booking.affiliate_commission} type="number" onSave={(v) => updateMoney('affiliate_commission', v)} auditTag="affiliate_commission" />
+          <SectionCard title="Commissions" icon={Wallet}>
+            <div className="space-y-1 text-xs">
+              <div className="flex justify-between">
+                <span className="text-muted-foreground">Booker commission</span>
+                <span className="font-semibold tabular-nums">
+                  {formatMoney(booking.booker_commission)}
+                  {booking.booker_name && <span className="text-muted-foreground"> · {booking.booker_name}</span>}
+                </span>
+              </div>
+              <div className="flex justify-between">
+                <span className="text-muted-foreground">Affiliate commission</span>
+                <span className="font-semibold tabular-nums">
+                  {formatMoney(booking.affiliate_commission)}
+                  {booking.affiliate_name && <span className="text-muted-foreground"> · {booking.affiliate_name}</span>}
+                </span>
+              </div>
+            </div>
+          </SectionCard>
+
+          <SectionCard title="Affiliate Notes" icon={Wallet}>
             <EditableField label="Notes" value={booking.affiliate_notes} onSave={(v) => updateField('affiliate_notes', v)} auditTag="affiliate_notes" />
           </SectionCard>
 
@@ -1330,17 +1236,11 @@ function BookingListRow({ booking, selected, onClick }) {
         </div>
       </div>
 
-      <span className="font-mono text-xs text-foreground truncate">
-        {booking.booking_code}
-      </span>
+      <span className="font-mono text-xs text-foreground truncate">{booking.booking_code}</span>
 
       <div className="min-w-0">
-        <span className="font-mono text-xs font-bold text-foreground truncate block">
-          {booking.units?.unit_code || '—'}
-        </span>
-        <span className="text-[10px] text-muted-foreground truncate block">
-          {booking.units?.building || '—'}
-        </span>
+        <span className="font-mono text-xs font-bold text-foreground truncate block">{booking.units?.unit_code || '—'}</span>
+        <span className="text-[10px] text-muted-foreground truncate block">{booking.units?.building || '—'}</span>
       </div>
 
       <div className="text-[11px] tabular-nums text-muted-foreground min-w-0">
@@ -1354,13 +1254,7 @@ function BookingListRow({ booking, selected, onClick }) {
 
       <div className="flex items-center gap-2 justify-end flex-shrink-0">
         <BookingStatusBadge status={status} />
-        <ChevronRight
-          size={14}
-          className={cn(
-            'text-muted-foreground/40 transition-transform duration-300 ease-out',
-            selected && 'rotate-180 text-primary'
-          )}
-        />
+        <ChevronRight size={14} className={cn('text-muted-foreground/40 transition-transform duration-300 ease-out', selected && 'rotate-180 text-primary')} />
       </div>
     </motion.button>
   )
@@ -1370,28 +1264,17 @@ function BookingListRow({ booking, selected, onClick }) {
 // CSV EXPORT
 // ============================================================
 function downloadCSV(bookings, filename) {
-  const headers = ['Booking Code', 'Building', 'Unit', 'Guest', 'Email', 'Contact', 'Guests', 'Check-in', 'Check-out', 'Nights', 'Total', 'Paid', 'Balance', 'Payment Status', 'Booking Status', 'Booked By', 'Affiliate Code', 'Commission', 'Notes']
+  const headers = ['Booking Code', 'Building', 'Unit', 'Guest', 'Email', 'Contact', 'Guests', 'Check-in', 'Check-out', 'Nights', 'Total', 'Paid', 'Balance', 'Payment Status', 'Booking Status', 'Booker Code', 'Booker Name', 'Booker Commission', 'Affiliate Code', 'Affiliate Name', 'Affiliate Commission', 'Notes']
   const rows = bookings.map((b) => {
     const s = deriveBookingStatus(b)
     return [
-      b.booking_code || '',
-      b.units?.building || '',
-      b.units?.unit_code || '',
-      b.guest_name || '',
-      b.guest_email || '',
-      b.guest_contact || '',
-      b.guests || '',
-      b.check_in || '',
-      b.check_out || '',
-      computeNights(b.check_in, b.check_out),
-      b.total_amount || 0,
-      b.amount_paid || 0,
-      b.balance || 0,
-      b.payment_status || '',
-      s,
-      b.booker_name || '',
-      b.affiliate_code || '',
-      b.affiliate_commission || 0,
+      b.booking_code || '', b.units?.building || '', b.units?.unit_code || '',
+      b.guest_name || '', b.guest_email || '', b.guest_contact || '', b.guests || '',
+      b.check_in || '', b.check_out || '', computeNights(b.check_in, b.check_out),
+      b.total_amount || 0, b.amount_paid || 0, b.balance || 0,
+      b.payment_status || '', s,
+      b.booker_code || '', b.booker_name || '', b.booker_commission || 0,
+      b.affiliate_code || '', b.affiliate_name || '', b.affiliate_commission || 0,
       b.notes || '',
     ]
   })
@@ -1409,13 +1292,15 @@ function downloadCSV(bookings, filename) {
 export default function BookingsPage() {
   const [bookings, setBookings] = useState([])
   const [units, setUnits] = useState([])
+  const [specialists, setSpecialists] = useState([])
+  const [affiliates, setAffiliates] = useState([])
   const [isFirstLoad, setIsFirstLoad] = useState(true)
   const [isRefreshing, setIsRefreshing] = useState(false)
 
   const [statusFilter, setStatusFilter] = useState('all')
   const [building, setBuilding] = useState('all')
   const [dateFilter, setDateFilter] = useState('all')
-  const [booker, setBooker] = useState('all')
+  const [bookerCode, setBookerCode] = useState('all')
   const [search, setSearch] = useState('')
   const [debouncedSearch, setDebouncedSearch] = useState('')
   const [filterOpen, setFilterOpen] = useState(false)
@@ -1443,14 +1328,20 @@ export default function BookingsPage() {
     if (!hasLoadedOnce.current) setIsFirstLoad(true)
     else setIsRefreshing(true)
     try {
-      const [bRes, uRes] = await Promise.all([
+      const [bRes, uRes, sRes, aRes] = await Promise.all([
         supabase.from('bookings').select('*, units:unit_id ( id, unit_code, building )').order('check_in', { ascending: false }),
         supabase.from('units').select('id, unit_code, building, status').order('unit_code'),
+        supabase.from('specialists').select('id, code, name').order('name'),
+        supabase.from('affiliates').select('id, code, name').order('name'),
       ])
       if (bRes.error) throw bRes.error
       if (uRes.error) throw uRes.error
+      if (sRes.error) throw sRes.error
+      if (aRes.error) throw aRes.error
       setBookings(bRes.data || [])
       setUnits(uRes.data || [])
+      setSpecialists(sRes.data || [])
+      setAffiliates(aRes.data || [])
     } catch (err) {
       console.error('Failed to load bookings:', err)
       toast.error('Failed to load bookings')
@@ -1473,12 +1364,6 @@ export default function BookingsPage() {
   const buildings = useMemo(() => {
     const set = new Set()
     for (const b of bookings) { if (b.units?.building) set.add(b.units.building) }
-    return [...set].sort()
-  }, [bookings])
-
-  const bookers = useMemo(() => {
-    const set = new Set()
-    for (const b of bookings) { if (b.booker_name) set.add(b.booker_name) }
     return [...set].sort()
   }, [bookings])
 
@@ -1508,11 +1393,11 @@ export default function BookingsPage() {
     let n = 0
     if (building !== 'all') n++
     if (dateFilter !== 'all') n++
-    if (booker !== 'all') n++
+    if (bookerCode !== 'all') n++
     return n
-  }, [building, dateFilter, booker])
+  }, [building, dateFilter, bookerCode])
 
-  const clearFilters = () => { setBuilding('all'); setDateFilter('all'); setBooker('all') }
+  const clearFilters = () => { setBuilding('all'); setDateFilter('all'); setBookerCode('all') }
 
   const filtered = useMemo(() => {
     const q = debouncedSearch.trim().toLowerCase()
@@ -1520,7 +1405,7 @@ export default function BookingsPage() {
       const derived = deriveBookingStatus(b)
       if (statusFilter !== 'all' && derived !== statusFilter) return false
       if (building !== 'all' && b.units?.building !== building) return false
-      if (booker !== 'all' && b.booker_name !== booker) return false
+      if (bookerCode !== 'all' && b.booker_code !== bookerCode) return false
       if (dateFilter !== 'all') {
         if (dateFilter === 'upcoming' && derived !== 'upcoming') return false
         if (dateFilter === 'active' && derived !== 'active') return false
@@ -1530,20 +1415,19 @@ export default function BookingsPage() {
       if (q) {
         const haystack = [
           b.booking_code, b.guest_name, b.guest_email, b.guest_contact,
-          b.booker_name, b.affiliate_code, b.notes,
+          b.booker_code, b.booker_name, b.affiliate_code, b.affiliate_name, b.notes,
           b.units?.unit_code, b.units?.building,
         ].filter(Boolean).join(' ').toLowerCase()
         if (!haystack.includes(q)) return false
       }
       return true
     })
-  }, [bookings, statusFilter, building, dateFilter, booker, debouncedSearch])
+  }, [bookings, statusFilter, building, dateFilter, bookerCode, debouncedSearch])
 
   const sorted = useMemo(() => {
     const copy = [...filtered]
     copy.sort((a, b) => {
-      const av = a.check_in ?? ''
-      const bv = b.check_in ?? ''
+      const av = a.check_in ?? '', bv = b.check_in ?? ''
       if (av > bv) return -1
       if (av < bv) return 1
       return 0
@@ -1563,22 +1447,13 @@ export default function BookingsPage() {
     setBookings((prev) => prev.map((b) => (b.id === updated.id ? { ...b, ...updated } : b)))
   }
 
-  const handleSelect = (booking) => {
-    setSelectedId((prev) => (prev === booking.id ? null : booking.id))
-  }
-
+  const handleSelect = (booking) => setSelectedId((prev) => (prev === booking.id ? null : booking.id))
   const openEdit = (booking) => { setEditing(booking); setFormOpen(true) }
   const openNew = () => { setEditing(null); setFormOpen(true) }
 
   const handleDelete = async (booking) => {
     const confirmed = window.confirm(
-      `Delete booking "${booking.booking_code}"?\n\n` +
-      `Guest: ${booking.guest_name}\n` +
-      `Unit: ${booking.units?.unit_code || '—'}\n` +
-      `Dates: ${formatDate(booking.check_in)} → ${formatDate(booking.check_out)}\n` +
-      `Total: ${formatMoney(booking.total_amount)}\n` +
-      `Paid: ${formatMoney(booking.amount_paid)}\n\n` +
-      `This cannot be undone.`
+      `Delete booking "${booking.booking_code}"?\n\nGuest: ${booking.guest_name}\nUnit: ${booking.units?.unit_code || '—'}\nDates: ${formatDate(booking.check_in)} → ${formatDate(booking.check_out)}\nTotal: ${formatMoney(booking.total_amount)}\nPaid: ${formatMoney(booking.amount_paid)}\n\nThis cannot be undone.`
     )
     if (!confirmed) return
     const doubleCheck = window.confirm('Are you absolutely sure? This will permanently delete the booking and its payment history.')
@@ -1591,8 +1466,7 @@ export default function BookingsPage() {
       setSelectedId(null)
       fetchData()
     } catch (err) {
-      console.error(err)
-      toast.error(err?.message || 'Failed to delete')
+      console.error(err); toast.error(err?.message || 'Failed to delete')
     }
   }
 
@@ -1606,16 +1480,13 @@ export default function BookingsPage() {
 
   return (
     <div className="h-full flex min-h-0">
-      {/* Left: list */}
       <div className="flex-1 min-h-0 flex flex-col overflow-hidden bg-card border border-border rounded-md">
         <div className="p-3 flex-1 min-h-0 flex flex-col gap-2.5">
 
-          {/* Summary cards */}
           <div className={cn('flex-shrink-0 transition-all duration-300 ease-out overflow-hidden', cardsHidden ? 'max-h-0 opacity-0 -mb-3' : 'max-h-40 opacity-100')}>
             <SummaryCards bookings={bookings} />
           </div>
 
-          {/* Toolbar */}
           <div ref={headerRef} className="flex-shrink-0 flex items-center gap-2">
             <div className="relative flex-1 min-w-0">
               <Search size={13} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-muted-foreground" />
@@ -1635,8 +1506,8 @@ export default function BookingsPage() {
                 open={filterOpen} onClose={() => setFilterOpen(false)}
                 building={building} setBuilding={setBuilding}
                 dateFilter={dateFilter} setDateFilter={setDateFilter}
-                booker={booker} setBooker={setBooker}
-                buildings={buildings} bookers={bookers}
+                bookerCode={bookerCode} setBookerCode={setBookerCode}
+                buildings={buildings} specialists={specialists}
                 activeCount={activeFilterCount} onClear={clearFilters}
               />
             </div>
@@ -1653,16 +1524,9 @@ export default function BookingsPage() {
             <WarningsStrip needsCompletion={needsCompletion} endingSoon={endingSoon} onSelect={(b) => setSelectedId(b.id)} />
           </div>
 
-          {/* List (header inside scroll) */}
           <div className="flex-1 min-h-0 rounded border border-border overflow-hidden">
-            <div
-              ref={listScrollRef}
-              className="h-full overflow-y-auto"
-              style={{ scrollbarGutter: 'stable' }}
-              onMouseMove={handleListMouseMove}
-              onMouseLeave={handleListMouseLeave}
-            >
-              {/* Sticky column header — NO count number, empty right cell */}
+            <div ref={listScrollRef} className="h-full overflow-y-auto" style={{ scrollbarGutter: 'stable' }}
+              onMouseMove={handleListMouseMove} onMouseLeave={handleListMouseLeave}>
               <div className={cn('sticky top-0 z-10 px-4 py-2 border-b border-border bg-card', ROW_GRID)}>
                 <span className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground truncate">Guest</span>
                 <span className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground truncate">Code</span>
@@ -1684,12 +1548,7 @@ export default function BookingsPage() {
                 </div>
               ) : (
                 sorted.map((booking) => (
-                  <BookingListRow
-                    key={booking.id}
-                    booking={booking}
-                    selected={selectedId === booking.id}
-                    onClick={() => handleSelect(booking)}
-                  />
+                  <BookingListRow key={booking.id} booking={booking} selected={selectedId === booking.id} onClick={() => handleSelect(booking)} />
                 ))
               )}
             </div>
@@ -1697,7 +1556,6 @@ export default function BookingsPage() {
         </div>
       </div>
 
-      {/* Right: detail panel */}
       <AnimatePresence initial={false}>
         {selected && (
           <BookingDetailPanel
@@ -1720,29 +1578,13 @@ export default function BookingsPage() {
         onSaved={fetchData}
         units={activeUnits}
         editing={editing}
-        existingBookers={bookers}
+        specialists={specialists}
+        affiliates={affiliates}
       />
 
-      <AddPaymentModal
-        open={!!payForBooking}
-        onClose={() => setPayForBooking(null)}
-        booking={payForBooking}
-        onSaved={fetchData}
-      />
-
-      <ExtendStayModal
-        open={!!extendForBooking}
-        onClose={() => setExtendForBooking(null)}
-        booking={extendForBooking}
-        onSaved={fetchData}
-      />
-
-      <CompleteConfirmModal
-        open={!!completeForBooking}
-        onClose={() => setCompleteForBooking(null)}
-        booking={completeForBooking}
-        onConfirmed={fetchData}
-      />
+      <AddPaymentModal open={!!payForBooking} onClose={() => setPayForBooking(null)} booking={payForBooking} onSaved={fetchData} />
+      <ExtendStayModal open={!!extendForBooking} onClose={() => setExtendForBooking(null)} booking={extendForBooking} onSaved={fetchData} />
+      <CompleteConfirmModal open={!!completeForBooking} onClose={() => setCompleteForBooking(null)} booking={completeForBooking} onConfirmed={fetchData} />
     </div>
   )
 }

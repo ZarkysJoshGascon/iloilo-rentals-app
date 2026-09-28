@@ -39,7 +39,7 @@ export default function LoginPage() {
         if (safeRedirect) {
           navigate(safeRedirect)
         } else {
-          navigate('/')
+          navigate('/post-login')
         }
       } catch (err) {
         console.error('Post-login setup error:', err)
@@ -51,7 +51,7 @@ export default function LoginPage() {
           !redirect.includes('://')
             ? redirect
             : null
-        navigate(safeRedirect || '/')
+        navigate(safeRedirect || '/post-login')
       }
     }
 

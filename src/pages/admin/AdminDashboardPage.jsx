@@ -4,12 +4,13 @@ import { motion, AnimatePresence } from 'framer-motion'
 import { useTheme } from "../../context/ThemeContext";
 import { useAuth } from "../../context/AuthContext";
 import {
-  Moon, Sun, LogOut, ScrollText, ArrowLeft, Calendar, Users,
+  Moon, Sun, LogOut, ScrollText, ArrowLeft, Calendar, Users, Sparkles,
 } from 'lucide-react'
 import AdminSidebar from '../../components/admin/AdminSidebar'
 import RegistryPage from '../../components/admin/registry/RegistryPage'
 import BookingsPage from '../../components/admin/bookings/BookingsPage'
-import TeamPage from '../../components/admin/team/TeamPage'   // ← adjust path if different
+import TeamPage from '../../components/admin/team/TeamPage'
+import HousekeepingPage from '../../components/admin/housekeeping/HousekeepingPage'
 
 function PageTransition({ children, tabKey }) {
   return (
@@ -79,13 +80,15 @@ export default function AdminDashboardPage() {
   const tabIcons = {
     registry: ScrollText,
     bookings: Calendar,
-    team:     Users,
+    team: Users,
+    housekeeping: Sparkles,
   }
 
   const tabTitles = {
     registry: 'Registry',
     bookings: 'Bookings',
-    team:     'Team',
+    team: 'Team',
+    housekeeping: 'Housekeeping',
   }
 
   const Icon = tabIcons[activeTab] || ScrollText
@@ -107,7 +110,8 @@ export default function AdminDashboardPage() {
   const isFullHeightTab =
     activeTab === 'registry' ||
     activeTab === 'bookings' ||
-    activeTab === 'team'
+    activeTab === 'team' ||
+    activeTab === 'housekeeping'
 
   return (
     <div className="h-screen flex flex-col bg-[#d4deec] dark:bg-gray-900 overflow-hidden transition-colors duration-300">
@@ -250,6 +254,13 @@ export default function AdminDashboardPage() {
                   <PageTransition tabKey="team">
                     <div className="absolute inset-6 min-h-0 flex flex-col">
                       <TeamPage />
+                    </div>
+                  </PageTransition>
+                )}
+                {activeTab === 'housekeeping' && (
+                  <PageTransition tabKey="housekeeping">
+                    <div className="absolute inset-6 min-h-0 flex flex-col">
+                      <HousekeepingPage />
                     </div>
                   </PageTransition>
                 )}
