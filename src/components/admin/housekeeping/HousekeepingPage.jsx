@@ -4,7 +4,7 @@ import {
   Plus, Search, RefreshCw, X, Check, Loader2, Trash2,
   Sparkles, Droplets, AlertTriangle, Calendar, User, Camera,
   ChevronRight, Download, Building2, Clock, CheckCircle2,
-  Image as ImageIcon, Package, FileText,
+  Image as ImageIcon, Package, FileText, Shirt, Wallet, Send,
 } from 'lucide-react'
 import toast from 'react-hot-toast'
 import { Button } from '@/components/ui/button'
@@ -21,35 +21,29 @@ import { cn } from '@/lib/utils'
 import {
   listCleanings, createCleaning, updateCleaning, deleteCleaning,
   addPhotoToCleaning, removePhotoFromCleaning,
-  parseInventory, setInventory,
+  parseInventory, parseLaundryItems, setInventory,
+  approveAndPayCleaning,
   downloadCleaningsCSV,
 } from '@/lib/cleanings'
 
 const BRAND = '#2d568e'
 
 const TYPE_CONFIG = {
-  basic: {
-    label: 'Basic',
-    className: 'bg-blue-600 text-white border-0',
-    icon: Droplets,
-  },
-  deep: {
-    label: 'Deep',
-    className: 'bg-purple-600 text-white border-0',
-    icon: Sparkles,
-  },
+  basic: { label: 'Basic', className: 'bg-blue-600 text-white border-0', icon: Droplets },
+  deep:  { label: 'Deep',  className: 'bg-purple-600 text-white border-0', icon: Sparkles },
 }
 
 const STATUS_CONFIG = {
   pending:     { label: 'Pending',     className: 'bg-amber-600 text-white border-0' },
   in_progress: { label: 'In Progress', className: 'bg-blue-600 text-white border-0' },
+  submitted:   { label: 'Submitted',   className: 'bg-violet-600 text-white border-0' },
   completed:   { label: 'Completed',   className: 'bg-emerald-600 text-white border-0' },
 }
 
 const STATUS_PILLS = [
   { id: 'all', label: 'All' },
   { id: 'pending', label: 'Pending' },
-  { id: 'in_progress', label: 'In Progress' },
+  { id: 'submitted', label: 'Submitted' },
   { id: 'completed', label: 'Completed' },
   { id: 'deep', label: 'Deep' },
   { id: 'basic', label: 'Basic' },
@@ -59,6 +53,7 @@ const PILL_TEXT_ACTIVE = {
   all: 'text-foreground',
   pending: 'text-amber-700 dark:text-amber-400',
   in_progress: 'text-blue-700 dark:text-blue-400',
+  submitted: 'text-violet-700 dark:text-violet-400',
   completed: 'text-emerald-700 dark:text-emerald-400',
   deep: 'text-purple-700 dark:text-purple-400',
   basic: 'text-blue-700 dark:text-blue-400',
@@ -77,14 +72,15 @@ function formatDateTime(d) {
   if (!d) return '—'
   return new Date(d).toLocaleString('en-PH', { month: 'short', day: 'numeric', year: 'numeric', hour: 'numeric', minute: '2-digit' })
 }
-function today() {
-  const d = new Date(); d.setHours(0, 0, 0, 0); return d
-}
 function computeNightsFromBooking(booking) {
   if (!booking?.check_in || !booking?.check_out) return 0
   const a = new Date(booking.check_in); a.setHours(0, 0, 0, 0)
   const b = new Date(booking.check_out); b.setHours(0, 0, 0, 0)
   return Math.max(0, Math.round((b - a) / 86400000))
+}
+function formatMoney(n) {
+  const v = Number(n || 0)
+  return `₱${v.toLocaleString('en-PH', { minimumFractionDigits: 0, maximumFractionDigits: 2 })}`
 }
 
 function initials(name) {
@@ -108,9 +104,12 @@ function avatarColor(seed) {
   for (let i = 0; i < seed.length; i++) { hash = ((hash << 5) - hash) + seed.charCodeAt(i); hash = hash & hash }
   return AVATAR_COLORS[Math.abs(hash) % AVATAR_COLORS.length]
 }
-function WorkerAvatar({ name, size = 'md' }) {
+function WorkerAvatar({ name, photo_url, size = 'md' }) {
   const [bg, text, dbg, dtext] = avatarColor(name)
   const sizeClasses = size === 'lg' ? 'w-12 h-12 text-base' : size === 'sm' ? 'w-8 h-8 text-[11px]' : 'w-10 h-10 text-sm'
+  if (photo_url) {
+    return <img src={photo_url} alt={name} className={cn('rounded-full object-cover flex-shrink-0', sizeClasses)} />
+  }
   return (
     <div className={cn('rounded-full flex items-center justify-center font-semibold flex-shrink-0', sizeClasses, bg, text, dbg, dtext)}>
       {initials(name)}
@@ -217,7 +216,6 @@ function InventoryEditor({ cleaning, onChange }) {
     const next = items.map((it, i) => (i === idx ? { ...it, ...patch } : it))
     setItems(next)
   }
-
   const handleUpdateCommit = (idx) => {
     const next = items.map((it, i) => {
       if (i !== idx) return it
@@ -225,11 +223,7 @@ function InventoryEditor({ cleaning, onChange }) {
     })
     persist(next)
   }
-
-  const handleRemove = (idx) => {
-    const next = items.filter((_, i) => i !== idx)
-    persist(next)
-  }
+  const handleRemove = (idx) => persist(items.filter((_, i) => i !== idx))
 
   return (
     <div className="space-y-2">
@@ -239,50 +233,18 @@ function InventoryEditor({ cleaning, onChange }) {
         <div className="space-y-1">
           {items.map((it, idx) => (
             <div key={idx} className="flex items-center gap-2 px-2 py-1.5 rounded bg-background border border-border">
-              <Input
-                value={it.name}
-                onChange={(e) => handleUpdate(idx, { name: e.target.value })}
-                onBlur={() => persist(items)}
-                className="h-7 text-xs rounded bg-background flex-1"
-                placeholder="Item name"
-              />
-              <Input
-                type="number"
-                min={0}
-                value={it.quantity}
-                onChange={(e) => handleUpdate(idx, { quantity: e.target.value })}
-                onBlur={() => handleUpdateCommit(idx)}
-                className="h-7 text-xs rounded bg-background w-16 tabular-nums"
-              />
-              <button
-                type="button"
-                onClick={() => handleRemove(idx)}
-                disabled={saving}
-                className="p-1 rounded hover:bg-red-500/10 text-muted-foreground hover:text-red-500 transition-colors disabled:opacity-50"
-              >
+              <Input value={it.name} onChange={(e) => handleUpdate(idx, { name: e.target.value })} onBlur={() => persist(items)} className="h-7 text-xs rounded bg-background flex-1" />
+              <Input type="number" min={0} value={it.quantity} onChange={(e) => handleUpdate(idx, { quantity: e.target.value })} onBlur={() => handleUpdateCommit(idx)} className="h-7 text-xs rounded bg-background w-16 tabular-nums" />
+              <button type="button" onClick={() => handleRemove(idx)} disabled={saving} className="p-1 rounded hover:bg-red-500/10 text-muted-foreground hover:text-red-500 disabled:opacity-50">
                 <Trash2 size={12} />
               </button>
             </div>
           ))}
         </div>
       )}
-
       <div className="flex items-center gap-2 pt-2 border-t border-border">
-        <Input
-          value={draftName}
-          onChange={(e) => setDraftName(e.target.value)}
-          onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); handleAdd() } }}
-          placeholder="e.g. Bath towel, Coffee, Water"
-          className="h-7 text-xs rounded bg-background flex-1"
-        />
-        <Input
-          type="number"
-          min={1}
-          value={draftQty}
-          onChange={(e) => setDraftQty(e.target.value)}
-          onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); handleAdd() } }}
-          className="h-7 text-xs rounded bg-background w-16 tabular-nums"
-        />
+        <Input value={draftName} onChange={(e) => setDraftName(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); handleAdd() } }} placeholder="e.g. Coffee, Water" className="h-7 text-xs rounded bg-background flex-1" />
+        <Input type="number" min={1} value={draftQty} onChange={(e) => setDraftQty(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); handleAdd() } }} className="h-7 text-xs rounded bg-background w-16 tabular-nums" />
         <Button size="sm" className="h-7 px-2 rounded text-[11px]" onClick={handleAdd} disabled={saving}>
           {saving ? <Loader2 size={11} className="animate-spin" /> : <Plus size={11} />}
         </Button>
@@ -306,12 +268,8 @@ function PhotoGrid({ cleaning, category, onChanged }) {
   const handleFiles = async (e) => {
     const files = Array.from(e.target.files || [])
     if (files.length === 0) return
-
     const remaining = limit - photos.length
-    if (files.length > remaining) {
-      toast.error(`Max ${limit} photos. ${remaining} slot${remaining === 1 ? '' : 's'} left.`)
-    }
-
+    if (files.length > remaining) toast.error(`Max ${limit} photos. ${remaining} slot${remaining === 1 ? '' : 's'} left.`)
     setUploading(true)
     try {
       const toUpload = files.slice(0, remaining)
@@ -331,8 +289,7 @@ function PhotoGrid({ cleaning, category, onChanged }) {
   }
 
   const handleRemove = async (photo) => {
-    const confirmed = window.confirm('Delete this photo?')
-    if (!confirmed) return
+    if (!window.confirm('Delete this photo?')) return
     try {
       await removePhotoFromCleaning(cleaning, category, photo.path)
       toast.success('Photo deleted')
@@ -352,45 +309,21 @@ function PhotoGrid({ cleaning, category, onChanged }) {
           {photos.map((p, idx) => (
             <div key={p.path || idx} className="relative aspect-square rounded-md overflow-hidden border border-border bg-muted group">
               <img src={p.url} alt="" className="w-full h-full object-cover" loading="lazy" />
-              <button
-                type="button"
-                onClick={() => handleRemove(p)}
-                className="absolute top-1 right-1 w-6 h-6 rounded-full bg-red-600 text-white flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity"
-              >
+              <button type="button" onClick={() => handleRemove(p)} className="absolute top-1 right-1 w-6 h-6 rounded-full bg-red-600 text-white flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity">
                 <X size={12} />
               </button>
             </div>
           ))}
         </div>
       )}
-
       {canUploadMore && (
         <>
-          <input
-            ref={inputRef}
-            type="file"
-            accept="image/*"
-            multiple
-            className="hidden"
-            onChange={handleFiles}
-            disabled={uploading}
-          />
-          <Button
-            variant="outline"
-            size="sm"
-            className="h-7 rounded text-[11px] gap-1.5 w-full"
-            onClick={() => inputRef.current?.click()}
-            disabled={uploading}
-          >
+          <input ref={inputRef} type="file" accept="image/*" multiple className="hidden" onChange={handleFiles} disabled={uploading} />
+          <Button variant="outline" size="sm" className="h-7 rounded text-[11px] gap-1.5 w-full" onClick={() => inputRef.current?.click()} disabled={uploading}>
             {uploading ? <Loader2 size={11} className="animate-spin" /> : <Camera size={11} />}
             {uploading ? 'Uploading…' : `Add ${category} photo (${photos.length}/${limit})`}
           </Button>
         </>
-      )}
-      {!canUploadMore && (
-        <p className="text-[10px] text-muted-foreground text-center">
-          Max {limit} {category} photos reached
-        </p>
       )}
     </div>
   )
@@ -398,14 +331,10 @@ function PhotoGrid({ cleaning, category, onChanged }) {
 
 function PhotoSection({ cleaning, onChanged }) {
   const [tab, setTab] = useState('before')
-  const beforeCount = (cleaning.photos_before || []).length
-  const afterCount = (cleaning.photos_after || []).length
-  const reportCount = (cleaning.photos_report || []).length
-
   const tabs = [
-    { id: 'before', label: 'Before', count: beforeCount },
-    { id: 'after', label: 'After', count: afterCount },
-    { id: 'report', label: 'Report', count: reportCount, alert: reportCount > 0 },
+    { id: 'before', label: 'Before', count: (cleaning.photos_before || []).length },
+    { id: 'after',  label: 'After',  count: (cleaning.photos_after || []).length },
+    { id: 'report', label: 'Report', count: (cleaning.photos_report || []).length },
   ]
 
   return (
@@ -414,28 +343,16 @@ function PhotoSection({ cleaning, onChanged }) {
         <ImageIcon size={13} className="text-muted-foreground" />
         <h4 className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground">Photos</h4>
       </div>
-
       <div className="flex items-center gap-1 p-2 border-b border-border bg-muted/20">
         {tabs.map((t) => (
-          <button
-            key={t.id}
-            type="button"
-            onClick={() => setTab(t.id)}
-            className={cn(
-              'flex items-center gap-1.5 px-3 py-1 rounded-full text-[11px] font-semibold transition-colors',
-              tab === t.id
-                ? 'bg-card border border-border text-foreground shadow-sm'
-                : 'text-muted-foreground hover:text-foreground'
-            )}
-          >
+          <button key={t.id} type="button" onClick={() => setTab(t.id)}
+            className={cn('flex items-center gap-1.5 px-3 py-1 rounded-full text-[11px] font-semibold transition-colors',
+              tab === t.id ? 'bg-card border border-border text-foreground shadow-sm' : 'text-muted-foreground hover:text-foreground')}>
             {t.label}
-            <span className={cn('tabular-nums', t.alert && tab !== t.id ? 'text-red-500' : 'opacity-60')}>
-              {t.count}
-            </span>
+            <span className="opacity-60 tabular-nums">{t.count}</span>
           </button>
         ))}
       </div>
-
       <div className="p-3">
         <PhotoGrid cleaning={cleaning} category={tab} onChanged={onChanged} />
       </div>
@@ -443,6 +360,216 @@ function PhotoSection({ cleaning, onChanged }) {
   )
 }
 
+// ============================================================
+// LAUNDRY VIEW (read-only; housekeeper sets it on submit)
+// ============================================================
+function LaundrySection({ cleaning }) {
+  const used = cleaning.laundry_used_photo
+  const cleaned = cleaning.laundry_cleaned_photo
+  const usedItems = parseLaundryItems(cleaning.laundry_used_items)
+  const cleanedItems = parseLaundryItems(cleaning.laundry_cleaned_items)
+
+  return (
+    <SectionCard title="Laundry" icon={Shirt}>
+      <div className="grid grid-cols-2 gap-3">
+        <div>
+          <p className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground mb-2">Used (dirty)</p>
+          {used?.url ? (
+            <div className="aspect-video rounded-md overflow-hidden border border-border bg-muted">
+              <img src={used.url} alt="" className="w-full h-full object-cover" />
+            </div>
+          ) : (
+            <div className="aspect-video rounded-md border border-dashed border-border flex items-center justify-center text-[10px] text-muted-foreground">No photo</div>
+          )}
+          <ul className="mt-2 space-y-0.5 text-xs">
+            {usedItems.length === 0 ? (
+              <li className="italic text-muted-foreground text-[11px] text-center py-1">No items</li>
+            ) : usedItems.map((it, i) => (
+              <li key={i} className="flex justify-between text-foreground">
+                <span className="truncate">{it.name}</span>
+                <span className="tabular-nums text-muted-foreground">×{it.quantity}</span>
+              </li>
+            ))}
+          </ul>
+        </div>
+        <div>
+          <p className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground mb-2">Cleaned (fresh)</p>
+          {cleaned?.url ? (
+            <div className="aspect-video rounded-md overflow-hidden border border-border bg-muted">
+              <img src={cleaned.url} alt="" className="w-full h-full object-cover" />
+            </div>
+          ) : (
+            <div className="aspect-video rounded-md border border-dashed border-border flex items-center justify-center text-[10px] text-muted-foreground">No photo</div>
+          )}
+          <ul className="mt-2 space-y-0.5 text-xs">
+            {cleanedItems.length === 0 ? (
+              <li className="italic text-muted-foreground text-[11px] text-center py-1">No items</li>
+            ) : cleanedItems.map((it, i) => (
+              <li key={i} className="flex justify-between text-foreground">
+                <span className="truncate">{it.name}</span>
+                <span className="tabular-nums text-muted-foreground">×{it.quantity}</span>
+              </li>
+            ))}
+          </ul>
+        </div>
+      </div>
+    </SectionCard>
+  )
+}
+
+// ============================================================
+// PAYMENT + APPROVE SECTION
+// ============================================================
+function PaymentSection({ cleaning, onChanged }) {
+  const [amount, setAmount] = useState(cleaning.payment_amount != null ? String(cleaning.payment_amount) : '')
+  const [method, setMethod] = useState(cleaning.payment_method || '')
+  const [reference, setReference] = useState(cleaning.payment_reference || '')
+  const [note, setNote] = useState(cleaning.payment_note || '')
+  const [saving, setSaving] = useState(false)
+
+  useEffect(() => {
+    setAmount(cleaning.payment_amount != null ? String(cleaning.payment_amount) : '')
+    setMethod(cleaning.payment_method || '')
+    setReference(cleaning.payment_reference || '')
+    setNote(cleaning.payment_note || '')
+  }, [cleaning.id])
+
+  const isCompleted = cleaning.status === 'completed'
+
+  const amountOk = Number(amount) > 0
+  const methodOk = method.trim().length > 0
+  const canApprove = amountOk && methodOk && !isCompleted
+
+  const handleApprove = async () => {
+    if (!canApprove) return
+    const confirmed = window.confirm(
+      `Approve this cleaning and record payment?\n\nAmount: ${formatMoney(amount)}\nMethod: ${method}\n${reference ? `Reference: ${reference}\n` : ''}\nThis will mark the cleaning as completed.`
+    )
+    if (!confirmed) return
+    setSaving(true)
+    try {
+      await approveAndPayCleaning({
+        cleaningId: cleaning.id,
+        amount: Number(amount),
+        method,
+        reference,
+        note,
+      })
+      logAudit('APPROVE_AND_PAY_CLEANING', 'cleanings', cleaning.id, { amount: Number(amount), method }).catch(() => {})
+      toast.success('Cleaning approved and paid')
+      onChanged()
+    } catch (err) {
+      console.error(err)
+      toast.error(err?.message || 'Failed to approve')
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  const labelClass = 'text-[10px] uppercase tracking-wider text-muted-foreground font-semibold mb-1 block'
+  const inputClass = 'h-8 text-xs rounded w-full'
+
+  return (
+    <div className={cn('rounded-md border overflow-hidden',
+      isCompleted
+        ? 'bg-emerald-500/5 border-emerald-500/30'
+        : 'bg-card border-border')}>
+      <div className={cn('flex items-center gap-2 px-3 py-2 border-b',
+        isCompleted ? 'border-emerald-500/30 bg-emerald-500/10' : 'border-border bg-muted/30')}>
+        <Wallet size={13} className={cn(isCompleted ? 'text-emerald-700 dark:text-emerald-400' : 'text-muted-foreground')} />
+        <h4 className={cn('text-[10px] font-bold uppercase tracking-wider',
+          isCompleted ? 'text-emerald-700 dark:text-emerald-400' : 'text-muted-foreground')}>
+          Payment {isCompleted && '· Paid'}
+        </h4>
+      </div>
+
+      <div className="p-3 space-y-3">
+        {isCompleted && cleaning.paid_at && (
+          <div className="flex items-center justify-between text-xs">
+            <span className="text-muted-foreground">Paid at</span>
+            <span className="text-foreground font-semibold">{formatDateTime(cleaning.paid_at)}</span>
+          </div>
+        )}
+
+        <div className="grid grid-cols-2 gap-3">
+          <div>
+            <label className={labelClass}>Amount (₱) *</label>
+            <Input
+              type="number"
+              min={0}
+              value={amount}
+              onChange={(e) => setAmount(e.target.value)}
+              disabled={isCompleted}
+              placeholder="0"
+              className={inputClass}
+            />
+          </div>
+          <div>
+            <label className={labelClass}>Method *</label>
+            <Input
+              value={method}
+              onChange={(e) => setMethod(e.target.value)}
+              disabled={isCompleted}
+              placeholder="GCash, BPI, Cash…"
+              className={inputClass}
+            />
+          </div>
+        </div>
+
+        <div>
+          <label className={labelClass}>Reference</label>
+          <Input
+            value={reference}
+            onChange={(e) => setReference(e.target.value)}
+            disabled={isCompleted}
+            placeholder="Transaction ID, check no., etc."
+            className={inputClass}
+          />
+        </div>
+
+        <div>
+          <label className={labelClass}>Note</label>
+          <Textarea
+            value={note}
+            onChange={(e) => setNote(e.target.value)}
+            disabled={isCompleted}
+            rows={2}
+            placeholder="Optional note"
+            className="text-xs rounded resize-none w-full"
+          />
+        </div>
+
+        {!isCompleted && (
+          <Button
+            size="sm"
+            className="h-8 rounded text-xs w-full gap-1.5 text-white"
+            style={{ backgroundColor: '#059669' }}
+            onClick={handleApprove}
+            disabled={!canApprove || saving}
+            title={
+              !amountOk ? 'Enter an amount greater than 0'
+              : !methodOk ? 'Enter a payment method'
+              : 'Approve and mark as completed'
+            }
+          >
+            {saving ? <Loader2 size={12} className="animate-spin" /> : <Send size={12} />}
+            {saving ? 'Processing…' : 'Approve & Mark Completed'}
+          </Button>
+        )}
+
+        {!isCompleted && (!amountOk || !methodOk) && (
+          <p className="text-[10px] text-muted-foreground text-center">
+            Fill amount and method to enable the approve button
+          </p>
+        )}
+      </div>
+    </div>
+  )
+}
+
+// ============================================================
+// NEW CLEANING MODAL (unchanged)
+// ============================================================
 const emptyNewCleaning = () => ({
   unit_id: '',
   booking_id: '',
@@ -456,25 +583,15 @@ function NewCleaningModal({ open, onClose, onCreated, units, bookings, housekeep
   const [form, setForm] = useState(emptyNewCleaning())
   const [saving, setSaving] = useState(false)
 
-  useEffect(() => {
-    if (open) setForm(emptyNewCleaning())
-  }, [open])
-
+  useEffect(() => { if (open) setForm(emptyNewCleaning()) }, [open])
   if (!open) return null
 
   const setField = (k, v) => setForm((p) => ({ ...p, [k]: v }))
 
   const handleBookingChange = (bookingId) => {
-    if (bookingId === '__none__') {
-      setField('booking_id', '')
-      return
-    }
+    if (bookingId === '__none__') { setField('booking_id', ''); return }
     const b = bookings.find((x) => x.id === bookingId)
-    setForm((p) => ({
-      ...p,
-      booking_id: bookingId,
-      unit_id: b?.unit_id || p.unit_id,
-    }))
+    setForm((p) => ({ ...p, booking_id: bookingId, unit_id: b?.unit_id || p.unit_id }))
   }
 
   const handleSubmit = async () => {
@@ -490,11 +607,7 @@ function NewCleaningModal({ open, onClose, onCreated, units, bookings, housekeep
         housekeeper_id: form.housekeeper_id || null,
         notes: form.notes.trim() || null,
       })
-      logAudit('CREATE_CLEANING', 'cleanings', null, {
-        unit_id: form.unit_id,
-        type: form.type,
-        booking_id: form.booking_id || null,
-      }).catch(() => {})
+      logAudit('CREATE_CLEANING', 'cleanings', null, { unit_id: form.unit_id, type: form.type }).catch(() => {})
       toast.success('Cleaning created')
       onCreated()
       onClose()
@@ -512,17 +625,12 @@ function NewCleaningModal({ open, onClose, onCreated, units, bookings, housekeep
   return (
     <div className="fixed inset-0 z-[9999] flex items-center justify-center p-4">
       <div className="absolute inset-0 bg-black/50" onClick={onClose} />
-      <motion.div
-        initial={{ opacity: 0, scale: 0.98 }}
-        animate={{ opacity: 1, scale: 1 }}
-        transition={{ duration: 0.15 }}
-        className="relative bg-card rounded-md shadow-2xl max-w-lg w-full max-h-[90vh] flex flex-col overflow-hidden border border-border"
-      >
+      <motion.div initial={{ opacity: 0, scale: 0.98 }} animate={{ opacity: 1, scale: 1 }} transition={{ duration: 0.15 }}
+        className="relative bg-card rounded-md shadow-2xl max-w-lg w-full max-h-[90vh] flex flex-col overflow-hidden border border-border">
         <div className="flex items-center justify-between px-5 py-3 border-b border-border">
           <h2 className="text-sm font-bold text-foreground">New Cleaning</h2>
           <button onClick={onClose} className="p-1 rounded hover:bg-muted transition-colors"><X size={16} /></button>
         </div>
-
         <div className="flex-1 overflow-y-auto px-5 py-4 space-y-4">
           <div>
             <label className={labelClass}>Unit *</label>
@@ -530,47 +638,31 @@ function NewCleaningModal({ open, onClose, onCreated, units, bookings, housekeep
               <SelectTrigger className={inputClass}>
                 <SelectValue placeholder="Select a unit...">
                   {form.unit_id
-                    ? (() => {
-                        const u = units.find((x) => x.id === form.unit_id)
-                        return u ? `${u.building || '—'} — ${u.unit_code || '—'}` : null
-                      })()
+                    ? (() => { const u = units.find((x) => x.id === form.unit_id); return u ? `${u.building || '—'} — ${u.unit_code || '—'}` : null })()
                     : null}
                 </SelectValue>
               </SelectTrigger>
               <SelectContent>
-                {units.map((u) => (
-                  <SelectItem key={u.id} value={u.id} className="text-xs">
-                    {u.building || '—'} — {u.unit_code || '—'}
-                  </SelectItem>
-                ))}
+                {units.map((u) => <SelectItem key={u.id} value={u.id} className="text-xs">{u.building || '—'} — {u.unit_code || '—'}</SelectItem>)}
               </SelectContent>
             </Select>
           </div>
-
           <div>
             <label className={labelClass}>Linked Booking (optional)</label>
             <Select value={form.booking_id || '__none__'} onValueChange={handleBookingChange}>
               <SelectTrigger className={inputClass}>
                 <SelectValue placeholder="No booking (standalone)">
                   {form.booking_id
-                    ? (() => {
-                        const b = bookings.find((x) => x.id === form.booking_id)
-                        return b ? `${b.booking_code} · ${b.guest_name}` : null
-                      })()
+                    ? (() => { const b = bookings.find((x) => x.id === form.booking_id); return b ? `${b.booking_code} · ${b.guest_name}` : null })()
                     : <span className="text-muted-foreground italic">No booking (standalone)</span>}
                 </SelectValue>
               </SelectTrigger>
               <SelectContent>
                 <SelectItem value="__none__" className="text-xs italic text-muted-foreground">No booking (standalone)</SelectItem>
-                {bookings.map((b) => (
-                  <SelectItem key={b.id} value={b.id} className="text-xs">
-                    {b.booking_code} · {b.guest_name}
-                  </SelectItem>
-                ))}
+                {bookings.map((b) => <SelectItem key={b.id} value={b.id} className="text-xs">{b.booking_code} · {b.guest_name}</SelectItem>)}
               </SelectContent>
             </Select>
           </div>
-
           <div className="grid grid-cols-2 gap-3">
             <div>
               <label className={labelClass}>Type</label>
@@ -587,41 +679,27 @@ function NewCleaningModal({ open, onClose, onCreated, units, bookings, housekeep
               <Input type="date" value={form.scheduled_date} onChange={(e) => setField('scheduled_date', e.target.value)} className={inputClass} />
             </div>
           </div>
-
           <div>
             <label className={labelClass}>Housekeeper (optional)</label>
             <Select value={form.housekeeper_id || '__none__'} onValueChange={(v) => setField('housekeeper_id', v === '__none__' ? '' : v)}>
               <SelectTrigger className={inputClass}>
                 <SelectValue placeholder="Unassigned">
                   {form.housekeeper_id
-                    ? (() => {
-                        const h = housekeepers.find((x) => x.id === form.housekeeper_id)
-                        return h ? `${h.name} · ${h.code}` : null
-                      })()
+                    ? (() => { const h = housekeepers.find((x) => x.id === form.housekeeper_id); return h ? `${h.name} · ${h.code}` : null })()
                     : <span className="text-muted-foreground italic">Unassigned</span>}
                 </SelectValue>
               </SelectTrigger>
               <SelectContent>
                 <SelectItem value="__none__" className="text-xs italic text-muted-foreground">Unassigned</SelectItem>
-                {housekeepers.map((h) => (
-                  <SelectItem key={h.id} value={h.id} className="text-xs">{h.name} · {h.code}</SelectItem>
-                ))}
+                {housekeepers.map((h) => <SelectItem key={h.id} value={h.id} className="text-xs">{h.name} · {h.code}</SelectItem>)}
               </SelectContent>
             </Select>
           </div>
-
           <div>
             <label className={labelClass}>Notes</label>
-            <Textarea
-              value={form.notes}
-              onChange={(e) => setField('notes', e.target.value)}
-              rows={2}
-              className="text-xs rounded resize-none"
-              placeholder="Any notes..."
-            />
+            <Textarea value={form.notes} onChange={(e) => setField('notes', e.target.value)} rows={2} className="text-xs rounded resize-none" placeholder="Any notes..." />
           </div>
         </div>
-
         <div className="flex items-center justify-end gap-2 px-5 py-3 border-t border-border bg-muted/30">
           <Button variant="outline" size="sm" className="h-8 rounded text-xs" onClick={onClose} disabled={saving}>Cancel</Button>
           <Button size="sm" className="h-8 rounded text-xs" onClick={handleSubmit} disabled={saving} style={{ backgroundColor: BRAND }}>
@@ -634,6 +712,9 @@ function NewCleaningModal({ open, onClose, onCreated, units, bookings, housekeep
   )
 }
 
+// ============================================================
+// DETAIL PANEL
+// ============================================================
 function CleaningDetailPanel({ cleaning, onClose, onChanged, onDelete, housekeepers }) {
   const [saving, setSaving] = useState(false)
 
@@ -651,30 +732,9 @@ function CleaningDetailPanel({ cleaning, onClose, onChanged, onDelete, housekeep
     }
   }
 
-  const handleComplete = async () => {
-    const confirmed = window.confirm('Mark this cleaning as completed?')
-    if (!confirmed) return
-    setSaving(true)
-    try {
-      await updateCleaning(cleaning.id, {
-        status: 'completed',
-        completed_at: new Date().toISOString(),
-      })
-      logAudit('COMPLETE_CLEANING', 'cleanings', cleaning.id, {}).catch(() => {})
-      toast.success('Cleaning completed')
-      onChanged()
-    } catch (err) {
-      console.error(err)
-      toast.error(err?.message || 'Failed to complete')
-    } finally {
-      setSaving(false)
-    }
-  }
-
   const booking = cleaning.bookings
   const stayNights = computeNightsFromBooking(booking)
   const suggestDeep = stayNights >= 7 && cleaning.type === 'basic'
-
   const selectedHousekeeper = housekeepers.find((h) => h.id === cleaning.housekeeper_id) || null
 
   return (
@@ -683,10 +743,7 @@ function CleaningDetailPanel({ cleaning, onClose, onChanged, onDelete, housekeep
       initial={{ width: 0, opacity: 0 }}
       animate={{ width: PANEL_WIDTH, opacity: 1 }}
       exit={{ width: 0, opacity: 0 }}
-      transition={{
-        width: { duration: 0.32, ease: [0.4, 0, 0.2, 1] },
-        opacity: { duration: 0.2, ease: 'easeOut' },
-      }}
+      transition={{ width: { duration: 0.32, ease: [0.4, 0, 0.2, 1] }, opacity: { duration: 0.2, ease: 'easeOut' } }}
       className="bg-card border-l border-border h-full overflow-hidden flex-shrink-0"
       style={{ maxWidth: '100%' }}
     >
@@ -698,12 +755,8 @@ function CleaningDetailPanel({ cleaning, onClose, onChanged, onDelete, housekeep
               <Building2 size={20} className="text-muted-foreground" />
             </div>
             <div className="min-w-0 flex-1">
-              <p className="text-base font-bold text-foreground truncate">
-                {cleaning.units?.unit_code || '—'}
-              </p>
-              <p className="text-[11px] text-muted-foreground truncate">
-                {cleaning.units?.building || '—'}
-              </p>
+              <p className="text-base font-bold text-foreground truncate">{cleaning.units?.unit_code || '—'}</p>
+              <p className="text-[11px] text-muted-foreground truncate">{cleaning.units?.building || '—'}</p>
               <div className="flex items-center gap-2 mt-2 flex-wrap">
                 <TypeBadge type={cleaning.type} />
                 <StatusBadge status={cleaning.status} />
@@ -714,19 +767,6 @@ function CleaningDetailPanel({ cleaning, onClose, onChanged, onDelete, housekeep
         </div>
 
         <div className="flex-1 overflow-y-auto p-4 space-y-3">
-
-          {cleaning.status !== 'completed' && (
-            <Button
-              size="sm"
-              className="h-8 rounded text-xs w-full gap-1.5 text-white"
-              style={{ backgroundColor: '#059669' }}
-              onClick={handleComplete}
-              disabled={saving}
-            >
-              {saving ? <Loader2 size={12} className="animate-spin" /> : <CheckCircle2 size={12} />}
-              Mark as Completed
-            </Button>
-          )}
 
           <SectionCard title="Overview" icon={Clock}>
             {booking && (
@@ -748,12 +788,8 @@ function CleaningDetailPanel({ cleaning, onClose, onChanged, onDelete, housekeep
                 <span className="text-[11px] text-amber-700 dark:text-amber-300 flex-1">
                   {stayNights}-night stay — consider deep clean
                 </span>
-                <button
-                  type="button"
-                  onClick={() => updateField('type', 'deep')}
-                  disabled={saving}
-                  className="text-[10px] font-semibold uppercase tracking-wider text-amber-700 dark:text-amber-300 hover:underline disabled:opacity-50"
-                >
+                <button type="button" onClick={() => updateField('type', 'deep')} disabled={saving}
+                  className="text-[10px] font-semibold uppercase tracking-wider text-amber-700 dark:text-amber-300 hover:underline disabled:opacity-50">
                   Set Deep
                 </button>
               </div>
@@ -780,6 +816,7 @@ function CleaningDetailPanel({ cleaning, onClose, onChanged, onDelete, housekeep
                   <SelectContent>
                     <SelectItem value="pending" className="text-xs">Pending</SelectItem>
                     <SelectItem value="in_progress" className="text-xs">In Progress</SelectItem>
+                    <SelectItem value="submitted" className="text-xs">Submitted</SelectItem>
                     <SelectItem value="completed" className="text-xs">Completed</SelectItem>
                   </SelectContent>
                 </Select>
@@ -788,12 +825,12 @@ function CleaningDetailPanel({ cleaning, onClose, onChanged, onDelete, housekeep
 
             <div className="flex items-center gap-2 py-0.5">
               <span className="text-[10px] uppercase tracking-wider text-muted-foreground font-semibold min-w-[72px] flex-shrink-0">Scheduled</span>
-              <Input
-                type="date"
-                value={cleaning.scheduled_date || ''}
-                onChange={(e) => updateField('scheduled_date', e.target.value || null)}
-                className="h-7 text-xs rounded bg-background flex-1"
-              />
+              <Input type="date" value={cleaning.scheduled_date || ''} onChange={(e) => updateField('scheduled_date', e.target.value || null)} className="h-7 text-xs rounded bg-background flex-1" />
+            </div>
+
+            <div className="flex items-center gap-2 py-0.5">
+              <span className="text-[10px] uppercase tracking-wider text-muted-foreground font-semibold min-w-[72px] flex-shrink-0">Submitted</span>
+              <span className="text-xs tabular-nums text-foreground">{cleaning.submitted_at ? formatDateTime(cleaning.submitted_at) : '—'}</span>
             </div>
 
             <div className="flex items-center gap-2 py-0.5">
@@ -803,19 +840,16 @@ function CleaningDetailPanel({ cleaning, onClose, onChanged, onDelete, housekeep
           </SectionCard>
 
           <SectionCard title="Housekeeper" icon={User}>
-            {selectedHousekeeper ? (
+            {selectedHousekeeper && (
               <div className="flex items-center gap-2.5 pb-2 mb-2 border-b border-border">
-                <WorkerAvatar name={selectedHousekeeper.name} size="lg" />
+                <WorkerAvatar name={selectedHousekeeper.name} photo_url={selectedHousekeeper.photo_url} size="lg" />
                 <div className="min-w-0 flex-1">
                   <p className="text-sm font-semibold truncate">{selectedHousekeeper.name}</p>
                   <p className="text-[11px] font-mono text-muted-foreground">{selectedHousekeeper.code}</p>
                 </div>
               </div>
-            ) : null}
-            <Select
-              value={cleaning.housekeeper_id || '__none__'}
-              onValueChange={(v) => updateField('housekeeper_id', v === '__none__' ? null : v)}
-            >
+            )}
+            <Select value={cleaning.housekeeper_id || '__none__'} onValueChange={(v) => updateField('housekeeper_id', v === '__none__' ? null : v)}>
               <SelectTrigger className="h-8 text-xs rounded w-full">
                 <SelectValue placeholder="Unassigned">
                   {selectedHousekeeper ? selectedHousekeeper.name : <span className="text-muted-foreground italic">Unassigned</span>}
@@ -823,18 +857,18 @@ function CleaningDetailPanel({ cleaning, onClose, onChanged, onDelete, housekeep
               </SelectTrigger>
               <SelectContent>
                 <SelectItem value="__none__" className="text-xs italic text-muted-foreground">Unassigned</SelectItem>
-                {housekeepers.map((h) => (
-                  <SelectItem key={h.id} value={h.id} className="text-xs">{h.name} · {h.code}</SelectItem>
-                ))}
+                {housekeepers.map((h) => <SelectItem key={h.id} value={h.id} className="text-xs">{h.name} · {h.code}</SelectItem>)}
               </SelectContent>
             </Select>
           </SectionCard>
 
+          <PhotoSection cleaning={cleaning} onChanged={onChanged} />
+
+          <LaundrySection cleaning={cleaning} />
+
           <SectionCard title={`Inventory · ${parseInventory(cleaning.inventory).length}`} icon={Package}>
             <InventoryEditor cleaning={cleaning} onChange={onChanged} />
           </SectionCard>
-
-          <PhotoSection cleaning={cleaning} onChanged={onChanged} />
 
           <SectionCard title="Notes" icon={FileText}>
             <Textarea
@@ -854,13 +888,12 @@ function CleaningDetailPanel({ cleaning, onClose, onChanged, onDelete, housekeep
             />
           </SectionCard>
 
+          <PaymentSection cleaning={cleaning} onChanged={onChanged} />
+
           <div className="pt-2 border-t border-border">
-            <Button
-              variant="outline"
-              size="sm"
+            <Button variant="outline" size="sm"
               className="h-8 rounded text-xs w-full gap-1.5 text-red-600 border-red-200 hover:bg-red-50 dark:text-red-400 dark:border-red-800 dark:hover:bg-red-900/20"
-              onClick={onDelete}
-            >
+              onClick={onDelete}>
               <Trash2 size={12} /> Delete Cleaning
             </Button>
           </div>
@@ -871,29 +904,25 @@ function CleaningDetailPanel({ cleaning, onClose, onChanged, onDelete, housekeep
   )
 }
 
+// ============================================================
+// LIST ROW
+// ============================================================
 function CleaningListRow({ cleaning, selected, onClick }) {
   return (
     <motion.button
       type="button"
       onClick={onClick}
       initial={false}
-      animate={{
-        backgroundColor: selected ? 'rgba(45, 86, 142, 0.10)' : 'rgba(45, 86, 142, 0)',
-      }}
+      animate={{ backgroundColor: selected ? 'rgba(45, 86, 142, 0.10)' : 'rgba(45, 86, 142, 0)' }}
       transition={{ duration: 0.22, ease: [0.4, 0, 0.2, 1] }}
       whileHover={{ backgroundColor: selected ? 'rgba(45, 86, 142, 0.14)' : 'rgba(45, 86, 142, 0.05)' }}
       whileTap={{ scale: 0.998 }}
       className={cn('group/row w-full text-left px-4 py-3 border-b border-border cursor-pointer select-none', ROW_GRID)}
     >
       <div className="min-w-0">
-        <span className="font-mono text-xs font-bold text-foreground truncate block">
-          {cleaning.units?.unit_code || '—'}
-        </span>
-        <span className="text-[10px] text-muted-foreground truncate block">
-          {cleaning.units?.building || '—'}
-        </span>
+        <span className="font-mono text-xs font-bold text-foreground truncate block">{cleaning.units?.unit_code || '—'}</span>
+        <span className="text-[10px] text-muted-foreground truncate block">{cleaning.units?.building || '—'}</span>
       </div>
-
       <div className="min-w-0">
         {cleaning.bookings ? (
           <>
@@ -904,37 +933,31 @@ function CleaningListRow({ cleaning, selected, onClick }) {
           <span className="text-[10px] italic text-muted-foreground">Standalone</span>
         )}
       </div>
-
-      <div className="min-w-0">
-        <TypeBadge type={cleaning.type} />
-      </div>
-
+      <div className="min-w-0"><TypeBadge type={cleaning.type} /></div>
       <div className="min-w-0 flex items-center gap-2">
         {cleaning.housekeepers ? (
           <>
-            <WorkerAvatar name={cleaning.housekeepers.name} size="sm" />
+            <WorkerAvatar name={cleaning.housekeepers.name} photo_url={cleaning.housekeepers.photo_url} size="sm" />
             <span className="text-xs text-foreground truncate">{cleaning.housekeepers.name}</span>
           </>
         ) : (
           <span className="text-[11px] italic text-muted-foreground">Unassigned</span>
         )}
       </div>
-
       <div className="text-[11px] tabular-nums text-muted-foreground min-w-0">
         <div className="truncate">{formatDate(cleaning.scheduled_date)}</div>
       </div>
-
       <div className="flex items-center gap-2 justify-end flex-shrink-0">
         <StatusBadge status={cleaning.status} />
-        <ChevronRight
-          size={14}
-          className={cn('text-muted-foreground/40 transition-transform duration-300 ease-out', selected && 'rotate-180 text-primary')}
-        />
+        <ChevronRight size={14} className={cn('text-muted-foreground/40 transition-transform duration-300 ease-out', selected && 'rotate-180 text-primary')} />
       </div>
     </motion.button>
   )
 }
 
+// ============================================================
+// MAIN PAGE
+// ============================================================
 export default function HousekeepingPage() {
   const [cleanings, setCleanings] = useState([])
   const [units, setUnits] = useState([])
@@ -965,7 +988,7 @@ export default function HousekeepingPage() {
         listCleanings({}),
         supabase.from('units').select('id, unit_code, building, status').order('unit_code'),
         supabase.from('bookings').select('id, booking_code, guest_name, unit_id, check_in, check_out, completed_at').order('check_in', { ascending: false }).limit(200),
-        supabase.from('housekeepers').select('id, code, name').eq('status', 'active').order('name'),
+        supabase.from('housekeepers').select('id, code, name, photo_url').eq('status', 'active').order('name'),
       ])
       if (uRes.error) throw uRes.error
       if (bRes.error) throw bRes.error
@@ -986,7 +1009,6 @@ export default function HousekeepingPage() {
 
   useEffect(() => { fetchData() }, [fetchData])
 
-  // Realtime — unique channel name + clean teardown
   useEffect(() => {
     const ch = supabase
       .channel(`housekeeping-admin-${Math.random().toString(36).slice(2, 10)}`)
@@ -994,12 +1016,11 @@ export default function HousekeepingPage() {
         fetchData()
       })
       .subscribe()
-
     return () => { supabase.removeChannel(ch) }
   }, [fetchData])
 
   const counts = useMemo(() => {
-    const c = { all: cleanings.length, pending: 0, in_progress: 0, completed: 0, deep: 0, basic: 0 }
+    const c = { all: cleanings.length, pending: 0, in_progress: 0, submitted: 0, completed: 0, deep: 0, basic: 0 }
     for (const x of cleanings) {
       if (x.status && c[x.status] !== undefined) c[x.status]++
       if (x.type && c[x.type] !== undefined) c[x.type]++
@@ -1063,19 +1084,9 @@ export default function HousekeepingPage() {
           <div className="flex-shrink-0 flex items-center gap-2">
             <div className="relative flex-1 min-w-0">
               <Search size={13} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-muted-foreground" />
-              <Input
-                placeholder="Search unit, booking, housekeeper, notes..."
-                value={search}
-                onChange={(e) => setSearch(e.target.value)}
-                className="pl-8 h-8 text-xs rounded"
-              />
+              <Input placeholder="Search unit, booking, housekeeper, notes..." value={search} onChange={(e) => setSearch(e.target.value)} className="pl-8 h-8 text-xs rounded" />
             </div>
-            <Button
-              size="sm"
-              className="h-8 rounded text-xs text-white transition-all duration-150 active:scale-[0.98]"
-              style={{ backgroundColor: BRAND }}
-              onClick={() => setNewModalOpen(true)}
-            >
+            <Button size="sm" className="h-8 rounded text-xs text-white" style={{ backgroundColor: BRAND }} onClick={() => setNewModalOpen(true)}>
               <Plus size={13} />
               <span className="hidden sm:inline ml-1">New Cleaning</span>
             </Button>
@@ -1092,10 +1103,7 @@ export default function HousekeepingPage() {
           </div>
 
           <div className="flex-1 min-h-0 rounded border border-border overflow-hidden">
-            <div
-              className="h-full overflow-y-auto"
-              style={{ scrollbarGutter: 'stable' }}
-            >
+            <div className="h-full overflow-y-auto" style={{ scrollbarGutter: 'stable' }}>
               <div className={cn('sticky top-0 z-10 px-4 py-2 border-b border-border bg-card', ROW_GRID)}>
                 <span className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground truncate">Unit</span>
                 <span className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground truncate">Booking</span>
@@ -1117,12 +1125,7 @@ export default function HousekeepingPage() {
                 </div>
               ) : (
                 filtered.map((c) => (
-                  <CleaningListRow
-                    key={c.id}
-                    cleaning={c}
-                    selected={selectedId === c.id}
-                    onClick={() => handleSelect(c)}
-                  />
+                  <CleaningListRow key={c.id} cleaning={c} selected={selectedId === c.id} onClick={() => handleSelect(c)} />
                 ))
               )}
             </div>
