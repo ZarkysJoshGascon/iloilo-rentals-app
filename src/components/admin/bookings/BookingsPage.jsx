@@ -29,7 +29,9 @@ import {
 import {
   getTierInfo, SPECIALIST_FLAT_RATE,
   computeSpecialistCommission, computeAffiliateCommission,
+  computeCommissionAtRate,
   fetchAffiliateCounts, fetchSpecialistCounts,
+  fetchAffiliateCompletedCount,
 } from '@/lib/commissions'
 
 const BRAND = '#2d568e'
@@ -204,10 +206,6 @@ function SectionCard({ title, icon: Icon, children, className, action }) {
   )
 }
 
-/**
- * Read-only display for auto-computed commission values.
- * Shows a lock icon so admins know it's derived from total_amount.
- */
 function ComputedCommissionRow({ label, value, hint }) {
   return (
     <div className="flex items-center gap-2 py-0.5">
@@ -480,6 +478,7 @@ const emptyForm = () => ({
 function BookingFormModal({ open, onClose, onSaved, units, editing, specialists, affiliates, affiliateCounts }) {
   const [form, setForm] = useState(emptyForm())
   const [saving, setSaving] = useState(false)
+  const [liveAffiliateCount, setLiveAffiliateCount] = useState(null)
 
   useEffect(() => {
     if (!open) return
@@ -505,25 +504,48 @@ function BookingFormModal({ open, onClose, onSaved, units, editing, specialists,
     } else {
       setForm(emptyForm())
     }
+    setLiveAffiliateCount(null)
   }, [open, editing])
 
   const setField = (k, v) => setForm((p) => ({ ...p, [k]: v }))
 
-  // ============================================================
-  // Auto-compute commissions — always derived from total_amount
-  // and the current tier/codes. Never stored on form state; the
-  // values are recomputed whenever inputs change.
-  // ============================================================
+  // Live affiliate count fetch (if not cached)
+  useEffect(() => {
+    if (!open || !form.affiliate_code) { setLiveAffiliateCount(null); return }
+    const cached = affiliateCounts?.[form.affiliate_code]
+    if (typeof cached === 'number') { setLiveAffiliateCount(cached); return }
+    let cancelled = false
+    setLiveAffiliateCount(null)
+    fetchAffiliateCompletedCount(form.affiliate_code)
+      .then((count) => { if (!cancelled) setLiveAffiliateCount(Number(count) || 0) })
+      .catch(() => { if (!cancelled) setLiveAffiliateCount(0) })
+    return () => { cancelled = true }
+  }, [open, form.affiliate_code, affiliateCounts])
+
   const totalAmount = Number(form.total_amount) || 0
-  const bookerCommission = useMemo(
-    () => (form.booker_code && totalAmount > 0 ? computeSpecialistCommission(totalAmount) : 0),
-    [form.booker_code, totalAmount],
+
+  const bookerRate = useMemo(
+    () => (form.booker_code ? SPECIALIST_FLAT_RATE : null),
+    [form.booker_code],
   )
-  const affiliateCommission = useMemo(() => {
-    if (!form.affiliate_code || totalAmount <= 0) return 0
-    const count = affiliateCounts?.[form.affiliate_code] || 0
-    return computeAffiliateCommission(totalAmount, count)
-  }, [form.affiliate_code, totalAmount, affiliateCounts])
+  const bookerCommission = useMemo(
+    () => (bookerRate != null && totalAmount > 0 ? computeCommissionAtRate(totalAmount, bookerRate) : 0),
+    [bookerRate, totalAmount],
+  )
+
+  const affiliateCount = useMemo(() => {
+    if (form.affiliate_code && typeof liveAffiliateCount === 'number') return liveAffiliateCount
+    return affiliateCounts?.[form.affiliate_code] || 0
+  }, [liveAffiliateCount, affiliateCounts, form.affiliate_code])
+
+  const affiliateRate = useMemo(
+    () => (form.affiliate_code ? getTierInfo(affiliateCount).rate : null),
+    [form.affiliate_code, affiliateCount],
+  )
+  const affiliateCommission = useMemo(
+    () => (affiliateRate != null && totalAmount > 0 ? computeCommissionAtRate(totalAmount, affiliateRate) : 0),
+    [affiliateRate, totalAmount],
+  )
 
   const nights = computeNights(form.check_in, form.check_out)
   const initialAmount = Number(form.initial_amount) || 0
@@ -573,6 +595,42 @@ function BookingFormModal({ open, onClose, onSaved, units, editing, specialists,
       const booker = specialists.find((s) => s.code === form.booker_code)
       const affiliate = affiliates.find((a) => a.code === form.affiliate_code)
 
+      // ---- SNAPSHOT RATES ----
+      // On create: use the CURRENT tier rates.
+      // On edit: preserve the stored snapshot unless the code changed.
+      const newBookerCodeClean = sanitizeText(form.booker_code, { max: 40 }) || null
+      const newAffiliateCodeClean = sanitizeText(form.affiliate_code, { max: 40 }) || null
+
+      let finalBookerRate = bookerRate
+      let finalAffiliateRate = affiliateRate
+      let finalBookerComm = bookerCommission
+      let finalAffiliateComm = affiliateCommission
+
+      if (editing) {
+        const bookerChanged = newBookerCodeClean !== (editing.booker_code || null)
+        const affiliateChanged = newAffiliateCodeClean !== (editing.affiliate_code || null)
+
+        // Preserve stored rate if the code didn't change
+        if (!bookerChanged && editing.booker_rate != null) {
+          finalBookerRate = Number(editing.booker_rate)
+          finalBookerComm = computeCommissionAtRate(totalAmt, finalBookerRate)
+        }
+        if (!affiliateChanged && editing.affiliate_rate != null) {
+          finalAffiliateRate = Number(editing.affiliate_rate)
+          finalAffiliateComm = computeCommissionAtRate(totalAmt, finalAffiliateRate)
+        }
+
+        // If booker/affiliate was cleared, rates are null and commissions zero
+        if (!newBookerCodeClean) {
+          finalBookerRate = null
+          finalBookerComm = 0
+        }
+        if (!newAffiliateCodeClean) {
+          finalAffiliateRate = null
+          finalAffiliateComm = 0
+        }
+      }
+
       const payload = {
         unit_id: form.unit_id,
         guest_name: guestName,
@@ -582,13 +640,14 @@ function BookingFormModal({ open, onClose, onSaved, units, editing, specialists,
         check_in: checkIn,
         check_out: checkOut,
         total_amount: totalAmt,
-        booker_code: sanitizeText(form.booker_code, { max: 40 }) || null,
+        booker_code: newBookerCodeClean,
         booker_name: booker?.name ? sanitizeText(booker.name, { max: 120 }) : null,
-        affiliate_code: sanitizeText(form.affiliate_code, { max: 40 }) || null,
+        booker_commission: finalBookerComm,
+        booker_rate: finalBookerRate,
+        affiliate_code: newAffiliateCodeClean,
         affiliate_name: affiliate?.name ? sanitizeText(affiliate.name, { max: 120 }) : null,
-        // Computed values — never user input
-        booker_commission: bookerCommission,
-        affiliate_commission: affiliateCommission,
+        affiliate_commission: finalAffiliateComm,
+        affiliate_rate: finalAffiliateRate,
         affiliate_notes: affiliateNotes,
         notes,
         transactions,
@@ -599,8 +658,8 @@ function BookingFormModal({ open, onClose, onSaved, units, editing, specialists,
         if (error) throw error
         logAudit('UPDATE_BOOKING', 'bookings', editing.id, {
           booking_code: editing.booking_code,
-          booker_commission: bookerCommission,
-          affiliate_commission: affiliateCommission,
+          booker_commission: finalBookerComm,
+          affiliate_commission: finalAffiliateComm,
         }).catch(() => {})
         toast.success('Booking updated')
       } else {
@@ -623,13 +682,6 @@ function BookingFormModal({ open, onClose, onSaved, units, editing, specialists,
   if (!open) return null
   const labelClass = 'text-[10px] uppercase tracking-wider text-muted-foreground font-semibold mb-1 block'
   const inputClass = 'h-8 text-xs rounded'
-  const bookerTierHint = form.booker_code ? `Flat ${SPECIALIST_FLAT_RATE}%` : null
-  const affiliateTierHint = form.affiliate_code
-    ? (() => {
-        const t = getTierInfo(affiliateCounts?.[form.affiliate_code] || 0)
-        return `${t.tier} · ${t.rate}%`
-      })()
-    : null
 
   return (
     <div className="fixed inset-0 z-[9999] flex items-center justify-center p-4">
@@ -775,9 +827,11 @@ function BookingFormModal({ open, onClose, onSaved, units, editing, specialists,
                     Auto
                   </span>
                 </div>
-                {form.affiliate_code ? (
+                {form.affiliate_code && affiliateRate != null ? (
                   <p className="text-[10px] text-muted-foreground mt-1">
-                    {getTierInfo(affiliateCounts?.[form.affiliate_code] || 0).tier} · {getTierInfo(affiliateCounts?.[form.affiliate_code] || 0).rate}% of {formatMoney(totalAmount)}
+                    {getTierInfo(affiliateCount).tier} · {affiliateRate}% of {formatMoney(totalAmount)}
+                    {' · '}
+                    <span className="italic">{affiliateCount} completed</span>
                   </p>
                 ) : (
                   <p className="text-[10px] text-muted-foreground italic mt-1">Select an affiliate to enable</p>
@@ -801,9 +855,9 @@ function BookingFormModal({ open, onClose, onSaved, units, editing, specialists,
                     Auto
                   </span>
                 </div>
-                {form.booker_code ? (
+                {form.booker_code && bookerRate != null ? (
                   <p className="text-[10px] text-muted-foreground mt-1">
-                    Flat {SPECIALIST_FLAT_RATE}% of {formatMoney(totalAmount)}
+                    Flat {bookerRate}% of {formatMoney(totalAmount)}
                   </p>
                 ) : (
                   <p className="text-[10px] text-muted-foreground italic mt-1">Select a specialist to enable</p>
@@ -913,7 +967,7 @@ function AddPaymentModal({ open, onClose, booking, onSaved }) {
   )
 }
 
-function ExtendStayModal({ open, onClose, booking, onSaved, affiliateCounts }) {
+function ExtendStayModal({ open, onClose, booking, onSaved }) {
   const [newCheckOut, setNewCheckOut] = useState('')
   const [newTotal, setNewTotal] = useState('')
   const [addPayment, setAddPayment] = useState(false)
@@ -938,13 +992,23 @@ function ExtendStayModal({ open, onClose, booking, onSaved, affiliateCounts }) {
   const labelClass = 'text-[10px] uppercase tracking-wider text-muted-foreground font-semibold mb-1 block'
   const inputClass = 'h-8 text-xs rounded'
 
-  // Preview the recomputed commissions live
+  // Rates snapshotted on the booking
+  const snapshotBookerRate = booking.booker_rate != null
+    ? Number(booking.booker_rate)
+    : (booking.booker_code ? SPECIALIST_FLAT_RATE : null)
+
+  const snapshotAffiliateRate = booking.affiliate_rate != null
+    ? Number(booking.affiliate_rate)
+    : null
+
   const previewTotal = Number(newTotal) || 0
-  const previewBooker = booking.booker_code && previewTotal > 0
-    ? computeSpecialistCommission(previewTotal)
+
+  const previewBooker = booking.booker_code && snapshotBookerRate != null
+    ? computeCommissionAtRate(previewTotal, snapshotBookerRate)
     : 0
-  const previewAffiliate = booking.affiliate_code && previewTotal > 0
-    ? computeAffiliateCommission(previewTotal, affiliateCounts?.[booking.affiliate_code] || 0)
+
+  const previewAffiliate = booking.affiliate_code && snapshotAffiliateRate != null
+    ? computeCommissionAtRate(previewTotal, snapshotAffiliateRate)
     : 0
 
   const save = async () => {
@@ -982,12 +1046,13 @@ function ExtendStayModal({ open, onClose, booking, onSaved, affiliateCounts }) {
         })
       }
 
-      // Commissions recomputed from new total
-      const newBookerComm = booking.booker_code
-        ? computeSpecialistCommission(total)
+      // Recompute from the SNAPSHOTTED rate — never the current tier
+      const newBookerComm = booking.booker_code && snapshotBookerRate != null
+        ? computeCommissionAtRate(total, snapshotBookerRate)
         : 0
-      const newAffComm = booking.affiliate_code
-        ? computeAffiliateCommission(total, affiliateCounts?.[booking.affiliate_code] || 0)
+
+      const newAffComm = booking.affiliate_code && snapshotAffiliateRate != null
+        ? computeCommissionAtRate(total, snapshotAffiliateRate)
         : 0
 
       const patch = {
@@ -996,6 +1061,7 @@ function ExtendStayModal({ open, onClose, booking, onSaved, affiliateCounts }) {
         transactions: tx,
         booker_commission: newBookerComm,
         affiliate_commission: newAffComm,
+        // Keep the snapshot columns as-is (they don't change on extend)
       }
       const { error } = await supabase.from('bookings').update(patch).eq('id', booking.id)
       if (error) throw error
@@ -1049,15 +1115,15 @@ function ExtendStayModal({ open, onClose, booking, onSaved, affiliateCounts }) {
                 <Lock size={9} className="opacity-60" />
                 Recalculated commissions
               </p>
-              {booking.booker_code && (
+              {booking.booker_code && snapshotBookerRate != null && (
                 <div className="flex justify-between text-xs">
-                  <span className="text-muted-foreground">Booker ({SPECIALIST_FLAT_RATE}%)</span>
+                  <span className="text-muted-foreground">Booker ({snapshotBookerRate}%)</span>
                   <span className="font-semibold tabular-nums">{formatMoney(previewBooker)}</span>
                 </div>
               )}
-              {booking.affiliate_code && (
+              {booking.affiliate_code && snapshotAffiliateRate != null && (
                 <div className="flex justify-between text-xs">
-                  <span className="text-muted-foreground">Affiliate ({getTierInfo(affiliateCounts?.[booking.affiliate_code] || 0).rate}%)</span>
+                  <span className="text-muted-foreground">Affiliate ({snapshotAffiliateRate}%)</span>
                   <span className="font-semibold tabular-nums">{formatMoney(previewAffiliate)}</span>
                 </div>
               )}
@@ -1138,7 +1204,7 @@ function CompleteConfirmModal({ open, onClose, booking, onConfirmed }) {
   )
 }
 
-function BookingDetailPanel({ booking, affiliateCounts, onBookingChange, onClose, onAddPayment, onExtend, onComplete, onEdit, onDelete }) {
+function BookingDetailPanel({ booking, onBookingChange, onClose, onAddPayment, onExtend, onComplete, onEdit, onDelete }) {
   const status = deriveBookingStatus(booking)
   const isCompleted = status === 'completed'
   const isPaid = booking.payment_status === 'paid'
@@ -1153,16 +1219,25 @@ function BookingDetailPanel({ booking, affiliateCounts, onBookingChange, onClose
     onBookingChange({ ...booking, [field]: value })
   }
 
-  // When total_amount changes, recalc commissions too — always derived, never user-set.
+  // When total_amount changes, use the snapshotted rates.
   const updateTotalAmount = async (value) => {
     const n = value === '' || value === null ? 0 : Number(value)
     if (Number.isNaN(n)) throw new Error('Invalid number')
 
-    const newBookerComm = booking.booker_code && n > 0
-      ? computeSpecialistCommission(n)
+    const snapBookerRate = booking.booker_rate != null
+      ? Number(booking.booker_rate)
+      : (booking.booker_code ? SPECIALIST_FLAT_RATE : null)
+
+    const snapAffRate = booking.affiliate_rate != null
+      ? Number(booking.affiliate_rate)
+      : null
+
+    const newBookerComm = booking.booker_code && snapBookerRate != null && n > 0
+      ? computeCommissionAtRate(n, snapBookerRate)
       : 0
-    const newAffComm = booking.affiliate_code && n > 0
-      ? computeAffiliateCommission(n, affiliateCounts?.[booking.affiliate_code] || 0)
+
+    const newAffComm = booking.affiliate_code && snapAffRate != null && n > 0
+      ? computeCommissionAtRate(n, snapAffRate)
       : 0
 
     const { error } = await supabase
@@ -1192,14 +1267,18 @@ function BookingDetailPanel({ booking, affiliateCounts, onBookingChange, onClose
 
   const transactions = Array.isArray(booking.transactions) ? booking.transactions : []
   const nights = computeNights(booking.check_in, booking.check_out)
+
+  // Display helpers
   const bookerTier = booking.booker_code
-    ? `Flat ${SPECIALIST_FLAT_RATE}%`
+    ? (booking.booker_rate != null
+        ? `Flat ${booking.booker_rate}%`
+        : `Flat ${SPECIALIST_FLAT_RATE}%`)
     : null
+
   const affiliateTier = booking.affiliate_code
-    ? (() => {
-        const t = getTierInfo(affiliateCounts?.[booking.affiliate_code] || 0)
-        return `${t.tier} · ${t.rate}%`
-      })()
+    ? (booking.affiliate_rate != null
+        ? `${booking.affiliate_rate}%`
+        : '—')
     : null
 
   return (
@@ -1353,7 +1432,7 @@ function BookingDetailPanel({ booking, affiliateCounts, onBookingChange, onClose
             />
             <p className="pt-2 mt-1 border-t border-border text-[10px] text-muted-foreground italic flex items-center gap-1">
               <Lock size={9} className="opacity-60" />
-              Auto-calculated from the total amount. Update the Total above to recalculate.
+              Rates are snapshotted at booking creation. Update the Total above to recalculate using the same rates.
             </p>
           </SectionCard>
 
@@ -1429,20 +1508,14 @@ function downloadCSV(bookings, filename) {
   ]
   const rows = bookings.map((b) => {
     const s = deriveBookingStatus(b)
-    const bookerRate = Number(b.booker_commission) > 0 && Number(b.total_amount) > 0
-      ? Math.round((Number(b.booker_commission) / Number(b.total_amount)) * 100)
-      : 0
-    const affiliateRate = Number(b.affiliate_commission) > 0 && Number(b.total_amount) > 0
-      ? Math.round((Number(b.affiliate_commission) / Number(b.total_amount)) * 100)
-      : 0
     return [
       b.booking_code || '', b.units?.building || '', b.units?.unit_code || '',
       b.guest_name || '', b.guest_email || '', b.guest_contact || '', b.guests || '',
       b.check_in || '', b.check_out || '', computeNights(b.check_in, b.check_out),
       b.total_amount || 0, b.amount_paid || 0, b.balance || 0,
       b.payment_status || '', s,
-      b.booker_code || '', b.booker_name || '', b.booker_commission || 0, bookerRate,
-      b.affiliate_code || '', b.affiliate_name || '', b.affiliate_commission || 0, affiliateRate,
+      b.booker_code || '', b.booker_name || '', b.booker_commission || 0, b.booker_rate ?? '',
+      b.affiliate_code || '', b.affiliate_name || '', b.affiliate_commission || 0, b.affiliate_rate ?? '',
       b.notes || '',
     ]
   })
@@ -1735,7 +1808,6 @@ export default function BookingsPage() {
           <BookingDetailPanel
             key={selected.id}
             booking={selected}
-            affiliateCounts={affiliateCounts}
             onBookingChange={handleBookingChange}
             onClose={() => setSelectedId(null)}
             onAddPayment={() => setPayForBooking(selected)}
@@ -1759,7 +1831,7 @@ export default function BookingsPage() {
       />
 
       <AddPaymentModal open={!!payForBooking} onClose={() => setPayForBooking(null)} booking={payForBooking} onSaved={fetchData} />
-      <ExtendStayModal open={!!extendForBooking} onClose={() => setExtendForBooking(null)} booking={extendForBooking} onSaved={fetchData} affiliateCounts={affiliateCounts} />
+      <ExtendStayModal open={!!extendForBooking} onClose={() => setExtendForBooking(null)} booking={extendForBooking} onSaved={fetchData} />
       <CompleteConfirmModal open={!!completeForBooking} onClose={() => setCompleteForBooking(null)} booking={completeForBooking} onConfirmed={fetchData} />
     </div>
   )
