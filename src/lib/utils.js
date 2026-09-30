@@ -77,3 +77,12 @@ export function sanitizeDateOnly(input) {
   if (Number.isNaN(d.getTime())) return null
   return s
 }
+export function generateContractCode(prefix = 'CT') {
+  const bytes = new Uint8Array(8)
+  crypto.getRandomValues(bytes)
+  let s = ''
+  for (let i = 0; i < bytes.length; i++) {
+    s += BOOKING_ALPHABET[bytes[i] % BOOKING_ALPHABET.length]
+  }
+  return `${prefix}-${s}`
+}

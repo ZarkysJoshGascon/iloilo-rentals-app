@@ -1,11 +1,12 @@
-import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import {
-  ArrowUpDown, ArrowUp, ArrowDown, Camera, Check, Download, Loader2, Mail, Phone,
+  Camera, Check, Download, Loader2, Mail, Phone,
   Plus, RefreshCw, Search, SlidersHorizontal, X, Pencil, Tag, Layers,
   Building2, CheckCircle2, Clock, AlertTriangle, UserPlus, Trash2, PhoneCall,
-  ChevronRight, User,
+  ChevronRight, User, FileText, ExternalLink, Lock,
 } from 'lucide-react'
+import { useNavigate } from 'react-router-dom'
 import toast from 'react-hot-toast'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
@@ -17,43 +18,45 @@ import {
 } from '@/components/ui/select'
 import { supabase } from '@/lib/supabase'
 import {
-  listUnits, updateUnit, updateContract, createUnit, createOwner, deleteUnit,
+  listUnits, updateUnit, createUnit, createOwner, deleteUnit,
   updateInteraction, deleteInteraction, formatDate,
 } from '@/lib/registry'
 import { logAudit } from '@/lib/auditLog'
-import { cn } from '@/lib/utils'
+import {
+  cn,
+  sanitizeText,
+  sanitizeDateOnly,
+  generateContractCode,
+} from '@/lib/utils'
 
 // ============================================================
 // CONFIG
 // ============================================================
 const BRAND = '#2d568e'
 
-const STATUS_CONFIG = {
-  ACTIVE:      { label: 'Active',      className: 'bg-emerald-600 text-white hover:bg-emerald-600 border-0' },
-  INACTIVE:    { label: 'Inactive',    className: 'bg-gray-500 text-white hover:bg-gray-500 border-0' },
-  IN_PROGRESS: { label: 'In Progress', className: 'bg-blue-600 text-white hover:bg-blue-600 border-0' },
-  FOR_RENEWAL: { label: 'For Renewal', className: 'bg-amber-600 text-white hover:bg-amber-600 border-0' },
+// Summary card / pill config — 3 real statuses
+const DERIVED_STATUS_CONFIG = {
+  ACTIVE:      { label: 'Active',      className: 'bg-emerald-600 text-white border-0' },
+  FOR_RENEWAL: { label: 'For Renewal', className: 'bg-red-600 text-white border-0' },
+  INACTIVE:    { label: 'Inactive',    className: 'bg-gray-500 text-white border-0' },
 }
 
 const PILL_TEXT_ACTIVE = {
   all:          'text-foreground',
   ACTIVE:       'text-emerald-700 dark:text-emerald-400',
-  IN_PROGRESS:  'text-blue-700 dark:text-blue-400',
-  FOR_RENEWAL:  'text-amber-700 dark:text-amber-400',
+  FOR_RENEWAL:  'text-red-700 dark:text-red-400',
   INACTIVE:     'text-gray-700 dark:text-gray-300',
 }
 
-const STATUS_OPTIONS = ['ACTIVE', 'INACTIVE', 'IN_PROGRESS', 'FOR_RENEWAL']
 const UNIT_TYPES = ['Studio', '1-Bedroom', '2-Bedroom', 'Executive Studio', 'STOCKROOM']
 const GC_STATUS_OPTIONS = ['FIXED', 'MESSENGER', 'VIBER', 'NOT YET', 'N/A']
-const CLASSIFICATION_OPTIONS = ['Fixed', 'Partnership', '75/25', '85/15']
 const OUTCOME_OPTIONS = ['positive', 'neutral', 'negative', 'no_answer']
 const INTERACTION_TYPES = ['call', 'email', 'messenger', 'whatsapp', 'sms', 'in_person', 'note']
+const CLASSIFICATION_OPTIONS = ['Fixed', 'Partnership', '75/25', '85/15']
 
 const STATUS_PILLS = [
   { id: 'all', label: 'All' },
   { id: 'ACTIVE', label: 'Active' },
-  { id: 'IN_PROGRESS', label: 'In Progress' },
   { id: 'FOR_RENEWAL', label: 'For Renewal' },
   { id: 'INACTIVE', label: 'Inactive' },
 ]
@@ -63,7 +66,7 @@ const DATE_FILTERS = [
   { id: 'expired', label: 'Already expired' },
   { id: 'next30', label: 'Next 30 days' },
   { id: 'next90', label: 'Next 90 days' },
-  { id: 'no-expiry', label: 'No expiry set' },
+  { id: 'no-contract', label: 'No contract' },
 ]
 
 const OTA_FILTERS = [
@@ -78,8 +81,10 @@ const DEFAULT_CHANNELS = [
   'Trip.com', 'Expedia', 'Vrbo', 'Facebook Marketplace',
 ]
 
-// Grid: last column is FIXED width (160px) so header and rows always match
-const ROW_GRID = 'grid grid-cols-[1.4fr_1fr_1fr_1fr_1fr_160px] gap-4 items-center'
+// Grid: Building | Unit | Owner | Status
+const ROW_GRID = 'grid grid-cols-[1.4fr_1fr_1.6fr_220px] gap-4 items-center'
+
+const EXPIRING_SOON_DAYS = 60
 
 // ============================================================
 // HELPERS
@@ -111,96 +116,98 @@ function findDuplicateChannels(listings) {
   return [...dupes]
 }
 
-function formatDaysAgo(days) {
-  const abs = Math.abs(days)
-  if (abs === 0) return 'today'
-  if (abs === 1) return '1 day'
-  if (abs < 30) return `${abs} days`
-  const months = Math.round(abs / 30)
-  if (months === 1) return '1 month'
-  if (months < 12) return `${months} months`
-  const years = Math.round(abs / 365)
-  return years === 1 ? '1 year' : `${years} years`
-}
-
-function getExpiryInfo(unit) {
-  if (!unit?.expiry_date) return { status: 'none', days: null, date: null }
-  const today = new Date(); today.setHours(0, 0, 0, 0)
-  const expiry = new Date(unit.expiry_date); expiry.setHours(0, 0, 0, 0)
-  const days = Math.round((expiry - today) / 86400000)
-  if (days < 0) return { status: 'expired', days, date: unit.expiry_date }
-  if (days <= 60) return { status: 'soon', days, date: unit.expiry_date }
-  return { status: 'ok', days, date: unit.expiry_date }
-}
-
-function getExpiryWarnings(units) {
-  if (!Array.isArray(units)) return { expired: [], soon: [] }
-  const expired = []
-  const soon = []
-  for (const u of units) {
-    const info = getExpiryInfo(u)
-    if (info.status === 'expired') expired.push({ unit: u, ...info })
-    else if (info.status === 'soon') soon.push({ unit: u, ...info })
-  }
-  expired.sort((a, b) => b.days - a.days)
-  soon.sort((a, b) => a.days - b.days)
-  return { expired, soon }
-}
-
-const CRITICAL = 'critical'
-const WARNING = 'warning'
-const INFO = 'info'
-
 function getMissingFields(unit) {
-  const critical = [], warnings = [], ota = []
-  if (!unit) return { critical, warnings, ota, total: 0, score: 0 }
-
-  if (!unit.unit_code || !String(unit.unit_code).trim())
-    critical.push({ key: 'unit_code', label: 'Unit Code', severity: CRITICAL, group: 'Unit' })
-  if (!unit.building || !String(unit.building).trim())
-    critical.push({ key: 'building', label: 'Building', severity: CRITICAL, group: 'Unit' })
-  if (!unit.owner_id && !unit.owner_name)
-    critical.push({ key: 'owner', label: 'Owner', severity: CRITICAL, group: 'Owner' })
-  else if (!unit.owner_email?.trim() && !unit.owner_phone?.trim())
-    critical.push({ key: 'owner_contact', label: 'Owner Email or Phone', severity: CRITICAL, group: 'Owner' })
-  if (!unit.effective_date)
-    critical.push({ key: 'effective_date', label: 'Contract Effective', severity: CRITICAL, group: 'Contract' })
-  if (!unit.expiry_date)
-    critical.push({ key: 'expiry_date', label: 'Contract Expiry', severity: CRITICAL, group: 'Contract' })
+  const warnings = []
+  if (!unit) return { warnings, total: 0 }
 
   if (!unit.unit_type?.trim())
-    warnings.push({ key: 'unit_type', label: 'Unit Type', severity: WARNING, group: 'Unit' })
+    warnings.push({ key: 'unit_type', label: 'Unit Type', group: 'Unit' })
   if (!unit.marketing_title?.trim())
-    warnings.push({ key: 'marketing_title', label: 'Marketing Title', severity: WARNING, group: 'Marketing' })
+    warnings.push({ key: 'marketing_title', label: 'Marketing Title', group: 'Marketing' })
   if (!unit.gc_status?.trim())
-    warnings.push({ key: 'gc_status', label: 'GC Status', severity: WARNING, group: 'Owner' })
+    warnings.push({ key: 'gc_status', label: 'GC Status', group: 'Owner' })
   if (!unit.owner_email?.trim())
-    warnings.push({ key: 'owner_email', label: 'Owner Email', severity: WARNING, group: 'Owner' })
+    warnings.push({ key: 'owner_email', label: 'Owner Email', group: 'Owner' })
   if (!unit.owner_phone?.trim())
-    warnings.push({ key: 'owner_phone', label: 'Owner Phone', severity: WARNING, group: 'Owner' })
-  if (!unit.classification?.trim())
-    warnings.push({ key: 'classification', label: 'Contract Classification', severity: WARNING, group: 'Contract' })
-  if (!unit.contract_pdf_url?.trim())
-    warnings.push({ key: 'contract_pdf_url', label: 'Contract PDF', severity: WARNING, group: 'Contract' })
+    warnings.push({ key: 'owner_phone', label: 'Owner Phone', group: 'Owner' })
 
-  const listings = normalizeOtaListings(unit.ota_listings)
-  if (listings.length === 0) {
-    ota.push({ key: 'ota_none', label: 'No OTA Channel', severity: WARNING, group: 'OTA' })
-  } else {
-    const emptyName = listings.filter((l) => !l.name)
-    if (emptyName.length === listings.length)
-      ota.push({ key: 'ota_all_empty', label: 'OTA Channel Missing Listing Name', severity: WARNING, group: 'OTA' })
-    else if (emptyName.length > 0)
-      for (const l of emptyName)
-        ota.push({ key: `ota_empty_${l.channel.toLowerCase()}`, label: `${l.channel} · listing name empty`, severity: INFO, group: 'OTA', channel: l.channel })
-    for (const d of findDuplicateChannels(listings))
-      ota.push({ key: `ota_dup_${d.toLowerCase()}`, label: `Duplicate OTA Channel: ${d}`, severity: WARNING, group: 'OTA', channel: d })
+  return { warnings, total: warnings.length }
+}
+
+// ============================================================
+// DERIVED STATUS
+// ============================================================
+function deriveUnitStatus(unit) {
+  const contract = unit?.contract || null
+
+  // No contract → INACTIVE
+  if (!contract) {
+    return { status: 'INACTIVE', warning: null, contract: null }
   }
 
-  const total = critical.length + warnings.length + ota.length
-  const weighted = critical.length * 3 + warnings.length + ota.length
-  const score = weighted === 0 ? 100 : Math.max(0, Math.round(100 - weighted * 8))
-  return { critical, warnings, ota, total, score }
+  const eff = contract.effective_date ? new Date(contract.effective_date + 'T00:00:00Z') : null
+  const exp = contract.expiry_date ? new Date(contract.expiry_date + 'T00:00:00Z') : null
+  const today = new Date()
+  today.setUTCHours(0, 0, 0, 0)
+
+  // No dates at all → treat as broken/incomplete, show as INACTIVE
+  if (!eff && !exp) {
+    return { status: 'INACTIVE', warning: null, contract }
+  }
+
+  // Open-ended (no expiry) → ACTIVE
+  if (!exp) {
+    return { status: 'ACTIVE', warning: null, contract }
+  }
+
+  // Expired
+  if (exp < today) {
+    const daysAgo = Math.round((today - exp) / 86400000)
+    return {
+      status: 'FOR_RENEWAL',
+      warning: { tone: 'red', text: daysAgo === 1 ? 'Expired 1 day ago' : `Expired ${daysAgo} days ago` },
+      contract,
+    }
+  }
+
+  // Expiring soon
+  const daysLeft = Math.round((exp - today) / 86400000)
+  if (daysLeft <= EXPIRING_SOON_DAYS) {
+    return {
+      status: 'ACTIVE',
+      warning: {
+        tone: 'amber',
+        text: daysLeft === 0 ? 'Expires today' : `Expires in ${daysLeft} day${daysLeft === 1 ? '' : 's'}`,
+      },
+      contract,
+    }
+  }
+
+  return { status: 'ACTIVE', warning: null, contract }
+}
+
+function DerivedStatusBadge({ unit }) {
+  const derived = deriveUnitStatus(unit)
+
+  if (derived.warning) {
+    const cls =
+      derived.warning.tone === 'red'
+        ? 'bg-red-600 text-white hover:bg-red-600 border-0'
+        : 'bg-amber-600 text-white hover:bg-amber-600 border-0'
+    return (
+      <Badge className={cn('text-[11px] font-semibold rounded-full px-2.5 py-0.5', cls)}>
+        {derived.warning.text}
+      </Badge>
+    )
+  }
+
+  const config = DERIVED_STATUS_CONFIG[derived.status]
+  if (!config) return null
+  return (
+    <Badge className={cn('text-[11px] font-semibold rounded-full px-2.5 py-0.5', config.className)}>
+      {config.label}
+    </Badge>
+  )
 }
 
 // ============================================================
@@ -246,60 +253,29 @@ function UnitAvatar({ unit, size = 'md' }) {
 }
 
 // ============================================================
-// BADGES
-// ============================================================
-function StatusBadge({ status, className }) {
-  const config = STATUS_CONFIG[status]
-  if (!config) return <Badge className={cn('text-[11px] font-semibold bg-gray-400 text-white border-0 rounded-full px-2.5 py-0.5', className)}>{status || '—'}</Badge>
-  return <Badge className={cn('text-[11px] font-semibold rounded-full px-2.5 py-0.5', config.className, className)}>{config.label}</Badge>
-}
-
-function ExpiryBadge({ expiryDate }) {
-  if (!expiryDate) return null
-  const today = new Date(); today.setHours(0, 0, 0, 0)
-  const expiry = new Date(expiryDate); expiry.setHours(0, 0, 0, 0)
-  const days = Math.round((expiry - today) / 86400000)
-
-  let label, className
-  if (days < 0) { label = `Expired ${formatDaysAgo(Math.abs(days))} ago`; className = 'bg-red-600 text-white' }
-  else if (days === 0) { label = 'Expires today'; className = 'bg-red-600 text-white' }
-  else if (days <= 14) { label = `Expires in ${days}d`; className = 'bg-red-600 text-white' }
-  else if (days <= 30) { label = `Expires in ${days}d`; className = 'bg-amber-600 text-white' }
-  else if (days <= 60) { label = `Expires in ${days}d`; className = 'bg-blue-600 text-white' }
-  else return null
-
-  return (
-    <div className="px-1.5 pt-1">
-      <Badge className={cn('text-[11px] font-semibold rounded-full px-2.5 py-0.5 border-0', className)}>{label}</Badge>
-    </div>
-  )
-}
-
-// ============================================================
-// SUMMARY CARDS
+// SUMMARY CARDS (3 statuses)
 // ============================================================
 function SummaryCards({ units }) {
   const stats = useMemo(() => {
-    let active = 0, inactive = 0, inProgress = 0, forRenewal = 0
+    let active = 0, inactive = 0, forRenewal = 0
     for (const u of units) {
-      if (u.status === 'ACTIVE') active++
-      else if (u.status === 'INACTIVE') inactive++
-      else if (u.status === 'IN_PROGRESS') inProgress++
-      else if (u.status === 'FOR_RENEWAL') forRenewal++
+      const d = deriveUnitStatus(u).status
+      if (d === 'ACTIVE') active++
+      else if (d === 'FOR_RENEWAL') forRenewal++
+      else inactive++
     }
-    return { total: units.length, active, inactive, inProgress, forRenewal }
+    return { total: units.length, active, inactive, forRenewal }
   }, [units])
 
   const cards = [
     { label: 'Total Units', value: stats.total,      icon: Building2     },
     { label: 'Active',      value: stats.active,     icon: CheckCircle2  },
-    { label: 'In Progress', value: stats.inProgress, icon: Clock         },
     { label: 'For Renewal', value: stats.forRenewal, icon: AlertTriangle },
-    { label: 'Inactive',    value: stats.inactive,   icon: UserPlus      },
+    { label: 'Inactive',    value: stats.inactive,   icon: X             },
   ]
 
   return (
-    <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-3">
+    <div className="grid grid-cols-2 md:grid-cols-2 lg:grid-cols-4 gap-3">
       {cards.map((card, i) => (
         <motion.div
           key={card.label}
@@ -320,7 +296,7 @@ function SummaryCards({ units }) {
 }
 
 // ============================================================
-// EDITABLE FIELD
+// EDITABLE FIELD (generic, for non-contract fields)
 // ============================================================
 function EditableField({ label, value, type = 'text', options, onSave, actionHref, actionIcon: ActionIcon, actionTitle, auditTag }) {
   const [draft, setDraft] = useState(value ?? '')
@@ -331,8 +307,6 @@ function EditableField({ label, value, type = 'text', options, onSave, actionHre
   const friendlyError = (err, attempted) => {
     const msg = err?.message || ''
     if (msg.includes('units_unit_code_key')) return `Unit code "${attempted}" is already used by another unit.`
-    if (msg.includes('owners_email_lower_idx')) return `Email "${attempted}" is already assigned to another owner.`
-    if (msg.includes('owners_email_key')) return `Email "${attempted}" is already assigned to another owner.`
     return msg || 'Save failed'
   }
   const commit = async () => {
@@ -395,12 +369,15 @@ function EditableField({ label, value, type = 'text', options, onSave, actionHre
 // ============================================================
 // SECTION CARD
 // ============================================================
-function SectionCard({ title, icon: Icon, children, className }) {
+function SectionCard({ title, icon: Icon, children, className, action }) {
   return (
     <div className={cn('rounded-md bg-card border border-border overflow-hidden', className)}>
-      <div className="flex items-center gap-2 px-3 py-2 border-b border-border bg-muted/30">
-        {Icon && <Icon size={13} className="text-muted-foreground flex-shrink-0" />}
-        <h4 className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground">{title}</h4>
+      <div className="flex items-center justify-between gap-2 px-3 py-2 border-b border-border bg-muted/30">
+        <div className="flex items-center gap-2 min-w-0">
+          {Icon && <Icon size={13} className="text-muted-foreground flex-shrink-0" />}
+          <h4 className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground truncate">{title}</h4>
+        </div>
+        {action}
       </div>
       <div className="p-3 space-y-0.5">{children}</div>
     </div>
@@ -532,11 +509,9 @@ function OtaEditor({ unit, onSave, channelOptions = [] }) {
       {drafting ? (
         <div className="flex flex-col gap-1 px-2 py-2 rounded bg-muted/50 border border-primary/40">
           <div className="flex items-center gap-2">
-            <div className="flex-1 min-w-0 relative">
-              <Input value={draftChannel} onChange={(e) => { setDraftChannel(e.target.value); if (draftErrors.channel) setDraftErrors((p) => ({ ...p, channel: '' })) }}
-                placeholder="Channel" list="ota-channel-options" className={cn('h-7 text-xs rounded flex-1', draftErrors.channel && 'border-red-400')} />
-              <datalist id="ota-channel-options">{allChannelOptions.map((opt) => <option key={opt} value={opt} />)}</datalist>
-            </div>
+            <Input value={draftChannel} onChange={(e) => { setDraftChannel(e.target.value); if (draftErrors.channel) setDraftErrors((p) => ({ ...p, channel: '' })) }}
+              placeholder="Channel" list="ota-channel-options" className={cn('h-7 text-xs rounded flex-1', draftErrors.channel && 'border-red-400')} />
+            <datalist id="ota-channel-options">{allChannelOptions.map((opt) => <option key={opt} value={opt} />)}</datalist>
             <Input value={draftName} onChange={(e) => { setDraftName(e.target.value); if (draftErrors.name) setDraftErrors((p) => ({ ...p, name: '' })) }}
               onKeyDown={(e) => { if (e.key === 'Enter') handleAdd(); if (e.key === 'Escape') { setDrafting(false); setDraftChannel(''); setDraftName(''); setDraftErrors({ channel: '', name: '' }) } }}
               placeholder="Listing name" className={cn('h-7 text-xs rounded flex-1', draftErrors.name && 'border-red-400')} />
@@ -599,45 +574,11 @@ function DropdownPanel({ title, subtitle, onClose, children }) {
   )
 }
 
-function SectionHeader({ label, tone, count }) {
-  const color = tone === 'red' ? 'text-red-600 dark:text-red-400' : 'text-amber-600 dark:text-amber-400'
-  const dot = tone === 'red' ? 'bg-red-500' : 'bg-amber-500'
-  return (
-    <div className="sticky top-0 z-10 flex items-center gap-2 px-4 py-2 bg-muted/40 border-b border-border">
-      <span className={cn('w-1.5 h-1.5 rounded-full', dot)} />
-      <span className={cn('text-[10px] font-semibold uppercase tracking-wider', color)}>{label}</span>
-      <span className="ml-auto text-[10px] text-muted-foreground tabular-nums">{count}</span>
-    </div>
-  )
-}
-
-function UnitRow({ unit, date, chip, chipTone, onClick }) {
-  const chipClass = chipTone === 'red' ? 'bg-red-600 text-white' : chipTone === 'amber' ? 'bg-amber-600 text-white' : 'bg-blue-600 text-white'
-  return (
-    <button type="button" onClick={onClick}
-      className="w-full text-left px-4 py-2.5 border-b border-border last:border-0 hover:bg-muted/40 transition-colors flex items-center gap-3 group">
-      <div className="min-w-0 flex-1">
-        <div className="flex items-baseline gap-2">
-          <span className="font-mono text-xs font-semibold text-foreground truncate">{unit.unit_code}</span>
-          <span className="text-[11px] text-muted-foreground truncate">{unit.building}</span>
-        </div>
-        <p className="text-[10px] text-muted-foreground mt-0.5 truncate">
-          {unit.owner_name || 'No owner'}{date ? ` · ${formatDate(date)}` : ''}
-        </p>
-      </div>
-      <span className={cn('inline-flex items-center px-2.5 py-0.5 rounded-full text-[11px] font-semibold whitespace-nowrap flex-shrink-0', chipClass)}>{chip}</span>
-      <ChevronRight size={12} className="text-muted-foreground/40 group-hover:text-muted-foreground transition-colors flex-shrink-0" />
-    </button>
-  )
-}
-
-function WarningsStrip({ missingUnits, expiryWarnings, onSelectUnit }) {
+function WarningsStrip({ missingUnits, onSelectUnit }) {
   const [open, setOpen] = useState(null)
   const wrapRef = useRef(null)
 
   const safeMissing = Array.isArray(missingUnits) ? missingUnits : []
-  const safeExpiry = (expiryWarnings && Array.isArray(expiryWarnings.expired) && Array.isArray(expiryWarnings.soon))
-    ? expiryWarnings : { expired: [], soon: [] }
 
   useEffect(() => {
     if (!open) return
@@ -649,67 +590,35 @@ function WarningsStrip({ missingUnits, expiryWarnings, onSelectUnit }) {
   }, [open])
 
   const missingCount = safeMissing.length
-  const expiredCount = safeExpiry.expired.length
-  const soonCount = safeExpiry.soon.length
-  const expiryCount = expiredCount + soonCount
-
-  if (missingCount === 0 && expiryCount === 0) return null
-
-  const toggle = (key) => setOpen((v) => (v === key ? null : key))
+  if (missingCount === 0) return null
 
   return (
     <div className="flex items-center gap-2" ref={wrapRef}>
-      {missingCount > 0 && (
-        <WarningChip icon={AlertTriangle} label="Missing fields" count={missingCount} active={open === 'missing'} onClick={() => toggle('missing')}>
-          <AnimatePresence>
-            {open === 'missing' && (
-              <DropdownPanel title="Missing fields" subtitle={`${missingCount} unit${missingCount === 1 ? '' : 's'} with incomplete data`} onClose={() => setOpen(null)}>
-                {safeMissing.map(({ unit, missing }) => (
-                  <button key={unit.id} type="button" onClick={() => { onSelectUnit(unit); setOpen(null) }}
-                    className="w-full text-left px-4 py-3 border-b border-border last:border-0 hover:bg-muted/40 transition-colors group">
-                    <div className="flex items-baseline gap-2 mb-2">
-                      <span className="font-mono text-xs font-semibold text-foreground">{unit.unit_code}</span>
-                      <span className="text-[11px] text-muted-foreground truncate">{unit.building}</span>
-                      <span className="ml-auto text-[10px] text-muted-foreground tabular-nums">{missing.total}</span>
-                    </div>
-                    <div className="flex flex-wrap gap-1">
-                      {[...missing.critical, ...missing.warnings].map((f) => (
-                        <span key={f.key} className={cn('inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-semibold',
-                          f.severity === 'critical' ? 'bg-red-600 text-white' : 'bg-amber-600 text-white')}>
-                          {f.label}
-                        </span>
-                      ))}
-                    </div>
-                  </button>
-                ))}
-              </DropdownPanel>
-            )}
-          </AnimatePresence>
-        </WarningChip>
-      )}
-
-      {expiryCount > 0 && (
-        <WarningChip icon={Clock} label="Contract expiry" count={expiryCount} active={open === 'expiry'} onClick={() => toggle('expiry')}>
-          <AnimatePresence>
-            {open === 'expiry' && (
-              <DropdownPanel title="Contract expiry" subtitle={`${expiredCount} expired · ${soonCount} expiring soon`} onClose={() => setOpen(null)}>
-                {safeExpiry.expired.length > 0 && <SectionHeader label="Expired" tone="red" count={expiredCount} />}
-                {safeExpiry.expired.map(({ unit, days, date }) => (
-                  <UnitRow key={unit.id} unit={unit} date={date}
-                    chip={`Expired ${formatDaysAgo(Math.abs(days))} ago`} chipTone="red"
-                    onClick={() => { onSelectUnit(unit); setOpen(null) }} />
-                ))}
-                {safeExpiry.soon.length > 0 && <SectionHeader label="Expiring soon" tone="amber" count={soonCount} />}
-                {safeExpiry.soon.map(({ unit, days, date }) => (
-                  <UnitRow key={unit.id} unit={unit} date={date}
-                    chip={days === 0 ? 'Expires today' : `Expires in ${days} days`} chipTone="amber"
-                    onClick={() => { onSelectUnit(unit); setOpen(null) }} />
-                ))}
-              </DropdownPanel>
-            )}
-          </AnimatePresence>
-        </WarningChip>
-      )}
+      <WarningChip icon={AlertTriangle} label="Missing fields" count={missingCount} active={open === 'missing'} onClick={() => setOpen((v) => (v === 'missing' ? null : 'missing'))}>
+        <AnimatePresence>
+          {open === 'missing' && (
+            <DropdownPanel title="Missing fields" subtitle={`${missingCount} unit${missingCount === 1 ? '' : 's'} with incomplete data`} onClose={() => setOpen(null)}>
+              {safeMissing.map(({ unit, missing }) => (
+                <button key={unit.id} type="button" onClick={() => { onSelectUnit(unit); setOpen(null) }}
+                  className="w-full text-left px-4 py-3 border-b border-border last:border-0 hover:bg-muted/40 transition-colors group">
+                  <div className="flex items-baseline gap-2 mb-2">
+                    <span className="font-mono text-xs font-semibold text-foreground">{unit.unit_code}</span>
+                    <span className="text-[11px] text-muted-foreground truncate">{unit.building}</span>
+                    <span className="ml-auto text-[10px] text-muted-foreground tabular-nums">{missing.total}</span>
+                  </div>
+                  <div className="flex flex-wrap gap-1">
+                    {missing.warnings.map((f) => (
+                      <span key={f.key} className="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-semibold bg-amber-600 text-white">
+                        {f.label}
+                      </span>
+                    ))}
+                  </div>
+                </button>
+              ))}
+            </DropdownPanel>
+          )}
+        </AnimatePresence>
+      </WarningChip>
     </div>
   )
 }
@@ -788,7 +697,7 @@ function LogCallModal({ open, onClose, unit, onSaved }) {
 }
 
 // ============================================================
-// INTERACTION ROW
+// INTERACTION ROW + SECTION
 // ============================================================
 function InteractionRow({ record, onUpdated, onDeleted }) {
   const [editing, setEditing] = useState(false)
@@ -909,9 +818,6 @@ function InteractionRow({ record, onUpdated, onDeleted }) {
   )
 }
 
-// ============================================================
-// INTERACTIONS SECTION
-// ============================================================
 function InteractionsSection({ unit, onLogCall, refreshKey = 0 }) {
   const [items, setItems] = useState([])
   const [loading, setLoading] = useState(true)
@@ -961,25 +867,247 @@ function InteractionsSection({ unit, onLogCall, refreshKey = 0 }) {
 }
 
 // ============================================================
+// INLINE CONTRACT EDITOR — the Current Contract section
+// ============================================================
+function InlineContractField({ label, value, type = 'text', options, onSave, auditTag }) {
+  const [draft, setDraft] = useState(value ?? '')
+  const [status, setStatus] = useState('idle')
+
+  useEffect(() => { setDraft(value ?? '') }, [value])
+
+  const commit = async () => {
+    if (draft === (value ?? '')) return
+    setStatus('saving')
+    try {
+      const next = draft === '' ? null : draft
+      await onSave(next)
+      setStatus('saved')
+      if (auditTag) logAudit(`UPDATE_CONTRACT_FIELD:${auditTag}`, 'contracts', null, { field: auditTag, from: value, to: next }).catch(() => {})
+      setTimeout(() => setStatus('idle'), 1200)
+    } catch (err) {
+      console.error(err)
+      toast.error(err?.message || 'Save failed')
+      setDraft(value ?? '')
+      setStatus('idle')
+    }
+  }
+  const cancel = () => setDraft(value ?? '')
+
+  return (
+    <div className="flex items-center gap-2 py-0.5">
+      <span className="text-[10px] uppercase tracking-wider text-muted-foreground font-semibold min-w-[72px] flex-shrink-0">{label}</span>
+      <div className="flex items-center gap-1 flex-1 min-w-0">
+        {options ? (
+          <Select value={draft || ''} onValueChange={async (v) => {
+            setDraft(v); setStatus('saving')
+            try {
+              await onSave(v); setStatus('saved')
+              if (auditTag) logAudit(`UPDATE_CONTRACT_FIELD:${auditTag}`, 'contracts', null, { field: auditTag, from: value, to: v }).catch(() => {})
+              setTimeout(() => setStatus('idle'), 1200)
+            } catch (err) { toast.error(err?.message || 'Save failed'); setStatus('idle') }
+          }}>
+            <SelectTrigger className="h-7 text-xs rounded bg-background border-border flex-1"><SelectValue /></SelectTrigger>
+            <SelectContent>{options.map((o) => <SelectItem key={o} value={o} className="text-xs">{o}</SelectItem>)}</SelectContent>
+          </Select>
+        ) : (
+          <Input
+            type={type}
+            value={draft}
+            onChange={(e) => setDraft(e.target.value)}
+            onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); e.target.blur() } if (e.key === 'Escape') { e.preventDefault(); cancel(); e.target.blur() } }}
+            onBlur={commit}
+            className={cn('h-7 text-xs rounded bg-background flex-1 transition-colors', !value && 'border-border', value && 'border-transparent hover:border-border')}
+            placeholder="—"
+          />
+        )}
+        {status === 'saving' && <Loader2 size={11} className="flex-shrink-0 animate-spin text-primary" />}
+        {status === 'saved' && <Check size={11} className="flex-shrink-0 text-emerald-500" />}
+      </div>
+    </div>
+  )
+}
+
+function ContractSection({ unit, contract, loading, onContractChange, onUnitChange }) {
+  const updateContractField = async (field, value) => {
+    if (!contract) throw new Error('No contract')
+    const { error } = await supabase
+      .from('contracts')
+      .update({ [field]: value })
+      .eq('id', contract.id)
+    if (error) throw error
+    onContractChange({ ...contract, [field]: value })
+  }
+
+  const createContract = async () => {
+    if (!unit.owner_id) {
+      toast.error('Assign an owner to this unit first')
+      return
+    }
+    const today = new Date().toISOString().slice(0, 10)
+    const oneYear = new Date(); oneYear.setFullYear(oneYear.getFullYear() + 1)
+    const payload = {
+      contract_code: generateContractCode(),
+      unit_id: unit.id,
+      owner_id: unit.owner_id,
+      effective_date: today,
+      expiry_date: oneYear.toISOString().slice(0, 10),
+      classification: 'Partnership',
+    }
+    const { data, error } = await supabase.from('contracts').insert(payload).select('*').single()
+    if (error) throw error
+    await supabase.from('units').update({ current_contract_id: data.id }).eq('id', unit.id)
+    logAudit('CREATE_CONTRACT', 'contracts', data.id, { contract_code: payload.contract_code, unit_id: unit.id }).catch(() => {})
+    toast.success('Contract created')
+    onContractChange(data)
+    onUnitChange({ ...unit, current_contract_id: data.id })
+  }
+
+  const deleteContract = async () => {
+    if (!contract) return
+    const confirmed = window.confirm(
+      `Delete contract "${contract.contract_code}"?\n\nUnit: ${unit.unit_code}\nEffective: ${formatDate(contract.effective_date)}\nExpiry: ${formatDate(contract.expiry_date)}\n\nThis cannot be undone.`
+    )
+    if (!confirmed) return
+    const { error } = await supabase.from('contracts').delete().eq('id', contract.id)
+    if (error) throw error
+    await supabase.from('units').update({ current_contract_id: null }).eq('id', unit.id)
+    logAudit('DELETE_CONTRACT', 'contracts', contract.id, { contract_code: contract.contract_code, unit_id: unit.id }).catch(() => {})
+    toast.success('Contract deleted')
+    onContractChange(null)
+    onUnitChange({ ...unit, current_contract_id: null })
+  }
+
+  // Loading skeleton
+  if (loading) {
+    return (
+      <SectionCard title="Contract" icon={FileText}>
+        <div className="space-y-1 py-1">
+          <Skeleton className="h-3 w-2/3" />
+          <Skeleton className="h-3 w-1/2" />
+          <Skeleton className="h-3 w-3/4" />
+        </div>
+      </SectionCard>
+    )
+  }
+
+  // No contract
+  if (!contract) {
+    return (
+      <SectionCard title="Contract" icon={FileText}>
+        <div className="flex items-center justify-between gap-2 py-1">
+          <span className="text-xs text-muted-foreground italic">No contract</span>
+          <Button size="sm" variant="outline" className="h-7 rounded text-[11px] gap-1.5" onClick={createContract} disabled={!unit.owner_id}>
+            <Plus size={11} /> Create contract
+          </Button>
+        </div>
+        {!unit.owner_id && (
+          <p className="text-[10px] text-amber-600 dark:text-amber-400 pt-1">
+            Assign an owner first to enable contract creation.
+          </p>
+        )}
+      </SectionCard>
+    )
+  }
+
+  // Has contract — editable inline
+  const derived = deriveUnitStatus(unit)
+  const statusLabel = derived.warning ? derived.warning.text : DERIVED_STATUS_CONFIG[derived.status]?.label || '—'
+  const statusClass = derived.warning
+    ? (derived.warning.tone === 'red' ? 'bg-red-600 text-white' : 'bg-amber-600 text-white')
+    : DERIVED_STATUS_CONFIG[derived.status]?.className || 'bg-gray-400 text-white'
+
+  const today = new Date().toISOString().slice(0, 10)
+
+  return (
+    <SectionCard
+      title="Contract"
+      icon={FileText}
+      action={
+        <Button variant="ghost" size="sm" className="h-6 rounded text-[10px] gap-1 px-2 text-red-500 hover:text-red-600 hover:bg-red-500/10" onClick={deleteContract}>
+          <Trash2 size={10} /> Delete
+        </Button>
+      }
+    >
+      <div className="space-y-0.5">
+        <div className="flex items-center justify-between gap-2 py-0.5">
+          <span className="text-[10px] uppercase tracking-wider text-muted-foreground font-semibold">Code</span>
+          <span className="text-xs font-mono text-foreground">{contract.contract_code || '—'}</span>
+        </div>
+        <div className="flex items-center justify-between gap-2 py-0.5">
+          <span className="text-[10px] uppercase tracking-wider text-muted-foreground font-semibold">Status</span>
+          <Badge className={cn('text-[10px] font-semibold rounded-full px-2 py-0.5 border-0', statusClass)}>{statusLabel}</Badge>
+        </div>
+        <InlineContractField
+          label="Effective"
+          value={contract.effective_date}
+          type="date"
+          onSave={async (v) => {
+            if (v && v > today) {
+              toast.error('Effective date cannot be in the future')
+              throw new Error('Effective date cannot be in the future')
+            }
+            await updateContractField('effective_date', v)
+          }}
+          auditTag="effective_date"
+        />
+        <InlineContractField
+          label="Expiry"
+          value={contract.expiry_date}
+          type="date"
+          onSave={(v) => updateContractField('expiry_date', v)}
+          auditTag="expiry_date"
+        />
+        <InlineContractField
+          label="Class"
+          value={contract.classification}
+          options={CLASSIFICATION_OPTIONS}
+          onSave={(v) => updateContractField('classification', v)}
+          auditTag="classification"
+        />
+        <InlineContractField
+          label="PDF"
+          value={contract.contract_pdf_url}
+          onSave={(v) => updateContractField('contract_pdf_url', v)}
+          auditTag="contract_pdf_url"
+        />
+        {contract.contract_pdf_url && (
+          <div className="pt-2 mt-2 border-t border-border">
+            <a
+              href={contract.contract_pdf_url}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="inline-flex items-center gap-1.5 text-xs font-semibold text-primary hover:underline"
+            >
+              <ExternalLink size={11} />
+              Open contract PDF
+            </a>
+          </div>
+        )}
+      </div>
+    </SectionCard>
+  )
+}
+
+// ============================================================
 // REGISTRY DETAIL PANEL
 // ============================================================
 const PANEL_WIDTH = 448
 
-function RegistryDetailPanel({ unit, onUnitChange, onClose, channelOptions, onLogCall, onDelete, interactionsRefreshKey }) {
+function RegistryDetailPanel({
+  unit,
+  contract,
+  contractLoading,
+  onUnitChange,
+  onContractChange,
+  onClose,
+  channelOptions,
+  onLogCall,
+  onDelete,
+  interactionsRefreshKey,
+}) {
   const handleUnitField = async (field, value) => {
     await updateUnit(unit.id, { [field]: value })
     onUnitChange({ ...unit, [field]: value })
-  }
-  const handleContractField = async (field, value) => {
-    if (unit.current_contract_id) {
-      await updateContract(unit.current_contract_id, { [field]: value })
-      onUnitChange({ ...unit, [field]: value })
-    } else {
-      const { data, error } = await supabase.from('contracts').insert({ unit_id: unit.id, owner_id: unit.owner_id, [field]: value }).select('id').single()
-      if (error) throw error
-      await updateUnit(unit.id, { current_contract_id: data.id })
-      onUnitChange({ ...unit, current_contract_id: data.id, [field]: value })
-    }
   }
   const handleOtaSave = async (otaListings) => {
     await updateUnit(unit.id, { ota_listings: otaListings })
@@ -1011,7 +1139,7 @@ function RegistryDetailPanel({ unit, onUnitChange, onClose, channelOptions, onLo
               <p className="text-base font-bold text-foreground truncate">{unit.unit_code}</p>
               <p className="text-[11px] text-muted-foreground truncate">{unit.building}</p>
               <div className="flex items-center gap-2 mt-2 flex-wrap">
-                <StatusBadge status={unit.status} />
+                <DerivedStatusBadge unit={unit} />
                 {unit.unit_type && (
                   <span className="inline-flex items-center px-2 py-0.5 rounded text-[10px] font-semibold bg-muted text-muted-foreground uppercase">
                     {unit.unit_type}
@@ -1039,7 +1167,6 @@ function RegistryDetailPanel({ unit, onUnitChange, onClose, channelOptions, onLo
               <EditableField label="Code" value={unit.unit_code} onSave={(v) => handleUnitField('unit_code', v)} auditTag="unit_code" />
               <EditableField label="Building" value={unit.building} onSave={(v) => handleUnitField('building', v)} auditTag="building" />
               <EditableField label="Type" value={unit.unit_type} options={UNIT_TYPES} onSave={(v) => handleUnitField('unit_type', v)} auditTag="unit_type" />
-              <EditableField label="Status" value={unit.status} options={STATUS_OPTIONS} onSave={(v) => handleUnitField('status', v)} auditTag="status" />
             </div>
           </SectionCard>
 
@@ -1056,13 +1183,13 @@ function RegistryDetailPanel({ unit, onUnitChange, onClose, channelOptions, onLo
             <EditableField label="GC" value={unit.gc_status} options={GC_STATUS_OPTIONS} onSave={(v) => handleUnitField('gc_status', v)} auditTag="gc_status" />
           </SectionCard>
 
-          <SectionCard title="Contract" icon={Tag}>
-            <EditableField label="Effective" value={unit.effective_date} type="date" onSave={(v) => handleContractField('effective_date', v)} auditTag="effective_date" />
-            <EditableField label="Expiry" value={unit.expiry_date} type="date" onSave={(v) => handleContractField('expiry_date', v)} auditTag="expiry_date" />
-            <ExpiryBadge expiryDate={unit.expiry_date} />
-            <EditableField label="Class" value={unit.classification} options={CLASSIFICATION_OPTIONS} onSave={(v) => handleContractField('classification', v)} auditTag="classification" />
-            <EditableField label="PDF" value={unit.contract_pdf_url} onSave={(v) => handleContractField('contract_pdf_url', v)} auditTag="contract_pdf_url" />
-          </SectionCard>
+          <ContractSection
+            unit={unit}
+            contract={contract}
+            loading={contractLoading}
+            onContractChange={onContractChange}
+            onUnitChange={onUnitChange}
+          />
 
           <SectionCard title="Marketing" icon={Layers}>
             <EditableField label="Title" value={unit.marketing_title} onSave={(v) => handleUnitField('marketing_title', v)} auditTag="marketing_title" />
@@ -1085,9 +1212,8 @@ function RegistryDetailPanel({ unit, onUnitChange, onClose, channelOptions, onLo
 // ============================================================
 function AddUnitModal({ open, onClose, onCreated, existingBuildings, channelOptions }) {
   const [form, setForm] = useState({
-    unit_code: '', building: '', unit_type: 'Studio', status: 'ACTIVE',
+    unit_code: '', building: '', unit_type: 'Studio',
     owner_name: '', owner_email: '', owner_phone: '', gc_status: 'FIXED',
-    effective_date: '', expiry_date: '', classification: 'Fixed',
     marketing_title: '', inventory_list: '',
   })
   const [otaListings, setOtaListings] = useState([])
@@ -1101,9 +1227,8 @@ function AddUnitModal({ open, onClose, onCreated, existingBuildings, channelOpti
   useEffect(() => {
     if (!open) {
       setForm({
-        unit_code: '', building: '', unit_type: 'Studio', status: 'ACTIVE',
+        unit_code: '', building: '', unit_type: 'Studio',
         owner_name: '', owner_email: '', owner_phone: '', gc_status: 'FIXED',
-        effective_date: '', expiry_date: '', classification: 'Fixed',
         marketing_title: '', inventory_list: '',
       })
       setOtaListings([]); setBuildingSuggestions([]); setDrafting(false)
@@ -1152,20 +1277,12 @@ function AddUnitModal({ open, onClose, onCreated, existingBuildings, channelOpti
       }
       const unit = await createUnit({
         unit_code: form.unit_code.trim(), building: form.building.trim(),
-        unit_type: form.unit_type || null, status: form.status || 'ACTIVE',
+        unit_type: form.unit_type || null, status: 'INACTIVE',
         gc_status: form.gc_status || null,
         marketing_title: form.marketing_title.trim() || null,
         inventory_list: form.inventory_list.trim() || null,
         owner_id: ownerId, ota_listings: otaListings,
       })
-      if (form.effective_date || form.expiry_date) {
-        const { data: contract } = await supabase.from('contracts').insert({
-          unit_id: unit.id, owner_id: ownerId,
-          effective_date: form.effective_date || null, expiry_date: form.expiry_date || null,
-          classification: form.classification || null,
-        }).select('id').single()
-        if (contract?.id) await updateUnit(unit.id, { current_contract_id: contract.id })
-      }
       for (const listing of otaListings) {
         if (!DEFAULT_CHANNELS.includes(listing.channel))
           supabase.from('ota_channel_names').insert({ name: listing.channel }).then(() => {}).catch(() => {})
@@ -1215,11 +1332,6 @@ function AddUnitModal({ open, onClose, onCreated, existingBuildings, channelOpti
                   <SelectTrigger className={inputClass}><SelectValue /></SelectTrigger>
                   <SelectContent>{UNIT_TYPES.map((t) => <SelectItem key={t} value={t} className="text-xs">{t}</SelectItem>)}</SelectContent>
                 </Select></div>
-              <div><label className={labelClass}>Status</label>
-                <Select value={form.status} onValueChange={(v) => setField('status', v)}>
-                  <SelectTrigger className={inputClass}><SelectValue /></SelectTrigger>
-                  <SelectContent>{STATUS_OPTIONS.map((s) => <SelectItem key={s} value={s} className="text-xs">{s}</SelectItem>)}</SelectContent>
-                </Select></div>
               <div><label className={labelClass}>GC Status</label>
                 <Select value={form.gc_status} onValueChange={(v) => setField('gc_status', v)}>
                   <SelectTrigger className={inputClass}><SelectValue /></SelectTrigger>
@@ -1233,18 +1345,6 @@ function AddUnitModal({ open, onClose, onCreated, existingBuildings, channelOpti
               <div><label className={labelClass}>Name</label><Input value={form.owner_name} onChange={(e) => setField('owner_name', e.target.value)} className={inputClass} /></div>
               <div><label className={labelClass}>Email</label><Input type="email" value={form.owner_email} onChange={(e) => setField('owner_email', e.target.value)} className={inputClass} /></div>
               <div><label className={labelClass}>Phone</label><Input type="tel" value={form.owner_phone} onChange={(e) => setField('owner_phone', e.target.value)} className={inputClass} /></div>
-            </div>
-          </div>
-          <div>
-            <h3 className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground mb-2 pb-1.5 border-b border-border">Contract</h3>
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
-              <div><label className={labelClass}>Effective</label><Input type="date" value={form.effective_date} onChange={(e) => setField('effective_date', e.target.value)} className={inputClass} /></div>
-              <div><label className={labelClass}>Expiry</label><Input type="date" value={form.expiry_date} onChange={(e) => setField('expiry_date', e.target.value)} className={inputClass} /></div>
-              <div><label className={labelClass}>Classification</label>
-                <Select value={form.classification} onValueChange={(v) => setField('classification', v)}>
-                  <SelectTrigger className={inputClass}><SelectValue /></SelectTrigger>
-                  <SelectContent>{CLASSIFICATION_OPTIONS.map((c) => <SelectItem key={c} value={c} className="text-xs">{c}</SelectItem>)}</SelectContent>
-                </Select></div>
             </div>
           </div>
           <div>
@@ -1300,17 +1400,13 @@ function AddUnitModal({ open, onClose, onCreated, existingBuildings, channelOpti
 // CSV EXPORT
 // ============================================================
 function downloadCSV(units, filename) {
-  const headers = ['Building', 'Unit', 'Owner', 'Email', 'Phone', 'Type', 'Status', 'Effective', 'Expiry', 'Marketing Title', 'Missing Fields', 'Expiry Warning']
+  const headers = ['Building', 'Unit', 'Owner', 'Email', 'Phone', 'Type', 'Status', 'Contract Code', 'Missing Fields']
   const rows = units.map((u) => {
     const m = getMissingFields(u)
-    const exp = getExpiryInfo(u)
-    const expiryLabel =
-      exp.status === 'expired' ? `Expired ${Math.abs(exp.days)}d ago` :
-      exp.status === 'soon' ? `Expires in ${exp.days}d` : ''
+    const d = deriveUnitStatus(u)
     return [
       u.building, u.unit_code, u.owner_name || '', u.owner_email || '', u.owner_phone || '',
-      u.unit_type || '', u.status || '', u.effective_date || '', u.expiry_date || '',
-      u.marketing_title || '', m.total, expiryLabel,
+      u.unit_type || '', d.status, u.contract?.contract_code || '', m.total,
     ]
   })
   const csv = [headers, ...rows].map((row) => row.map((v) => `"${String(v).replace(/"/g, '""')}"`).join(',')).join('\n')
@@ -1356,7 +1452,7 @@ function FilterPanel({ open, onClose, building, setBuilding, dateFilter, setDate
               </Select>
             </div>
             <div>
-              <p className="text-[10px] uppercase tracking-wider text-muted-foreground font-semibold mb-1.5">Expiry Date</p>
+              <p className="text-[10px] uppercase tracking-wider text-muted-foreground font-semibold mb-1.5">Contract Expiry</p>
               <Select value={dateFilter} onValueChange={setDateFilter}>
                 <SelectTrigger className="h-8 text-xs rounded"><SelectValue placeholder="Any expiry" /></SelectTrigger>
                 <SelectContent>{DATE_FILTERS.map((d) => <SelectItem key={d.id} value={d.id} className="text-xs">{d.label}</SelectItem>)}</SelectContent>
@@ -1419,7 +1515,6 @@ function StatusPills({ statusFilter, onStatusFilter, counts }) {
 // UNIT LIST ROW
 // ============================================================
 function UnitListRow({ unit, selected, onClick }) {
-  const exp = getExpiryInfo(unit)
   return (
     <motion.button
       type="button"
@@ -1433,45 +1528,20 @@ function UnitListRow({ unit, selected, onClick }) {
       whileTap={{ scale: 0.998 }}
       className={cn('group/row w-full text-left px-4 py-3 border-b border-border cursor-pointer select-none', ROW_GRID)}
     >
-      {/* Building */}
       <span className="text-sm font-semibold text-foreground truncate">
         {unit.building || '—'}
       </span>
 
-      {/* Unit Code */}
       <span className="font-mono text-sm font-bold text-foreground truncate">
         {unit.unit_code || '—'}
       </span>
 
-      {/* Effective */}
-      <span className="text-xs tabular-nums text-muted-foreground truncate">
-        {unit.effective_date ? formatDate(unit.effective_date) : '—'}
-      </span>
-
-      {/* Expiry */}
-      <span
-        className={cn(
-          'text-xs tabular-nums truncate font-medium',
-          unit.expiry_date
-            ? exp.status === 'expired'
-              ? 'text-red-600 dark:text-red-400'
-              : exp.status === 'soon'
-                ? 'text-amber-600 dark:text-amber-400'
-                : 'text-muted-foreground'
-            : 'text-muted-foreground'
-        )}
-      >
-        {unit.expiry_date ? formatDate(unit.expiry_date) : '—'}
-      </span>
-
-      {/* Class */}
       <span className="text-xs text-muted-foreground truncate">
-        {unit.classification || '—'}
+        {unit.owner_name || '—'}
       </span>
 
-      {/* Status + chevron */}
       <div className="flex items-center gap-2 justify-end flex-shrink-0">
-        <StatusBadge status={unit.status} />
+        <DerivedStatusBadge unit={unit} />
         <ChevronRight
           size={14}
           className={cn(
@@ -1505,6 +1575,9 @@ export default function RegistryPage() {
   const [cardsHidden, setCardsHidden] = useState(false)
   const [channelOptions, setChannelOptions] = useState([])
 
+  const [selectedContract, setSelectedContract] = useState(null)
+  const [selectedContractLoading, setSelectedContractLoading] = useState(false)
+
   const [logCallUnit, setLogCallUnit] = useState(null)
   const [interactionsRefreshKey, setInteractionsRefreshKey] = useState(0)
 
@@ -1527,8 +1600,17 @@ export default function RegistryPage() {
     if (!hasLoadedOnce.current) setIsFirstLoad(true)
     else setIsRefreshing(true)
     try {
-      const data = await listUnits({})
-      setAllUnits(data)
+      const [unitsData, contractsRes] = await Promise.all([
+        listUnits({}),
+        supabase.from('contracts').select('*'),
+      ])
+      if (contractsRes.error) throw contractsRes.error
+
+      const byUnit = new Map()
+      for (const c of (contractsRes.data || [])) byUnit.set(c.unit_id, c)
+
+      const enriched = unitsData.map((u) => ({ ...u, contract: byUnit.get(u.id) || null }))
+      setAllUnits(enriched)
     } catch (err) {
       console.error('Failed to load units:', err)
       toast.error('Failed to load units')
@@ -1542,9 +1624,8 @@ export default function RegistryPage() {
   useEffect(() => {
     const channels = [
       supabase.channel('registry-units').on('postgres_changes', { event: '*', schema: 'public', table: 'units' }, () => fetchUnits()).subscribe(),
-      supabase.channel('registry-contracts').on('postgres_changes', { event: '*', schema: 'public', table: 'contracts' }, () => fetchUnits()).subscribe(),
       supabase.channel('registry-owners').on('postgres_changes', { event: '*', schema: 'public', table: 'owners' }, () => fetchUnits()).subscribe(),
-      supabase.channel('registry-interactions').on('postgres_changes', { event: '*', schema: 'public', table: 'unit_interactions' }, () => fetchUnits()).subscribe(),
+      supabase.channel('registry-contracts').on('postgres_changes', { event: '*', schema: 'public', table: 'contracts' }, () => fetchUnits()).subscribe(),
     ]
     return () => { channels.forEach((ch) => supabase.removeChannel(ch)) }
   }, [fetchUnits])
@@ -1565,22 +1646,17 @@ export default function RegistryPage() {
     const out = []
     for (const u of allUnits) {
       const m = missingMap.get(u.id)
-      if (m && (m.critical.length + m.warnings.length) > 0) out.push({ unit: u, missing: m })
+      if (m && m.warnings.length > 0) out.push({ unit: u, missing: m })
     }
-    out.sort((a, b) => {
-      const aTotal = a.missing.critical.length + a.missing.warnings.length
-      const bTotal = b.missing.critical.length + b.missing.warnings.length
-      return bTotal - aTotal
-    })
+    out.sort((a, b) => b.missing.total - a.missing.total)
     return out
   }, [allUnits, missingMap])
 
-  const expiryWarnings = useMemo(() => getExpiryWarnings(allUnits), [allUnits])
-
   const counts = useMemo(() => {
-    const c = { all: allUnits.length, ACTIVE: 0, INACTIVE: 0, IN_PROGRESS: 0, FOR_RENEWAL: 0 }
+    const c = { all: allUnits.length, ACTIVE: 0, FOR_RENEWAL: 0, INACTIVE: 0 }
     for (const u of allUnits) {
-      if (u.status && c[u.status] !== undefined) c[u.status]++
+      const d = deriveUnitStatus(u).status
+      if (c[d] !== undefined) c[d]++
     }
     return c
   }, [allUnits])
@@ -1598,14 +1674,20 @@ export default function RegistryPage() {
   const filteredUnits = useMemo(() => {
     const q = debouncedSearch.trim().toLowerCase()
     return allUnits.filter((u) => {
-      if (statusFilter !== 'all' && u.status !== statusFilter) return false
+      const derived = deriveUnitStatus(u)
+      if (statusFilter !== 'all' && derived.status !== statusFilter) return false
       if (building !== 'all' && u.building !== building) return false
       if (dateFilter !== 'all') {
-        const days = u.days_until_expiry
-        if (dateFilter === 'no-expiry' && u.expiry_date) return false
-        if (dateFilter === 'expired' && !(days !== null && days < 0)) return false
-        if (dateFilter === 'next30' && !(days !== null && days >= 0 && days <= 30)) return false
-        if (dateFilter === 'next90' && !(days !== null && days >= 0 && days <= 90)) return false
+        const exp = u.contract?.expiry_date ? new Date(u.contract.expiry_date + 'T00:00:00Z') : null
+        const today = new Date(); today.setUTCHours(0, 0, 0, 0)
+        if (dateFilter === 'no-contract' && u.contract) return false
+        if (!exp && dateFilter !== 'no-contract') return false
+        if (exp) {
+          const days = Math.round((exp - today) / 86400000)
+          if (dateFilter === 'expired' && days >= 0) return false
+          if (dateFilter === 'next30' && !(days >= 0 && days <= 30)) return false
+          if (dateFilter === 'next90' && !(days >= 0 && days <= 90)) return false
+        }
       }
       if (otaFilter !== 'all') {
         const listings = normalizeOtaListings(u.ota_listings)
@@ -1636,6 +1718,18 @@ export default function RegistryPage() {
 
   const selected = useMemo(() => sorted.find((u) => u.id === selectedId) || null, [sorted, selectedId])
 
+  // When selected changes, load its contract (should already be on the unit object, but refresh just in case)
+  useEffect(() => {
+    if (!selected) {
+      setSelectedContract(null)
+      setSelectedContractLoading(false)
+      return
+    }
+    // Contract is already attached via enriched units
+    setSelectedContract(selected.contract || null)
+    setSelectedContractLoading(false)
+  }, [selected?.id])
+
   const handleExport = () => {
     if (filteredUnits.length === 0) { toast.error('Nothing to export'); return }
     downloadCSV(filteredUnits, `registry_${new Date().toISOString().slice(0, 10)}.csv`)
@@ -1647,9 +1741,15 @@ export default function RegistryPage() {
     fetchUnits()
   }
 
+  const handleContractUpdate = (contract) => {
+    setSelectedContract(contract)
+    setAllUnits((prev) => prev.map((u) => (u.id === selected?.id ? { ...u, contract } : u)))
+    fetchUnits()
+  }
+
   const handleDeleteUnit = async (unit) => {
     const confirmed = window.confirm(
-      `Delete unit "${unit.unit_code}"?\n\nBuilding: ${unit.building || '—'}\nOwner: ${unit.owner_name || '—'}\n\nThis will also delete its contracts and interactions. This cannot be undone.`
+      `Delete unit "${unit.unit_code}"?\n\nBuilding: ${unit.building || '—'}\nOwner: ${unit.owner_name || '—'}\n\nThis will also delete its contract and interactions. This cannot be undone.`
     )
     if (!confirmed) return
     try {
@@ -1678,7 +1778,6 @@ export default function RegistryPage() {
 
   return (
     <div className="h-full flex min-h-0">
-      {/* Left: list */}
       <div className="flex-1 min-h-0 flex flex-col overflow-hidden bg-card border border-border rounded-md">
         <div className="p-3 flex-1 min-h-0 flex flex-col gap-2.5">
 
@@ -1717,11 +1816,7 @@ export default function RegistryPage() {
 
           <div className="flex-shrink-0 flex items-center justify-between gap-3 flex-wrap">
             <StatusPills statusFilter={statusFilter} onStatusFilter={setStatusFilter} counts={counts} />
-            <WarningsStrip
-              missingUnits={missingUnitsList}
-              expiryWarnings={expiryWarnings}
-              onSelectUnit={handleSelectUnit}
-            />
+            <WarningsStrip missingUnits={missingUnitsList} onSelectUnit={handleSelectUnit} />
           </div>
 
           <div className="flex-1 min-h-0 rounded border border-border overflow-hidden">
@@ -1732,17 +1827,11 @@ export default function RegistryPage() {
               onMouseMove={handleListMouseMove}
               onMouseLeave={handleListMouseLeave}
             >
-              {/* Sticky header */}
               <div className={cn('sticky top-0 z-10 px-4 py-2 border-b border-border bg-card', ROW_GRID)}>
                 <span className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground truncate">Building</span>
                 <span className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground truncate">Unit</span>
-                <span className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground truncate">Effective</span>
-                <span className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground truncate">Expiry</span>
-                <span className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground truncate">Class</span>
-                <span className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground tabular-nums text-right whitespace-nowrap">
-                  {sorted.length}
-                  {sorted.length !== allUnits.length && <span className="text-muted-foreground/60"> / {allUnits.length}</span>}
-                </span>
+                <span className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground truncate">Owner</span>
+                <span className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground text-right truncate">Status</span>
               </div>
 
               {isFirstLoad ? (
@@ -1770,13 +1859,15 @@ export default function RegistryPage() {
         </div>
       </div>
 
-      {/* Right: detail panel */}
       <AnimatePresence initial={false}>
         {selected && (
           <RegistryDetailPanel
             key={selected.id}
             unit={selected}
+            contract={selectedContract}
+            contractLoading={selectedContractLoading}
             onUnitChange={handleUnitUpdate}
+            onContractChange={handleContractUpdate}
             onClose={() => setSelectedId(null)}
             channelOptions={channelOptions}
             onLogCall={() => setLogCallUnit(selected)}

@@ -1,13 +1,16 @@
 import { useEffect, useState, useCallback, useRef } from 'react'
-import { useNavigate } from 'react-router-dom'
+import { useNavigate, useSearchParams } from 'react-router-dom'
 import { motion, AnimatePresence } from 'framer-motion'
 import { useTheme } from "../../context/ThemeContext";
 import { useAuth } from "../../context/AuthContext";
 import {
   Moon, Sun, LogOut, ScrollText, ArrowLeft, Calendar, Users, Sparkles,
+  FileText, TrendingUp,
 } from 'lucide-react'
 import AdminSidebar from '../../components/admin/AdminSidebar'
 import RegistryPage from '../../components/admin/registry/RegistryPage'
+import ContractsPage from '../../components/admin/contracts/ContractsPage'
+import AccountingPage from '../../components/admin/accounting/AccountingPage'
 import BookingsPage from '../../components/admin/bookings/BookingsPage'
 import TeamPage from '../../components/admin/team/TeamPage'
 import HousekeepingPage from '../../components/admin/housekeeping/HousekeepingPage'
@@ -15,11 +18,13 @@ import HousekeepingPage from '../../components/admin/housekeeping/HousekeepingPa
 // ============================================================
 // SESSION TIMEOUT CONFIG
 // ============================================================
-const IDLE_LIMIT_MS   = 30 * 60 * 1000   // 30 min of no interaction → sign out
-const HIDDEN_LIMIT_MS = 60 * 60 * 1000   // 60 min hidden tab → sign out
-const TICK_MS         = 15 * 1000        // how often to check idle time
+const IDLE_LIMIT_MS   = 30 * 60 * 1000
+const HIDDEN_LIMIT_MS = 60 * 60 * 1000
+const TICK_MS         = 15 * 1000
 const ACTIVITY_KEY    = 'ir:admin:lastActivity'
 const HIDDEN_AT_KEY   = 'ir:admin:hiddenAt'
+
+const VALID_TABS = ['registry', 'contracts', 'accounting', 'bookings', 'team', 'housekeeping']
 
 function readStorage(key, fallback = 0) {
   try {
@@ -33,7 +38,7 @@ function readStorage(key, fallback = 0) {
 }
 
 function writeStorage(key, value) {
-  try { sessionStorage.setItem(key, String(value)) } catch { /* quota / private mode */ }
+  try { sessionStorage.setItem(key, String(value)) } catch { /* ignore */ }
 }
 
 function clearSessionStorage() {
@@ -62,8 +67,12 @@ export default function AdminDashboardPage() {
   const { user, signOut } = useAuth()
   const { isDark, toggleTheme } = useTheme()
   const navigate = useNavigate()
+  const [searchParams, setSearchParams] = useSearchParams()
 
-  const [activeTab, setActiveTab] = useState('registry')
+  const urlTab = searchParams.get('tab')
+  const initialTab = urlTab && VALID_TABS.includes(urlTab) ? urlTab : 'registry'
+
+  const [activeTab, setActiveTab] = useState(initialTab)
   const [sidebarCollapsed, setSidebarCollapsed] = useState(true)
   const [adminUser, setAdminUser] = useState(null)
   const [showProfileMenu, setShowProfileMenu] = useState(false)
@@ -78,7 +87,22 @@ export default function AdminDashboardPage() {
     }
   }, [user])
 
-  const handleTabChange = (tab) => setActiveTab(tab)
+  // Sync tab state with URL when URL changes externally
+  useEffect(() => {
+    const tab = searchParams.get('tab')
+    if (tab && VALID_TABS.includes(tab) && tab !== activeTab) {
+      setActiveTab(tab)
+    }
+  }, [searchParams, activeTab])
+
+  const handleTabChange = useCallback((tab) => {
+    setActiveTab(tab)
+    const next = new URLSearchParams(searchParams)
+    next.set('tab', tab)
+    if (tab !== 'contracts') next.delete('unit')
+    if (tab !== 'contracts') next.delete('new')
+    setSearchParams(next, { replace: true })
+  }, [searchParams, setSearchParams])
 
   const handleSignOut = useCallback(async () => {
     clearSessionStorage()
@@ -90,27 +114,15 @@ export default function AdminDashboardPage() {
     navigate('/', { replace: true })
   }, [signOut, navigate])
 
-  // ============================================================
-  // SESSION TIMEOUT — background-tab-safe
-  // ============================================================
-  // Handles three scenarios:
-  //   1. User is on the tab but idle for > IDLE_LIMIT_MS → sign out
-  //   2. User hides the tab for > HIDDEN_LIMIT_MS → sign out on return
-  //   3. User closes tab and reopens within IDLE_LIMIT_MS → timer persists
-  //
-  // Uses sessionStorage so a page refresh doesn't reset the clock.
-  // A raw setTimeout alone is unreliable: backgrounded tabs get throttled.
-  // ============================================================
+  // ============ SESSION TIMEOUT ============
   const tickRef = useRef(null)
   const handleSignOutRef = useRef(handleSignOut)
 
-  // Keep the ref current without restarting the effect
   useEffect(() => { handleSignOutRef.current = handleSignOut }, [handleSignOut])
 
   useEffect(() => {
     if (!user) return
 
-    // Initialize lastActivity if not present (fresh login)
     const now = Date.now()
     let lastActivity = readStorage(ACTIVITY_KEY, 0)
     if (!lastActivity || lastActivity > now) {
@@ -118,25 +130,18 @@ export default function AdminDashboardPage() {
       writeStorage(ACTIVITY_KEY, lastActivity)
     }
 
-    // On mount, check whether we've already exceeded the idle limit
-    // (e.g. user refreshed after being away).
     if (now - lastActivity >= IDLE_LIMIT_MS) {
       handleSignOutRef.current()
       return
     }
 
-    // ---- activity markers ----
     const markActive = () => {
       const t = Date.now()
       writeStorage(ACTIVITY_KEY, t)
-      // Returning from a long hidden period? handled by visibilitychange.
     }
 
-    // ---- periodic idle check ----
     const tick = () => {
       const nowTs = Date.now()
-
-      // Tab is currently hidden — check the hidden limit
       if (document.hidden) {
         const hiddenAt = readStorage(HIDDEN_AT_KEY, 0)
         if (hiddenAt && nowTs - hiddenAt >= HIDDEN_LIMIT_MS) {
@@ -144,8 +149,6 @@ export default function AdminDashboardPage() {
         }
         return
       }
-
-      // Tab is visible — check idle limit
       const last = readStorage(ACTIVITY_KEY, nowTs)
       if (nowTs - last >= IDLE_LIMIT_MS) {
         handleSignOutRef.current()
@@ -154,39 +157,32 @@ export default function AdminDashboardPage() {
 
     tickRef.current = setInterval(tick, TICK_MS)
 
-    // ---- visibility handling ----
     const onVisibilityChange = () => {
       const nowTs = Date.now()
       if (document.hidden) {
         writeStorage(HIDDEN_AT_KEY, nowTs)
       } else {
-        // Tab just became visible. Did we cross the hidden limit?
         const hiddenAt = readStorage(HIDDEN_AT_KEY, 0)
         if (hiddenAt && nowTs - hiddenAt >= HIDDEN_LIMIT_MS) {
           clearSessionStorage()
           handleSignOutRef.current()
           return
         }
-        // Also re-check the idle limit in case the periodic timer
-        // was throttled while hidden.
         const last = readStorage(ACTIVITY_KEY, nowTs)
         if (nowTs - last >= IDLE_LIMIT_MS) {
           handleSignOutRef.current()
           return
         }
-        // User is back — treat this as activity
         writeStorage(ACTIVITY_KEY, nowTs)
         try { sessionStorage.removeItem(HIDDEN_AT_KEY) } catch { /* ignore */ }
       }
     }
 
-    // ---- wire listeners ----
     const events = ['click', 'keydown', 'scroll', 'mousemove', 'touchstart']
     events.forEach((e) => window.addEventListener(e, markActive, { passive: true }))
     document.addEventListener('visibilitychange', onVisibilityChange)
     window.addEventListener('focus', onVisibilityChange)
 
-    // ---- cleanup ----
     return () => {
       events.forEach((e) => window.removeEventListener(e, markActive))
       document.removeEventListener('visibilitychange', onVisibilityChange)
@@ -198,9 +194,6 @@ export default function AdminDashboardPage() {
     }
   }, [user])
 
-  // ============================================================
-  // PROFILE MENU — close on Escape
-  // ============================================================
   useEffect(() => {
     if (!showProfileMenu) return
     const onKey = (e) => { if (e.key === 'Escape') setShowProfileMenu(false) }
@@ -210,6 +203,8 @@ export default function AdminDashboardPage() {
 
   const tabIcons = {
     registry: ScrollText,
+    contracts: FileText,
+    accounting: TrendingUp,
     bookings: Calendar,
     team: Users,
     housekeeping: Sparkles,
@@ -217,6 +212,8 @@ export default function AdminDashboardPage() {
 
   const tabTitles = {
     registry: 'Registry',
+    contracts: 'Contracts',
+    accounting: 'Accounting',
     bookings: 'Bookings',
     team: 'Team',
     housekeeping: 'Housekeeping',
@@ -240,6 +237,8 @@ export default function AdminDashboardPage() {
 
   const isFullHeightTab =
     activeTab === 'registry' ||
+    activeTab === 'contracts' ||
+    activeTab === 'accounting' ||
     activeTab === 'bookings' ||
     activeTab === 'team' ||
     activeTab === 'housekeeping'
@@ -273,11 +272,7 @@ export default function AdminDashboardPage() {
               className="flex items-center gap-2 px-3 py-1.5 rounded-xl bg-white/80 dark:bg-gray-800/80 backdrop-blur-sm border border-gray-200 dark:border-gray-700 hover:bg-white dark:hover:bg-gray-700 transition-all duration-200 shadow-sm"
             >
               {adminUser?.avatar ? (
-                <img
-                  src={adminUser.avatar}
-                  alt="Admin"
-                  className="w-7 h-7 rounded-full object-cover ring-2 ring-white dark:ring-gray-700"
-                />
+                <img src={adminUser.avatar} alt="Admin" className="w-7 h-7 rounded-full object-cover ring-2 ring-white dark:ring-gray-700" />
               ) : (
                 <div className="w-7 h-7 rounded-full bg-gradient-to-br from-[#2d568e] to-[#1e3a5f] flex items-center justify-center text-white text-xs font-semibold ring-2 ring-white dark:ring-gray-700">
                   {adminUser?.name?.charAt(0)?.toUpperCase() || 'A'}
@@ -299,11 +294,7 @@ export default function AdminDashboardPage() {
                   <div className="p-4 border-b border-gray-100 dark:border-gray-700">
                     <div className="flex items-center gap-3">
                       {adminUser?.avatar ? (
-                        <img
-                          src={adminUser.avatar}
-                          alt="Admin"
-                          className="w-10 h-10 rounded-full object-cover"
-                        />
+                        <img src={adminUser.avatar} alt="Admin" className="w-10 h-10 rounded-full object-cover" />
                       ) : (
                         <div className="w-10 h-10 rounded-full bg-gradient-to-br from-[#2d568e] to-[#1e3a5f] flex items-center justify-center text-white font-semibold">
                           {adminUser?.name?.charAt(0)?.toUpperCase() || 'A'}
@@ -372,6 +363,20 @@ export default function AdminDashboardPage() {
                   <PageTransition tabKey="registry">
                     <div className="absolute inset-6 min-h-0 flex flex-col">
                       <RegistryPage />
+                    </div>
+                  </PageTransition>
+                )}
+                {activeTab === 'contracts' && (
+                  <PageTransition tabKey="contracts">
+                    <div className="absolute inset-6 min-h-0 flex flex-col">
+                      <ContractsPage />
+                    </div>
+                  </PageTransition>
+                )}
+                {activeTab === 'accounting' && (
+                  <PageTransition tabKey="accounting">
+                    <div className="absolute inset-6 min-h-0 flex flex-col">
+                      <AccountingPage />
                     </div>
                   </PageTransition>
                 )}
