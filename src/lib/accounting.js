@@ -2,18 +2,12 @@
 // ============================================================
 // Contract accounting computations
 // ============================================================
-// Split is derived from contract.classification.
-// Only 75/25 and 85/15 are configured; others return null.
+// Split model: every contract is 75/25 (owner/company).
 // ============================================================
 
-export const CLASSIFICATION_SPLIT = {
-  '75/25': { owner: 75, company: 25 },
-  '85/15': { owner: 85, company: 15 },
-}
+export const OWNER_SPLIT_PCT = 75
+export const COMPANY_SPLIT_PCT = 25
 
-export function getContractSplit(classification) {
-  return CLASSIFICATION_SPLIT[classification] || null
-}
 // ------------------------------------------------------------
 // Date helpers
 // ------------------------------------------------------------
@@ -45,8 +39,6 @@ export function monthLabel(key) {
   })
 }
 
-// Every month between two dates inclusive, oldest → newest.
-// Handles null bounds: falls back to today.
 export function monthRangeFromDates(startDate, endDate) {
   const today = new Date()
   const s = startDate ? new Date(startDate) : new Date(today.getUTCFullYear(), 0, 1)
@@ -63,10 +55,24 @@ export function monthRangeFromDates(startDate, endDate) {
     out.push(monthKey(cur))
     cur = new Date(cur)
     cur.setUTCMonth(cur.getUTCMonth() + 1)
-    // safety cap
     if (out.length > 240) break
   }
   return out
+}
+
+// ------------------------------------------------------------
+// Custom expense items helpers
+// ------------------------------------------------------------
+export function parseCustomItems(raw) {
+  if (!Array.isArray(raw)) return []
+  return raw
+    .filter((x) => x && typeof x === 'object')
+    .map((x) => ({
+      id: typeof x.id === 'string' && x.id ? x.id : `ci_${Math.random().toString(36).slice(2, 10)}`,
+      name: typeof x.name === 'string' ? x.name.slice(0, 80) : '',
+      amount: Number(x.amount) || 0,
+    }))
+    .filter((x) => x.name.length > 0)
 }
 
 // ------------------------------------------------------------
@@ -74,9 +80,9 @@ export function monthRangeFromDates(startDate, endDate) {
 // ------------------------------------------------------------
 export function computeMonthlyStatement({
   contract,
-  bookings,          // all non-deleted bookings for the unit
-  cleanings,         // all cleanings for the unit
-  monthlyExpenses,   // all contract_monthly_expenses rows for this contract
+  bookings,
+  cleanings,
+  monthlyExpenses,
   month,
 }) {
   const start = monthStart(month)
@@ -104,14 +110,17 @@ export function computeMonthlyStatement({
   const water = Number(manual.water || 0)
   const marketing = Number(manual.marketing || 0)
 
+  const customItems = parseCustomItems(manual.custom_items)
+  const customTotal = customItems.reduce((s, x) => s + (Number(x.amount) || 0), 0)
+
   const totalExpenses =
     bookingCommission + affiliateCommission + housekeeping + laundry +
-    electricity + internet + water + marketing
+    electricity + internet + water + marketing + customTotal
 
   const netProfit = grossRevenue - totalExpenses
-  const split = getContractSplit(contract?.classification)
-  const ownerShare = split ? Math.round(netProfit * (split.owner / 100) * 100) / 100 : null
-  const companyShare = split ? Math.round(netProfit * (split.company / 100) * 100) / 100 : null
+
+  const ownerShare = Math.round(netProfit * (OWNER_SPLIT_PCT / 100) * 100) / 100
+  const companyShare = Math.round(netProfit * (COMPANY_SPLIT_PCT / 100) * 100) / 100
 
   return {
     month,
@@ -124,11 +133,12 @@ export function computeMonthlyStatement({
     internet,
     water,
     marketing,
+    customItems,
+    customTotal,
     totalExpenses,
     netProfit,
     ownerShare,
     companyShare,
-    split,
     bookingsList: monthBookings,
     cleaningsList: monthCleanings,
     manualRow: manual,
@@ -136,18 +146,17 @@ export function computeMonthlyStatement({
 }
 
 // ------------------------------------------------------------
-// Lifetime totals across all statements
+// Lifetime totals
 // ------------------------------------------------------------
 export function computeLifetime(statements) {
   const agg = statements.reduce((acc, s) => {
     acc.gross += s.grossRevenue
     acc.expenses += s.totalExpenses
     acc.net += s.netProfit
-    if (s.ownerShare != null) acc.owner += s.ownerShare
-    if (s.companyShare != null) acc.company += s.companyShare
-    if (s.ownerShare != null) acc.hasSplit = true
+    acc.owner += s.ownerShare
+    acc.company += s.companyShare
     return acc
-  }, { gross: 0, expenses: 0, net: 0, owner: 0, company: 0, hasSplit: false })
+  }, { gross: 0, expenses: 0, net: 0, owner: 0, company: 0 })
 
   const monthsWithActivity = statements.filter((s) => s.grossRevenue > 0 || s.totalExpenses > 0).length
   const activeMonths = statements.length
@@ -174,9 +183,4 @@ export function formatMoneyCompact(n) {
   if (Math.abs(v) >= 1_000_000) return `₱${(v / 1_000_000).toFixed(1)}M`
   if (Math.abs(v) >= 1_000) return `₱${Math.round(v / 1_000)}k`
   return `₱${Math.round(v)}`
-}
-export function getClassificationLabel(contract) {
-  if (!contract) return '—'
-  if (!contract.expiry_date) return 'Fixed'
-  return contract.classification || '—'
 }

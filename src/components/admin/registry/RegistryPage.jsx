@@ -34,7 +34,6 @@ import {
 // ============================================================
 const BRAND = '#2d568e'
 
-// Summary card / pill config — 3 real statuses
 const DERIVED_STATUS_CONFIG = {
   ACTIVE:      { label: 'Active',      className: 'bg-emerald-600 text-white border-0' },
   FOR_RENEWAL: { label: 'For Renewal', className: 'bg-red-600 text-white border-0' },
@@ -52,7 +51,6 @@ const UNIT_TYPES = ['Studio', '1-Bedroom', '2-Bedroom', 'Executive Studio', 'STO
 const GC_STATUS_OPTIONS = ['FIXED', 'MESSENGER', 'VIBER', 'NOT YET', 'N/A']
 const OUTCOME_OPTIONS = ['positive', 'neutral', 'negative', 'no_answer']
 const INTERACTION_TYPES = ['call', 'email', 'messenger', 'whatsapp', 'sms', 'in_person', 'note']
-const CLASSIFICATION_OPTIONS = ['Fixed', 'Partnership', '75/25', '85/15']
 
 const STATUS_PILLS = [
   { id: 'all', label: 'All' },
@@ -81,7 +79,6 @@ const DEFAULT_CHANNELS = [
   'Trip.com', 'Expedia', 'Vrbo', 'Facebook Marketplace',
 ]
 
-// Grid: Building | Unit | Owner | Status
 const ROW_GRID = 'grid grid-cols-[1.4fr_1fr_1.6fr_220px] gap-4 items-center'
 
 const EXPIRING_SOON_DAYS = 60
@@ -140,7 +137,6 @@ function getMissingFields(unit) {
 function deriveUnitStatus(unit) {
   const contract = unit?.contract || null
 
-  // No contract → INACTIVE
   if (!contract) {
     return { status: 'INACTIVE', warning: null, contract: null }
   }
@@ -150,17 +146,15 @@ function deriveUnitStatus(unit) {
   const today = new Date()
   today.setUTCHours(0, 0, 0, 0)
 
-  // No dates at all → treat as broken/incomplete, show as INACTIVE
   if (!eff && !exp) {
     return { status: 'INACTIVE', warning: null, contract }
   }
 
-  // Open-ended (no expiry) → ACTIVE
+  // Open-ended contract (has effective date, no expiry) → ACTIVE
   if (!exp) {
     return { status: 'ACTIVE', warning: null, contract }
   }
 
-  // Expired
   if (exp < today) {
     const daysAgo = Math.round((today - exp) / 86400000)
     return {
@@ -170,7 +164,6 @@ function deriveUnitStatus(unit) {
     }
   }
 
-  // Expiring soon
   const daysLeft = Math.round((exp - today) / 86400000)
   if (daysLeft <= EXPIRING_SOON_DAYS) {
     return {
@@ -253,7 +246,7 @@ function UnitAvatar({ unit, size = 'md' }) {
 }
 
 // ============================================================
-// SUMMARY CARDS (3 statuses)
+// SUMMARY CARDS
 // ============================================================
 function SummaryCards({ units }) {
   const stats = useMemo(() => {
@@ -296,7 +289,7 @@ function SummaryCards({ units }) {
 }
 
 // ============================================================
-// EDITABLE FIELD (generic, for non-contract fields)
+// EDITABLE FIELD
 // ============================================================
 function EditableField({ label, value, type = 'text', options, onSave, actionHref, actionIcon: ActionIcon, actionTitle, auditTag }) {
   const [draft, setDraft] = useState(value ?? '')
@@ -867,7 +860,7 @@ function InteractionsSection({ unit, onLogCall, refreshKey = 0 }) {
 }
 
 // ============================================================
-// INLINE CONTRACT EDITOR — the Current Contract section
+// INLINE CONTRACT EDITOR
 // ============================================================
 function InlineContractField({ label, value, type = 'text', options, onSave, auditTag }) {
   const [draft, setDraft] = useState(value ?? '')
@@ -951,7 +944,6 @@ function ContractSection({ unit, contract, loading, onContractChange, onUnitChan
       owner_id: unit.owner_id,
       effective_date: today,
       expiry_date: oneYear.toISOString().slice(0, 10),
-      classification: 'Partnership',
     }
     const { data, error } = await supabase.from('contracts').insert(payload).select('*').single()
     if (error) throw error
@@ -977,7 +969,6 @@ function ContractSection({ unit, contract, loading, onContractChange, onUnitChan
     onUnitChange({ ...unit, current_contract_id: null })
   }
 
-  // Loading skeleton
   if (loading) {
     return (
       <SectionCard title="Contract" icon={FileText}>
@@ -990,7 +981,6 @@ function ContractSection({ unit, contract, loading, onContractChange, onUnitChan
     )
   }
 
-  // No contract
   if (!contract) {
     return (
       <SectionCard title="Contract" icon={FileText}>
@@ -1009,7 +999,6 @@ function ContractSection({ unit, contract, loading, onContractChange, onUnitChan
     )
   }
 
-  // Has contract — editable inline
   const derived = deriveUnitStatus(unit)
   const statusLabel = derived.warning ? derived.warning.text : DERIVED_STATUS_CONFIG[derived.status]?.label || '—'
   const statusClass = derived.warning
@@ -1056,13 +1045,6 @@ function ContractSection({ unit, contract, loading, onContractChange, onUnitChan
           type="date"
           onSave={(v) => updateContractField('expiry_date', v)}
           auditTag="expiry_date"
-        />
-        <InlineContractField
-          label="Class"
-          value={contract.classification}
-          options={CLASSIFICATION_OPTIONS}
-          onSave={(v) => updateContractField('classification', v)}
-          auditTag="classification"
         />
         <InlineContractField
           label="PDF"
@@ -1512,7 +1494,7 @@ function StatusPills({ statusFilter, onStatusFilter, counts }) {
 }
 
 // ============================================================
-// UNIT LIST ROW
+// UNIT LIST ROW — chevron removed
 // ============================================================
 function UnitListRow({ unit, selected, onClick }) {
   return (
@@ -1520,9 +1502,7 @@ function UnitListRow({ unit, selected, onClick }) {
       type="button"
       onClick={onClick}
       initial={false}
-      animate={{
-        backgroundColor: selected ? 'rgba(45, 86, 142, 0.10)' : 'rgba(45, 86, 142, 0)',
-      }}
+      animate={{ backgroundColor: selected ? 'rgba(45, 86, 142, 0.10)' : 'rgba(45, 86, 142, 0)' }}
       transition={{ duration: 0.22, ease: [0.4, 0, 0.2, 1] }}
       whileHover={{ backgroundColor: selected ? 'rgba(45, 86, 142, 0.14)' : 'rgba(45, 86, 142, 0.05)' }}
       whileTap={{ scale: 0.998 }}
@@ -1542,13 +1522,6 @@ function UnitListRow({ unit, selected, onClick }) {
 
       <div className="flex items-center gap-2 justify-end flex-shrink-0">
         <DerivedStatusBadge unit={unit} />
-        <ChevronRight
-          size={14}
-          className={cn(
-            'text-muted-foreground/40 transition-transform duration-300 ease-out',
-            selected && 'rotate-180 text-primary'
-          )}
-        />
       </div>
     </motion.button>
   )
@@ -1718,14 +1691,12 @@ export default function RegistryPage() {
 
   const selected = useMemo(() => sorted.find((u) => u.id === selectedId) || null, [sorted, selectedId])
 
-  // When selected changes, load its contract (should already be on the unit object, but refresh just in case)
   useEffect(() => {
     if (!selected) {
       setSelectedContract(null)
       setSelectedContractLoading(false)
       return
     }
-    // Contract is already attached via enriched units
     setSelectedContract(selected.contract || null)
     setSelectedContractLoading(false)
   }, [selected?.id])

@@ -35,7 +35,6 @@ interface ExpiringContract {
   unit_type: string | null
   effective_date: string | null
   expiry_date: string
-  classification: string | null
   owner_name: string | null
   owner_email: string | null
   owner_phone: string | null

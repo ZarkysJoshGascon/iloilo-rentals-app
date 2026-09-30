@@ -4,7 +4,7 @@ import {
   Check, Download, Loader2,
   Plus, RefreshCw, Search, SlidersHorizontal, X, Trash2,
   Building2, CheckCircle2, Clock, AlertTriangle, Calendar, User, Wallet,
-  ChevronRight, Edit2, Lock,
+  Edit2, Lock,
 } from 'lucide-react'
 import toast from 'react-hot-toast'
 import { Button } from '@/components/ui/button'
@@ -310,7 +310,6 @@ function WarningRow({ booking, chip, chipTone, onClick }) {
         </p>
       </div>
       <span className={cn('inline-flex items-center px-2.5 py-0.5 rounded-full text-[11px] font-semibold whitespace-nowrap flex-shrink-0', chipClass)}>{chip}</span>
-      <ChevronRight size={12} className="text-muted-foreground/40 group-hover:text-muted-foreground transition-colors flex-shrink-0" />
     </button>
   )
 }
@@ -509,7 +508,6 @@ function BookingFormModal({ open, onClose, onSaved, units, editing, specialists,
 
   const setField = (k, v) => setForm((p) => ({ ...p, [k]: v }))
 
-  // Live affiliate count fetch (if not cached)
   useEffect(() => {
     if (!open || !form.affiliate_code) { setLiveAffiliateCount(null); return }
     const cached = affiliateCounts?.[form.affiliate_code]
@@ -595,9 +593,6 @@ function BookingFormModal({ open, onClose, onSaved, units, editing, specialists,
       const booker = specialists.find((s) => s.code === form.booker_code)
       const affiliate = affiliates.find((a) => a.code === form.affiliate_code)
 
-      // ---- SNAPSHOT RATES ----
-      // On create: use the CURRENT tier rates.
-      // On edit: preserve the stored snapshot unless the code changed.
       const newBookerCodeClean = sanitizeText(form.booker_code, { max: 40 }) || null
       const newAffiliateCodeClean = sanitizeText(form.affiliate_code, { max: 40 }) || null
 
@@ -610,7 +605,6 @@ function BookingFormModal({ open, onClose, onSaved, units, editing, specialists,
         const bookerChanged = newBookerCodeClean !== (editing.booker_code || null)
         const affiliateChanged = newAffiliateCodeClean !== (editing.affiliate_code || null)
 
-        // Preserve stored rate if the code didn't change
         if (!bookerChanged && editing.booker_rate != null) {
           finalBookerRate = Number(editing.booker_rate)
           finalBookerComm = computeCommissionAtRate(totalAmt, finalBookerRate)
@@ -620,7 +614,6 @@ function BookingFormModal({ open, onClose, onSaved, units, editing, specialists,
           finalAffiliateComm = computeCommissionAtRate(totalAmt, finalAffiliateRate)
         }
 
-        // If booker/affiliate was cleared, rates are null and commissions zero
         if (!newBookerCodeClean) {
           finalBookerRate = null
           finalBookerComm = 0
@@ -992,7 +985,6 @@ function ExtendStayModal({ open, onClose, booking, onSaved }) {
   const labelClass = 'text-[10px] uppercase tracking-wider text-muted-foreground font-semibold mb-1 block'
   const inputClass = 'h-8 text-xs rounded'
 
-  // Rates snapshotted on the booking
   const snapshotBookerRate = booking.booker_rate != null
     ? Number(booking.booker_rate)
     : (booking.booker_code ? SPECIALIST_FLAT_RATE : null)
@@ -1046,7 +1038,6 @@ function ExtendStayModal({ open, onClose, booking, onSaved }) {
         })
       }
 
-      // Recompute from the SNAPSHOTTED rate — never the current tier
       const newBookerComm = booking.booker_code && snapshotBookerRate != null
         ? computeCommissionAtRate(total, snapshotBookerRate)
         : 0
@@ -1061,7 +1052,6 @@ function ExtendStayModal({ open, onClose, booking, onSaved }) {
         transactions: tx,
         booker_commission: newBookerComm,
         affiliate_commission: newAffComm,
-        // Keep the snapshot columns as-is (they don't change on extend)
       }
       const { error } = await supabase.from('bookings').update(patch).eq('id', booking.id)
       if (error) throw error
@@ -1219,7 +1209,6 @@ function BookingDetailPanel({ booking, onBookingChange, onClose, onAddPayment, o
     onBookingChange({ ...booking, [field]: value })
   }
 
-  // When total_amount changes, use the snapshotted rates.
   const updateTotalAmount = async (value) => {
     const n = value === '' || value === null ? 0 : Number(value)
     if (Number.isNaN(n)) throw new Error('Invalid number')
@@ -1268,7 +1257,6 @@ function BookingDetailPanel({ booking, onBookingChange, onClose, onAddPayment, o
   const transactions = Array.isArray(booking.transactions) ? booking.transactions : []
   const nights = computeNights(booking.check_in, booking.check_out)
 
-  // Display helpers
   const bookerTier = booking.booker_code
     ? (booking.booker_rate != null
         ? `Flat ${booking.booker_rate}%`
@@ -1489,9 +1477,8 @@ function BookingListRow({ booking, selected, onClick }) {
       <div className="flex items-center min-w-0">
         <PaymentStatusBadge status={booking.payment_status} />
       </div>
-      <div className="flex items-center gap-2 justify-end flex-shrink-0">
+      <div className="flex items-center justify-end flex-shrink-0">
         <BookingStatusBadge status={status} />
-        <ChevronRight size={14} className={cn('text-muted-foreground/40 transition-transform duration-300 ease-out', selected && 'rotate-180 text-primary')} />
       </div>
     </motion.button>
   )

@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import {
   Plus, Search, RefreshCw, X, Check, Loader2, Trash2,
-  FileText, Calendar, ChevronRight,
+  FileText, Calendar,
   AlertTriangle, Download, ExternalLink, User,
 } from 'lucide-react'
 import { useSearchParams } from 'react-router-dom'
@@ -21,12 +21,9 @@ import {
   cn,
   sanitizeText,
   sanitizeDateOnly,
-  generateContractCode,
 } from '@/lib/utils'
 
 const BRAND = '#2d568e'
-
-const CLASSIFICATION_OPTIONS = ['Fixed', 'Partnership', '75/25', '85/15']
 
 // ============================================================
 // STATUS DERIVATION
@@ -75,7 +72,8 @@ function StatusBadge({ contract }) {
   )
 }
 
-const ROW_GRID = 'grid grid-cols-[1.3fr_1.5fr_1fr_1fr_1fr_140px] gap-4 items-center'
+// Grid: Contract | Unit | Effective | Expiry | Status
+const ROW_GRID = 'grid grid-cols-[1.3fr_1.5fr_1fr_1fr_140px] gap-4 items-center'
 const PANEL_WIDTH = 480
 
 // ============================================================
@@ -94,10 +92,10 @@ function SummaryCards({ contracts }) {
   }, [contracts])
 
   const cards = [
-    { label: 'Total Contracts', value: stats.total, icon: FileText },
-    { label: 'Active',          value: stats.active, icon: Check },
+    { label: 'Total Contracts', value: stats.total,    icon: FileText },
+    { label: 'Active',          value: stats.active,   icon: Check },
     { label: 'Expiring Soon',   value: stats.expiring, icon: AlertTriangle },
-    { label: 'Expired',         value: stats.expired, icon: X },
+    { label: 'Expired',         value: stats.expired,  icon: X },
   ]
 
   return (
@@ -187,7 +185,7 @@ function StatusPills({ statusFilter, onStatusFilter, counts }) {
 // FILTER PANEL
 // ============================================================
 function FilterPanel({
-  open, onClose, building, setBuilding, classification, setClassification,
+  open, onClose, building, setBuilding,
   ownerId, setOwnerId, buildings, owners, activeCount, onClear,
 }) {
   const panelRef = useRef(null)
@@ -233,16 +231,6 @@ function FilterPanel({
               </Select>
             </div>
             <div>
-              <p className="text-[10px] uppercase tracking-wider text-muted-foreground font-semibold mb-1.5">Classification</p>
-              <Select value={classification} onValueChange={setClassification}>
-                <SelectTrigger className="h-8 text-xs rounded"><SelectValue placeholder="Any classification" /></SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="all" className="text-xs">Any classification</SelectItem>
-                  {CLASSIFICATION_OPTIONS.map((c) => <SelectItem key={c} value={c} className="text-xs">{c}</SelectItem>)}
-                </SelectContent>
-              </Select>
-            </div>
-            <div>
               <p className="text-[10px] uppercase tracking-wider text-muted-foreground font-semibold mb-1.5">Owner</p>
               <Select value={ownerId} onValueChange={setOwnerId}>
                 <SelectTrigger className="h-8 text-xs rounded"><SelectValue placeholder="All owners" /></SelectTrigger>
@@ -264,7 +252,7 @@ function FilterPanel({
 }
 
 // ============================================================
-// CONTRACT ROW — owner removed from row (still visible in detail panel)
+// CONTRACT ROW — chevron removed
 // ============================================================
 function ContractRow({ contract, selected, onClick }) {
   return (
@@ -283,7 +271,7 @@ function ContractRow({ contract, selected, onClick }) {
           {contract.contract_code || '—'}
         </span>
         <span className="text-[10px] text-muted-foreground truncate block">
-          {contract.classification || '—'}
+          {contract.owners?.name || 'No owner'}
         </span>
       </div>
 
@@ -304,19 +292,8 @@ function ContractRow({ contract, selected, onClick }) {
         <div className="truncate">{formatDate(contract.expiry_date)}</div>
       </div>
 
-      <div className="text-[11px] text-foreground min-w-0">
-        <div className="truncate">{contract.classification || '—'}</div>
-      </div>
-
-      <div className="flex items-center gap-2 justify-end flex-shrink-0">
+      <div className="flex items-center justify-end flex-shrink-0">
         <StatusBadge contract={contract} />
-        <ChevronRight
-          size={14}
-          className={cn(
-            'text-muted-foreground/40 transition-transform duration-300 ease-out',
-            selected && 'rotate-180 text-primary'
-          )}
-        />
       </div>
     </motion.button>
   )
@@ -463,11 +440,6 @@ function ContractDetailPanel({ contract, onClose, onChanged, onDelete }) {
                 <Badge className={cn('text-[11px] font-semibold rounded-full px-2.5 py-0.5', statusConfig.className)}>
                   {statusConfig.label}
                 </Badge>
-                {contract.classification && (
-                  <span className="inline-flex items-center px-2 py-0.5 rounded text-[10px] font-semibold bg-muted text-muted-foreground uppercase">
-                    {contract.classification}
-                  </span>
-                )}
               </div>
             </div>
             <button onClick={onClose} className="p-1 rounded hover:bg-muted text-muted-foreground flex-shrink-0"><X size={16} /></button>
@@ -518,13 +490,6 @@ function ContractDetailPanel({ contract, onClose, onChanged, onDelete }) {
               type="date"
               onSave={(v) => updateField('expiry_date', v)}
               auditTag="expiry_date"
-            />
-            <EditableField
-              label="Class"
-              value={contract.classification}
-              options={CLASSIFICATION_OPTIONS}
-              onSave={(v) => updateField('classification', v)}
-              auditTag="classification"
             />
             <EditableField
               label="PDF"
@@ -601,7 +566,6 @@ export default function ContractsPage() {
 
   const [statusFilter, setStatusFilter] = useState('all')
   const [building, setBuilding] = useState('all')
-  const [classification, setClassification] = useState('all')
   const [ownerId, setOwnerId] = useState('all')
   const [search, setSearch] = useState('')
   const [debouncedSearch, setDebouncedSearch] = useState('')
@@ -675,15 +639,13 @@ export default function ContractsPage() {
   const activeFilterCount = useMemo(() => {
     let n = 0
     if (building !== 'all') n++
-    if (classification !== 'all') n++
     if (ownerId !== 'all') n++
     if (filterUnitId) n++
     return n
-  }, [building, classification, ownerId, filterUnitId])
+  }, [building, ownerId, filterUnitId])
 
   const clearFilters = () => {
     setBuilding('all')
-    setClassification('all')
     setOwnerId('all')
     const next = new URLSearchParams(searchParams)
     next.delete('unit')
@@ -697,20 +659,18 @@ export default function ContractsPage() {
       const status = deriveContractStatus(c)
       if (statusFilter !== 'all' && status !== statusFilter) return false
       if (building !== 'all' && c.units?.building !== building) return false
-      if (classification !== 'all' && c.classification !== classification) return false
       if (ownerId !== 'all' && c.owner_id !== ownerId) return false
       if (q) {
         const haystack = [
           c.contract_code,
           c.units?.unit_code, c.units?.building,
           c.owners?.name, c.owners?.email,
-          c.classification,
         ].filter(Boolean).join(' ').toLowerCase()
         if (!haystack.includes(q)) return false
       }
       return true
     })
-  }, [contracts, filterUnitId, statusFilter, building, classification, ownerId, debouncedSearch])
+  }, [contracts, filterUnitId, statusFilter, building, ownerId, debouncedSearch])
 
   const sorted = useMemo(() => {
     const copy = [...filtered]
@@ -749,7 +709,7 @@ export default function ContractsPage() {
 
   const handleExport = () => {
     if (filtered.length === 0) { toast.error('Nothing to export'); return }
-    const headers = ['Code', 'Unit', 'Building', 'Owner', 'Owner Email', 'Effective', 'Expiry', 'Classification', 'Status', 'PDF URL']
+    const headers = ['Code', 'Unit', 'Building', 'Owner', 'Owner Email', 'Effective', 'Expiry', 'Status', 'PDF URL']
     const rows = filtered.map((c) => [
       c.contract_code || '',
       c.units?.unit_code || '',
@@ -758,7 +718,6 @@ export default function ContractsPage() {
       c.owners?.email || '',
       c.effective_date || '',
       c.expiry_date || '',
-      c.classification || '',
       STATUS_CONFIG[deriveContractStatus(c)]?.label || '',
       c.contract_pdf_url || '',
     ])
@@ -809,8 +768,6 @@ export default function ContractsPage() {
                 onClose={() => setFilterOpen(false)}
                 building={building}
                 setBuilding={setBuilding}
-                classification={classification}
-                setClassification={setClassification}
                 ownerId={ownerId}
                 setOwnerId={setOwnerId}
                 buildings={buildings}
@@ -859,7 +816,6 @@ export default function ContractsPage() {
                 <span className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground truncate">Unit</span>
                 <span className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground truncate">Effective</span>
                 <span className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground truncate">Expiry</span>
-                <span className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground truncate">Class</span>
                 <span className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground text-right truncate">Status</span>
               </div>
 
