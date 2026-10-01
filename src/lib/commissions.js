@@ -113,3 +113,21 @@ export function formatRatePercent(rate) {
   const r = Number(rate) || 0
   return `${r}%`
 }
+// Bulk fetch — one RPC for all codes at once.
+// Replaces the per-code fan-out. Returns { specialists: {}, affiliates: {} }.
+export async function fetchTeamCompletedCounts() {
+  const { data, error } = await supabase.rpc('team_completed_counts')
+
+  if (error) {
+    console.error('team_completed_counts failed:', error)
+    return { specialists: {}, affiliates: {} }
+  }
+
+  const specialists = {}
+  const affiliates = {}
+  for (const row of data || []) {
+    const bucket = row.kind === 'specialist' ? specialists : affiliates
+    bucket[row.code] = Number(row.cnt) || 0
+  }
+  return { specialists, affiliates }
+}

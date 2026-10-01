@@ -32,10 +32,6 @@ const BRAND = '#2d568e'
 
 // ============================================================
 // STATUS MODEL
-//   scheduled       = upcoming check-out, nothing to do yet
-//   ready           = past check-out, waiting for housekeeper to clean
-//   to-be-evaluated = housekeeper submitted, admin must review
-//   completed       = admin approved
 // ============================================================
 function getEffectiveStatus(cleaning) {
   if (cleaning.status === 'completed') return 'completed'
@@ -774,7 +770,7 @@ function CategoryPair({ title, Icon, cleaning, usedPhotoField, replacedPhotoFiel
 }
 
 // ============================================================
-// HOUSEKEEPER PAYMENT — neutral colors, no amber warning
+// HOUSEKEEPER PAYMENT
 // ============================================================
 function HousekeeperPaymentSection({ cleaning, onChanged }) {
   const [amount, setAmount] = useState(cleaning.payment_amount != null ? String(cleaning.payment_amount) : '')
@@ -1227,8 +1223,13 @@ function CleaningDetailPanel({ cleaning, onClose, onChanged, onDelete, housekeep
                 <Building2 size={20} className="text-muted-foreground" />
               </div>
               <div className="min-w-0 flex-1">
-                <p className="text-base font-bold text-foreground truncate">{cleaning.units?.unit_code || '—'}</p>
-                <p className="text-[11px] text-muted-foreground truncate">{cleaning.units?.building || '—'}</p>
+                <p className="font-mono text-sm font-bold text-foreground truncate">
+                  {cleaning.cleaning_code || '—'}
+                </p>
+                <p className="text-xs text-foreground truncate mt-0.5">
+                  {cleaning.units?.unit_code || '—'}
+                  {cleaning.units?.building ? ` · ${cleaning.units.building}` : ''}
+                </p>
                 <div className="flex items-center gap-2 mt-2 flex-wrap">
                   <TypeBadge type={cleaning.type} />
                   <StatusBadge cleaning={cleaning} />
@@ -1289,7 +1290,6 @@ function CleaningDetailPanel({ cleaning, onClose, onChanged, onDelete, housekeep
                 <span className="text-[10px] uppercase tracking-wider text-muted-foreground font-semibold min-w-[72px] flex-shrink-0">Status</span>
                 <div className="flex-1">
                   <Select value={effective} onValueChange={(v) => {
-                    // Map UI status to DB status.
                     if (v === 'completed') updateField('status', 'completed')
                     else if (v === 'ready') updateField('status', 'ready')
                     else if (v === 'to-be-evaluated') updateField('status', 'submitted')
@@ -1421,7 +1421,7 @@ function CleaningDetailPanel({ cleaning, onClose, onChanged, onDelete, housekeep
 }
 
 // ============================================================
-// LIST ROW
+// LIST ROW — with cleaning code
 // ============================================================
 function CleaningListRow({ cleaning, selected, onClick }) {
   return (
@@ -1436,8 +1436,13 @@ function CleaningListRow({ cleaning, selected, onClick }) {
       className={cn('group/row w-full text-left px-4 py-3 border-b border-border cursor-pointer select-none', ROW_GRID)}
     >
       <div className="min-w-0">
-        <span className="font-mono text-xs font-bold text-foreground truncate block">{cleaning.units?.unit_code || '—'}</span>
-        <span className="text-[10px] text-muted-foreground truncate block">{cleaning.units?.building || '—'}</span>
+        <span className="font-mono text-xs font-bold text-foreground truncate block">
+          {cleaning.cleaning_code || '—'}
+        </span>
+        <span className="text-[10px] text-muted-foreground truncate block">
+          {cleaning.units?.unit_code || '—'}
+          {cleaning.units?.building ? ` · ${cleaning.units.building}` : ''}
+        </span>
       </div>
       <div className="min-w-0">
         {cleaning.bookings ? (
@@ -1549,6 +1554,7 @@ export default function HousekeepingPage() {
       }
       if (q) {
         const hay = [
+          c.cleaning_code,
           c.units?.unit_code, c.units?.building,
           c.bookings?.booking_code, c.bookings?.guest_name,
           c.housekeepers?.name, c.housekeepers?.code,
@@ -1565,7 +1571,7 @@ export default function HousekeepingPage() {
 
   const handleDelete = async (cleaning) => {
     const confirmed = window.confirm(
-      `Delete this cleaning?\n\nUnit: ${cleaning.units?.unit_code || '—'}\n${cleaning.bookings ? `Booking: ${cleaning.bookings.booking_code}\n` : ''}Type: ${cleaning.type}\n\nThis cannot be undone.`
+      `Delete this cleaning?\n\nCode: ${cleaning.cleaning_code || '—'}\nUnit: ${cleaning.units?.unit_code || '—'}\n${cleaning.bookings ? `Booking: ${cleaning.bookings.booking_code}\n` : ''}Type: ${cleaning.type}\n\nThis cannot be undone.`
     )
     if (!confirmed) return
     try {
@@ -1593,7 +1599,7 @@ export default function HousekeepingPage() {
           <div className="flex-shrink-0 flex items-center gap-2">
             <div className="relative flex-1 min-w-0">
               <Search size={13} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-muted-foreground" />
-              <Input placeholder="Search unit, booking, housekeeper, notes..." value={search} onChange={(e) => setSearch(e.target.value)} className="pl-8 h-8 text-xs rounded" />
+              <Input placeholder="Search code, unit, booking, housekeeper, notes..." value={search} onChange={(e) => setSearch(e.target.value)} className="pl-8 h-8 text-xs rounded" />
             </div>
             <Button size="sm" className="h-8 rounded text-xs text-white" style={{ backgroundColor: BRAND }} onClick={() => setNewModalOpen(true)}>
               <Plus size={13} />
@@ -1614,7 +1620,7 @@ export default function HousekeepingPage() {
           <div className="flex-1 min-h-0 rounded border border-border overflow-hidden">
             <div className="h-full overflow-y-auto" style={{ scrollbarGutter: 'stable' }}>
               <div className={cn('sticky top-0 z-10 px-4 py-2 border-b border-border bg-card', ROW_GRID)}>
-                <span className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground truncate">Unit</span>
+                <span className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground truncate">Code · Unit</span>
                 <span className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground truncate">Booking</span>
                 <span className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground truncate">Type</span>
                 <span className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground truncate">Housekeeper</span>

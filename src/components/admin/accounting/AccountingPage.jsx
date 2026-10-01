@@ -1,11 +1,10 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { motion } from 'framer-motion'
-import { useSearchParams } from 'react-router-dom'
+import { useCallback, useEffect, useMemo, useRef, useState, memo } from 'react'
+import { motion, AnimatePresence } from 'framer-motion'
 import {
   Search, RefreshCw, X, Loader2, TrendingUp, ChevronDown, ChevronLeft, ChevronRight,
   Download, Wallet, Lock, Save, Home, Sparkles, Plus, Trash2,
   Zap, Wifi, Droplets, Megaphone, FileText, Edit2, ExternalLink,
-  Calendar, User, Pencil, BarChart3,
+  Calendar, User, Pencil, BarChart3, Camera,
 } from 'lucide-react'
 import {
   ComposedChart, Bar, BarChart, AreaChart, Area,
@@ -27,12 +26,25 @@ import {
   monthRangeFromDates, monthLabel, monthKeyToDate, formatMoney, formatMoneyCompact,
   OWNER_SPLIT_PCT, COMPANY_SPLIT_PCT,
 } from '@/lib/accounting'
+import { fetchContractsLifetime } from '@/lib/accountingRpc'
 
 const BRAND = '#2d568e'
-const AMBER = '#b45309'
-const ROW_GRID = 'grid grid-cols-[1.4fr_1fr_1fr_180px] gap-4 items-center'
+const CLEAN_COLOR = '#7c3aed'
+const EXPENSE_BUCKET = 'expense-proofs'
+const ROW_GRID = 'grid grid-cols-[1.2fr_1fr_1.2fr_1fr_140px] gap-4 items-center'
 const MONTHS_SHORT = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']
 const DOW_SHORT = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat']
+const PAGE_SIZE = 25
+const REALTIME_DEBOUNCE_MS = 1500
+const ANALYTICS_MONTHS = 12
+
+const SORT_OPTIONS = [
+  { id: 'unit_asc', label: 'Unit (A→Z)' },
+  { id: 'date_desc', label: 'Newest first' },
+  { id: 'date_asc', label: 'Oldest first' },
+  { id: 'net_desc', label: 'Net (high→low)' },
+  { id: 'net_asc', label: 'Net (low→high)' },
+]
 
 // ============================================================
 // HELPERS
@@ -80,6 +92,13 @@ function StatusBadge({ status }) {
   )
 }
 
+function formatDateShort(d) {
+  if (!d) return '—'
+  const dt = new Date(d + 'T00:00:00Z')
+  if (Number.isNaN(dt.getTime())) return '—'
+  return dt.toLocaleDateString('en-PH', { month: 'short', day: 'numeric', year: '2-digit', timeZone: 'UTC' })
+}
+
 function spansFullYear(effectiveDate, expiryDate) {
   if (!effectiveDate) return false
   const start = new Date(effectiveDate + 'T00:00:00Z')
@@ -87,6 +106,34 @@ function spansFullYear(effectiveDate, expiryDate) {
   if (Number.isNaN(start.getTime()) || Number.isNaN(end.getTime())) return false
   const days = Math.round((end - start) / 86400000)
   return days >= 365 || start.getUTCFullYear() !== end.getUTCFullYear()
+}
+
+async function uploadExpenseImage(file, contractId) {
+  const ext = (file.name?.split('.').pop() || 'jpg').slice(0, 6).toLowerCase()
+  const random = Math.random().toString(36).slice(2, 10)
+  const path = `${contractId}/${Date.now()}_${random}.${ext}`
+  const { error } = await supabase.storage.from(EXPENSE_BUCKET).upload(path, file, {
+    cacheControl: '31536000',
+    upsert: false,
+  })
+  if (error) throw error
+  return path
+}
+
+async function deleteExpenseImage(path) {
+  if (!path) return
+  try {
+    await supabase.storage.from(EXPENSE_BUCKET).remove([path])
+  } catch (err) {
+    console.warn('Failed to delete image:', err)
+  }
+}
+
+async function getSignedUrl(path, expiresIn = 3600) {
+  if (!path) return null
+  const { data, error } = await supabase.storage.from(EXPENSE_BUCKET).createSignedUrl(path, expiresIn)
+  if (error) throw error
+  return data?.signedUrl || null
 }
 
 // ============================================================
@@ -137,7 +184,7 @@ function pickDefaultYear(yearSections) {
 // ============================================================
 // OCCUPANCY HELPERS
 // ============================================================
-function nightsInMonthFromBookings(bookings, year, month1to12) {
+function nightsInMonthFromBookings(bookings, year, month1to12, contract) {
   const daysInMonth = new Date(Date.UTC(year, month1to12, 0)).getUTCDate()
   const monthStart = new Date(Date.UTC(year, month1to12 - 1, 1))
   const monthEndExclusive = new Date(Date.UTC(year, month1to12, 1))
@@ -145,6 +192,9 @@ function nightsInMonthFromBookings(bookings, year, month1to12) {
   let nights = 0
   for (const b of bookings) {
     if (!b.check_in || !b.check_out) continue
+    if (contract?.effective_date && b.check_in < contract.effective_date) continue
+    if (contract?.expiry_date && b.check_in > contract.expiry_date) continue
+
     const ci = new Date(b.check_in + 'T00:00:00Z')
     const co = new Date(b.check_out + 'T00:00:00Z')
     if (Number.isNaN(ci.getTime()) || Number.isNaN(co.getTime())) continue
@@ -157,7 +207,6 @@ function nightsInMonthFromBookings(bookings, year, month1to12) {
   return { nights: Math.min(nights, daysInMonth), daysInMonth }
 }
 
-// Four weeks of a month: days 1-7, 8-14, 15-21, 22-end
 function buildWeeksForMonth(year, month1to12) {
   const daysInMonth = new Date(Date.UTC(year, month1to12, 0)).getUTCDate()
   const bounds = [
@@ -174,16 +223,17 @@ function buildWeeksForMonth(year, month1to12) {
   }))
 }
 
-// Occupancy per week (nights booked within that week's days)
-function weeklyOccupancyForMonth(year, month1to12, bookings) {
+function weeklyOccupancyForMonth(year, month1to12, bookings, contract) {
   const weeks = buildWeeksForMonth(year, month1to12)
   return weeks.map((w) => {
     const weekStart = new Date(Date.UTC(year, month1to12 - 1, w.startDay))
     const weekEndExclusive = new Date(Date.UTC(year, month1to12 - 1, w.endDay + 1))
-
     let nights = 0
     for (const b of bookings) {
       if (!b.check_in || !b.check_out) continue
+      if (contract?.effective_date && b.check_in < contract.effective_date) continue
+      if (contract?.expiry_date && b.check_in > contract.expiry_date) continue
+
       const ci = new Date(b.check_in + 'T00:00:00Z')
       const co = new Date(b.check_out + 'T00:00:00Z')
       if (Number.isNaN(ci.getTime()) || Number.isNaN(co.getTime())) continue
@@ -197,8 +247,6 @@ function weeklyOccupancyForMonth(year, month1to12, bookings) {
     return {
       label: `Wk ${w.week}`,
       week: w.week,
-      startDay: w.startDay,
-      endDay: w.endDay,
       nights,
       daysCount: w.daysCount,
       pct: w.daysCount > 0 ? Math.round((nights / w.daysCount) * 100) : 0,
@@ -206,17 +254,9 @@ function weeklyOccupancyForMonth(year, month1to12, bookings) {
   })
 }
 
-// Weekly net profit within a month — for cumulative per week
 function weeklyNetProfitForMonth(year, month1to12, bookings, cleanings, monthlyExpenses, contract) {
   const weeks = buildWeeksForMonth(year, month1to12)
   const monthKey = `${year}-${String(month1to12).padStart(2, '0')}`
-
-  // manual expenses attributed to the month; distribute proportionally to weeks
-  // (simplification: attribute the whole manual expense to week 1 for cumulative view)
-  // Actually simpler: split evenly across weeks? No — better to just attribute monthly totals
-  // to the week the month belongs to. Let's put all monthly totals at the final week and
-  // let week 1-3 just reflect booking-based net.
-
   const manual = (monthlyExpenses || []).find((e) => e.month?.startsWith(monthKey)) || {}
   const manualTotal =
     Number(manual.electricity || 0) +
@@ -227,42 +267,34 @@ function weeklyNetProfitForMonth(year, month1to12, bookings, cleanings, monthlyE
       ? manual.custom_items.reduce((s, x) => s + Number(x.amount || 0), 0)
       : 0)
 
-  // Gather bookings per week
   const weekData = weeks.map((w) => {
     const wStart = new Date(Date.UTC(year, month1to12 - 1, w.startDay))
     const wEndEx = new Date(Date.UTC(year, month1to12 - 1, w.endDay + 1))
-
     const weekBookings = (bookings || []).filter((b) => {
       if (!b.check_in) return false
+      if (contract?.effective_date && b.check_in < contract.effective_date) return false
+      if (contract?.expiry_date && b.check_in > contract.expiry_date) return false
       const ci = new Date(b.check_in + 'T00:00:00Z')
       return !Number.isNaN(ci.getTime()) && ci >= wStart && ci < wEndEx
     })
-
     const weekCleanings = (cleanings || []).filter((c) => {
       if (!c.scheduled_date) return false
+      if (contract?.effective_date && c.scheduled_date < contract.effective_date) return false
+      if (contract?.expiry_date && c.scheduled_date > contract.expiry_date) return false
       const d = new Date(c.scheduled_date + 'T00:00:00Z')
       return !Number.isNaN(d.getTime()) && d >= wStart && d < wEndEx
     })
-
     const gross = weekBookings.reduce((s, b) => s + Number(b.total_amount || 0), 0)
     const bookerComm = weekBookings.reduce((s, b) => s + Number(b.booker_commission || 0), 0)
     const affiliateComm = weekBookings.reduce((s, b) => s + Number(b.affiliate_commission || 0), 0)
     const housekeeping = weekCleanings.reduce((s, c) => s + Number(c.payment_amount || 0), 0)
     const laundry = weekCleanings.reduce((s, c) => s + Number(c.laundry_payment_amount || 0), 0)
     const net = gross - bookerComm - affiliateComm - housekeeping - laundry
-
-    return {
-      label: `Wk ${w.week}`,
-      week: w.week,
-      net,
-    }
+    return { label: `Wk ${w.week}`, week: w.week, net }
   })
 
-  // Distribute manual expenses evenly across 4 weeks (simple, consistent)
   const manualPerWeek = manualTotal / 4
   const withManual = weekData.map((w) => ({ ...w, net: w.net - manualPerWeek }))
-
-  // Cumulative within the month (resets to 0 at start of month)
   let running = 0
   return withManual.map((w) => {
     running += w.net
@@ -281,6 +313,9 @@ function computeContractOccupancy(effectiveDate, expiryDate, bookings) {
   let nights = 0
   for (const b of bookings) {
     if (!b.check_in || !b.check_out) continue
+    if (b.check_in < effectiveDate) continue
+    if (expiryDate && b.check_in > expiryDate) continue
+
     const ci = new Date(b.check_in + 'T00:00:00Z')
     const co = new Date(b.check_out + 'T00:00:00Z')
     if (Number.isNaN(ci.getTime()) || Number.isNaN(co.getTime())) continue
@@ -294,27 +329,12 @@ function computeContractOccupancy(effectiveDate, expiryDate, bookings) {
   return { pct: totalNights > 0 ? nights / totalNights : 0, nights, totalNights }
 }
 
-// ============================================================
-// SECTION WRAPPER
-// ============================================================
-function SectionWrapper({ variant = 'blue', icon: Icon, title, children }) {
-  const accent = variant === 'blue' ? BRAND : AMBER
+function SectionHeader({ icon: Icon, title }) {
   return (
-    <section
-      className="rounded-md border border-border bg-card/40 p-3 pl-4 relative overflow-hidden"
-      style={{ borderLeftWidth: 4, borderLeftColor: accent }}
-    >
-      <div className="flex items-center gap-2 mb-3 px-1">
-        <span
-          className="inline-flex items-center justify-center w-6 h-6 rounded-md"
-          style={{ backgroundColor: `${accent}1A`, color: accent }}
-        >
-          {Icon ? <Icon size={13} /> : null}
-        </span>
-        <h2 className="text-sm font-bold text-foreground uppercase tracking-wide">{title}</h2>
-      </div>
-      <div className="space-y-4">{children}</div>
-    </section>
+    <div className="flex items-center gap-2 mb-3">
+      {Icon ? <Icon size={16} className="text-foreground flex-shrink-0" /> : null}
+      <h2 className="text-sm font-bold text-foreground uppercase tracking-wide">{title}</h2>
+    </div>
   )
 }
 
@@ -327,7 +347,7 @@ function SummaryCards({ totals }) {
       <Card label="Total Gross" value={formatMoney(totals.gross)} icon={TrendingUp} />
       <Card label="Total Expenses" value={formatMoney(totals.expenses)} icon={Wallet} />
       <Card label="Total Net" value={formatMoney(totals.net)} icon={TrendingUp} />
-      <SplitCard label="Owner · Company" owner={totals.owner} company={totals.company} icon={Wallet} />
+      <SplitCard label="Contracts / Company" owner={totals.owner} company={totals.company} icon={Wallet} />
     </div>
   )
 }
@@ -429,6 +449,7 @@ function ContractRow({ contract, lifetime, onClick }) {
           {contract.units?.building || '—'}
         </span>
       </div>
+
       <div className="min-w-0">
         <span className="text-[11px] text-foreground truncate block">
           {contract.owners?.name || 'No owner'}
@@ -437,10 +458,17 @@ function ContractRow({ contract, lifetime, onClick }) {
           {contract.contract_code || '—'}
         </span>
       </div>
-      <div className="text-[11px] tabular-nums text-foreground min-w-0">
-        <div className="truncate">{formatMoney(lifetime.gross)}</div>
-        <div className="text-[11px] text-muted-foreground truncate">{formatMoney(lifetime.net)}</div>
+
+      <div className="min-w-0 text-[11px] text-foreground tabular-nums">
+        <div className="truncate">{formatDateShort(contract.effective_date)}</div>
+        <div className="text-muted-foreground truncate">→ {formatDateShort(contract.expiry_date)}</div>
       </div>
+
+      <div className="text-[11px] tabular-nums text-foreground min-w-0">
+        <div className="truncate">{formatMoney(lifetime?.gross || 0)}</div>
+        <div className="text-[11px] text-muted-foreground truncate">{formatMoney(lifetime?.net || 0)}</div>
+      </div>
+
       <div className="flex items-center justify-end flex-shrink-0">
         <StatusBadge status={deriveContractStatus(contract)} />
       </div>
@@ -448,9 +476,6 @@ function ContractRow({ contract, lifetime, onClick }) {
   )
 }
 
-// ============================================================
-// CARD BODY
-// ============================================================
 function CardBody({ children, className }) {
   return (
     <div className={cn('rounded-md bg-card border border-border overflow-hidden', className)}>
@@ -460,7 +485,33 @@ function CardBody({ children, className }) {
 }
 
 // ============================================================
-// TOOLTIPS
+// CURSOR TOOLTIP
+// ============================================================
+function CursorTooltip({ cursor, children }) {
+  if (!cursor) return null
+  const style = {
+    position: 'fixed',
+    left: Math.min(cursor.x + 14, window.innerWidth - 280),
+    top: Math.min(cursor.y + 14, window.innerHeight - 180),
+    zIndex: 9999,
+    pointerEvents: 'none',
+  }
+  return (
+    <div style={style} className="rounded-md border border-border bg-popover shadow-lg p-3 text-xs w-[264px]">
+      {children}
+    </div>
+  )
+}
+
+function useCursorTooltip() {
+  const [cursor, setCursor] = useState(null)
+  const onMove = useCallback((e) => setCursor({ x: e.clientX, y: e.clientY }), [])
+  const onLeave = useCallback(() => setCursor(null), [])
+  return { cursor, onMove, onLeave }
+}
+
+// ============================================================
+// CHART TOOLTIPS
 // ============================================================
 function ChartTooltip({ active, payload, label }) {
   if (!active || !payload || payload.length === 0) return null
@@ -633,11 +684,24 @@ function YearlyRevenueChart({ yearSections, statements, selectedYear, onSelectYe
     })
   }, [section, statements])
 
+  const [minY, maxY] = useMemo(() => {
+    const values = []
+    for (const d of data) values.push(d.gross, d.expenses, d.net, 0)
+    const min = Math.min(...values, 0)
+    const max = Math.max(...values, 0)
+    const span = max - min || 1
+    const pad = span * 0.1
+    return [
+      Math.floor((min - pad) / 1000) * 1000,
+      Math.ceil((max + pad) / 1000) * 1000,
+    ]
+  }, [data])
+
   return (
     <div>
-      <div className="flex items-center justify-between gap-3 px-1 mb-2">
+      <div className="flex items-center justify-between gap-3 mb-2">
         <div className="flex items-center gap-2 min-w-0">
-          <TrendingUp size={15} className="text-muted-foreground flex-shrink-0" />
+          <TrendingUp size={16} className="text-foreground flex-shrink-0" />
           <h3 className="text-base font-semibold text-foreground truncate">{title}</h3>
         </div>
         <div className="flex items-center gap-3">
@@ -665,7 +729,7 @@ function YearlyRevenueChart({ yearSections, statements, selectedYear, onSelectYe
       </div>
       <CardBody>
         <div className="p-3">
-          <div className="h-[300px] w-full">
+          <div className="h-[320px] w-full">
             {!section || section.months.length === 0 ? (
               <div className="h-full flex items-center justify-center text-xs text-muted-foreground italic">
                 No months to display
@@ -678,11 +742,18 @@ function YearlyRevenueChart({ yearSections, statements, selectedYear, onSelectYe
                   </pattern>
                   <CartesianGrid strokeDasharray="3 3" stroke="currentColor" strokeOpacity={0.1} />
                   <XAxis dataKey="label" tick={{ fontSize: 12 }} stroke="currentColor" strokeOpacity={0.4} />
-                  <YAxis tick={{ fontSize: 12 }} tickFormatter={formatMoneyCompact} stroke="currentColor" strokeOpacity={0.4} width={60} />
+                  <YAxis
+                    tick={{ fontSize: 12 }}
+                    tickFormatter={formatMoneyCompact}
+                    stroke="currentColor"
+                    strokeOpacity={0.4}
+                    width={60}
+                    domain={[minY, maxY]}
+                  />
                   <Tooltip content={<ChartTooltip />} cursor={{ fill: 'rgba(45, 86, 142, 0.05)' }} />
-                  <Bar dataKey="gross" fill="transparent" stroke={BRAND} strokeWidth={1.5} name="Gross" maxBarSize={32} radius={[6, 6, 0, 0]} animationDuration={700} />
-                  <Bar dataKey="expenses" fill="url(#expenses-hatch-main)" name="Expenses" maxBarSize={32} radius={[6, 6, 0, 0]} animationDuration={700} animationBegin={100} />
-                  <Bar dataKey="net" fill={BRAND} name="Net" maxBarSize={32} radius={[6, 6, 0, 0]} animationDuration={700} animationBegin={200} />
+                  <Bar dataKey="gross" fill="transparent" stroke={BRAND} strokeWidth={1.5} name="Gross" maxBarSize={40} radius={[6, 6, 0, 0]} animationDuration={700} />
+                  <Bar dataKey="expenses" fill="url(#expenses-hatch-main)" name="Expenses" maxBarSize={40} radius={[6, 6, 0, 0]} animationDuration={700} animationBegin={100} />
+                  <Bar dataKey="net" fill={BRAND} name="Net" maxBarSize={40} radius={[6, 6, 0, 0]} animationDuration={700} animationBegin={200} />
                 </ComposedChart>
               </ResponsiveContainer>
             )}
@@ -694,15 +765,15 @@ function YearlyRevenueChart({ yearSections, statements, selectedYear, onSelectYe
 }
 
 // ============================================================
-// MONTHLY OCCUPANCY CHART (General)
+// MONTHLY OCCUPANCY
 // ============================================================
-function MonthlyOccupancyChart({ statements, selectedYear, yearSections, onSelectYear }) {
+function MonthlyOccupancyChart({ statements, selectedYear, yearSections, onSelectYear, contract }) {
   const data = useMemo(() => {
     return statements
       .filter((s) => s.month.startsWith(String(selectedYear)))
       .map((s) => {
         const [y, m] = s.month.split('-').map(Number)
-        const { nights, daysInMonth } = nightsInMonthFromBookings(s.bookingsList, y, m)
+        const { nights, daysInMonth } = nightsInMonthFromBookings(s.bookingsList, y, m, contract)
         return {
           label: MONTHS_SHORT[m - 1],
           monthKey: s.month,
@@ -711,20 +782,20 @@ function MonthlyOccupancyChart({ statements, selectedYear, yearSections, onSelec
           daysInMonth,
         }
       })
-  }, [statements, selectedYear])
+  }, [statements, selectedYear, contract])
 
   return (
-    <div>
-      <div className="flex items-center justify-between gap-3 px-1 mb-2">
+    <div className="flex flex-col">
+      <div className="flex items-center justify-between gap-3 mb-2">
         <div className="flex items-center gap-2 min-w-0">
-          <Home size={15} className="text-muted-foreground flex-shrink-0" />
+          <Home size={16} className="text-foreground flex-shrink-0" />
           <h3 className="text-base font-semibold text-foreground truncate">Monthly Occupancy</h3>
         </div>
         <YearNav yearSections={yearSections} selectedYear={selectedYear} onSelectYear={onSelectYear} />
       </div>
-      <CardBody>
-        <div className="p-3">
-          <div className="h-[240px] w-full">
+      <CardBody className="flex-1">
+        <div className="p-3 h-full">
+          <div className="h-[260px] w-full">
             {data.length === 0 ? (
               <div className="h-full flex items-center justify-center text-xs text-muted-foreground italic">No months to display</div>
             ) : (
@@ -754,28 +825,28 @@ function MonthlyOccupancyChart({ statements, selectedYear, yearSections, onSelec
 }
 
 // ============================================================
-// WEEKLY OCCUPANCY (Specific Month)
+// WEEKLY OCCUPANCY
 // ============================================================
-function WeeklyOccupancyChart({ statement }) {
+function WeeklyOccupancyChart({ statement, contract }) {
   const [y, m] = statement.month.split('-').map(Number)
 
   const data = useMemo(
-    () => weeklyOccupancyForMonth(y, m, statement.bookingsList),
-    [y, m, statement.bookingsList]
+    () => weeklyOccupancyForMonth(y, m, statement.bookingsList, contract),
+    [y, m, statement.bookingsList, contract]
   )
 
   return (
-    <div>
-      <div className="flex items-center justify-between gap-3 px-1 mb-2">
+    <div className="flex flex-col">
+      <div className="flex items-center justify-between gap-3 mb-2">
         <div className="flex items-center gap-2 min-w-0">
-          <Home size={15} className="text-muted-foreground flex-shrink-0" />
+          <Home size={16} className="text-foreground flex-shrink-0" />
           <h3 className="text-base font-semibold text-foreground truncate">Weekly Occupancy</h3>
         </div>
         <span className="text-xs font-bold text-foreground tabular-nums">{monthLabel(statement.month)}</span>
       </div>
-      <CardBody>
-        <div className="p-3">
-          <div className="h-[240px] w-full">
+      <CardBody className="flex-1">
+        <div className="p-3 h-full">
+          <div className="h-[260px] w-full">
             <ResponsiveContainer width="100%" height="100%">
               <BarChart data={data} margin={{ top: 8, right: 8, left: 0, bottom: 0 }} barCategoryGap="25%">
                 <CartesianGrid strokeDasharray="3 3" stroke="currentColor" strokeOpacity={0.1} />
@@ -801,9 +872,9 @@ function WeeklyOccupancyChart({ statement }) {
 }
 
 // ============================================================
-// WEEKLY CUMULATIVE (Specific Month, resets each month)
+// WEEKLY CUMULATIVE
 // ============================================================
-function WeeklyCumulativeChart({ statement, contract, monthlyExpenses }) {
+function WeeklyCumulativeChart({ statement, monthlyExpenses, contract }) {
   const [y, m] = statement.month.split('-').map(Number)
 
   const data = useMemo(
@@ -813,27 +884,26 @@ function WeeklyCumulativeChart({ statement, contract, monthlyExpenses }) {
 
   const maxValue = useMemo(() => {
     const max = data.reduce((mx, d) => Math.max(mx, Math.abs(d.cumulative)), 0)
-    const base = Math.max(max, 1000)
-    return Math.ceil(base / 1000) * 1000
+    return Math.max(Math.ceil(max / 1000) * 1000, 1000)
   }, [data])
 
   const minValue = useMemo(() => {
     const min = data.reduce((mn, d) => Math.min(mn, d.cumulative), 0)
-    return Math.min(min, 0)
+    return min < 0 ? Math.floor(min / 1000) * 1000 : 0
   }, [data])
 
   return (
-    <div>
-      <div className="flex items-center justify-between gap-3 px-1 mb-2">
+    <div className="flex flex-col">
+      <div className="flex items-center justify-between gap-3 mb-2">
         <div className="flex items-center gap-2 min-w-0">
-          <TrendingUp size={15} className="text-muted-foreground flex-shrink-0" />
+          <TrendingUp size={16} className="text-foreground flex-shrink-0" />
           <h3 className="text-base font-semibold text-foreground truncate">Weekly Cumulative Net</h3>
         </div>
         <span className="text-xs font-bold text-foreground tabular-nums">{monthLabel(statement.month)}</span>
       </div>
-      <CardBody>
-        <div className="p-3">
-          <div className="h-[240px] w-full">
+      <CardBody className="flex-1">
+        <div className="p-3 h-full">
+          <div className="h-[260px] w-full">
             <ResponsiveContainer width="100%" height="100%">
               <AreaChart data={data} margin={{ top: 8, right: 8, left: 0, bottom: 0 }}>
                 <linearGradient id="weekly-cumulative-fill" x1="0" y1="0" x2="0" y2="1">
@@ -872,7 +942,7 @@ function WeeklyCumulativeChart({ statement, contract, monthlyExpenses }) {
 }
 
 // ============================================================
-// GENERAL CUMULATIVE NET
+// GENERAL CUMULATIVE
 // ============================================================
 function CumulativeNetChart({ statements, selectedYear, yearSections, onSelectYear }) {
   const data = useMemo(() => {
@@ -892,8 +962,7 @@ function CumulativeNetChart({ statements, selectedYear, yearSections, onSelectYe
 
   const maxValue = useMemo(() => {
     const max = data.reduce((m, d) => Math.max(m, Math.abs(d.cumulative)), 0)
-    const base = Math.max(max, 70000)
-    return Math.ceil(base / 10000) * 10000
+    return Math.max(Math.ceil(max / 10000) * 10000, 70000)
   }, [data])
 
   const minValue = useMemo(() => {
@@ -903,24 +972,24 @@ function CumulativeNetChart({ statements, selectedYear, yearSections, onSelectYe
 
   const ticks = useMemo(() => {
     const steps = 4
-    const out = []
     const span = maxValue - minValue
+    const out = []
     for (let i = 0; i <= steps; i++) out.push(minValue + (span / steps) * i)
     return out
   }, [maxValue, minValue])
 
   return (
-    <div>
-      <div className="flex items-center justify-between gap-3 px-1 mb-2">
+    <div className="flex flex-col">
+      <div className="flex items-center justify-between gap-3 mb-2">
         <div className="flex items-center gap-2 min-w-0">
-          <TrendingUp size={15} className="text-muted-foreground flex-shrink-0" />
+          <TrendingUp size={16} className="text-foreground flex-shrink-0" />
           <h3 className="text-base font-semibold text-foreground truncate">Cumulative Net</h3>
         </div>
         <YearNav yearSections={yearSections} selectedYear={selectedYear} onSelectYear={onSelectYear} />
       </div>
-      <CardBody>
-        <div className="p-3">
-          <div className="h-[240px] w-full">
+      <CardBody className="flex-1">
+        <div className="p-3 h-full">
+          <div className="h-[260px] w-full">
             {data.length === 0 ? (
               <div className="h-full flex items-center justify-center text-xs text-muted-foreground italic">No months to display</div>
             ) : (
@@ -966,7 +1035,7 @@ function CumulativeNetChart({ statements, selectedYear, yearSections, onSelectYe
 // ============================================================
 // BOOKING CALENDAR
 // ============================================================
-function BookingCalendar({ month, bookings }) {
+function BookingCalendar({ month, bookings, cleanings }) {
   const [y, m] = month.split('-').map(Number)
   const firstDay = new Date(Date.UTC(y, m - 1, 1))
   const daysInMonth = new Date(Date.UTC(y, m, 0)).getUTCDate()
@@ -996,6 +1065,23 @@ function BookingCalendar({ month, bookings }) {
     return map
   }, [y, m, daysInMonth, bookings])
 
+  const dayCleanings = useMemo(() => {
+    const map = {}
+    for (let d = 1; d <= daysInMonth; d++) {
+      const dayStart = new Date(Date.UTC(y, m - 1, d))
+      const dayEnd = new Date(Date.UTC(y, m - 1, d + 1))
+      const list = []
+      for (const c of (cleanings || [])) {
+        if (!c.scheduled_date) continue
+        const sd = new Date(c.scheduled_date + 'T00:00:00Z')
+        if (Number.isNaN(sd.getTime())) continue
+        if (sd >= dayStart && sd < dayEnd) list.push(c)
+      }
+      map[d] = list
+    }
+    return map
+  }, [y, m, daysInMonth, cleanings])
+
   const today = new Date()
   const isCurrentMonth = today.getUTCFullYear() === y && today.getUTCMonth() + 1 === m
   const todayDay = isCurrentMonth ? today.getUTCDate() : null
@@ -1010,16 +1096,18 @@ function BookingCalendar({ month, bookings }) {
       <div className="grid grid-cols-7">
         {cells.map((day, idx) => {
           if (day === null) {
-            return <div key={idx} className="min-h-[96px] border-b border-r border-border last:border-r-0 bg-muted/10" />
+            return <div key={idx} className="min-h-[110px] border-b border-r border-border last:border-r-0 bg-muted/10" />
           }
-          const list = dayBookings[day] || []
-          const shown = list.slice(0, 3)
-          const extra = Math.max(0, list.length - 3)
+          const dayB = dayBookings[day] || []
+          const dayC = dayCleanings[day] || []
+          const shownB = dayB.slice(0, 2)
+          const shownC = dayC.slice(0, 2)
+          const extra = Math.max(0, (dayB.length - 2) + (dayC.length - 2))
           return (
             <div
               key={idx}
               className={cn(
-                'min-h-[96px] border-b border-r border-border last:border-r-0 p-1.5 flex flex-col gap-1',
+                'min-h-[110px] border-b border-r border-border last:border-r-0 p-1.5 flex flex-col gap-1',
                 todayDay === day && 'bg-[#2d568e]/5'
               )}
             >
@@ -1029,8 +1117,11 @@ function BookingCalendar({ month, bookings }) {
                 </span>
               </div>
               <div className="space-y-0.5">
-                {shown.map((b, i) => (
-                  <CalendarBookingBar key={`${b.id}-${i}`} booking={b} />
+                {shownB.map((b, i) => (
+                  <CalendarBookingBar key={`b-${b.id}-${i}`} booking={b} />
+                ))}
+                {shownC.map((c, i) => (
+                  <CalendarCleaningChip key={`c-${c.id}-${i}`} cleaning={c} />
                 ))}
                 {extra > 0 && (
                   <div className="text-[10px] font-semibold text-foreground pl-1">+{extra} more</div>
@@ -1045,15 +1136,16 @@ function BookingCalendar({ month, bookings }) {
 }
 
 function CalendarBookingBar({ booking }) {
-  const [hovered, setHovered] = useState(false)
+  const { cursor, onMove, onLeave } = useCursorTooltip()
   const bookerComm = Number(booking.booker_commission || 0)
   const affiliateComm = Number(booking.affiliate_commission || 0)
 
   return (
-    <div className="relative">
+    <>
       <motion.div
-        onMouseEnter={() => setHovered(true)}
-        onMouseLeave={() => setHovered(false)}
+        onMouseEnter={onMove}
+        onMouseMove={onMove}
+        onMouseLeave={onLeave}
         initial={{ opacity: 0, x: -4 }}
         animate={{ opacity: 1, x: 0 }}
         transition={{ duration: 0.2 }}
@@ -1062,32 +1154,70 @@ function CalendarBookingBar({ booking }) {
       >
         {booking.guest_name || booking.booking_code}
       </motion.div>
-      {hovered && (
-        <div className="absolute z-50 left-0 top-full mt-1 w-64 rounded-md border border-border bg-popover shadow-lg p-3 text-xs">
-          <p className="font-mono font-semibold text-foreground mb-0.5">{booking.booking_code}</p>
-          <p className="text-foreground font-semibold mb-2">{booking.guest_name}</p>
-          <div className="space-y-0.5">
-            <div className="flex justify-between gap-2"><span className="text-foreground">Check-in</span><span className="text-foreground tabular-nums">{booking.check_in}</span></div>
-            <div className="flex justify-between gap-2"><span className="text-foreground">Check-out</span><span className="text-foreground tabular-nums">{booking.check_out}</span></div>
-            <div className="flex justify-between gap-2 pt-1 border-t border-border mt-1">
-              <span className="text-foreground">Total</span>
-              <span className="text-foreground tabular-nums font-semibold">{formatMoney(booking.total_amount)}</span>
-            </div>
-            {bookerComm > 0 && (
-              <div className="flex justify-between gap-2"><span className="text-foreground">Booker comm.</span><span className="text-foreground tabular-nums">{formatMoney(bookerComm)}</span></div>
-            )}
-            {affiliateComm > 0 && (
-              <div className="flex justify-between gap-2"><span className="text-foreground">Affiliate comm.</span><span className="text-foreground tabular-nums">{formatMoney(affiliateComm)}</span></div>
-            )}
+      <CursorTooltip cursor={cursor}>
+        <p className="font-mono font-semibold text-foreground mb-0.5">{booking.booking_code}</p>
+        <p className="text-foreground font-semibold mb-2">{booking.guest_name}</p>
+        <div className="space-y-0.5">
+          <div className="flex justify-between gap-2"><span className="text-foreground">Check-in</span><span className="text-foreground tabular-nums">{booking.check_in}</span></div>
+          <div className="flex justify-between gap-2"><span className="text-foreground">Check-out</span><span className="text-foreground tabular-nums">{booking.check_out}</span></div>
+          <div className="flex justify-between gap-2 pt-1 border-t border-border mt-1">
+            <span className="text-foreground">Total</span>
+            <span className="text-foreground tabular-nums font-semibold">{formatMoney(booking.total_amount)}</span>
           </div>
+          {bookerComm > 0 && (
+            <div className="flex justify-between gap-2"><span className="text-foreground">Booker comm.</span><span className="text-foreground tabular-nums">{formatMoney(bookerComm)}</span></div>
+          )}
+          {affiliateComm > 0 && (
+            <div className="flex justify-between gap-2"><span className="text-foreground">Affiliate comm.</span><span className="text-foreground tabular-nums">{formatMoney(affiliateComm)}</span></div>
+          )}
         </div>
-      )}
-    </div>
+      </CursorTooltip>
+    </>
+  )
+}
+
+function CalendarCleaningChip({ cleaning }) {
+  const { cursor, onMove, onLeave } = useCursorTooltip()
+  const housekeeper = Number(cleaning.payment_amount || 0)
+  const laundry = Number(cleaning.laundry_payment_amount || 0)
+
+  return (
+    <>
+      <motion.div
+        onMouseEnter={onMove}
+        onMouseMove={onMove}
+        onMouseLeave={onLeave}
+        initial={{ opacity: 0, x: -4 }}
+        animate={{ opacity: 1, x: 0 }}
+        transition={{ duration: 0.2 }}
+        className="px-1.5 py-0.5 rounded text-[10px] font-semibold text-white truncate cursor-default italic"
+        style={{ backgroundColor: CLEAN_COLOR }}
+      >
+        <Sparkles size={9} className="inline mr-1" />
+        {cleaning.type || 'cleaning'}
+      </motion.div>
+      <CursorTooltip cursor={cursor}>
+        <p className="font-semibold text-foreground mb-1.5">Cleaning</p>
+        <div className="space-y-0.5">
+          <div className="flex justify-between gap-2"><span className="text-foreground">Code</span><span className="text-foreground font-mono font-semibold">{cleaning.cleaning_code || '—'}</span></div>
+          <div className="flex justify-between gap-2"><span className="text-foreground">Type</span><span className="text-foreground capitalize font-semibold">{cleaning.type || '—'}</span></div>
+          <div className="flex justify-between gap-2"><span className="text-foreground">Status</span><span className="text-foreground font-semibold">{cleaning.status || '—'}</span></div>
+          <div className="flex justify-between gap-2"><span className="text-foreground">Scheduled</span><span className="text-foreground tabular-nums">{cleaning.scheduled_date || '—'}</span></div>
+          <div className="flex justify-between gap-2 pt-1 border-t border-border mt-1">
+            <span className="text-foreground">Housekeeper</span>
+            <span className="text-foreground tabular-nums font-semibold">{formatMoney(housekeeper)}</span>
+          </div>
+          {laundry > 0 && (
+            <div className="flex justify-between gap-2"><span className="text-foreground">Laundry</span><span className="text-foreground tabular-nums font-semibold">{formatMoney(laundry)}</span></div>
+          )}
+        </div>
+      </CursorTooltip>
+    </>
   )
 }
 
 // ============================================================
-// MONTH SELECTOR — < Month >
+// MONTH SELECTOR
 // ============================================================
 function MonthSelector({ options, selectedMonth, onSelectMonth }) {
   const idx = options.findIndex((s) => s.month === selectedMonth)
@@ -1236,7 +1366,7 @@ function Field({ label, value, mono = false }) {
 function SidebarSection({ title, action, children }) {
   return (
     <div>
-      <div className="flex items-center justify-between gap-2 px-1 mb-2">
+      <div className="flex items-center justify-between gap-2 mb-2">
         <h3 className="text-sm font-semibold text-foreground truncate">{title}</h3>
         {action}
       </div>
@@ -1360,17 +1490,16 @@ function GeneralStatistics({
           selectedYear={selectedYear}
           yearSections={yearSections}
           onSelectYear={onSelectYear}
+          contract={contract}
         />
 
         <div className="flex flex-col">
-          <div className="px-1 mb-2">
-            <div className="flex items-center gap-2 min-w-0">
-              <Home size={15} className="text-muted-foreground flex-shrink-0" />
-              <h3 className="text-base font-semibold text-foreground truncate">Contract Occupancy</h3>
-            </div>
+          <div className="flex items-center gap-2 mb-2">
+            <Home size={16} className="text-foreground flex-shrink-0" />
+            <h3 className="text-base font-semibold text-foreground truncate">Contract Occupancy</h3>
           </div>
           <CardBody className="flex-1">
-            <div className="p-3 h-full min-h-[240px] flex items-center justify-center">
+            <div className="p-3 h-full min-h-[292px] flex items-center justify-center">
               <HalfGauge pct={occupancy.pct} sublabel={`${occupancy.nights} of ${occupancy.totalNights} nights`} />
             </div>
           </CardBody>
@@ -1403,219 +1532,110 @@ function StatCard({ label, value, icon: Icon }) {
 }
 
 // ============================================================
-// MONTHLY SECTION
+// EXPENSE IMAGE CONTROL
 // ============================================================
-function MonthlySection({
-  statements,
-  selectedMonth,
-  onSelectMonth,
-  contract,
-  bookings,
-  monthlyExpenses,
-  onChanged,
-  yearSections,
-  selectedYear,
-  onSelectYear,
-}) {
-  const options = useMemo(() => [...statements].reverse(), [statements])
-  const statement = statements.find((s) => s.month === selectedMonth) || null
-  const [tab, setTab] = useState('bookings')
+function ExpenseImageControl({ path, onUpload, onRemove, contractId, compact = false }) {
+  const inputRef = useRef(null)
+  const [uploading, setUploading] = useState(false)
+  const [thumbUrl, setThumbUrl] = useState(null)
+  const [lightboxUrl, setLightboxUrl] = useState(null)
 
-  useEffect(() => { setTab('bookings') }, [selectedMonth])
+  useEffect(() => {
+    let cancelled = false
+    if (!path) { setThumbUrl(null); return }
+    getSignedUrl(path)
+      .then((u) => { if (!cancelled) setThumbUrl(u) })
+      .catch(() => { if (!cancelled) setThumbUrl(null) })
+    return () => { cancelled = true }
+  }, [path])
 
-  const monthOccupancy = useMemo(() => {
-    if (!statement) return null
-    const [y, m] = statement.month.split('-').map(Number)
-    const { nights, daysInMonth } = nightsInMonthFromBookings(statement.bookingsList, y, m)
-    return { pct: daysInMonth > 0 ? nights / daysInMonth : 0, nights, daysInMonth }
-  }, [statement])
+  const handleFile = async (e) => {
+    const file = e.target.files?.[0]
+    if (!file) return
+    setUploading(true)
+    try {
+      const newPath = await uploadExpenseImage(file, contractId)
+      await onUpload(newPath)
+      toast.success('Image uploaded')
+    } catch (err) {
+      console.error(err)
+      toast.error('Failed to upload')
+    } finally {
+      setUploading(false)
+      if (inputRef.current) inputRef.current.value = ''
+    }
+  }
+
+  const handleRemove = async () => {
+    if (!path) return
+    if (!window.confirm('Remove this image?')) return
+    try {
+      await onRemove(path)
+      toast.success('Image removed')
+    } catch (err) {
+      console.error(err)
+      toast.error('Failed to remove')
+    }
+  }
+
+  const size = compact ? 'w-7 h-7' : 'w-9 h-9'
 
   return (
-    <div className="space-y-4">
-      <MonthSelector options={options} selectedMonth={selectedMonth} onSelectMonth={onSelectMonth} />
-
-      {!statement ? (
-        <CardBody><div className="p-4 text-xs text-muted-foreground italic">Select a month to view details</div></CardBody>
-      ) : (
-        <>
-          {/* 4 stat cards */}
-          <motion.div
-            initial="hidden"
-            animate="visible"
-            variants={{ hidden: {}, visible: { transition: { staggerChildren: 0.05 } } }}
-            className="grid grid-cols-2 lg:grid-cols-4 gap-3"
+    <>
+      <input ref={inputRef} type="file" accept="image/jpeg,image/png,image/webp" className="hidden" onChange={handleFile} disabled={uploading} />
+      {path ? (
+        <div className="relative group/img flex-shrink-0">
+          <button
+            type="button"
+            onClick={() => thumbUrl && setLightboxUrl(thumbUrl)}
+            className={cn('rounded-md overflow-hidden border border-border bg-muted', size)}
+            title="View"
           >
-            <MiniStat label="Gross Revenue" value={statement.grossRevenue} />
-            <MiniStat label="Total Expenses" value={statement.totalExpenses} />
-            <MiniStat label="Net Profit" value={statement.netProfit} />
-            <MiniSplitStat label="Owner · Company" owner={statement.ownerShare} company={statement.companyShare} />
-          </motion.div>
-
-          {/* Gauge (left) | Bookings + Cleanings stacked (right) — equal height */}
-          <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 items-stretch">
-            <div className="flex flex-col">
-              <div className="px-1 mb-2">
-                <div className="flex items-center gap-2 min-w-0">
-                  <Home size={15} className="text-muted-foreground flex-shrink-0" />
-                  <h3 className="text-base font-semibold text-foreground truncate">Month Occupancy</h3>
-                </div>
+            {thumbUrl ? (
+              <img src={thumbUrl} alt="" className="w-full h-full object-cover" />
+            ) : (
+              <div className="w-full h-full flex items-center justify-center">
+                <Loader2 size={11} className="animate-spin text-muted-foreground" />
               </div>
-              <CardBody className="flex-1">
-                <div className="p-3 h-full min-h-[240px] flex items-center justify-center">
-                  <HalfGauge
-                    pct={monthOccupancy?.pct || 0}
-                    sublabel={
-                      monthOccupancy
-                        ? `${monthOccupancy.nights} of ${monthOccupancy.daysInMonth} nights`
-                        : '—'
-                    }
-                  />
-                </div>
-              </CardBody>
-            </div>
-
-            <div className="flex flex-col gap-3">
-              <motion.div
-                initial={{ opacity: 0, y: 8 }}
-                animate={{ opacity: 1, y: 0 }}
-                transition={{ duration: 0.3 }}
-                className="rounded-md bg-card border border-border p-4 flex-1 flex flex-col justify-center"
-              >
-                <div className="flex items-center gap-2 mb-2">
-                  <Home size={14} className="text-muted-foreground" />
-                  <span className="text-[11px] font-semibold text-foreground">Total Bookings</span>
-                </div>
-                <p className="text-3xl font-bold tabular-nums text-foreground">
-                  {statement.bookingsList.length}
-                </p>
-                <p className="text-[11px] text-muted-foreground mt-1">
-                  {formatMoney(statement.grossRevenue)} gross
-                </p>
-              </motion.div>
-
-              <motion.div
-                initial={{ opacity: 0, y: 8 }}
-                animate={{ opacity: 1, y: 0 }}
-                transition={{ duration: 0.3, delay: 0.05 }}
-                className="rounded-md bg-card border border-border p-4 flex-1 flex flex-col justify-center"
-              >
-                <div className="flex items-center gap-2 mb-2">
-                  <Sparkles size={14} className="text-muted-foreground" />
-                  <span className="text-[11px] font-semibold text-foreground">Total Cleanings</span>
-                </div>
-                <p className="text-3xl font-bold tabular-nums text-foreground">
-                  {statement.cleaningsList.length}
-                </p>
-                <p className="text-[11px] text-muted-foreground mt-1">
-                  {formatMoney(statement.housekeeping + statement.laundry)} paid
-                </p>
-              </motion.div>
-            </div>
-          </div>
-
-          {/* Weekly occupancy + weekly cumulative — equal height */}
-          <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 items-stretch">
-            <WeeklyOccupancyChart statement={statement} />
-            <WeeklyCumulativeChart
-              statement={statement}
-              contract={contract}
-              monthlyExpenses={monthlyExpenses}
-            />
-          </div>
-
-          {/* Calendar + tabs */}
-          <div className="grid grid-cols-1 lg:grid-cols-[2fr_1fr] gap-4">
-            <div>
-              <div className="flex items-center justify-between gap-2 px-1 mb-2">
-                <h3 className="text-sm font-semibold text-foreground truncate">{monthLabel(statement.month)} Calendar</h3>
-                <span className="text-[11px] text-foreground tabular-nums">
-                  {statement.bookingsList.length} booking{statement.bookingsList.length === 1 ? '' : 's'}
-                </span>
-              </div>
-              <BookingCalendar month={statement.month} bookings={statement.bookingsList} />
-            </div>
-
-            <div className="space-y-3">
-              <div className="inline-flex items-center gap-1 bg-muted/60 rounded-full p-1">
-                <button
-                  type="button"
-                  onClick={() => setTab('bookings')}
-                  className={cn(
-                    'px-3 py-1 rounded-full text-[11px] font-semibold transition-colors',
-                    tab === 'bookings' ? 'bg-card border border-border text-foreground shadow-sm' : 'text-muted-foreground hover:text-foreground'
-                  )}
-                >
-                  Bookings · {statement.bookingsList.length}
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setTab('cleanings')}
-                  className={cn(
-                    'px-3 py-1 rounded-full text-[11px] font-semibold transition-colors',
-                    tab === 'cleanings' ? 'bg-card border border-border text-foreground shadow-sm' : 'text-muted-foreground hover:text-foreground'
-                  )}
-                >
-                  Cleanings · {statement.cleaningsList.length}
-                </button>
-              </div>
-
-              {tab === 'bookings' ? (
-                statement.bookingsList.length === 0 ? (
-                  <CardBody><div className="p-3 text-xs text-muted-foreground italic">No bookings this month</div></CardBody>
-                ) : (
-                  <div className="space-y-1.5 max-h-[480px] overflow-y-auto pr-1">
-                    {statement.bookingsList.map((b) => <BookingRow key={b.id} booking={b} />)}
-                  </div>
-                )
-              ) : (
-                statement.cleaningsList.length === 0 ? (
-                  <CardBody><div className="p-3 text-xs text-muted-foreground italic">No cleanings this month</div></CardBody>
-                ) : (
-                  <div className="space-y-1.5 max-h-[480px] overflow-y-auto pr-1">
-                    {statement.cleaningsList.map((c) => <CleaningRow key={c.id} cleaning={c} />)}
-                  </div>
-                )
-              )}
-            </div>
-          </div>
-
-          <ExpensesPanel statement={statement} contract={contract} onChanged={onChanged} />
-        </>
+            )}
+          </button>
+          <button
+            type="button"
+            onClick={handleRemove}
+            className="absolute -top-1.5 -right-1.5 w-4 h-4 rounded-full bg-red-600 text-white flex items-center justify-center opacity-0 group-hover/img:opacity-100 transition-opacity"
+            title="Remove"
+          >
+            <X size={9} />
+          </button>
+        </div>
+      ) : (
+        <button
+          type="button"
+          onClick={() => inputRef.current?.click()}
+          disabled={uploading}
+          className={cn('rounded-md border border-dashed border-border flex items-center justify-center text-muted-foreground hover:bg-muted/50 disabled:opacity-50 flex-shrink-0', size)}
+          title="Attach proof"
+        >
+          {uploading ? <Loader2 size={11} className="animate-spin" /> : <Camera size={12} />}
+        </button>
       )}
-    </div>
-  )
-}
 
-function MiniStat({ label, value }) {
-  return (
-    <motion.div
-      variants={{ hidden: { opacity: 0, y: 8 }, visible: { opacity: 1, y: 0, transition: { duration: 0.3 } } }}
-      className="rounded-md bg-card border border-border p-3"
-    >
-      <p className="text-[11px] font-semibold text-foreground mb-1 truncate">{label}</p>
-      <p className="text-base font-bold tabular-nums text-foreground truncate">{formatMoney(value)}</p>
-    </motion.div>
-  )
-}
-
-function MiniSplitStat({ label, owner, company }) {
-  return (
-    <motion.div
-      variants={{ hidden: { opacity: 0, y: 8 }, visible: { opacity: 1, y: 0, transition: { duration: 0.3 } } }}
-      className="rounded-md bg-card border border-border p-3"
-    >
-      <p className="text-[11px] font-semibold text-foreground mb-1">{label}</p>
-      <div className="space-y-0.5">
-        <div className="flex items-center justify-between gap-2">
-          <span className="text-[11px] text-foreground">Owner</span>
-          <span className="text-xs font-bold tabular-nums text-foreground">{formatMoney(owner)}</span>
+      {lightboxUrl && (
+        <div
+          className="fixed inset-0 z-[10001] bg-black/85 backdrop-blur-sm flex items-center justify-center p-4"
+          onClick={() => setLightboxUrl(null)}
+        >
+          <button
+            type="button"
+            onClick={(e) => { e.stopPropagation(); setLightboxUrl(null) }}
+            className="absolute top-4 right-4 z-10 p-2 rounded-full bg-white/10 hover:bg-white/20 text-white"
+          >
+            <X size={20} />
+          </button>
+          <img src={lightboxUrl} alt="" className="max-w-[92vw] max-h-[88vh] object-contain rounded-lg shadow-2xl" onClick={(e) => e.stopPropagation()} />
         </div>
-        <div className="flex items-center justify-between gap-2">
-          <span className="text-[11px] text-foreground">Company</span>
-          <span className="text-xs font-bold tabular-nums text-foreground">{formatMoney(company)}</span>
-        </div>
-      </div>
-    </motion.div>
+      )}
+    </>
   )
 }
 
@@ -1670,11 +1690,32 @@ function ExpensesPanel({ statement, contract, onChanged }) {
     }
   }
 
+  const setFixedImage = async (field, newPath) => {
+    const imageField = `${field}_image`
+    await upsertRow({
+      contract,
+      month: statement.month,
+      existingId: statement.manualRow?.id,
+      patch: { [imageField]: newPath },
+      auditLabel: `SET_EXPENSE_IMAGE:${field}`,
+    })
+    onChanged()
+  }
+
   const clearFixed = async () => {
     if (!statement.manualRow?.id) return
-    if (!window.confirm(`Clear ALL manual expenses for ${monthLabel(statement.month)}? Custom items will also be removed.`)) return
+    if (!window.confirm(`Clear ALL manual expenses for ${monthLabel(statement.month)}? Custom items and images will also be removed.`)) return
     setSaving(true)
     try {
+      const paths = [
+        statement.manualRow?.electricity_image,
+        statement.manualRow?.internet_image,
+        statement.manualRow?.water_image,
+        statement.manualRow?.marketing_image,
+        ...(statement.customItems || []).map((x) => x.image),
+      ].filter(Boolean)
+      await Promise.all(paths.map((p) => deleteExpenseImage(p)))
+
       const { error } = await supabase.from('contract_monthly_expenses').delete().eq('id', statement.manualRow.id)
       if (error) throw error
       toast.success('Cleared')
@@ -1687,7 +1728,7 @@ function ExpensesPanel({ statement, contract, onChanged }) {
     }
   }
 
-  const addCustomItem = async ({ name, amount }) => {
+  const addCustomItem = async ({ name, amount, image }) => {
     const cleaned = sanitizeText(name, { max: 80 })
     const amt = sanitizeMoney(amount)
     if (!cleaned) throw new Error('Name is required')
@@ -1696,6 +1737,7 @@ function ExpensesPanel({ statement, contract, onChanged }) {
       id: `ci_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 6)}`,
       name: cleaned,
       amount: amt,
+      image: image || null,
     }]
     await upsertRow({
       contract, month: statement.month, existingId: statement.manualRow?.id,
@@ -1705,6 +1747,8 @@ function ExpensesPanel({ statement, contract, onChanged }) {
   }
 
   const removeCustomItem = async (id) => {
+    const item = statement.customItems.find((x) => x.id === id)
+    if (item?.image) await deleteExpenseImage(item.image)
     const next = statement.customItems.filter((x) => x.id !== id)
     await upsertRow({
       contract, month: statement.month, existingId: statement.manualRow?.id,
@@ -1713,12 +1757,15 @@ function ExpensesPanel({ statement, contract, onChanged }) {
     onChanged()
   }
 
-  const updateCustomItem = async (id, { name, amount }) => {
+  const updateCustomItem = async (id, { name, amount, image }) => {
     const cleaned = sanitizeText(name, { max: 80 })
     const amt = sanitizeMoney(amount)
     if (!cleaned) throw new Error('Name is required')
     if (amt <= 0) throw new Error('Amount must be greater than 0')
-    const next = statement.customItems.map((x) => x.id === id ? { ...x, name: cleaned, amount: amt } : x)
+    const next = statement.customItems.map((x) => x.id === id
+      ? { ...x, name: cleaned, amount: amt, image: image !== undefined ? image : x.image }
+      : x
+    )
     await upsertRow({
       contract, month: statement.month, existingId: statement.manualRow?.id,
       patch: { custom_items: next }, auditLabel: 'UPDATE_CUSTOM_EXPENSE',
@@ -1726,10 +1773,18 @@ function ExpensesPanel({ statement, contract, onChanged }) {
     onChanged()
   }
 
+  const fixedExpenses = [
+    { key: 'electricity', label: 'Electricity', icon: Zap,       value: statement.electricity, image: statement.manualRow?.electricity_image },
+    { key: 'internet',    label: 'Internet',    icon: Wifi,      value: statement.internet,    image: statement.manualRow?.internet_image    },
+    { key: 'water',       label: 'Water',       icon: Droplets,  value: statement.water,       image: statement.manualRow?.water_image       },
+    { key: 'marketing',   label: 'Marketing',   icon: Megaphone, value: statement.marketing,   image: statement.manualRow?.marketing_image   },
+  ]
+
   return (
     <div>
-      <div className="flex items-center justify-between gap-2 px-1 mb-2">
-        <h3 className="text-sm font-semibold text-foreground truncate">Expenses</h3>
+      <div className="flex items-center gap-2 mb-2">
+        <Wallet size={16} className="text-foreground" />
+        <h3 className="text-base font-semibold text-foreground">Expenses</h3>
       </div>
       <CardBody>
         <div className="p-3 space-y-4">
@@ -1762,11 +1817,27 @@ function ExpensesPanel({ statement, contract, onChanged }) {
               )}
             </div>
             {editingFixed ? (
-              <div className="space-y-1">
-                <EditLine icon={Zap}       label="Electricity" value={draftFixed.electricity} onChange={(v) => setDraftFixed((p) => ({ ...p, electricity: v }))} />
-                <EditLine icon={Wifi}      label="Internet"    value={draftFixed.internet}    onChange={(v) => setDraftFixed((p) => ({ ...p, internet: v }))} />
-                <EditLine icon={Droplets}  label="Water"       value={draftFixed.water}       onChange={(v) => setDraftFixed((p) => ({ ...p, water: v }))} />
-                <EditLine icon={Megaphone} label="Marketing"   value={draftFixed.marketing}   onChange={(v) => setDraftFixed((p) => ({ ...p, marketing: v }))} />
+              <div className="space-y-2">
+                {fixedExpenses.map((f) => (
+                  <div key={f.key} className="flex items-center gap-2 text-xs">
+                    <f.icon size={11} className="text-muted-foreground flex-shrink-0" />
+                    <span className="text-foreground min-w-[80px] truncate">{f.label}</span>
+                    <Input
+                      type="number"
+                      min={0}
+                      value={draftFixed[f.key]}
+                      onChange={(e) => setDraftFixed((p) => ({ ...p, [f.key]: e.target.value }))}
+                      className="h-7 text-xs rounded flex-1 tabular-nums"
+                    />
+                    <ExpenseImageControl
+                      path={f.image}
+                      contractId={contract.id}
+                      onUpload={(path) => setFixedImage(f.key, path)}
+                      onRemove={() => setFixedImage(f.key, null)}
+                      compact
+                    />
+                  </div>
+                ))}
                 <div className="flex items-center justify-end gap-2 pt-1">
                   <Button size="sm" variant="outline" className="h-7 rounded text-[11px]" onClick={() => setEditingFixed(false)} disabled={saving}>Cancel</Button>
                   <Button size="sm" className="h-7 rounded text-[11px]" onClick={saveFixed} disabled={saving} style={{ backgroundColor: BRAND }}>
@@ -1776,11 +1847,21 @@ function ExpensesPanel({ statement, contract, onChanged }) {
                 </div>
               </div>
             ) : (
-              <div className="space-y-0.5">
-                <ExpenseLine icon={Zap}       label="Electricity" value={statement.electricity} />
-                <ExpenseLine icon={Wifi}      label="Internet"    value={statement.internet} />
-                <ExpenseLine icon={Droplets}  label="Water"       value={statement.water} />
-                <ExpenseLine icon={Megaphone} label="Marketing"   value={statement.marketing} />
+              <div className="space-y-1">
+                {fixedExpenses.map((f) => (
+                  <div key={f.key} className="flex items-center gap-2 text-xs py-0.5">
+                    <f.icon size={11} className="text-muted-foreground flex-shrink-0" />
+                    <span className="text-foreground flex-1 truncate">{f.label}</span>
+                    <span className="tabular-nums font-semibold text-foreground">{formatMoney(f.value)}</span>
+                    <ExpenseImageControl
+                      path={f.image}
+                      contractId={contract.id}
+                      onUpload={(path) => setFixedImage(f.key, path)}
+                      onRemove={() => setFixedImage(f.key, null)}
+                      compact
+                    />
+                  </div>
+                ))}
               </div>
             )}
           </div>
@@ -1797,7 +1878,13 @@ function ExpensesPanel({ statement, contract, onChanged }) {
             ) : (
               <div className="space-y-1">
                 {statement.customItems.map((item) => (
-                  <CustomItemRow key={item.id} item={item} onUpdate={updateCustomItem} onRemove={removeCustomItem} />
+                  <CustomItemRow
+                    key={item.id}
+                    item={item}
+                    contractId={contract.id}
+                    onUpdate={updateCustomItem}
+                    onRemove={removeCustomItem}
+                  />
                 ))}
               </div>
             )}
@@ -1813,6 +1900,7 @@ function ExpensesPanel({ statement, contract, onChanged }) {
         <AddExpenseModal
           open={addOpen}
           onClose={() => setAddOpen(false)}
+          contractId={contract.id}
           onSubmit={async (data) => {
             try {
               await addCustomItem(data)
@@ -1843,22 +1931,25 @@ async function upsertRow({ contract, month, existingId, patch, auditLabel }) {
   }
 }
 
-function CustomItemRow({ item, onUpdate, onRemove }) {
+function CustomItemRow({ item, contractId, onUpdate, onRemove }) {
   const [editing, setEditing] = useState(false)
   const [draftName, setDraftName] = useState(item.name)
   const [draftAmount, setDraftAmount] = useState(String(item.amount))
+  const [draftImage, setDraftImage] = useState(item.image || null)
   const [busy, setBusy] = useState(false)
 
   useEffect(() => {
     setDraftName(item.name)
     setDraftAmount(String(item.amount))
+    setDraftImage(item.image || null)
   }, [item])
 
   const save = async () => {
     setBusy(true)
-    try { await onUpdate(item.id, { name: draftName, amount: draftAmount }) }
+    try { await onUpdate(item.id, { name: draftName, amount: draftAmount, image: draftImage }) }
     finally { setBusy(false); setEditing(false) }
   }
+
   const remove = async () => {
     if (!window.confirm(`Remove "${item.name}"?`)) return
     setBusy(true)
@@ -1872,6 +1963,16 @@ function CustomItemRow({ item, onUpdate, onRemove }) {
         <div className="grid grid-cols-[1fr_110px] gap-2">
           <Input value={draftName} onChange={(e) => setDraftName(e.target.value)} maxLength={80} placeholder="Name" className="h-7 text-xs rounded" />
           <Input type="number" min={0} value={draftAmount} onChange={(e) => setDraftAmount(e.target.value)} className="h-7 text-xs rounded tabular-nums" />
+        </div>
+        <div className="flex items-center gap-2">
+          <span className="text-[11px] font-semibold text-foreground">Proof</span>
+          <ExpenseImageControl
+            path={draftImage}
+            contractId={contractId}
+            onUpload={(path) => setDraftImage(path)}
+            onRemove={() => setDraftImage(null)}
+            compact
+          />
         </div>
         <div className="flex items-center justify-end gap-2">
           <Button size="sm" variant="outline" className="h-6 rounded text-[10px]" onClick={() => setEditing(false)} disabled={busy}>Cancel</Button>
@@ -1888,6 +1989,13 @@ function CustomItemRow({ item, onUpdate, onRemove }) {
     <div className="flex items-center gap-2 px-2 py-1.5 rounded-md border border-border bg-background">
       <span className="text-xs text-foreground flex-1 truncate">{item.name}</span>
       <span className="text-xs font-semibold tabular-nums text-foreground">{formatMoney(item.amount)}</span>
+      <ExpenseImageControl
+        path={item.image}
+        contractId={contractId}
+        onUpload={async (path) => { await onUpdate(item.id, { name: item.name, amount: item.amount, image: path }) }}
+        onRemove={async () => { await onUpdate(item.id, { name: item.name, amount: item.amount, image: null }) }}
+        compact
+      />
       <button type="button" onClick={() => setEditing(true)} disabled={busy} className="p-1 rounded hover:bg-muted text-foreground disabled:opacity-50" title="Edit">
         <Pencil size={11} />
       </button>
@@ -1898,17 +2006,21 @@ function CustomItemRow({ item, onUpdate, onRemove }) {
   )
 }
 
-function AddExpenseModal({ open, onClose, onSubmit }) {
+function AddExpenseModal({ open, onClose, onSubmit, contractId }) {
   const [name, setName] = useState('')
   const [amount, setAmount] = useState('')
+  const [imagePath, setImagePath] = useState(null)
   const [busy, setBusy] = useState(false)
 
-  useEffect(() => { if (open) { setName(''); setAmount(''); setBusy(false) } }, [open])
+  useEffect(() => {
+    if (open) { setName(''); setAmount(''); setImagePath(null); setBusy(false) }
+  }, [open])
+
   if (!open) return null
 
   const submit = async () => {
     setBusy(true)
-    try { await onSubmit({ name, amount }) }
+    try { await onSubmit({ name, amount, image: imagePath }) }
     finally { setBusy(false) }
   }
 
@@ -1930,6 +2042,15 @@ function AddExpenseModal({ open, onClose, onSubmit }) {
             <label className="text-[11px] font-semibold text-foreground mb-1 block">Amount (₱)</label>
             <Input type="number" min={0} value={amount} onChange={(e) => setAmount(e.target.value)} placeholder="0" className="h-8 text-xs rounded tabular-nums" />
           </div>
+          <div>
+            <label className="text-[11px] font-semibold text-foreground mb-1 block">Proof (optional)</label>
+            <ExpenseImageControl
+              path={imagePath}
+              contractId={contractId}
+              onUpload={(path) => setImagePath(path)}
+              onRemove={() => setImagePath(null)}
+            />
+          </div>
         </div>
         <div className="flex items-center justify-end gap-2 px-5 py-3 border-t border-border bg-muted/30">
           <Button variant="outline" size="sm" className="h-8 rounded text-xs" onClick={onClose} disabled={busy}>Cancel</Button>
@@ -1943,42 +2064,135 @@ function AddExpenseModal({ open, onClose, onSubmit }) {
   )
 }
 
+// ============================================================
+// BOOKING ROW
+// ============================================================
 function BookingRow({ booking }) {
   const bookerComm = Number(booking.booker_commission || 0)
   const affiliateComm = Number(booking.affiliate_commission || 0)
-  const hasCommissions = bookerComm > 0 || affiliateComm > 0
+
+  const nights = booking.check_in && booking.check_out
+    ? Math.max(0, Math.round(
+        (new Date(booking.check_out + 'T00:00:00Z') - new Date(booking.check_in + 'T00:00:00Z')) / 86400000
+      ))
+    : 0
+
+  const paymentBadge = {
+    paid:    { label: 'Paid',    className: 'bg-emerald-600 text-white' },
+    partial: { label: 'Partial', className: 'bg-amber-600 text-white' },
+    unpaid:  { label: 'Unpaid',  className: 'bg-red-600 text-white' },
+  }[booking.payment_status] || null
 
   return (
-    <div className="rounded-md border border-border bg-background px-3 py-2 min-w-0">
+    <div className="rounded-md border border-border bg-background px-3 py-2.5 min-w-0">
       <div className="flex items-center gap-2 min-w-0">
-        <span className="font-mono text-[11px] text-foreground flex-shrink-0">{booking.booking_code}</span>
-        <span className="text-xs text-foreground truncate flex-1">{booking.guest_name}</span>
-        <span className="text-xs font-semibold tabular-nums text-foreground flex-shrink-0">{formatMoney(booking.total_amount)}</span>
+        <span className="font-mono text-[11px] text-foreground flex-shrink-0">
+          {booking.booking_code}
+        </span>
+        <span className="text-xs font-semibold text-foreground truncate flex-1">
+          {booking.guest_name}
+        </span>
+        <span className="text-xs font-semibold tabular-nums text-foreground flex-shrink-0">
+          {formatMoney(booking.total_amount)}
+        </span>
+        {paymentBadge && (
+          <span className={cn('text-[10px] font-semibold rounded-full px-2 py-0.5 flex-shrink-0', paymentBadge.className)}>
+            {paymentBadge.label}
+          </span>
+        )}
       </div>
-      {hasCommissions && (
-        <div className="mt-1 flex flex-wrap gap-x-3 gap-y-0.5 text-[11px] text-foreground">
-          {bookerComm > 0 && <span>Booker · <span className="tabular-nums font-semibold">−{formatMoney(bookerComm)}</span></span>}
-          {affiliateComm > 0 && <span>Affiliate · <span className="tabular-nums font-semibold">−{formatMoney(affiliateComm)}</span></span>}
+
+      <div className="mt-1 flex items-center gap-2 text-[11px] text-foreground/80 min-w-0 flex-wrap">
+        <span className="tabular-nums">
+          {formatDateShort(booking.check_in)} → {formatDateShort(booking.check_out)}
+        </span>
+        <span className="text-muted-foreground">·</span>
+        <span className="tabular-nums">{nights} night{nights === 1 ? '' : 's'}</span>
+        {booking.guests > 0 && (
+          <>
+            <span className="text-muted-foreground">·</span>
+            <span>{booking.guests} guest{booking.guests === 1 ? '' : 's'}</span>
+          </>
+        )}
+      </div>
+
+      {(bookerComm > 0 || affiliateComm > 0) && (
+        <div className="mt-1 flex flex-wrap gap-x-3 gap-y-0.5 text-[11px] text-foreground/80">
+          {bookerComm > 0 && (
+            <span>
+              Booker · <span className="tabular-nums font-semibold text-foreground">−{formatMoney(bookerComm)}</span>
+            </span>
+          )}
+          {affiliateComm > 0 && (
+            <span>
+              Affiliate · <span className="tabular-nums font-semibold text-foreground">−{formatMoney(affiliateComm)}</span>
+            </span>
+          )}
         </div>
       )}
     </div>
   )
 }
 
+// ============================================================
+// CLEANING ROW
+// ============================================================
 function CleaningRow({ cleaning }) {
   const housekeeper = Number(cleaning.payment_amount || 0)
   const laundry = Number(cleaning.laundry_payment_amount || 0)
+
+  const photoCount =
+    (Array.isArray(cleaning.photos_before) ? cleaning.photos_before.length : 0) +
+    (Array.isArray(cleaning.photos_after)  ? cleaning.photos_after.length  : 0) +
+    (Array.isArray(cleaning.photos_report) ? cleaning.photos_report.length : 0)
+
+  const statusBadge = {
+    scheduled: { label: 'Scheduled', className: 'bg-amber-600 text-white' },
+    ready:     { label: 'Ready',     className: 'bg-blue-600 text-white' },
+    submitted: { label: 'Submitted', className: 'bg-gray-600 text-white' },
+    completed: { label: 'Completed', className: 'bg-emerald-600 text-white' },
+  }[cleaning.status] || null
+
   return (
-    <div className="rounded-md border border-border bg-background px-3 py-2 min-w-0">
+    <div className="rounded-md border border-border bg-background px-3 py-2.5 min-w-0">
       <div className="flex items-center gap-2 min-w-0">
-        <span className="text-[11px] font-semibold capitalize text-foreground flex-shrink-0">{cleaning.type}</span>
-        <span className="text-[11px] text-foreground flex-shrink-0">{cleaning.status}</span>
+        <span className="font-mono text-[11px] text-foreground flex-shrink-0">
+          {cleaning.cleaning_code || '—'}
+        </span>
+        <span className="text-xs font-semibold capitalize text-foreground flex-shrink-0">
+          {cleaning.type}
+        </span>
+        {statusBadge && (
+          <span className={cn('text-[10px] font-semibold rounded-full px-2 py-0.5 flex-shrink-0', statusBadge.className)}>
+            {statusBadge.label}
+          </span>
+        )}
         <span className="flex-1 min-w-0" />
-        <span className="text-xs font-semibold tabular-nums text-foreground flex-shrink-0">{formatMoney(housekeeper)}</span>
+        <span className="text-xs font-semibold tabular-nums text-foreground flex-shrink-0">
+          {formatMoney(housekeeper)}
+        </span>
       </div>
-      {laundry > 0 && (
-        <div className="mt-1 text-[11px] text-foreground">Laundry · <span className="tabular-nums font-semibold">−{formatMoney(laundry)}</span></div>
-      )}
+
+      <div className="mt-1 flex items-center gap-2 text-[11px] text-foreground/80 flex-wrap">
+        <span className="tabular-nums">{formatDateShort(cleaning.scheduled_date)}</span>
+        {laundry > 0 && (
+          <>
+            <span className="text-muted-foreground">·</span>
+            <span>
+              Laundry · <span className="tabular-nums font-semibold text-foreground">−{formatMoney(laundry)}</span>
+            </span>
+          </>
+        )}
+        {photoCount > 0 && (
+          <>
+            <span className="text-muted-foreground">·</span>
+            <span className="inline-flex items-center gap-1">
+              <Camera size={10} />
+              {photoCount} photo{photoCount === 1 ? '' : 's'}
+            </span>
+          </>
+        )}
+      </div>
     </div>
   )
 }
@@ -1993,16 +2207,6 @@ function ExpenseLine({ icon: Icon, label, value }) {
   )
 }
 
-function EditLine({ icon: Icon, label, value, onChange }) {
-  return (
-    <div className="flex items-center gap-2 text-xs">
-      <Icon size={11} className="text-muted-foreground flex-shrink-0" />
-      <span className="text-foreground min-w-[80px] truncate">{label}</span>
-      <Input type="number" min={0} value={value} onChange={(e) => onChange(e.target.value)} className="h-7 text-xs rounded flex-1 tabular-nums" />
-    </div>
-  )
-}
-
 function TotalLine({ label, value, bold = false }) {
   return (
     <div className="flex items-center justify-between text-[11px]">
@@ -2013,28 +2217,276 @@ function TotalLine({ label, value, bold = false }) {
 }
 
 // ============================================================
-// DETAIL PAGE
+// MONTHLY SECTION
 // ============================================================
-function ContractDetail({ contract, bookings, cleanings, monthlyExpenses, onBack, onChanged }) {
+function MonthlySection({
+  statements,
+  selectedMonth,
+  onSelectMonth,
+  contract,
+  cleanings,
+  monthlyExpenses,
+  onChanged,
+  yearSections,
+  selectedYear,
+  onSelectYear,
+}) {
+  const options = useMemo(() => [...statements].reverse(), [statements])
+  const statement = statements.find((s) => s.month === selectedMonth) || null
+  const [tab, setTab] = useState('bookings')
+
+  useEffect(() => { setTab('bookings') }, [selectedMonth])
+
+  const monthOccupancy = useMemo(() => {
+    if (!statement) return null
+    const [y, m] = statement.month.split('-').map(Number)
+    const { nights, daysInMonth } = nightsInMonthFromBookings(statement.bookingsList, y, m, contract)
+    return { pct: daysInMonth > 0 ? nights / daysInMonth : 0, nights, daysInMonth }
+  }, [statement, contract])
+
+  return (
+    <div className="space-y-4">
+      <MonthSelector options={options} selectedMonth={selectedMonth} onSelectMonth={onSelectMonth} />
+
+      {!statement ? (
+        <CardBody><div className="p-4 text-xs text-muted-foreground italic">Select a month to view details</div></CardBody>
+      ) : (
+        <>
+          <motion.div
+            initial="hidden"
+            animate="visible"
+            variants={{ hidden: {}, visible: { transition: { staggerChildren: 0.05 } } }}
+            className="grid grid-cols-2 lg:grid-cols-4 gap-3"
+          >
+            <MiniStat label="Gross Revenue" value={statement.grossRevenue} />
+            <MiniStat label="Total Expenses" value={statement.totalExpenses} />
+            <MiniStat label="Net Profit" value={statement.netProfit} />
+            <MiniSplitStat label="Owner · Company" owner={statement.ownerShare} company={statement.companyShare} />
+          </motion.div>
+
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 items-stretch">
+            <div className="flex flex-col">
+              <div className="flex items-center gap-2 mb-2">
+                <Home size={16} className="text-foreground flex-shrink-0" />
+                <h3 className="text-base font-semibold text-foreground truncate">Month Occupancy</h3>
+              </div>
+              <CardBody className="flex-1">
+                <div className="p-3 h-full min-h-[292px] flex items-center justify-center">
+                  <HalfGauge
+                    pct={monthOccupancy?.pct || 0}
+                    sublabel={
+                      monthOccupancy
+                        ? `${monthOccupancy.nights} of ${monthOccupancy.daysInMonth} nights`
+                        : '—'
+                    }
+                  />
+                </div>
+              </CardBody>
+            </div>
+
+            <div className="flex flex-col gap-3">
+              <motion.div
+                initial={{ opacity: 0, y: 8 }}
+                animate={{ opacity: 1, y: 0 }}
+                transition={{ duration: 0.3 }}
+                className="rounded-md bg-card border border-border p-4 flex-1 flex flex-col justify-center"
+              >
+                <div className="flex items-center gap-2 mb-2">
+                  <Home size={14} className="text-muted-foreground" />
+                  <span className="text-[11px] font-semibold text-foreground">Total Bookings</span>
+                </div>
+                <p className="text-3xl font-bold tabular-nums text-foreground">
+                  {statement.bookingsList.length}
+                </p>
+                <p className="text-[11px] text-muted-foreground mt-1">
+                  {formatMoney(statement.grossRevenue)} gross
+                </p>
+              </motion.div>
+
+              <motion.div
+                initial={{ opacity: 0, y: 8 }}
+                animate={{ opacity: 1, y: 0 }}
+                transition={{ duration: 0.3, delay: 0.05 }}
+                className="rounded-md bg-card border border-border p-4 flex-1 flex flex-col justify-center"
+              >
+                <div className="flex items-center gap-2 mb-2">
+                  <Sparkles size={14} className="text-muted-foreground" />
+                  <span className="text-[11px] font-semibold text-foreground">Total Cleanings</span>
+                </div>
+                <p className="text-3xl font-bold tabular-nums text-foreground">
+                  {statement.cleaningsList.length}
+                </p>
+                <p className="text-[11px] text-muted-foreground mt-1">
+                  {formatMoney(statement.housekeeping + statement.laundry)} paid
+                </p>
+              </motion.div>
+            </div>
+          </div>
+
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 items-stretch">
+            <WeeklyOccupancyChart statement={statement} contract={contract} />
+            <WeeklyCumulativeChart statement={statement} monthlyExpenses={monthlyExpenses} contract={contract} />
+          </div>
+
+          <div className="grid grid-cols-1 lg:grid-cols-[2fr_1fr] gap-4">
+            <div>
+              <div className="flex items-center justify-between gap-2 mb-2">
+                <h3 className="text-sm font-semibold text-foreground truncate">{monthLabel(statement.month)} Calendar</h3>
+                <span className="text-[11px] text-foreground tabular-nums">
+                  {statement.bookingsList.length} booking{statement.bookingsList.length === 1 ? '' : 's'} · {statement.cleaningsList.length} cleaning{statement.cleaningsList.length === 1 ? '' : 's'}
+                </span>
+              </div>
+              <BookingCalendar month={statement.month} bookings={statement.bookingsList} cleanings={statement.cleaningsList} />
+            </div>
+
+            <div className="space-y-3">
+              <div className="inline-flex items-center gap-1 bg-muted/60 rounded-full p-1">
+                <button
+                  type="button"
+                  onClick={() => setTab('bookings')}
+                  className={cn(
+                    'px-3 py-1 rounded-full text-[11px] font-semibold transition-colors',
+                    tab === 'bookings' ? 'bg-card border border-border text-foreground shadow-sm' : 'text-muted-foreground hover:text-foreground'
+                  )}
+                >
+                  Bookings · {statement.bookingsList.length}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setTab('cleanings')}
+                  className={cn(
+                    'px-3 py-1 rounded-full text-[11px] font-semibold transition-colors',
+                    tab === 'cleanings' ? 'bg-card border border-border text-foreground shadow-sm' : 'text-muted-foreground hover:text-foreground'
+                  )}
+                >
+                  Cleanings · {statement.cleaningsList.length}
+                </button>
+              </div>
+
+              {tab === 'bookings' ? (
+                statement.bookingsList.length === 0 ? (
+                  <CardBody><div className="p-3 text-xs text-muted-foreground italic">No bookings this month</div></CardBody>
+                ) : (
+                  <div className="space-y-1.5 max-h-[480px] overflow-y-auto overscroll-contain pr-1">
+                    {statement.bookingsList.map((b) => <BookingRow key={b.id} booking={b} />)}
+                  </div>
+                )
+              ) : (
+                statement.cleaningsList.length === 0 ? (
+                  <CardBody><div className="p-3 text-xs text-muted-foreground italic">No cleanings this month</div></CardBody>
+                ) : (
+                  <div className="space-y-1.5 max-h-[480px] overflow-y-auto overscroll-contain pr-1">
+                    {statement.cleaningsList.map((c) => <CleaningRow key={c.id} cleaning={c} />)}
+                  </div>
+                )
+              )}
+            </div>
+          </div>
+
+          <ExpensesPanel statement={statement} contract={contract} onChanged={onChanged} />
+        </>
+      )}
+    </div>
+  )
+}
+
+function MiniStat({ label, value }) {
+  return (
+    <motion.div
+      variants={{ hidden: { opacity: 0, y: 8 }, visible: { opacity: 1, y: 0, transition: { duration: 0.3 } } }}
+      className="rounded-md bg-card border border-border p-3"
+    >
+      <p className="text-[11px] font-semibold text-foreground mb-1 truncate">{label}</p>
+      <p className="text-base font-bold tabular-nums text-foreground truncate">{formatMoney(value)}</p>
+    </motion.div>
+  )
+}
+
+function MiniSplitStat({ label, owner, company }) {
+  return (
+    <motion.div
+      variants={{ hidden: { opacity: 0, y: 8 }, visible: { opacity: 1, y: 0, transition: { duration: 0.3 } } }}
+      className="rounded-md bg-card border border-border p-3"
+    >
+      <p className="text-[11px] font-semibold text-foreground mb-1">{label}</p>
+      <div className="space-y-0.5">
+        <div className="flex items-center justify-between gap-2">
+          <span className="text-[11px] text-foreground">Owner</span>
+          <span className="text-xs font-bold tabular-nums text-foreground">{formatMoney(owner)}</span>
+        </div>
+        <div className="flex items-center justify-between gap-2">
+          <span className="text-[11px] text-foreground">Company</span>
+          <span className="text-xs font-bold tabular-nums text-foreground">{formatMoney(company)}</span>
+        </div>
+      </div>
+    </motion.div>
+  )
+}
+
+// ============================================================
+// CONTRACT DETAIL — MEMOIZED
+// ============================================================
+const ContractDetail = memo(function ContractDetail({ contract, onBack, onChanged }) {
   const [editModalOpen, setEditModalOpen] = useState(false)
+  const [bookings, setBookings] = useState([])
+  const [cleanings, setCleanings] = useState([])
+  const [monthlyExpenses, setMonthlyExpenses] = useState([])
+  const [loading, setLoading] = useState(true)
 
-  const effectiveDate = useMemo(() => {
-    let min = contract.effective_date || null
-    for (const b of bookings) {
-      if (!b.check_in) continue
-      if (!min || b.check_in < min) min = b.check_in
+  const fetchDetailData = useCallback(async () => {
+    if (!contract?.id || !contract?.unit_id) return
+    setLoading(true)
+    try {
+      const [bRes, clRes, exRes] = await Promise.all([
+        supabase
+          .from('bookings')
+          .select('id, unit_id, booking_code, guest_name, check_in, check_out, guests, total_amount, booker_commission, affiliate_commission, payment_status, balance, deleted_at')
+          .eq('unit_id', contract.unit_id)
+          .is('deleted_at', null),
+        supabase
+          .from('cleanings')
+          .select('id, cleaning_code, unit_id, type, scheduled_date, status, payment_amount, laundry_payment_amount, photos_before, photos_after, photos_report')
+          .eq('unit_id', contract.unit_id),
+        supabase
+          .from('contract_monthly_expenses')
+          .select('*')
+          .eq('contract_id', contract.id),
+      ])
+      if (bRes.error) throw bRes.error
+      if (clRes.error) throw clRes.error
+      if (exRes.error) throw exRes.error
+      setBookings(bRes.data || [])
+      setCleanings(clRes.data || [])
+      setMonthlyExpenses(exRes.data || [])
+    } catch (err) {
+      console.error('Failed to load contract detail:', err)
+      toast.error('Failed to load contract detail')
+    } finally {
+      setLoading(false)
     }
-    return min
-  }, [contract.effective_date, bookings])
+  }, [contract?.id, contract?.unit_id])
 
-  const expiryDate = useMemo(() => {
-    let max = contract.expiry_date || null
-    for (const b of bookings) {
-      if (!b.check_in) continue
-      if (!max || b.check_in > max) max = b.check_in
-    }
-    return max
-  }, [contract.expiry_date, bookings])
+  useEffect(() => { fetchDetailData() }, [fetchDetailData])
+
+  useEffect(() => {
+    if (!contract?.unit_id) return
+    const ch = supabase
+      .channel(`contract-detail-${contract.id}-${Math.random().toString(36).slice(2, 8)}`)
+      .on('postgres_changes',
+        { event: '*', schema: 'public', table: 'bookings', filter: `unit_id=eq.${contract.unit_id}` },
+        () => fetchDetailData())
+      .on('postgres_changes',
+        { event: '*', schema: 'public', table: 'cleanings', filter: `unit_id=eq.${contract.unit_id}` },
+        () => fetchDetailData())
+      .on('postgres_changes',
+        { event: '*', schema: 'public', table: 'contract_monthly_expenses', filter: `contract_id=eq.${contract.id}` },
+        () => fetchDetailData())
+      .subscribe()
+    return () => { supabase.removeChannel(ch) }
+  }, [contract?.id, contract?.unit_id, fetchDetailData])
+
+  const effectiveDate = useMemo(() => contract.effective_date || null, [contract.effective_date])
+  const expiryDate = useMemo(() => contract.expiry_date || null, [contract.expiry_date])
 
   const allMonths = useMemo(
     () => monthRangeFromDates(effectiveDate, expiryDate),
@@ -2075,15 +2527,31 @@ function ContractDetail({ contract, bookings, cleanings, monthlyExpenses, onBack
   }, [statements])
 
   const [selectedMonth, setSelectedMonth] = useState(defaultMonth)
-
   useEffect(() => { setSelectedMonth(defaultMonth) }, [defaultMonth])
+
+  const handleChanged = useCallback(() => {
+    fetchDetailData()
+    onChanged?.()
+  }, [fetchDetailData, onChanged])
+
+  if (loading && statements.length === 0) {
+    return (
+      <div className="h-full flex flex-col lg:flex-row min-h-0 bg-card border border-border rounded-md overflow-hidden">
+        <ContractSidebar contract={contract} onBack={onBack} onEdit={() => setEditModalOpen(true)} />
+        <div className="flex-1 min-h-0 flex items-center justify-center">
+          <Loader2 size={28} className="animate-spin text-primary" />
+        </div>
+      </div>
+    )
+  }
 
   return (
     <div className="h-full flex flex-col lg:flex-row min-h-0 bg-card border border-border rounded-md overflow-hidden">
       <ContractSidebar contract={contract} onBack={onBack} onEdit={() => setEditModalOpen(true)} />
 
       <div className="flex-1 min-h-0 overflow-y-auto p-4 space-y-5">
-        <SectionWrapper variant="blue" icon={BarChart3} title="General Statistics">
+        <section>
+          <SectionHeader icon={BarChart3} title="General Statistics" />
           <GeneralStatistics
             lifetime={lifetime}
             statements={statements}
@@ -2093,25 +2561,243 @@ function ContractDetail({ contract, bookings, cleanings, monthlyExpenses, onBack
             contract={contract}
             bookings={bookings}
           />
-        </SectionWrapper>
+        </section>
 
-        <SectionWrapper variant="amber" icon={Calendar} title="Specific Month">
+        <section>
+          <SectionHeader icon={Calendar} title="Specific Month" />
           <MonthlySection
             statements={statements}
             selectedMonth={selectedMonth}
             onSelectMonth={setSelectedMonth}
             contract={contract}
-            bookings={bookings}
+            cleanings={cleanings}
             monthlyExpenses={monthlyExpenses}
-            onChanged={onChanged}
+            onChanged={handleChanged}
             yearSections={yearSections}
             selectedYear={selectedYear}
             onSelectYear={setSelectedYear}
           />
-        </SectionWrapper>
+        </section>
       </div>
 
-      <ContractEditModal open={editModalOpen} onClose={() => setEditModalOpen(false)} contract={contract} onSaved={onChanged} />
+      <ContractEditModal
+        open={editModalOpen}
+        onClose={() => setEditModalOpen(false)}
+        contract={contract}
+        onSaved={handleChanged}
+      />
+    </div>
+  )
+})
+
+// ============================================================
+// PAGINATION
+// ============================================================
+function Pagination({ page, totalPages, onPageChange }) {
+  if (totalPages <= 1) return null
+
+  const pages = []
+  const maxVisible = 5
+  let start = Math.max(1, page - Math.floor(maxVisible / 2))
+  let end = Math.min(totalPages, start + maxVisible - 1)
+  if (end - start < maxVisible - 1) start = Math.max(1, end - maxVisible + 1)
+
+  for (let i = start; i <= end; i++) pages.push(i)
+
+  return (
+    <div className="flex items-center justify-center gap-1 pt-3">
+      <button
+        type="button"
+        onClick={() => onPageChange(Math.max(1, page - 1))}
+        disabled={page === 1}
+        className={cn(
+          'p-1.5 rounded border border-border',
+          page === 1 ? 'opacity-40 cursor-not-allowed' : 'hover:bg-muted text-foreground'
+        )}
+      >
+        <ChevronLeft size={13} />
+      </button>
+
+      {start > 1 && (
+        <>
+          <button
+            type="button"
+            onClick={() => onPageChange(1)}
+            className="px-3 py-1 rounded text-xs font-semibold text-foreground hover:bg-muted"
+          >
+            1
+          </button>
+          {start > 2 && <span className="text-xs text-muted-foreground px-1">…</span>}
+        </>
+      )}
+
+      {pages.map((p) => (
+        <button
+          key={p}
+          type="button"
+          onClick={() => onPageChange(p)}
+          className={cn(
+            'min-w-[32px] px-2.5 py-1 rounded text-xs font-semibold tabular-nums transition-colors',
+            p === page
+              ? 'text-white'
+              : 'text-foreground hover:bg-muted'
+          )}
+          style={p === page ? { backgroundColor: BRAND } : undefined}
+        >
+          {p}
+        </button>
+      ))}
+
+      {end < totalPages && (
+        <>
+          {end < totalPages - 1 && <span className="text-xs text-muted-foreground px-1">…</span>}
+          <button
+            type="button"
+            onClick={() => onPageChange(totalPages)}
+            className="px-3 py-1 rounded text-xs font-semibold text-foreground hover:bg-muted"
+          >
+            {totalPages}
+          </button>
+        </>
+      )}
+
+      <button
+        type="button"
+        onClick={() => onPageChange(Math.min(totalPages, page + 1))}
+        disabled={page === totalPages}
+        className={cn(
+          'p-1.5 rounded border border-border',
+          page === totalPages ? 'opacity-40 cursor-not-allowed' : 'hover:bg-muted text-foreground'
+        )}
+      >
+        <ChevronRight size={13} />
+      </button>
+    </div>
+  )
+}
+
+// ============================================================
+// ANALYTICS PANELS (portfolio-wide, last 12 months)
+// ============================================================
+function AccountingAnalyticsPanels({ collapsed }) {
+  const [data, setData] = useState([])
+  const [loading, setLoading] = useState(true)
+
+  useEffect(() => {
+    let cancelled = false
+    async function load() {
+      setLoading(true)
+      try {
+        const { data: monthly, error } = await supabase.rpc('dashboard_analytics', {
+          p_months: ANALYTICS_MONTHS,
+        })
+        if (error) throw error
+        if (!cancelled) setData(monthly || [])
+      } catch (err) {
+        console.error('Analytics load failed:', err)
+        if (!cancelled) setData([])
+      } finally {
+        if (!cancelled) setLoading(false)
+      }
+    }
+    load()
+    return () => { cancelled = true }
+  }, [])
+
+  const bookingsData = useMemo(() => (data || []).map((r) => ({
+    label: MONTHS_SHORT[new Date(r.month_start + 'T00:00:00Z').getUTCMonth()],
+    bookings: Number(r.bookings_count || 0),
+  })), [data])
+
+  const occupancyData = useMemo(() => (data || []).map((r) => ({
+    label: MONTHS_SHORT[new Date(r.month_start + 'T00:00:00Z').getUTCMonth()],
+    pct: Number(r.occupancy_pct || 0),
+  })), [data])
+
+  return (
+    <div className={cn('flex-shrink-0 grid grid-cols-1 lg:grid-cols-2 gap-4 transition-all duration-300 ease-out overflow-hidden', collapsed ? 'max-h-0 opacity-0 -mb-3' : 'max-h-[340px] opacity-100')}>
+      {/* Bookings per month */}
+      <section className="flex flex-col min-h-0">
+        <div className="flex items-center gap-2 mb-2">
+          <Calendar size={13} className="text-foreground flex-shrink-0" />
+          <h3 className="text-[11px] font-semibold uppercase tracking-wider text-foreground truncate">Bookings — Last 12 Months</h3>
+        </div>
+        <div className="rounded-md bg-card border border-border overflow-hidden flex-1 min-h-0">
+          <div className="h-[240px] p-3">
+            {loading ? (
+              <div className="h-full w-full rounded bg-muted/50 animate-pulse" />
+            ) : bookingsData.length === 0 ? (
+              <div className="h-full flex items-center justify-center text-xs text-muted-foreground italic">No data</div>
+            ) : (
+              <ResponsiveContainer width="100%" height="100%">
+                <BarChart data={bookingsData} margin={{ top: 4, right: 4, left: -12, bottom: 0 }}>
+                  <CartesianGrid strokeDasharray="3 3" stroke="currentColor" strokeOpacity={0.1} vertical={false} />
+                  <XAxis dataKey="label" tick={{ fontSize: 10 }} stroke="currentColor" strokeOpacity={0.4} tickLine={false} axisLine={false} />
+                  <YAxis tick={{ fontSize: 10 }} stroke="currentColor" strokeOpacity={0.4} tickLine={false} axisLine={false} allowDecimals={false} />
+                  <Tooltip
+                    contentStyle={{ borderRadius: 8, border: '1px solid var(--border)', fontSize: 12 }}
+                    formatter={(v) => [v, 'Bookings']}
+                  />
+                  <Bar dataKey="bookings" fill={BRAND} radius={[4, 4, 0, 0]} maxBarSize={28} />
+                </BarChart>
+              </ResponsiveContainer>
+            )}
+          </div>
+        </div>
+      </section>
+
+      {/* Occupancy — area chart with gradient, no dots, blue */}
+      <section className="flex flex-col min-h-0">
+        <div className="flex items-center gap-2 mb-2">
+          <Home size={13} className="text-foreground flex-shrink-0" />
+          <h3 className="text-[11px] font-semibold uppercase tracking-wider text-foreground truncate">Occupancy — Last 12 Months</h3>
+        </div>
+        <div className="rounded-md bg-card border border-border overflow-hidden flex-1 min-h-0">
+          <div className="h-[240px] p-3">
+            {loading ? (
+              <div className="h-full w-full rounded bg-muted/50 animate-pulse" />
+            ) : occupancyData.length === 0 ? (
+              <div className="h-full flex items-center justify-center text-xs text-muted-foreground italic">No data</div>
+            ) : (
+              <ResponsiveContainer width="100%" height="100%">
+                <AreaChart data={occupancyData} margin={{ top: 4, right: 4, left: -12, bottom: 0 }}>
+                  <defs>
+                    <linearGradient id="occupancy-fill" x1="0" y1="0" x2="0" y2="1">
+                      <stop offset="0%" stopColor={BRAND} stopOpacity={0.35} />
+                      <stop offset="60%" stopColor={BRAND} stopOpacity={0.12} />
+                      <stop offset="100%" stopColor={BRAND} stopOpacity={0} />
+                    </linearGradient>
+                  </defs>
+                  <CartesianGrid strokeDasharray="3 3" stroke="currentColor" strokeOpacity={0.1} vertical={false} />
+                  <XAxis dataKey="label" tick={{ fontSize: 10 }} stroke="currentColor" strokeOpacity={0.4} tickLine={false} axisLine={false} />
+                  <YAxis
+                    tick={{ fontSize: 10 }}
+                    tickFormatter={(v) => `${v}%`}
+                    stroke="currentColor"
+                    strokeOpacity={0.4}
+                    tickLine={false}
+                    axisLine={false}
+                    domain={[0, 100]}
+                  />
+                  <Tooltip
+                    contentStyle={{ borderRadius: 8, border: '1px solid var(--border)', fontSize: 12 }}
+                    formatter={(v) => [`${v}%`, 'Occupancy']}
+                  />
+                  <Area
+                    type="monotone"
+                    dataKey="pct"
+                    stroke={BRAND}
+                    strokeWidth={2}
+                    fill="url(#occupancy-fill)"
+                    dot={false}
+                    activeDot={{ r: 4, fill: BRAND }}
+                  />
+                </AreaChart>
+              </ResponsiveContainer>
+            )}
+          </div>
+        </div>
+      </section>
     </div>
   )
 }
@@ -2120,39 +2806,89 @@ function ContractDetail({ contract, bookings, cleanings, monthlyExpenses, onBack
 // LIST PAGE
 // ============================================================
 function ContractList({
-  contractsWithLifetime, onSelect, isFirstLoad, isRefreshing, onRefresh,
-  search, setSearch, statusFilter, setStatusFilter, counts, globalTotals,
+  contracts,
+  lifetimeMap,
+  globalTotals,
+  onSelect,
+  isFirstLoad,
+  isRefreshing,
+  onRefresh,
+  search,
+  setSearch,
+  statusFilter,
+  setStatusFilter,
+  sortBy,
+  setSortBy,
+  counts,
 }) {
   const [debouncedSearch, setDebouncedSearch] = useState('')
+  const [page, setPage] = useState(1)
+  const [panelsHidden, setPanelsHidden] = useState(false)
+  const headerRef = useRef(null)
 
   useEffect(() => {
     const t = setTimeout(() => setDebouncedSearch(search), 300)
     return () => clearTimeout(t)
   }, [search])
 
-  const sorted = useMemo(() => {
+  useEffect(() => { setPage(1) }, [debouncedSearch, statusFilter, sortBy])
+
+  const filteredSorted = useMemo(() => {
     const q = debouncedSearch.trim().toLowerCase()
-    let list = contractsWithLifetime
-    if (statusFilter !== 'all') list = list.filter(({ contract }) => deriveContractStatus(contract) === statusFilter)
+    let list = contracts.map((c) => ({
+      contract: c,
+      lifetime: lifetimeMap.get(c.id) || { gross: 0, expenses: 0, net: 0, owner: 0, company: 0, monthsCount: 0 },
+    }))
+
+    if (statusFilter !== 'all') {
+      list = list.filter(({ contract }) => deriveContractStatus(contract) === statusFilter)
+    }
+
     if (q) {
       list = list.filter(({ contract }) =>
         [contract.contract_code, contract.units?.unit_code, contract.units?.building, contract.owners?.name, contract.owners?.email]
           .filter(Boolean).join(' ').toLowerCase().includes(q)
       )
     }
-    return [...list].sort((a, b) => {
-      const av = a.contract.units?.unit_code ?? ''
-      const bv = b.contract.units?.unit_code ?? ''
-      return av.localeCompare(bv)
-    })
-  }, [contractsWithLifetime, debouncedSearch, statusFilter])
+
+    const sorted = [...list]
+    switch (sortBy) {
+      case 'date_desc':
+        sorted.sort((a, b) => (b.contract.effective_date ?? '').localeCompare(a.contract.effective_date ?? ''))
+        break
+      case 'date_asc':
+        sorted.sort((a, b) => (a.contract.effective_date ?? '').localeCompare(b.contract.effective_date ?? ''))
+        break
+      case 'net_desc':
+        sorted.sort((a, b) => (b.lifetime.net || 0) - (a.lifetime.net || 0))
+        break
+      case 'net_asc':
+        sorted.sort((a, b) => (a.lifetime.net || 0) - (b.lifetime.net || 0))
+        break
+      case 'unit_asc':
+      default:
+        sorted.sort((a, b) => (a.contract.units?.unit_code ?? '').localeCompare(b.contract.units?.unit_code ?? ''))
+    }
+    return sorted
+  }, [contracts, lifetimeMap, debouncedSearch, statusFilter, sortBy])
+
+  const totalPages = Math.max(1, Math.ceil(filteredSorted.length / PAGE_SIZE))
+
+  useEffect(() => {
+    if (page > totalPages) setPage(totalPages)
+  }, [page, totalPages])
+
+  const pageItems = useMemo(
+    () => filteredSorted.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE),
+    [filteredSorted, page]
+  )
 
   const handleExport = () => {
-    if (sorted.length === 0) { toast.error('Nothing to export'); return }
+    if (filteredSorted.length === 0) { toast.error('Nothing to export'); return }
     const headers = ['Contract Code', 'Unit', 'Building', 'Owner', 'Effective', 'Expiry', 'Months', 'Lifetime Gross', 'Lifetime Expenses', 'Lifetime Net', `Owner Payout (${OWNER_SPLIT_PCT}%)`, `Company Margin (${COMPANY_SPLIT_PCT}%)`]
-    const rows = sorted.map(({ contract, lifetime, monthsCount }) => [
+    const rows = filteredSorted.map(({ contract, lifetime }) => [
       contract.contract_code || '', contract.units?.unit_code || '', contract.units?.building || '', contract.owners?.name || '',
-      contract.effective_date || '', contract.expiry_date || '', monthsCount,
+      contract.effective_date || '', contract.expiry_date || '', lifetime.monthsCount || 0,
       lifetime.gross, lifetime.expenses, lifetime.net, lifetime.owner, lifetime.company,
     ])
     const csv = [headers, ...rows].map((row) => row.map((v) => `"${String(v).replace(/"/g, '""')}"`).join(',')).join('\n')
@@ -2164,37 +2900,79 @@ function ContractList({
     toast.success('Exported')
   }
 
-  return (
-    <div className="h-full flex flex-col min-h-0 bg-card border border-border rounded-md overflow-hidden">
-      <div className="p-3 flex-1 min-h-0 flex flex-col gap-2.5">
-        <div className="flex-shrink-0"><SummaryCards totals={globalTotals} /></div>
+  const handleListMouseMove = useCallback((e) => {
+    const headerEl = headerRef.current
+    if (!headerEl) return
+    const rect = headerEl.getBoundingClientRect()
+    setPanelsHidden(e.clientY > rect.bottom)
+  }, [])
 
-        <div className="flex-shrink-0 flex items-center gap-2">
+  const handleListMouseLeave = useCallback(() => setPanelsHidden(false), [])
+
+  return (
+    <div className="h-full flex flex-col min-h-0">
+      <div className="p-3 flex-1 min-h-0 flex flex-col gap-2.5">
+
+        {/* Summary cards */}
+        <div className="flex-shrink-0">
+          <SummaryCards totals={globalTotals} />
+        </div>
+
+        {/* Analytics panels — collapse on list hover */}
+        <AccountingAnalyticsPanels collapsed={panelsHidden} />
+
+        {/* Search bar */}
+        <div ref={headerRef} className="flex-shrink-0 flex items-center gap-2">
           <div className="relative flex-1 min-w-0">
             <Search size={13} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-muted-foreground" />
-            <Input placeholder="Search contract code, unit, owner…" value={search} onChange={(e) => setSearch(e.target.value)} className="pl-8 h-8 text-xs rounded" />
+            <Input
+              placeholder="Search contract code, unit, owner…"
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              className="pl-8 h-8 text-xs rounded"
+            />
           </div>
+
+          <div className="relative">
+            <select
+              value={sortBy}
+              onChange={(e) => setSortBy(e.target.value)}
+              className="h-8 text-xs rounded border border-border bg-background px-2 pr-7 appearance-none focus:outline-none focus:ring-2 focus:ring-primary/30 tabular-nums"
+            >
+              {SORT_OPTIONS.map((o) => <option key={o.id} value={o.id}>{o.label}</option>)}
+            </select>
+            <ChevronDown size={12} className="absolute right-2 top-1/2 -translate-y-1/2 pointer-events-none text-muted-foreground" />
+          </div>
+
           <Button variant="outline" size="sm" onClick={onRefresh} disabled={isRefreshing} className="h-8 rounded">
             <RefreshCw size={13} className={cn(isRefreshing && 'animate-spin')} />
           </Button>
           <Button variant="outline" size="sm" onClick={handleExport} className="h-8 rounded"><Download size={13} /></Button>
         </div>
 
+        {/* Status pills */}
         <div className="flex-shrink-0 flex items-center justify-between gap-3 flex-wrap">
           <StatusPills statusFilter={statusFilter} onStatusFilter={setStatusFilter} counts={counts} />
+          <span className="text-[11px] text-muted-foreground tabular-nums">
+            {filteredSorted.length} contract{filteredSorted.length === 1 ? '' : 's'} · Page {page} of {totalPages}
+          </span>
         </div>
 
-        <div className="flex-1 min-h-0 rounded border border-border overflow-hidden">
-          <div className="h-full overflow-y-auto" style={{ scrollbarGutter: 'stable' }}>
+        {/* List */}
+        <div className="flex-1 min-h-0 rounded border border-border overflow-hidden flex flex-col bg-card">
+          <div className="flex-1 overflow-y-auto" style={{ scrollbarGutter: 'stable' }}
+            onMouseMove={handleListMouseMove}
+            onMouseLeave={handleListMouseLeave}>
             <div className={cn('sticky top-0 z-10 px-4 py-2 border-b border-border bg-card', ROW_GRID)}>
               <span className="text-[11px] font-bold text-foreground truncate">Unit</span>
-              <span className="text-[11px] font-bold text-foreground truncate">Owner · Code</span>
+              <span className="text-[11px] font-bold text-foreground truncate">Owner / Contract</span>
+              <span className="text-[11px] font-bold text-foreground truncate">Dates</span>
               <span className="text-[11px] font-bold text-foreground truncate">Gross · Net</span>
               <span className="text-[11px] font-bold text-foreground text-right truncate">Status</span>
             </div>
             {isFirstLoad ? (
               <div className="space-y-2 p-3">{[...Array(8)].map((_, i) => <Skeleton key={i} className="h-14 w-full" />)}</div>
-            ) : sorted.length === 0 ? (
+            ) : pageItems.length === 0 ? (
               <div className="h-full flex items-center justify-center text-center py-12">
                 <div>
                   <TrendingUp size={36} className="text-muted-foreground/40 mx-auto mb-3" />
@@ -2203,10 +2981,19 @@ function ContractList({
                 </div>
               </div>
             ) : (
-              sorted.map(({ contract, lifetime }) => (
-                <ContractRow key={contract.id} contract={contract} lifetime={lifetime} onClick={() => onSelect(contract.id)} />
+              pageItems.map(({ contract, lifetime }) => (
+                <ContractRow
+                  key={contract.id}
+                  contract={contract}
+                  lifetime={lifetime}
+                  onClick={() => onSelect(contract.id)}
+                />
               ))
             )}
+          </div>
+
+          <div className="flex-shrink-0 border-t border-border bg-card px-3 py-1">
+            <Pagination page={page} totalPages={totalPages} onPageChange={setPage} />
           </div>
         </div>
       </div>
@@ -2218,61 +3005,40 @@ function ContractList({
 // MAIN PAGE
 // ============================================================
 export default function AccountingPage() {
-  const [searchParams, setSearchParams] = useSearchParams()
-  const selectedContractId = searchParams.get('contract')
+  const [selectedContractId, setSelectedContractId] = useState(null)
 
   const [contracts, setContracts] = useState([])
-  const [bookingsByUnit, setBookingsByUnit] = useState({})
-  const [cleaningsByUnit, setCleaningsByUnit] = useState({})
-  const [expensesByContract, setExpensesByContract] = useState({})
+  const [lifetimeMap, setLifetimeMap] = useState(new Map())
 
   const [isFirstLoad, setIsFirstLoad] = useState(true)
   const [isRefreshing, setIsRefreshing] = useState(false)
   const [search, setSearch] = useState('')
   const [statusFilter, setStatusFilter] = useState('all')
+  const [sortBy, setSortBy] = useState('unit_asc')
+
   const hasLoadedOnce = useRef(false)
+  const realtimeDebounceRef = useRef(null)
 
   const fetchAll = useCallback(async () => {
     if (!hasLoadedOnce.current) setIsFirstLoad(true)
     else setIsRefreshing(true)
     try {
-      const [cRes, bRes, clRes, exRes] = await Promise.all([
-        supabase.from('contracts').select(`
+      const { data, error } = await supabase
+        .from('contracts')
+        .select(`
           *,
           units:unit_id ( id, unit_code, building ),
           owners:owner_id ( id, name, email, phone )
-        `).order('effective_date', { ascending: false, nullsFirst: false }),
-        supabase.from('bookings').select('id, unit_id, booking_code, guest_name, check_in, check_out, total_amount, booker_commission, affiliate_commission, deleted_at').is('deleted_at', null),
-        supabase.from('cleanings').select('id, unit_id, type, scheduled_date, status, payment_amount, laundry_payment_amount'),
-        supabase.from('contract_monthly_expenses').select('*'),
-      ])
-      if (cRes.error) throw cRes.error
-      if (bRes.error) throw bRes.error
-      if (clRes.error) throw clRes.error
-      if (exRes.error) throw exRes.error
+        `)
+        .order('effective_date', { ascending: false, nullsFirst: false })
+      if (error) throw error
 
-      setContracts(cRes.data || [])
+      const list = data || []
+      setContracts(list)
 
-      const byUnit = {}
-      for (const b of (bRes.data || [])) {
-        if (!byUnit[b.unit_id]) byUnit[b.unit_id] = []
-        byUnit[b.unit_id].push(b)
-      }
-      setBookingsByUnit(byUnit)
-
-      const clByUnit = {}
-      for (const c of (clRes.data || [])) {
-        if (!clByUnit[c.unit_id]) clByUnit[c.unit_id] = []
-        clByUnit[c.unit_id].push(c)
-      }
-      setCleaningsByUnit(clByUnit)
-
-      const exByContract = {}
-      for (const e of (exRes.data || [])) {
-        if (!exByContract[e.contract_id]) exByContract[e.contract_id] = []
-        exByContract[e.contract_id].push(e)
-      }
-      setExpensesByContract(exByContract)
+      const ids = list.map((c) => c.id)
+      const map = await fetchContractsLifetime(ids)
+      setLifetimeMap(map)
     } catch (err) {
       console.error('Failed to load accounting data:', err)
       toast.error('Failed to load accounting data')
@@ -2286,106 +3052,96 @@ export default function AccountingPage() {
   useEffect(() => { fetchAll() }, [fetchAll])
 
   useEffect(() => {
-    const ch = supabase.channel(`accounting-${Math.random().toString(36).slice(2, 10)}`)
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'contract_monthly_expenses' }, () => fetchAll())
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'bookings' }, () => fetchAll())
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'cleanings' }, () => fetchAll())
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'contracts' }, () => fetchAll())
+    const ch = supabase
+      .channel(`accounting-contracts-${Math.random().toString(36).slice(2, 8)}`)
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'contracts' }, () => {
+        if (realtimeDebounceRef.current) clearTimeout(realtimeDebounceRef.current)
+        realtimeDebounceRef.current = setTimeout(() => {
+          fetchAll()
+        }, REALTIME_DEBOUNCE_MS)
+      })
       .subscribe()
-    return () => { supabase.removeChannel(ch) }
+    return () => {
+      supabase.removeChannel(ch)
+      if (realtimeDebounceRef.current) clearTimeout(realtimeDebounceRef.current)
+    }
   }, [fetchAll])
 
-  const contractsWithLifetime = useMemo(() => {
-    return contracts.map((c) => {
-      const bookings = bookingsByUnit[c.unit_id] || []
-      const cleanings = cleaningsByUnit[c.unit_id] || []
-      const expenses = expensesByContract[c.id] || []
-      const months = monthRangeFromDates(c.effective_date, c.expiry_date)
-      const statements = months.map((m) => computeMonthlyStatement({ contract: c, bookings, cleanings, monthlyExpenses: expenses, month: m }))
-      const lifetime = computeLifetime(statements)
-      return { contract: c, lifetime, monthsCount: months.length }
-    })
-  }, [contracts, bookingsByUnit, cleaningsByUnit, expensesByContract])
-
   const globalTotals = useMemo(() => {
-    return contractsWithLifetime.reduce((acc, row) => {
-      acc.gross += row.lifetime.gross
-      acc.expenses += row.lifetime.expenses
-      acc.net += row.lifetime.net
-      acc.owner += row.lifetime.owner
-      acc.company += row.lifetime.company
-      return acc
-    }, { gross: 0, expenses: 0, net: 0, owner: 0, company: 0 })
-  }, [contractsWithLifetime])
+    const acc = { gross: 0, expenses: 0, net: 0, owner: 0, company: 0 }
+    for (const lt of lifetimeMap.values()) {
+      acc.gross += lt.gross
+      acc.expenses += lt.expenses
+      acc.net += lt.net
+      acc.owner += lt.owner
+      acc.company += lt.company
+    }
+    return acc
+  }, [lifetimeMap])
 
   const counts = useMemo(() => {
-    const c = { all: contractsWithLifetime.length, active: 0, expiring: 0, expired: 0 }
-    for (const { contract } of contractsWithLifetime) {
+    const c = { all: contracts.length, active: 0, expiring: 0, expired: 0 }
+    for (const contract of contracts) {
       const s = deriveContractStatus(contract)
       if (c[s] !== undefined) c[s]++
     }
     return c
-  }, [contractsWithLifetime])
+  }, [contracts])
 
   const selectedContract = useMemo(
     () => contracts.find((c) => c.id === selectedContractId) || null,
     [contracts, selectedContractId]
   )
 
-  const handleSelectContract = (id) => {
-    const next = new URLSearchParams(searchParams)
-    next.set('tab', 'accounting'); next.set('contract', id)
-    setSearchParams(next, { replace: false })
-  }
-
-  const handleBack = () => {
-    const next = new URLSearchParams(searchParams)
-    next.set('tab', 'accounting'); next.delete('contract')
-    setSearchParams(next, { replace: false })
-  }
-
-  if (selectedContractId && !selectedContract) {
-    if (isFirstLoad) return <div className="h-full flex items-center justify-center"><Loader2 size={24} className="animate-spin text-primary" /></div>
-    return (
-      <div className="h-full flex flex-col items-center justify-center gap-3">
-        <p className="text-sm font-semibold text-foreground">Contract not found</p>
-        <Button variant="outline" size="sm" className="h-8 rounded text-xs" onClick={handleBack}>
-          <ChevronLeft size={12} className="mr-1" /> Back to list
-        </Button>
-      </div>
-    )
-  }
-
-  if (selectedContract) {
-    return (
-      <div className="h-full min-h-0">
-        <ContractDetail
-          contract={selectedContract}
-          bookings={bookingsByUnit[selectedContract.unit_id] || []}
-          cleanings={cleaningsByUnit[selectedContract.unit_id] || []}
-          monthlyExpenses={expensesByContract[selectedContract.id] || []}
-          onBack={handleBack}
-          onChanged={fetchAll}
-        />
-      </div>
-    )
-  }
+  const handleSelectContract = useCallback((id) => setSelectedContractId(id), [])
+  const handleBack = useCallback(() => setSelectedContractId(null), [])
 
   return (
-    <div className="h-full min-h-0">
-      <ContractList
-        contractsWithLifetime={contractsWithLifetime}
-        onSelect={handleSelectContract}
-        isFirstLoad={isFirstLoad}
-        isRefreshing={isRefreshing}
-        onRefresh={fetchAll}
-        search={search}
-        setSearch={setSearch}
-        statusFilter={statusFilter}
-        setStatusFilter={setStatusFilter}
-        counts={counts}
-        globalTotals={globalTotals}
-      />
+    <div className="h-full min-h-0 relative">
+      <AnimatePresence mode="wait" initial={false}>
+        {selectedContract ? (
+          <motion.div
+            key={`detail-${selectedContract.id}`}
+            initial={{ opacity: 0, x: 40 }}
+            animate={{ opacity: 1, x: 0 }}
+            exit={{ opacity: 0, x: 40 }}
+            transition={{ duration: 0.32, ease: [0.16, 1, 0.3, 1] }}
+            className="h-full min-h-0"
+          >
+            <ContractDetail
+              contract={selectedContract}
+              onBack={handleBack}
+              onChanged={fetchAll}
+            />
+          </motion.div>
+        ) : (
+          <motion.div
+            key="list"
+            initial={{ opacity: 0, x: -30 }}
+            animate={{ opacity: 1, x: 0 }}
+            exit={{ opacity: 0, x: -30 }}
+            transition={{ duration: 0.32, ease: [0.16, 1, 0.3, 1] }}
+            className="h-full min-h-0"
+          >
+            <ContractList
+              contracts={contracts}
+              lifetimeMap={lifetimeMap}
+              globalTotals={globalTotals}
+              onSelect={handleSelectContract}
+              isFirstLoad={isFirstLoad}
+              isRefreshing={isRefreshing}
+              onRefresh={fetchAll}
+              search={search}
+              setSearch={setSearch}
+              statusFilter={statusFilter}
+              setStatusFilter={setStatusFilter}
+              sortBy={sortBy}
+              setSortBy={setSortBy}
+              counts={counts}
+            />
+          </motion.div>
+        )}
+      </AnimatePresence>
     </div>
   )
 }

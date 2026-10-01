@@ -19,7 +19,7 @@ import { logAudit } from '@/lib/auditLog'
 import { cn } from '@/lib/utils'
 import {
   getTierInfo, nextTierInfo, TIER_LADDER,
-  fetchAffiliateCompletedCount, fetchSpecialistCompletedCount,
+  fetchTeamCompletedCounts,
 } from '@/lib/commissions'
 
 const BRAND = '#2d568e'
@@ -395,23 +395,14 @@ function WorkerFormModal({ open, onClose, onSaved, role, editing }) {
 // ============================================================
 // DETAIL PANEL
 // ============================================================
-function DetailPanel({ worker, role, onClose, onChanged, onEdit, onDelete }) {
-  const [liveCount, setLiveCount] = useState(0)
-
-  useEffect(() => {
-    let cancelled = false
-    async function load() {
-      if (!worker?.code) return
-      const count = role === 'affiliates'
-        ? await fetchAffiliateCompletedCount(worker.code)
-        : role === 'specialists'
-          ? await fetchSpecialistCompletedCount(worker.code)
-          : 0
-      if (!cancelled) setLiveCount(count)
-    }
-    load()
-    return () => { cancelled = true }
-  }, [worker?.code, role])
+function DetailPanel({ worker, role, counts, onClose, onChanged, onEdit, onDelete }) {
+  // Count comes from the already-loaded counts prop — no per-worker RPC.
+  const liveCount = useMemo(() => {
+    if (!worker?.code) return 0
+    if (role === 'affiliates') return counts?.affiliates?.[worker.code] || 0
+    if (role === 'specialists') return counts?.specialists?.[worker.code] || 0
+    return 0
+  }, [worker?.code, role, counts])
 
   if (!worker) return null
 
@@ -456,7 +447,7 @@ function DetailPanel({ worker, role, onClose, onChanged, onEdit, onDelete }) {
 
         <div className="flex-1 overflow-y-auto p-4 space-y-3">
 
-          <WorkerBookingsSection worker={worker} role={role} onCountChange={setLiveCount} />
+          <WorkerBookingsSection worker={worker} role={role} />
 
           {!isHousekeeper && (
             <SectionCard title="Stats" icon={TrendingUp}>
@@ -563,27 +554,20 @@ export default function TeamPage() {
     if (!hasLoadedOnce.current) setLoading(true)
     else setRefreshing(true)
     try {
-      const [s, a, h] = await Promise.all([
+      const [s, a, h, countResult] = await Promise.all([
         supabase.from('specialists').select('*').order('name'),
         supabase.from('affiliates').select('*').order('name'),
         supabase.from('housekeepers').select('*').order('name'),
+        fetchTeamCompletedCounts(),
       ])
       if (s.error) throw s.error
       if (a.error) throw a.error
       if (h.error) throw h.error
+
       setData({ specialists: s.data || [], affiliates: a.data || [], housekeepers: h.data || [] })
-
-      // Live counts for tier display
-      const specCodes = (s.data || []).map((x) => x.code).filter(Boolean)
-      const affCodes = (a.data || []).map((x) => x.code).filter(Boolean)
-
-      const [specCounts, affCounts] = await Promise.all([
-        Promise.all(specCodes.map(async (c) => [c, await fetchSpecialistCompletedCount(c)])),
-        Promise.all(affCodes.map(async (c) => [c, await fetchAffiliateCompletedCount(c)])),
-      ])
       setCounts({
-        specialists: Object.fromEntries(specCounts),
-        affiliates: Object.fromEntries(affCounts),
+        specialists: countResult.specialists || {},
+        affiliates: countResult.affiliates || {},
       })
     } catch (err) {
       console.error('Failed to load team:', err)
@@ -768,6 +752,7 @@ export default function TeamPage() {
             key={selected.id}
             worker={selected}
             role={activeTab}
+            counts={counts}
             onClose={() => setSelected(null)}
             onChanged={handleChanged}
             onEdit={() => openEdit(selected)}

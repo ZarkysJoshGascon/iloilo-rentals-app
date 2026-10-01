@@ -3,6 +3,8 @@
 // Contract accounting computations
 // ============================================================
 // Split model: every contract is 75/25 (owner/company).
+// Bookings and cleanings are only counted if their date falls
+// within [contract.effective_date, contract.expiry_date].
 // ============================================================
 
 export const OWNER_SPLIT_PCT = 75
@@ -61,18 +63,16 @@ export function monthRangeFromDates(startDate, endDate) {
 }
 
 // ------------------------------------------------------------
-// Custom expense items helpers
-// ------------------------------------------------------------
-export function parseCustomItems(raw) {
-  if (!Array.isArray(raw)) return []
-  return raw
-    .filter((x) => x && typeof x === 'object')
-    .map((x) => ({
-      id: typeof x.id === 'string' && x.id ? x.id : `ci_${Math.random().toString(36).slice(2, 10)}`,
-      name: typeof x.name === 'string' ? x.name.slice(0, 80) : '',
-      amount: Number(x.amount) || 0,
-    }))
-    .filter((x) => x.name.length > 0)
+// Contract range check
+// Returns true when the given date is within the contract's
+// [effective_date, expiry_date] inclusive bounds.
+// Open-ended contract (no expiry) → treated as "any date >= effective"
+// ============================================================
+function withinContractRange(contract, dateStr) {
+  if (!dateStr) return false
+  if (contract?.effective_date && dateStr < contract.effective_date) return false
+  if (contract?.expiry_date && dateStr > contract.expiry_date) return false
+  return true
 }
 
 // ------------------------------------------------------------
@@ -94,8 +94,13 @@ export function computeMonthlyStatement({
     return d >= start && d < end
   }
 
-  const monthBookings = (bookings || []).filter((b) => inMonth(b.check_in))
-  const monthCleanings = (cleanings || []).filter((c) => inMonth(c.scheduled_date))
+  // Clamp by contract range AND month membership
+  const monthBookings = (bookings || []).filter(
+    (b) => inMonth(b.check_in) && withinContractRange(contract, b.check_in)
+  )
+  const monthCleanings = (cleanings || []).filter(
+    (c) => inMonth(c.scheduled_date) && withinContractRange(contract, c.scheduled_date)
+  )
 
   const grossRevenue = monthBookings.reduce((s, b) => s + Number(b.total_amount || 0), 0)
 
@@ -110,7 +115,17 @@ export function computeMonthlyStatement({
   const water = Number(manual.water || 0)
   const marketing = Number(manual.marketing || 0)
 
-  const customItems = parseCustomItems(manual.custom_items)
+  const customItems = Array.isArray(manual.custom_items)
+    ? manual.custom_items
+        .filter((x) => x && typeof x === 'object')
+        .map((x) => ({
+          id: typeof x.id === 'string' && x.id ? x.id : `ci_${Math.random().toString(36).slice(2, 10)}`,
+          name: typeof x.name === 'string' ? x.name.slice(0, 80) : '',
+          amount: Number(x.amount) || 0,
+          image: typeof x.image === 'string' ? x.image : null,
+        }))
+        .filter((x) => x.name.length > 0)
+    : []
   const customTotal = customItems.reduce((s, x) => s + (Number(x.amount) || 0), 0)
 
   const totalExpenses =
@@ -146,7 +161,7 @@ export function computeMonthlyStatement({
 }
 
 // ------------------------------------------------------------
-// Lifetime totals
+// Lifetime totals across all statements
 // ------------------------------------------------------------
 export function computeLifetime(statements) {
   const agg = statements.reduce((acc, s) => {

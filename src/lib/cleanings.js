@@ -91,10 +91,13 @@ export async function getCleaning(id) {
   return data
 }
 
+import { generateCleaningCode } from './utils'
+
 export async function createCleaning(payload) {
+  const code = payload.cleaning_code || generateCleaningCode()
   const { data, error } = await supabase
     .from('cleanings')
-    .insert(payload)
+    .insert({ ...payload, cleaning_code: code })
     .select()
     .single()
   if (error) throw error

@@ -1,5 +1,5 @@
+import { lazy, Suspense, useEffect } from 'react'
 import { Routes, Route, useLocation, useNavigate, Navigate } from 'react-router-dom'
-import { useEffect, useState } from 'react'
 import { Toaster } from 'react-hot-toast'
 import { motion, AnimatePresence } from 'framer-motion'
 import { Users, Loader2, Sparkles } from 'lucide-react'
@@ -8,18 +8,28 @@ import { useAuth } from './context/AuthContext'
 import { supabase } from './lib/supabase'
 import Navbar from './components/layout/Navbar'
 import Footer from './components/layout/Footer'
-import HomePage from './pages/public/HomePage'
-import LoginPage from './pages/public/LoginPage'
-import AboutPage from './pages/public/AboutPage'
-import ContactPage from './pages/public/ContactPage'
-import ListPropertyPage from './pages/public/ListPropertyPage'
-import PrivacyPolicyPage from './pages/public/PrivacyPolicyPage'
-import TermsPage from './pages/public/TermsPage'
-import PostLoginPage from './pages/public/PostLoginPage'
-import AdminDashboardPage from './pages/admin/AdminDashboardPage'
 import AdminRoute from './components/admin/AdminRoute'
-import HousekeeperTasksPage from './pages/housekeeper/HousekeeperTasksPage'
 import { useUserRole } from './hooks/useUserRole'
+
+// ---- Lazy-loaded pages (each becomes its own chunk) ----
+const HomePage = lazy(() => import('./pages/public/HomePage'))
+const LoginPage = lazy(() => import('./pages/public/LoginPage'))
+const PostLoginPage = lazy(() => import('./pages/public/PostLoginPage'))
+const AboutPage = lazy(() => import('./pages/public/AboutPage'))
+const ContactPage = lazy(() => import('./pages/public/ContactPage'))
+const ListPropertyPage = lazy(() => import('./pages/public/ListPropertyPage'))
+const PrivacyPolicyPage = lazy(() => import('./pages/public/PrivacyPolicyPage'))
+const TermsPage = lazy(() => import('./pages/public/TermsPage'))
+const AdminDashboardPage = lazy(() => import('./pages/admin/AdminDashboardPage'))
+const HousekeeperTasksPage = lazy(() => import('./pages/housekeeper/HousekeeperTasksPage'))
+
+function PageLoader() {
+  return (
+    <div className="min-h-screen flex items-center justify-center bg-gray-50">
+      <Loader2 className="w-8 h-8 animate-spin text-[#2d568e]" />
+    </div>
+  )
+}
 
 // ------------------------------------------------------------
 // Housekeeper guard
@@ -121,32 +131,34 @@ function App() {
       <div className="min-h-screen bg-gray-50 flex flex-col">
         {!isAdminRoute && !isHousekeeperRoute && <Navbar />}
         <main className="flex-grow">
-          <Routes>
-            <Route path="/" element={<HomePage />} />
-            <Route path="/login" element={<LoginPage />} />
-            <Route path="/post-login" element={<PostLoginPage />} />
-            <Route path="/about" element={<AboutPage />} />
-            <Route path="/contact" element={<ContactPage />} />
-            <Route path="/list-property" element={<ListPropertyPage />} />
-            <Route path="/privacy" element={<PrivacyPolicyPage />} />
-            <Route path="/terms" element={<TermsPage />} />
-            <Route
-              path="/admin"
-              element={
-                <AdminRoute>
-                  <AdminDashboardPage />
-                </AdminRoute>
-              }
-            />
-            <Route
-              path="/hk"
-              element={
-                <HousekeeperRoute>
-                  <HousekeeperTasksPage />
-                </HousekeeperRoute>
-              }
-            />
-          </Routes>
+          <Suspense fallback={<PageLoader />}>
+            <Routes>
+              <Route path="/" element={<HomePage />} />
+              <Route path="/login" element={<LoginPage />} />
+              <Route path="/post-login" element={<PostLoginPage />} />
+              <Route path="/about" element={<AboutPage />} />
+              <Route path="/contact" element={<ContactPage />} />
+              <Route path="/list-property" element={<ListPropertyPage />} />
+              <Route path="/privacy" element={<PrivacyPolicyPage />} />
+              <Route path="/terms" element={<TermsPage />} />
+              <Route
+                path="/admin"
+                element={
+                  <AdminRoute>
+                    <AdminDashboardPage />
+                  </AdminRoute>
+                }
+              />
+              <Route
+                path="/hk"
+                element={
+                  <HousekeeperRoute>
+                    <HousekeeperTasksPage />
+                  </HousekeeperRoute>
+                }
+              />
+            </Routes>
+          </Suspense>
         </main>
         {!isAdminRoute && !isHousekeeperRoute && <Footer />}
         <FloatingButtons />

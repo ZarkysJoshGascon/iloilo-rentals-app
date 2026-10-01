@@ -1,19 +1,22 @@
-import { useEffect, useState, useCallback, useRef } from 'react'
+import { useEffect, useState, useCallback, useRef, lazy, Suspense } from 'react'
 import { useNavigate, useSearchParams } from 'react-router-dom'
 import { motion, AnimatePresence } from 'framer-motion'
 import { useTheme } from "../../context/ThemeContext";
 import { useAuth } from "../../context/AuthContext";
 import {
   Moon, Sun, LogOut, ScrollText, ArrowLeft, Calendar, Users, Sparkles,
-  FileText, TrendingUp,
+  FileText, TrendingUp, Loader2, LayoutDashboard,
 } from 'lucide-react'
 import AdminSidebar from '../../components/admin/AdminSidebar'
-import RegistryPage from '../../components/admin/registry/RegistryPage'
-import ContractsPage from '../../components/admin/contracts/ContractsPage'
-import AccountingPage from '../../components/admin/accounting/AccountingPage'
-import BookingsPage from '../../components/admin/bookings/BookingsPage'
-import TeamPage from '../../components/admin/team/TeamPage'
-import HousekeepingPage from '../../components/admin/housekeeping/HousekeepingPage'
+
+// ---- Lazy-loaded tabs ----
+const DashboardPage = lazy(() => import('../../components/admin/dashboard/DashboardPage'))
+const RegistryPage = lazy(() => import('../../components/admin/registry/RegistryPage'))
+const ContractsPage = lazy(() => import('../../components/admin/contracts/ContractsPage'))
+const AccountingPage = lazy(() => import('../../components/admin/accounting/AccountingPage'))
+const BookingsPage = lazy(() => import('../../components/admin/bookings/BookingsPage'))
+const TeamPage = lazy(() => import('../../components/admin/team/TeamPage'))
+const HousekeepingPage = lazy(() => import('../../components/admin/housekeeping/HousekeepingPage'))
 
 // ============================================================
 // SESSION TIMEOUT CONFIG
@@ -24,7 +27,7 @@ const TICK_MS         = 15 * 1000
 const ACTIVITY_KEY    = 'ir:admin:lastActivity'
 const HIDDEN_AT_KEY   = 'ir:admin:hiddenAt'
 
-const VALID_TABS = ['registry', 'contracts', 'accounting', 'bookings', 'team', 'housekeeping']
+const VALID_TABS = ['dashboard', 'registry', 'contracts', 'accounting', 'bookings', 'team', 'housekeeping']
 
 function readStorage(key, fallback = 0) {
   try {
@@ -63,6 +66,14 @@ function PageTransition({ children, tabKey }) {
   )
 }
 
+function TabLoader() {
+  return (
+    <div className="absolute inset-6 flex items-center justify-center">
+      <Loader2 className="w-6 h-6 animate-spin text-[#2d568e]" />
+    </div>
+  )
+}
+
 export default function AdminDashboardPage() {
   const { user, signOut } = useAuth()
   const { isDark, toggleTheme } = useTheme()
@@ -70,7 +81,7 @@ export default function AdminDashboardPage() {
   const [searchParams, setSearchParams] = useSearchParams()
 
   const urlTab = searchParams.get('tab')
-  const initialTab = urlTab && VALID_TABS.includes(urlTab) ? urlTab : 'registry'
+  const initialTab = urlTab && VALID_TABS.includes(urlTab) ? urlTab : 'dashboard'
 
   const [activeTab, setActiveTab] = useState(initialTab)
   const [sidebarCollapsed, setSidebarCollapsed] = useState(true)
@@ -87,7 +98,6 @@ export default function AdminDashboardPage() {
     }
   }, [user])
 
-  // Sync tab state with URL when URL changes externally
   useEffect(() => {
     const tab = searchParams.get('tab')
     if (tab && VALID_TABS.includes(tab) && tab !== activeTab) {
@@ -202,6 +212,7 @@ export default function AdminDashboardPage() {
   }, [showProfileMenu])
 
   const tabIcons = {
+    dashboard: LayoutDashboard,
     registry: ScrollText,
     contracts: FileText,
     accounting: TrendingUp,
@@ -211,6 +222,7 @@ export default function AdminDashboardPage() {
   }
 
   const tabTitles = {
+    dashboard: 'Dashboard',
     registry: 'Registry',
     contracts: 'Contracts',
     accounting: 'Accounting',
@@ -219,7 +231,7 @@ export default function AdminDashboardPage() {
     housekeeping: 'Housekeeping',
   }
 
-  const Icon = tabIcons[activeTab] || ScrollText
+  const Icon = tabIcons[activeTab] || LayoutDashboard
 
   const sidebarLeftOffset = 12
   const sidebarCollapsedWidth = 56
@@ -236,6 +248,7 @@ export default function AdminDashboardPage() {
   }
 
   const isFullHeightTab =
+    activeTab === 'dashboard' ||
     activeTab === 'registry' ||
     activeTab === 'contracts' ||
     activeTab === 'accounting' ||
@@ -359,48 +372,57 @@ export default function AdminDashboardPage() {
               }
             >
               <AnimatePresence mode="wait">
-                {activeTab === 'registry' && (
-                  <PageTransition tabKey="registry">
-                    <div className="absolute inset-6 min-h-0 flex flex-col">
-                      <RegistryPage />
-                    </div>
-                  </PageTransition>
-                )}
-                {activeTab === 'contracts' && (
-                  <PageTransition tabKey="contracts">
-                    <div className="absolute inset-6 min-h-0 flex flex-col">
-                      <ContractsPage />
-                    </div>
-                  </PageTransition>
-                )}
-                {activeTab === 'accounting' && (
-                  <PageTransition tabKey="accounting">
-                    <div className="absolute inset-6 min-h-0 flex flex-col">
-                      <AccountingPage />
-                    </div>
-                  </PageTransition>
-                )}
-                {activeTab === 'bookings' && (
-                  <PageTransition tabKey="bookings">
-                    <div className="absolute inset-6 min-h-0 flex flex-col">
-                      <BookingsPage />
-                    </div>
-                  </PageTransition>
-                )}
-                {activeTab === 'team' && (
-                  <PageTransition tabKey="team">
-                    <div className="absolute inset-6 min-h-0 flex flex-col">
-                      <TeamPage />
-                    </div>
-                  </PageTransition>
-                )}
-                {activeTab === 'housekeeping' && (
-                  <PageTransition tabKey="housekeeping">
-                    <div className="absolute inset-6 min-h-0 flex flex-col">
-                      <HousekeepingPage />
-                    </div>
-                  </PageTransition>
-                )}
+                <Suspense fallback={<TabLoader />}>
+                  {activeTab === 'dashboard' && (
+                    <PageTransition tabKey="dashboard">
+                      <div className="absolute inset-6 min-h-0 flex flex-col">
+                        <DashboardPage onNavigateTab={handleTabChange} />
+                      </div>
+                    </PageTransition>
+                  )}
+                  {activeTab === 'registry' && (
+                    <PageTransition tabKey="registry">
+                      <div className="absolute inset-6 min-h-0 flex flex-col">
+                        <RegistryPage />
+                      </div>
+                    </PageTransition>
+                  )}
+                  {activeTab === 'contracts' && (
+                    <PageTransition tabKey="contracts">
+                      <div className="absolute inset-6 min-h-0 flex flex-col">
+                        <ContractsPage />
+                      </div>
+                    </PageTransition>
+                  )}
+                  {activeTab === 'accounting' && (
+                    <PageTransition tabKey="accounting">
+                      <div className="absolute inset-6 min-h-0 flex flex-col">
+                        <AccountingPage />
+                      </div>
+                    </PageTransition>
+                  )}
+                  {activeTab === 'bookings' && (
+                    <PageTransition tabKey="bookings">
+                      <div className="absolute inset-6 min-h-0 flex flex-col">
+                        <BookingsPage />
+                      </div>
+                    </PageTransition>
+                  )}
+                  {activeTab === 'team' && (
+                    <PageTransition tabKey="team">
+                      <div className="absolute inset-6 min-h-0 flex flex-col">
+                        <TeamPage />
+                      </div>
+                    </PageTransition>
+                  )}
+                  {activeTab === 'housekeeping' && (
+                    <PageTransition tabKey="housekeeping">
+                      <div className="absolute inset-6 min-h-0 flex flex-col">
+                        <HousekeepingPage />
+                      </div>
+                    </PageTransition>
+                  )}
+                </Suspense>
               </AnimatePresence>
             </div>
           </div>

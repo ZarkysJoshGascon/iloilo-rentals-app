@@ -86,3 +86,12 @@ export function generateContractCode(prefix = 'CT') {
   }
   return `${prefix}-${s}`
 }
+export function generateCleaningCode(prefix = 'CL') {
+  const bytes = new Uint8Array(8)
+  crypto.getRandomValues(bytes)
+  let s = ''
+  for (let i = 0; i < bytes.length; i++) {
+    s += BOOKING_ALPHABET[bytes[i] % BOOKING_ALPHABET.length]
+  }
+  return `${prefix}-${s}`
+}

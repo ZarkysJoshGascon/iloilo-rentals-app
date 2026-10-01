@@ -12,7 +12,9 @@ import { BrowserRouter } from 'react-router-dom'
 import './index.css'
 import App from './App.jsx'
 import { AuthProvider } from './context/AuthContext'
+import { UserRoleProvider } from './context/UserRoleContext'
 import ErrorBoundary from './components/common/ErrorBoundary'
+import './lib/scrollbar.css'
 
 if ('scrollRestoration' in history) {
   history.scrollRestoration = 'manual'
@@ -22,14 +24,16 @@ createRoot(document.getElementById('root')).render(
   <StrictMode>
     <ErrorBoundary>
       <AuthProvider>
-        <BrowserRouter
-          future={{
-            v7_startTransition: true,
-            v7_relativeSplatPath: true,
-          }}
-        >
-          <App />
-        </BrowserRouter>
+        <UserRoleProvider>
+          <BrowserRouter
+            future={{
+              v7_startTransition: true,
+              v7_relativeSplatPath: true,
+            }}
+          >
+            <App />
+          </BrowserRouter>
+        </UserRoleProvider>
       </AuthProvider>
     </ErrorBoundary>
   </StrictMode>,

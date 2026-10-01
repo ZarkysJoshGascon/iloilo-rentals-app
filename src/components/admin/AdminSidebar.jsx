@@ -1,6 +1,9 @@
 import { useNavigate } from 'react-router-dom'
 import { useAuth } from "../../context/AuthContext";
-import { LogOut, ScrollText, Calendar, Users, Sparkles, FileText, TrendingUp } from 'lucide-react'
+import {
+  LogOut, ScrollText, Calendar, Users, Sparkles, FileText, TrendingUp,
+  LayoutDashboard,
+} from 'lucide-react'
 import { motion } from 'framer-motion'
 import toast from 'react-hot-toast'
 
@@ -15,6 +18,7 @@ export default function AdminSidebar({ activeTab, setActiveTab, collapsed, onMou
   }
 
   const navItems = [
+    { id: 'dashboard',    label: 'Dashboard',    icon: LayoutDashboard },
     { id: 'registry',     label: 'Registry',     icon: ScrollText },
     { id: 'contracts',    label: 'Contracts',    icon: FileText },
     { id: 'accounting',   label: 'Accounting',   icon: TrendingUp },

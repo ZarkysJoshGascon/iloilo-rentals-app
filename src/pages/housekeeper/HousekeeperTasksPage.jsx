@@ -529,8 +529,13 @@ function CleaningDetail({ cleaning, onBack, onChanged }) {
             <ArrowLeft size={20} className="text-foreground" />
           </button>
           <div className="flex-1 min-w-0">
-            <p className="text-sm font-bold text-foreground truncate">{unit?.unit_code || '—'}</p>
-            <p className="text-[11px] text-muted-foreground truncate">{unit?.building || '—'}</p>
+            <p className="font-mono text-sm font-bold text-foreground truncate">
+              {cleaning.cleaning_code || '—'}
+            </p>
+            <p className="text-[11px] text-muted-foreground truncate mt-0.5">
+              {unit?.unit_code || '—'}
+              {unit?.building ? ` · ${unit.building}` : ''}
+            </p>
           </div>
           <span className={cn('inline-flex items-center px-2.5 py-0.5 rounded-full text-[11px] font-semibold', meta.badge)}>
             {meta.label}
@@ -541,6 +546,10 @@ function CleaningDetail({ cleaning, onBack, onChanged }) {
       <div className="p-4 space-y-3">
         <SectionCard title="Overview" icon={Clock}>
           <div className="space-y-1">
+            <div className="flex items-center justify-between py-0.5">
+              <span className="text-[10px] uppercase tracking-wider text-muted-foreground font-semibold">Code</span>
+              <span className="text-xs font-mono font-semibold text-foreground">{cleaning.cleaning_code || '—'}</span>
+            </div>
             <div className="flex items-center justify-between py-0.5">
               <span className="text-[10px] uppercase tracking-wider text-muted-foreground font-semibold">Type</span>
               <span className="text-xs font-semibold text-foreground capitalize">{cleaning.type}</span>
@@ -729,8 +738,13 @@ function CleaningCard({ cleaning, onClick }) {
     <button onClick={onClick} className="w-full text-left bg-card border border-border rounded-md p-4 active:bg-muted/50 transition-colors">
       <div className="flex items-start justify-between gap-3 mb-2">
         <div className="min-w-0 flex-1">
-          <p className="text-sm font-bold text-foreground truncate">{unit?.unit_code || '—'}</p>
-          <p className="text-[11px] text-muted-foreground truncate">{unit?.building || '—'}</p>
+          <p className="font-mono text-xs font-bold text-foreground truncate">
+            {cleaning.cleaning_code || '—'}
+          </p>
+          <p className="text-[11px] text-muted-foreground truncate mt-0.5">
+            {unit?.unit_code || '—'}
+            {unit?.building ? ` · ${unit.building}` : ''}
+          </p>
         </div>
         <span className={cn('inline-flex items-center px-2.5 py-0.5 rounded-full text-[10px] font-semibold flex-shrink-0', meta.badge)}>
           {meta.label}
