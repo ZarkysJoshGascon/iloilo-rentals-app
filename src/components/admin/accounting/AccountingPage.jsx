@@ -1,9 +1,9 @@
-import { useCallback, useEffect, useMemo, useRef, useState, memo } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState, memo, useLayoutEffect } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import {
   Search, RefreshCw, X, Loader2, TrendingUp, ChevronDown, ChevronLeft, ChevronRight,
   Download, Wallet, Lock, Save, Home, Sparkles, Plus, Trash2,
-  Zap, Wifi, Droplets, Megaphone, FileText, Edit2, ExternalLink,
+  Zap, Wifi, Droplets, Megaphone,
   Calendar, User, Pencil, BarChart3, Camera,
 } from 'lucide-react'
 import {
@@ -35,6 +35,7 @@ const MONTHS_SHORT = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'S
 const DOW_SHORT = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat']
 const PAGE_SIZE = 25
 const REALTIME_DEBOUNCE_MS = 1500
+const PARENT_REFRESH_DEBOUNCE_MS = 1200
 
 const SORT_OPTIONS = [
   { id: 'unit_asc', label: 'Unit (A→Z)' },
@@ -338,10 +339,10 @@ function SectionHeader({ icon: Icon, title }) {
 function SummaryCards({ totals }) {
   return (
     <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-3">
-      <Card label="Total Gross" value={formatMoney(totals.gross)} icon={TrendingUp} />
-      <Card label="Total Expenses" value={formatMoney(totals.expenses)} icon={Wallet} />
-      <Card label="Total Net" value={formatMoney(totals.net)} icon={TrendingUp} />
-      <SplitCard label="Contracts / Company" owner={totals.owner} company={totals.company} icon={Wallet} />
+      <Card label="Gross" value={formatMoney(totals.gross)} icon={TrendingUp} />
+      <Card label="Expenses" value={formatMoney(totals.expenses)} icon={Wallet} />
+      <Card label="Net" value={formatMoney(totals.net)} icon={TrendingUp} />
+      <SplitCard label="Owner / Company" owner={totals.owner} company={totals.company} icon={Wallet} />
     </div>
   )
 }
@@ -440,7 +441,7 @@ function ContractRow({ contract, lifetime, onClick }) {
           {contract.units?.unit_code || '—'}
         </span>
         <span className="text-[11px] text-muted-foreground truncate block">
-          {contract.units?.building || '—'}
+          {contract.contract_code || '—'}
         </span>
       </div>
 
@@ -449,7 +450,7 @@ function ContractRow({ contract, lifetime, onClick }) {
           {contract.owners?.name || 'No owner'}
         </span>
         <span className="text-[11px] text-muted-foreground font-mono truncate block">
-          {contract.contract_code || '—'}
+          {contract.units?.building || '—'}
         </span>
       </div>
 
@@ -630,29 +631,31 @@ function YearNav({ yearSections, selectedYear, onSelectYear }) {
   const canNext = idx >= 0 && idx < yearSections.length - 1
 
   return (
-    <div className="flex items-center gap-1">
+    <div className="flex items-center gap-2">
       <button
         type="button"
         onClick={() => canPrev && onSelectYear(yearSections[idx - 1].year)}
         disabled={!canPrev}
         className={cn(
-          'p-1 rounded border border-border',
+          'p-2 rounded-lg border border-border transition-colors',
           canPrev ? 'hover:bg-muted text-foreground' : 'opacity-40 cursor-not-allowed'
         )}
       >
-        <ChevronLeft size={12} />
+        <ChevronLeft size={18} />
       </button>
-      <span className="text-xs font-bold tabular-nums text-foreground px-2">{selectedYear}</span>
+      <span className="text-lg font-bold tabular-nums text-foreground px-4 min-w-[90px] text-center">
+        {selectedYear}
+      </span>
       <button
         type="button"
         onClick={() => canNext && onSelectYear(yearSections[idx + 1].year)}
         disabled={!canNext}
         className={cn(
-          'p-1 rounded border border-border',
+          'p-2 rounded-lg border border-border transition-colors',
           canNext ? 'hover:bg-muted text-foreground' : 'opacity-40 cursor-not-allowed'
         )}
       >
-        <ChevronRight size={12} />
+        <ChevronRight size={18} />
       </button>
     </div>
   )
@@ -1272,102 +1275,7 @@ function MonthSelector({ options, selectedMonth, onSelectMonth }) {
 }
 
 // ============================================================
-// CONTRACT EDIT MODAL
-// ============================================================
-function ContractEditModal({ open, onClose, contract, onSaved }) {
-  const [effective, setEffective] = useState('')
-  const [expiry, setExpiry] = useState('')
-  const [pdfUrl, setPdfUrl] = useState('')
-  const [notes, setNotes] = useState('')
-  const [saving, setSaving] = useState(false)
-
-  useEffect(() => {
-    if (!open || !contract) return
-    setEffective(contract.effective_date || '')
-    setExpiry(contract.expiry_date || '')
-    setPdfUrl(contract.contract_pdf_url || '')
-    setNotes(contract.notes || '')
-  }, [open, contract])
-
-  if (!open || !contract) return null
-
-  const handleSave = async () => {
-    const eff = sanitizeDateOnly(effective)
-    const exp = expiry ? sanitizeDateOnly(expiry) : null
-    const url = sanitizeText(pdfUrl, { max: 500 })
-    const n = sanitizeText(notes, { max: 2000, allowNewlines: true })
-
-    if (!eff) { toast.error('Effective date is required'); return }
-    if (eff > new Date().toISOString().slice(0, 10)) { toast.error('Effective date cannot be in the future'); return }
-    if (exp && exp <= eff) { toast.error('Expiry must be after effective date'); return }
-
-    setSaving(true)
-    try {
-      const payload = { effective_date: eff, expiry_date: exp, contract_pdf_url: url, notes: n }
-      const { error } = await supabase.from('contracts').update(payload).eq('id', contract.id)
-      if (error) throw error
-      logAudit('UPDATE_CONTRACT', 'contracts', contract.id, {
-        before: { effective_date: contract.effective_date, expiry_date: contract.expiry_date, contract_pdf_url: contract.contract_pdf_url },
-        after: payload,
-      }).catch(() => {})
-      toast.success('Contract updated')
-      onSaved?.()
-      onClose()
-    } catch (err) {
-      console.error(err)
-      toast.error(err?.message || 'Failed to update contract')
-    } finally {
-      setSaving(false)
-    }
-  }
-
-  const labelClass = 'text-[11px] font-semibold text-foreground mb-1 block'
-  const inputClass = 'h-8 text-xs rounded'
-
-  return (
-    <div className="fixed inset-0 z-[10000] flex items-center justify-center p-4">
-      <div className="absolute inset-0 bg-black/50" onClick={onClose} />
-      <motion.div initial={{ opacity: 0, scale: 0.98 }} animate={{ opacity: 1, scale: 1 }} transition={{ duration: 0.15 }}
-        className="relative bg-card rounded-md shadow-2xl max-w-lg w-full border border-border overflow-hidden">
-        <div className="flex items-center justify-between px-5 py-3 border-b border-border">
-          <h3 className="text-sm font-bold text-foreground">Edit Contract</h3>
-          <button onClick={onClose} className="p-1 rounded hover:bg-muted"><X size={14} /></button>
-        </div>
-        <div className="p-5 space-y-4">
-          <div className="grid grid-cols-2 gap-3">
-            <div>
-              <label className={labelClass}>Effective Date *</label>
-              <Input type="date" value={effective} max={new Date().toISOString().slice(0, 10)} onChange={(e) => setEffective(e.target.value)} className={inputClass} />
-            </div>
-            <div>
-              <label className={labelClass}>Expiry Date</label>
-              <Input type="date" value={expiry} min={effective} onChange={(e) => setExpiry(e.target.value)} className={inputClass} />
-              <p className="text-[11px] text-muted-foreground mt-1 italic">Leave blank for open-ended</p>
-            </div>
-          </div>
-          <div>
-            <label className={labelClass}>Contract PDF URL</label>
-            <Input type="url" value={pdfUrl} onChange={(e) => setPdfUrl(e.target.value)} className={inputClass} maxLength={500} placeholder="https://…" />
-          </div>
-          <div>
-            <label className={labelClass}>Notes</label>
-            <Textarea value={notes} onChange={(e) => setNotes(e.target.value)} maxLength={2000} rows={4} className="text-xs rounded resize-none w-full" placeholder="Any notes about this contract…" />
-          </div>
-        </div>
-        <div className="flex items-center justify-end gap-2 px-5 py-3 border-t border-border bg-muted/30">
-          <Button variant="outline" size="sm" className="h-8 rounded text-xs" onClick={onClose} disabled={saving}>Cancel</Button>
-          <Button size="sm" className="h-8 rounded text-xs" onClick={handleSave} disabled={saving} style={{ backgroundColor: BRAND }}>
-            {saving ? <Loader2 size={12} className="mr-1.5 animate-spin" /> : <Save size={12} className="mr-1.5" />}
-            {saving ? 'Saving…' : 'Save Changes'}
-          </Button>
-        </div>
-      </motion.div>
-    </div>
-  )
-}
-
-// ============================================================
-// SIDEBAR
+// SIDEBAR — READ-ONLY
 // ============================================================
 function Field({ label, value, mono = false }) {
   return (
@@ -1390,7 +1298,7 @@ function SidebarSection({ title, action, children }) {
   )
 }
 
-function ContractSidebar({ contract, onBack, onEdit }) {
+function ContractSidebar({ contract, onBack }) {
   return (
     <aside className="w-full lg:w-[280px] flex-shrink-0 lg:overflow-y-auto bg-muted/20 lg:border-r border-border p-3 space-y-4">
       <CardBody>
@@ -1416,27 +1324,18 @@ function ContractSidebar({ contract, onBack, onEdit }) {
         </div>
       </CardBody>
 
-      <SidebarSection
-        title="Contract Details"
-        action={
-          <button type="button" onClick={onEdit} className="inline-flex items-center gap-1 text-[11px] font-semibold text-primary hover:underline">
-            <Edit2 size={11} /> Edit
-          </button>
-        }
-      >
+      <SidebarSection title="Contract Details">
         <div className="space-y-0.5">
           <Field label="Code" value={contract.contract_code || '—'} mono />
           <Field label="Effective" value={contract.effective_date || '—'} mono />
           <Field label="Expiry" value={contract.expiry_date ? contract.expiry_date : <span className="italic text-muted-foreground">Open-ended</span>} mono />
           <Field label="Split" value={<span className="font-semibold">{OWNER_SPLIT_PCT}/{COMPANY_SPLIT_PCT}</span>} />
         </div>
-        {contract.contract_pdf_url && (
-          <div className="pt-2 mt-2 border-t border-border">
-            <a href={contract.contract_pdf_url} target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-1.5 text-[11px] font-semibold text-primary hover:underline">
-              <ExternalLink size={11} /> Open contract PDF
-            </a>
-          </div>
-        )}
+        <div className="pt-2 mt-2 border-t border-border">
+          <p className="text-[10px] text-muted-foreground italic">
+            Contract PDF is available on the Contracts page.
+          </p>
+        </div>
         {contract.notes && (
           <div className="pt-2 mt-2 border-t border-border">
             <p className="text-[11px] font-semibold text-foreground mb-1">Notes</p>
@@ -1547,7 +1446,7 @@ function StatCard({ label, value, icon: Icon }) {
 }
 
 // ============================================================
-// MONTHLY LEDGER  ← NEW
+// MONTHLY LEDGER
 // ============================================================
 function MonthlyLedger({ statements, selectedMonth, onSelectMonth }) {
   const ordered = useMemo(
@@ -1571,28 +1470,13 @@ function MonthlyLedger({ statements, selectedMonth, onSelectMonth }) {
 
   return (
     <CardBody>
-      {/* Header */}
-      <div
-        className={cn(
-          'px-4 py-2 border-b border-border bg-muted/20 sticky top-0 z-10',
-          ROW
-        )}
-      >
-        <span className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground">
-          Month
-        </span>
-        <span className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground text-right">
-          Gross
-        </span>
-        <span className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground text-right">
-          Expenses
-        </span>
-        <span className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground text-right">
-          Net
-        </span>
+      <div className={cn('px-4 py-2 border-b border-border bg-muted/20 sticky top-0 z-10', ROW)}>
+        <span className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground">Month</span>
+        <span className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground text-right">Gross</span>
+        <span className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground text-right">Expenses</span>
+        <span className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground text-right">Net</span>
       </div>
 
-      {/* Rows */}
       <div className="max-h-[340px] overflow-y-auto">
         {ordered.map((s) => {
           const isSelected = s.month === selectedMonth
@@ -1641,11 +1525,8 @@ function MonthlyLedger({ statements, selectedMonth, onSelectMonth }) {
         })}
       </div>
 
-      {/* Totals footer */}
       <div className={cn('px-4 py-2.5 border-t-2 border-border bg-muted/30', ROW)}>
-        <span className="text-[11px] font-bold uppercase tracking-wider text-foreground">
-          Lifetime
-        </span>
+        <span className="text-[11px] font-bold uppercase tracking-wider text-foreground">Lifetime</span>
         <span className="text-xs font-bold tabular-nums text-foreground text-right">
           {formatMoney(lifetime.gross)}
         </span>
@@ -2247,6 +2128,7 @@ function MonthlySection({
   const statement = statements.find((s) => s.month === selectedMonth) || null
   const [selectedCalendarId, setSelectedCalendarId] = useState(null)
   const [listTab, setListTab] = useState('bookings')
+  const calendarRef = useRef(null)
 
   useEffect(() => {
     setSelectedCalendarId(null)
@@ -2307,8 +2189,17 @@ function MonthlySection({
       return
     }
     const mk = monthKeyFromDate(booking.check_in)
-    if (mk && mk !== selectedMonth) onSelectMonth(mk)
+    const monthChanged = mk && mk !== selectedMonth
+    if (monthChanged) onSelectMonth(mk)
     setSelectedCalendarId({ type: 'booking', id: booking.id })
+
+    if (monthChanged) {
+      requestAnimationFrame(() => {
+        requestAnimationFrame(() => {
+          calendarRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+        })
+      })
+    }
   }, [selectedCalendarId, selectedMonth, onSelectMonth, resetToDefaultMonth])
 
   const focusCleaning = useCallback((cleaning) => {
@@ -2320,8 +2211,17 @@ function MonthlySection({
       return
     }
     const mk = monthKeyFromDate(cleaning.scheduled_date)
-    if (mk && mk !== selectedMonth) onSelectMonth(mk)
+    const monthChanged = mk && mk !== selectedMonth
+    if (monthChanged) onSelectMonth(mk)
     setSelectedCalendarId({ type: 'cleaning', id: cleaning.id })
+
+    if (monthChanged) {
+      requestAnimationFrame(() => {
+        requestAnimationFrame(() => {
+          calendarRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+        })
+      })
+    }
   }, [selectedCalendarId, selectedMonth, onSelectMonth, resetToDefaultMonth])
 
   const clearFocus = useCallback(() => {
@@ -2428,7 +2328,7 @@ function MonthlySection({
           </div>
 
           <div className="grid grid-cols-1 lg:grid-cols-[2fr_1fr] gap-4">
-            <div className="space-y-4">
+            <div ref={calendarRef} className="space-y-4 scroll-mt-4">
               <div className="flex items-center justify-between gap-2 mb-2">
                 <h3 className="text-sm font-semibold text-foreground truncate">{monthLabel(statement.month)} Calendar</h3>
                 <span className="text-[11px] text-foreground tabular-nums">
@@ -2724,7 +2624,6 @@ function MiniSplitStat({ label, owner, company }) {
 // CONTRACT DETAIL — MEMOIZED
 // ============================================================
 const ContractDetail = memo(function ContractDetail({ contract, onBack, onChanged }) {
-  const [editModalOpen, setEditModalOpen] = useState(false)
   const [bookings, setBookings] = useState([])
   const [cleanings, setCleanings] = useState([])
   const [monthlyExpenses, setMonthlyExpenses] = useState([])
@@ -2884,28 +2783,38 @@ const ContractDetail = memo(function ContractDetail({ contract, onBack, onChange
   const [selectedMonth, setSelectedMonth] = useState(defaultMonth)
   useEffect(() => { setSelectedMonth(defaultMonth) }, [defaultMonth])
 
-  // Ref + handler for ledger → detail jump
   const monthSectionRef = useRef(null)
+  const shouldScrollRef = useRef(false)
 
   const handleJumpToMonth = useCallback((monthKey) => {
+    shouldScrollRef.current = true
     setSelectedMonth(monthKey)
-    requestAnimationFrame(() => {
-      monthSectionRef.current?.scrollIntoView({
-        behavior: 'smooth',
-        block: 'start',
-      })
-    })
   }, [])
+
+  useLayoutEffect(() => {
+    if (!shouldScrollRef.current) return
+    shouldScrollRef.current = false
+    monthSectionRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+  }, [selectedMonth])
+
+  const parentRefreshTimer = useRef(null)
 
   const handleChanged = useCallback(() => {
     fetchDetailData()
-    onChanged?.()
+    if (parentRefreshTimer.current) clearTimeout(parentRefreshTimer.current)
+    parentRefreshTimer.current = setTimeout(() => {
+      onChanged?.()
+    }, PARENT_REFRESH_DEBOUNCE_MS)
   }, [fetchDetailData, onChanged])
+
+  useEffect(() => () => {
+    if (parentRefreshTimer.current) clearTimeout(parentRefreshTimer.current)
+  }, [])
 
   if ((loading || statementsLoading) && statements.length === 0) {
     return (
       <div className="h-full flex flex-col lg:flex-row min-h-0 bg-card border border-border rounded-md overflow-hidden">
-        <ContractSidebar contract={contract} onBack={onBack} onEdit={() => setEditModalOpen(true)} />
+        <ContractSidebar contract={contract} onBack={onBack} />
         <div className="flex-1 min-h-0 flex items-center justify-center">
           <Loader2 size={28} className="animate-spin text-primary" />
         </div>
@@ -2915,7 +2824,7 @@ const ContractDetail = memo(function ContractDetail({ contract, onBack, onChange
 
   return (
     <div className="h-full flex flex-col lg:flex-row min-h-0 bg-card border border-border rounded-md overflow-hidden">
-      <ContractSidebar contract={contract} onBack={onBack} onEdit={() => setEditModalOpen(true)} />
+      <ContractSidebar contract={contract} onBack={onBack} />
 
       <div className="flex-1 min-h-0 overflow-y-auto p-4 space-y-5">
         <section>
@@ -2931,7 +2840,6 @@ const ContractDetail = memo(function ContractDetail({ contract, onBack, onChange
           />
         </section>
 
-        {/* ==== NEW: Monthly Ledger ==== */}
         <section>
           <SectionHeader icon={Calendar} title="Monthly Ledger" />
           <MonthlyLedger
@@ -2959,13 +2867,6 @@ const ContractDetail = memo(function ContractDetail({ contract, onBack, onChange
           />
         </section>
       </div>
-
-      <ContractEditModal
-        open={editModalOpen}
-        onClose={() => setEditModalOpen(false)}
-        contract={contract}
-        onSaved={handleChanged}
-      />
     </div>
   )
 })
@@ -3057,7 +2958,7 @@ function Pagination({ page, totalPages, onPageChange }) {
 }
 
 // ============================================================
-// ANALYTICS PANELS — 3 graphs, shared year nav
+// ANALYTICS PANELS
 // ============================================================
 function MultiMetricChart({
   title,
@@ -3145,73 +3046,27 @@ function MultiMetricChart({
   )
 }
 
-function AccountingAnalyticsPanels({ collapsed }) {
-  const [data, setData] = useState([])
-  const [loading, setLoading] = useState(true)
-  const [selectedYear, setSelectedYear] = useState(() => new Date().getUTCFullYear())
-
-  const yearRange = useMemo(() => {
-    const cy = new Date().getUTCFullYear()
-    const years = []
-    for (let y = cy - 3; y <= cy + 3; y++) years.push(y)
-    return years
-  }, [])
-
-  const yearSections = useMemo(() => yearRange.map((y) => ({ year: y })), [yearRange])
-
-  useEffect(() => {
-    let cancelled = false
-    async function load() {
-      setLoading(true)
-      try {
-        const { data: monthly, error } = await supabase.rpc('accounting_analytics_by_year', {
-          p_year: selectedYear,
-        })
-        if (error) throw error
-        if (!cancelled) setData(monthly || [])
-      } catch (err) {
-        console.error('Analytics load failed:', err)
-        if (!cancelled) setData([])
-      } finally {
-        if (!cancelled) setLoading(false)
-      }
-    }
-    load()
-    return () => { cancelled = true }
-  }, [selectedYear])
-
+function AccountingAnalyticsPanels({ data, loading, collapsed, error, onRetry }) {
   return (
-    <div className={cn('flex-shrink-0 flex flex-col gap-3 transition-all duration-300 ease-out overflow-hidden', collapsed ? 'max-h-0 opacity-0' : 'max-h-[400px] opacity-100')}>
-      <div className="flex items-center justify-between gap-3">
-        <h3 className="text-[11px] font-semibold uppercase tracking-wider text-foreground">Portfolio Analytics</h3>
-        <YearNav yearSections={yearSections} selectedYear={selectedYear} onSelectYear={setSelectedYear} />
-      </div>
-
+    <div className={cn(
+      'flex-shrink-0 flex flex-col gap-3 transition-all duration-300 ease-out overflow-hidden',
+      collapsed ? 'max-h-0 opacity-0' : 'max-h-[420px] opacity-100'
+    )}>
+      {error && (
+        <div className="rounded-md border border-red-200 dark:border-red-900/40 bg-red-50 dark:bg-red-950/20 p-3 flex items-center justify-between gap-3">
+          <div className="min-w-0">
+            <p className="text-xs font-semibold text-red-700 dark:text-red-400">Failed to load analytics</p>
+            <p className="text-[11px] text-red-600/80 dark:text-red-400/80 truncate">{error}</p>
+          </div>
+          <Button size="sm" variant="outline" className="h-7 rounded text-[11px] shrink-0" onClick={onRetry}>
+            Retry
+          </Button>
+        </div>
+      )}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
-        <MultiMetricChart
-          title="Gross"
-          icon={TrendingUp}
-          data={data}
-          loading={loading}
-          solidKey="gross"
-          secondaryKeys={['expenses', 'net']}
-        />
-        <MultiMetricChart
-          title="Expenses"
-          icon={Wallet}
-          data={data}
-          loading={loading}
-          solidKey="expenses"
-          secondaryKeys={['gross', 'net']}
-        />
-        <MultiMetricChart
-          title="Net"
-          icon={TrendingUp}
-          data={data}
-          loading={loading}
-          solidKey="net"
-          secondaryKeys={['gross', 'expenses']}
-        />
+        <MultiMetricChart title="Gross"    icon={TrendingUp} data={data} loading={loading} solidKey="gross"    secondaryKeys={['expenses', 'net']} />
+        <MultiMetricChart title="Expenses" icon={Wallet}     data={data} loading={loading} solidKey="expenses" secondaryKeys={['gross', 'net']} />
+        <MultiMetricChart title="Net"      icon={TrendingUp} data={data} loading={loading} solidKey="net"      secondaryKeys={['gross', 'expenses']} />
       </div>
     </div>
   )
@@ -3223,7 +3078,6 @@ function AccountingAnalyticsPanels({ collapsed }) {
 function ContractList({
   contracts,
   lifetimeMap,
-  globalTotals,
   onSelect,
   isFirstLoad,
   isRefreshing,
@@ -3238,6 +3092,52 @@ function ContractList({
 }) {
   const [debouncedSearch, setDebouncedSearch] = useState('')
   const [page, setPage] = useState(1)
+
+  const [selectedYear, setSelectedYear] = useState(() => new Date().getUTCFullYear())
+  const [analyticsData, setAnalyticsData] = useState([])
+  const [analyticsLoading, setAnalyticsLoading] = useState(true)
+  const [analyticsError, setAnalyticsError] = useState(null)
+
+  const yearRange = useMemo(() => {
+    const cy = new Date().getUTCFullYear()
+    const years = []
+    for (let y = cy - 3; y <= cy + 3; y++) years.push(y)
+    return years
+  }, [])
+
+  const yearSections = useMemo(() => yearRange.map((y) => ({ year: y })), [yearRange])
+
+  const loadAnalytics = useCallback(async () => {
+    setAnalyticsLoading(true)
+    setAnalyticsError(null)
+    try {
+      const { data: monthly, error } = await supabase.rpc('accounting_analytics_by_year', {
+        p_year: selectedYear,
+      })
+      if (error) throw error
+      setAnalyticsData(monthly || [])
+    } catch (err) {
+      console.error('Analytics load failed:', err)
+      setAnalyticsError(err?.message || 'Unknown error')
+      setAnalyticsData([])
+    } finally {
+      setAnalyticsLoading(false)
+    }
+  }, [selectedYear])
+
+  useEffect(() => { loadAnalytics() }, [loadAnalytics])
+
+  const yearTotals = useMemo(() => {
+    const acc = { gross: 0, expenses: 0, net: 0, owner: 0, company: 0 }
+    for (const r of analyticsData) {
+      acc.gross    += Number(r.gross || 0)
+      acc.expenses += Number(r.expenses || 0)
+      acc.net      += Number(r.net || 0)
+    }
+    acc.owner   = Math.round(acc.net * (OWNER_SPLIT_PCT / 100) * 100) / 100
+    acc.company = Math.round(acc.net * (COMPANY_SPLIT_PCT / 100) * 100) / 100
+    return acc
+  }, [analyticsData])
 
   useEffect(() => {
     const t = setTimeout(() => setDebouncedSearch(search), 300)
@@ -3317,11 +3217,30 @@ function ContractList({
     <div className="h-full min-h-0 overflow-y-auto">
       <div className="p-3 flex flex-col gap-2.5">
 
-        <div className="flex-shrink-0">
-          <SummaryCards totals={globalTotals} />
+        <div className="flex-shrink-0 relative flex items-center justify-center py-1">
+          <span className="absolute left-0 text-[11px] font-bold uppercase tracking-wider text-muted-foreground">
+            Year Overview
+          </span>
+          <div className="inline-flex items-center gap-1 bg-muted/50 rounded-full p-1">
+            <YearNav
+              yearSections={yearSections}
+              selectedYear={selectedYear}
+              onSelectYear={setSelectedYear}
+            />
+          </div>
         </div>
 
-        <AccountingAnalyticsPanels collapsed={false} />
+        <div className="flex-shrink-0">
+          <SummaryCards totals={yearTotals} />
+        </div>
+
+        <AccountingAnalyticsPanels
+          data={analyticsData}
+          loading={analyticsLoading}
+          collapsed={false}
+          error={analyticsError}
+          onRetry={loadAnalytics}
+        />
 
         <div className="flex-shrink-0 flex items-center gap-2">
           <div className="relative flex-1 min-w-0">
@@ -3358,7 +3277,6 @@ function ContractList({
           </span>
         </div>
 
-        {/* Fixed-height, non-expanding table container */}
         <div className="flex-shrink-0 rounded border border-border overflow-hidden flex flex-col bg-card h-[420px]">
           <div className="flex-1 min-h-0 overflow-y-auto" style={{ scrollbarGutter: 'stable' }}>
             <div className={cn('sticky top-0 z-10 px-4 py-2 border-b border-border bg-card', ROW_GRID)}>
@@ -3465,18 +3383,6 @@ export default function AccountingPage() {
     }
   }, [fetchAll])
 
-  const globalTotals = useMemo(() => {
-    const acc = { gross: 0, expenses: 0, net: 0, owner: 0, company: 0 }
-    for (const lt of lifetimeMap.values()) {
-      acc.gross += lt.gross
-      acc.expenses += lt.expenses
-      acc.net += lt.net
-      acc.owner += lt.owner
-      acc.company += lt.company
-    }
-    return acc
-  }, [lifetimeMap])
-
   const counts = useMemo(() => {
     const c = { all: contracts.length, active: 0, expiring: 0, expired: 0 }
     for (const contract of contracts) {
@@ -3524,7 +3430,6 @@ export default function AccountingPage() {
             <ContractList
               contracts={contracts}
               lifetimeMap={lifetimeMap}
-              globalTotals={globalTotals}
               onSelect={handleSelectContract}
               isFirstLoad={isFirstLoad}
               isRefreshing={isRefreshing}

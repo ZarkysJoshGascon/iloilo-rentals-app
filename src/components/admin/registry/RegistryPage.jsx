@@ -4,12 +4,11 @@ import {
   Camera, Check, Download, Loader2, Mail, Phone,
   Plus, RefreshCw, Search, SlidersHorizontal, X, Pencil, Tag, Layers,
   Building2, CheckCircle2, Clock, AlertTriangle, UserPlus, Trash2, PhoneCall,
-  ChevronRight, User, FileText, ExternalLink, Lock,
+  User,
 } from 'lucide-react'
 import { useNavigate } from 'react-router-dom'
 import toast from 'react-hot-toast'
 import { Button } from '@/components/ui/button'
-import { Badge } from '@/components/ui/badge'
 import { Input } from '@/components/ui/input'
 import { Skeleton } from '@/components/ui/skeleton'
 import { Textarea } from '@/components/ui/textarea'
@@ -26,7 +25,6 @@ import {
   cn,
   sanitizeText,
   sanitizeDateOnly,
-  generateContractCode,
 } from '@/lib/utils'
 
 // ============================================================
@@ -34,10 +32,10 @@ import {
 // ============================================================
 const BRAND = '#2d568e'
 
-const DERIVED_STATUS_CONFIG = {
-  ACTIVE:      { label: 'Active',      className: 'bg-emerald-600 text-white border-0' },
-  FOR_RENEWAL: { label: 'For Renewal', className: 'bg-red-600 text-white border-0' },
-  INACTIVE:    { label: 'Inactive',    className: 'bg-gray-500 text-white border-0' },
+const DERIVED_STATUS_TEXT = {
+  ACTIVE:      { label: 'Active',      className: 'text-emerald-600 dark:text-emerald-400' },
+  FOR_RENEWAL: { label: 'For Renewal', className: 'text-red-600 dark:text-red-400' },
+  INACTIVE:    { label: 'Inactive',    className: 'text-gray-500 dark:text-gray-400' },
 }
 
 const PILL_TEXT_ACTIVE = {
@@ -80,6 +78,7 @@ const DEFAULT_CHANNELS = [
 ]
 
 const ROW_GRID = 'grid grid-cols-[1.4fr_1fr_1.6fr_220px] gap-4 items-center'
+const PANEL_WIDTH = 448
 
 const EXPIRING_SOON_DAYS = 60
 
@@ -150,7 +149,6 @@ function deriveUnitStatus(unit) {
     return { status: 'INACTIVE', warning: null, contract }
   }
 
-  // Open-ended contract (has effective date, no expiry) → ACTIVE
   if (!exp) {
     return { status: 'ACTIVE', warning: null, contract }
   }
@@ -179,28 +177,20 @@ function deriveUnitStatus(unit) {
   return { status: 'ACTIVE', warning: null, contract }
 }
 
-function DerivedStatusBadge({ unit }) {
+function DerivedStatusText({ unit }) {
   const derived = deriveUnitStatus(unit)
 
   if (derived.warning) {
     const cls =
       derived.warning.tone === 'red'
-        ? 'bg-red-600 text-white hover:bg-red-600 border-0'
-        : 'bg-amber-600 text-white hover:bg-amber-600 border-0'
-    return (
-      <Badge className={cn('text-[11px] font-semibold rounded-full px-2.5 py-0.5', cls)}>
-        {derived.warning.text}
-      </Badge>
-    )
+        ? 'text-red-600 dark:text-red-400'
+        : 'text-amber-600 dark:text-amber-400'
+    return <span className={cn('text-[11px] font-semibold', cls)}>{derived.warning.text}</span>
   }
 
-  const config = DERIVED_STATUS_CONFIG[derived.status]
+  const config = DERIVED_STATUS_TEXT[derived.status]
   if (!config) return null
-  return (
-    <Badge className={cn('text-[11px] font-semibold rounded-full px-2.5 py-0.5', config.className)}>
-      {config.label}
-    </Badge>
-  )
+  return <span className={cn('text-[11px] font-semibold', config.className)}>{config.label}</span>
 }
 
 // ============================================================
@@ -289,7 +279,24 @@ function SummaryCards({ units }) {
 }
 
 // ============================================================
-// EDITABLE FIELD
+// DETAIL SECTION
+// ============================================================
+function DetailSection({ title, action, className, children }) {
+  return (
+    <div className={className}>
+      <div className="flex items-center justify-between gap-2 mb-2 px-0.5">
+        <h4 className="text-[10px] font-bold uppercase tracking-wider text-foreground">{title}</h4>
+        {action}
+      </div>
+      <div className="rounded-md bg-card border border-border overflow-hidden">
+        {children}
+      </div>
+    </div>
+  )
+}
+
+// ============================================================
+// EDITABLE FIELD (used for non-contract unit fields)
 // ============================================================
 function EditableField({ label, value, type = 'text', options, onSave, actionHref, actionIcon: ActionIcon, actionTitle, auditTag }) {
   const [draft, setDraft] = useState(value ?? '')
@@ -355,24 +362,6 @@ function EditableField({ label, value, type = 'text', options, onSave, actionHre
           <a href={actionHref} title={actionTitle || 'Open'}><ActionIcon size={12} /></a>
         </Button>
       )}
-    </div>
-  )
-}
-
-// ============================================================
-// SECTION CARD
-// ============================================================
-function SectionCard({ title, icon: Icon, children, className, action }) {
-  return (
-    <div className={cn('rounded-md bg-card border border-border overflow-hidden', className)}>
-      <div className="flex items-center justify-between gap-2 px-3 py-2 border-b border-border bg-muted/30">
-        <div className="flex items-center gap-2 min-w-0">
-          {Icon && <Icon size={13} className="text-muted-foreground flex-shrink-0" />}
-          <h4 className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground truncate">{title}</h4>
-        </div>
-        {action}
-      </div>
-      <div className="p-3 space-y-0.5">{children}</div>
     </div>
   )
 }
@@ -690,7 +679,7 @@ function LogCallModal({ open, onClose, unit, onSaved }) {
 }
 
 // ============================================================
-// INTERACTION ROW + SECTION
+// INTERACTION ROW
 // ============================================================
 function InteractionRow({ record, onUpdated, onDeleted }) {
   const [editing, setEditing] = useState(false)
@@ -811,6 +800,9 @@ function InteractionRow({ record, onUpdated, onDeleted }) {
   )
 }
 
+// ============================================================
+// INTERACTIONS SECTION
+// ============================================================
 function InteractionsSection({ unit, onLogCall, refreshKey = 0 }) {
   const [items, setItems] = useState([])
   const [loading, setLoading] = useState(true)
@@ -832,18 +824,14 @@ function InteractionsSection({ unit, onLogCall, refreshKey = 0 }) {
   const handleDeleted = (id) => setItems((prev) => prev.filter((x) => x.id !== id))
 
   return (
-    <div className="rounded-md bg-card border border-border overflow-hidden">
-      <div className="flex items-center justify-between gap-2 px-3 py-2 border-b border-border bg-muted/30">
-        <div className="flex items-center gap-2 min-w-0">
-          <PhoneCall size={13} className="text-muted-foreground flex-shrink-0" />
-          <h4 className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground truncate">
-            Interactions {items.length > 0 ? `· ${items.length}` : ''}
-          </h4>
-        </div>
+    <DetailSection
+      title={`Interactions${items.length > 0 ? ` · ${items.length}` : ''}`}
+      action={
         <Button variant="outline" size="sm" className="h-6 rounded text-[10px] gap-1 px-2" onClick={onLogCall}>
           <Plus size={10} /> Log
         </Button>
-      </div>
+      }
+    >
       <div className="p-2 space-y-1.5 max-h-[320px] overflow-y-auto">
         {loading ? (
           <div className="py-4 text-center text-xs text-muted-foreground">Loading…</div>
@@ -855,238 +843,109 @@ function InteractionsSection({ unit, onLogCall, refreshKey = 0 }) {
           ))
         )}
       </div>
-    </div>
+    </DetailSection>
   )
 }
 
 // ============================================================
-// INLINE CONTRACT EDITOR
+// CONTRACT SECTION — READ-ONLY VIEW (PDF opens only in Contracts page)
 // ============================================================
-function InlineContractField({ label, value, type = 'text', options, onSave, auditTag }) {
-  const [draft, setDraft] = useState(value ?? '')
-  const [status, setStatus] = useState('idle')
-
-  useEffect(() => { setDraft(value ?? '') }, [value])
-
-  const commit = async () => {
-    if (draft === (value ?? '')) return
-    setStatus('saving')
-    try {
-      const next = draft === '' ? null : draft
-      await onSave(next)
-      setStatus('saved')
-      if (auditTag) logAudit(`UPDATE_CONTRACT_FIELD:${auditTag}`, 'contracts', null, { field: auditTag, from: value, to: next }).catch(() => {})
-      setTimeout(() => setStatus('idle'), 1200)
-    } catch (err) {
-      console.error(err)
-      toast.error(err?.message || 'Save failed')
-      setDraft(value ?? '')
-      setStatus('idle')
-    }
-  }
-  const cancel = () => setDraft(value ?? '')
-
-  return (
-    <div className="flex items-center gap-2 py-0.5">
-      <span className="text-[10px] uppercase tracking-wider text-muted-foreground font-semibold min-w-[72px] flex-shrink-0">{label}</span>
-      <div className="flex items-center gap-1 flex-1 min-w-0">
-        {options ? (
-          <Select value={draft || ''} onValueChange={async (v) => {
-            setDraft(v); setStatus('saving')
-            try {
-              await onSave(v); setStatus('saved')
-              if (auditTag) logAudit(`UPDATE_CONTRACT_FIELD:${auditTag}`, 'contracts', null, { field: auditTag, from: value, to: v }).catch(() => {})
-              setTimeout(() => setStatus('idle'), 1200)
-            } catch (err) { toast.error(err?.message || 'Save failed'); setStatus('idle') }
-          }}>
-            <SelectTrigger className="h-7 text-xs rounded bg-background border-border flex-1"><SelectValue /></SelectTrigger>
-            <SelectContent>{options.map((o) => <SelectItem key={o} value={o} className="text-xs">{o}</SelectItem>)}</SelectContent>
-          </Select>
-        ) : (
-          <Input
-            type={type}
-            value={draft}
-            onChange={(e) => setDraft(e.target.value)}
-            onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); e.target.blur() } if (e.key === 'Escape') { e.preventDefault(); cancel(); e.target.blur() } }}
-            onBlur={commit}
-            className={cn('h-7 text-xs rounded bg-background flex-1 transition-colors', !value && 'border-border', value && 'border-transparent hover:border-border')}
-            placeholder="—"
-          />
-        )}
-        {status === 'saving' && <Loader2 size={11} className="flex-shrink-0 animate-spin text-primary" />}
-        {status === 'saved' && <Check size={11} className="flex-shrink-0 text-emerald-500" />}
-      </div>
-    </div>
-  )
-}
-
-function ContractSection({ unit, contract, loading, onContractChange, onUnitChange }) {
-  const updateContractField = async (field, value) => {
-    if (!contract) throw new Error('No contract')
-    const { error } = await supabase
-      .from('contracts')
-      .update({ [field]: value })
-      .eq('id', contract.id)
-    if (error) throw error
-    onContractChange({ ...contract, [field]: value })
-  }
-
-  const createContract = async () => {
-    if (!unit.owner_id) {
-      toast.error('Assign an owner to this unit first')
-      return
-    }
-    const today = new Date().toISOString().slice(0, 10)
-    const oneYear = new Date(); oneYear.setFullYear(oneYear.getFullYear() + 1)
-    const payload = {
-      contract_code: generateContractCode(),
-      unit_id: unit.id,
-      owner_id: unit.owner_id,
-      effective_date: today,
-      expiry_date: oneYear.toISOString().slice(0, 10),
-    }
-    const { data, error } = await supabase.from('contracts').insert(payload).select('*').single()
-    if (error) throw error
-    await supabase.from('units').update({ current_contract_id: data.id }).eq('id', unit.id)
-    logAudit('CREATE_CONTRACT', 'contracts', data.id, { contract_code: payload.contract_code, unit_id: unit.id }).catch(() => {})
-    toast.success('Contract created')
-    onContractChange(data)
-    onUnitChange({ ...unit, current_contract_id: data.id })
-  }
-
-  const deleteContract = async () => {
-    if (!contract) return
-    const confirmed = window.confirm(
-      `Delete contract "${contract.contract_code}"?\n\nUnit: ${unit.unit_code}\nEffective: ${formatDate(contract.effective_date)}\nExpiry: ${formatDate(contract.expiry_date)}\n\nThis cannot be undone.`
-    )
-    if (!confirmed) return
-    const { error } = await supabase.from('contracts').delete().eq('id', contract.id)
-    if (error) throw error
-    await supabase.from('units').update({ current_contract_id: null }).eq('id', unit.id)
-    logAudit('DELETE_CONTRACT', 'contracts', contract.id, { contract_code: contract.contract_code, unit_id: unit.id }).catch(() => {})
-    toast.success('Contract deleted')
-    onContractChange(null)
-    onUnitChange({ ...unit, current_contract_id: null })
-  }
-
+function ContractSection({ unit, contract, loading, onNavigateToContracts }) {
   if (loading) {
     return (
-      <SectionCard title="Contract" icon={FileText}>
-        <div className="space-y-1 py-1">
+      <DetailSection title="Contract">
+        <div className="p-3 space-y-1">
           <Skeleton className="h-3 w-2/3" />
           <Skeleton className="h-3 w-1/2" />
           <Skeleton className="h-3 w-3/4" />
         </div>
-      </SectionCard>
+      </DetailSection>
     )
   }
 
   if (!contract) {
     return (
-      <SectionCard title="Contract" icon={FileText}>
-        <div className="flex items-center justify-between gap-2 py-1">
+      <DetailSection title="Contract">
+        <div className="p-3 space-y-1">
           <span className="text-xs text-muted-foreground italic">No contract</span>
-          <Button size="sm" variant="outline" className="h-7 rounded text-[11px] gap-1.5" onClick={createContract} disabled={!unit.owner_id}>
-            <Plus size={11} /> Create contract
+          <p className="text-[10px] text-muted-foreground pt-1">
+            Create one in the Contracts page.
+          </p>
+          <Button
+            size="sm"
+            variant="outline"
+            className="h-7 rounded text-[11px] gap-1.5 mt-2"
+            onClick={onNavigateToContracts}
+          >
+            Open Contracts page
           </Button>
         </div>
-        {!unit.owner_id && (
-          <p className="text-[10px] text-amber-600 dark:text-amber-400 pt-1">
-            Assign an owner first to enable contract creation.
-          </p>
-        )}
-      </SectionCard>
+      </DetailSection>
     )
   }
 
   const derived = deriveUnitStatus(unit)
-  const statusLabel = derived.warning ? derived.warning.text : DERIVED_STATUS_CONFIG[derived.status]?.label || '—'
+  const statusLabel = derived.warning ? derived.warning.text : DERIVED_STATUS_TEXT[derived.status]?.label || '—'
   const statusClass = derived.warning
-    ? (derived.warning.tone === 'red' ? 'bg-red-600 text-white' : 'bg-amber-600 text-white')
-    : DERIVED_STATUS_CONFIG[derived.status]?.className || 'bg-gray-400 text-white'
-
-  const today = new Date().toISOString().slice(0, 10)
+    ? (derived.warning.tone === 'red' ? 'text-red-600 dark:text-red-400' : 'text-amber-600 dark:text-amber-400')
+    : DERIVED_STATUS_TEXT[derived.status]?.className || 'text-gray-500 dark:text-gray-400'
 
   return (
-    <SectionCard
-      title="Contract"
-      icon={FileText}
-      action={
-        <Button variant="ghost" size="sm" className="h-6 rounded text-[10px] gap-1 px-2 text-red-500 hover:text-red-600 hover:bg-red-500/10" onClick={deleteContract}>
-          <Trash2 size={10} /> Delete
-        </Button>
-      }
-    >
-      <div className="space-y-0.5">
+    <DetailSection title="Contract">
+      <div className="p-3 space-y-0.5">
         <div className="flex items-center justify-between gap-2 py-0.5">
           <span className="text-[10px] uppercase tracking-wider text-muted-foreground font-semibold">Code</span>
           <span className="text-xs font-mono text-foreground">{contract.contract_code || '—'}</span>
         </div>
         <div className="flex items-center justify-between gap-2 py-0.5">
           <span className="text-[10px] uppercase tracking-wider text-muted-foreground font-semibold">Status</span>
-          <Badge className={cn('text-[10px] font-semibold rounded-full px-2 py-0.5 border-0', statusClass)}>{statusLabel}</Badge>
+          <span className={cn('text-[10px] font-semibold', statusClass)}>{statusLabel}</span>
         </div>
-        <InlineContractField
-          label="Effective"
-          value={contract.effective_date}
-          type="date"
-          onSave={async (v) => {
-            if (v && v > today) {
-              toast.error('Effective date cannot be in the future')
-              throw new Error('Effective date cannot be in the future')
-            }
-            await updateContractField('effective_date', v)
-          }}
-          auditTag="effective_date"
-        />
-        <InlineContractField
-          label="Expiry"
-          value={contract.expiry_date}
-          type="date"
-          onSave={(v) => updateContractField('expiry_date', v)}
-          auditTag="expiry_date"
-        />
-        <InlineContractField
-          label="PDF"
-          value={contract.contract_pdf_url}
-          onSave={(v) => updateContractField('contract_pdf_url', v)}
-          auditTag="contract_pdf_url"
-        />
-        {contract.contract_pdf_url && (
-          <div className="pt-2 mt-2 border-t border-border">
-            <a
-              href={contract.contract_pdf_url}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="inline-flex items-center gap-1.5 text-xs font-semibold text-primary hover:underline"
-            >
-              <ExternalLink size={11} />
-              Open contract PDF
-            </a>
-          </div>
-        )}
+        <div className="flex items-center justify-between gap-2 py-0.5">
+          <span className="text-[10px] uppercase tracking-wider text-muted-foreground font-semibold">Effective</span>
+          <span className="text-xs tabular-nums text-foreground">{contract.effective_date || '—'}</span>
+        </div>
+        <div className="flex items-center justify-between gap-2 py-0.5">
+          <span className="text-[10px] uppercase tracking-wider text-muted-foreground font-semibold">Expiry</span>
+          <span className="text-xs tabular-nums text-foreground">
+            {contract.expiry_date || <span className="italic text-muted-foreground">Open-ended</span>}
+          </span>
+        </div>
+
+        <p className="pt-2 mt-2 border-t border-border text-[10px] text-muted-foreground italic">
+          Contract PDF opens from the Contracts page.
+        </p>
+
+        <div className="pt-2 mt-2 border-t border-border">
+          <button
+            type="button"
+            onClick={onNavigateToContracts}
+            className="inline-flex items-center gap-1.5 text-[11px] font-semibold text-muted-foreground hover:text-primary transition-colors"
+          >
+            Edit in Contracts →
+          </button>
+        </div>
       </div>
-    </SectionCard>
+    </DetailSection>
   )
 }
 
 // ============================================================
 // REGISTRY DETAIL PANEL
 // ============================================================
-const PANEL_WIDTH = 448
-
 function RegistryDetailPanel({
   unit,
   contract,
   contractLoading,
   onUnitChange,
-  onContractChange,
   onClose,
   channelOptions,
   onLogCall,
   onDelete,
   interactionsRefreshKey,
 }) {
+  const navigate = useNavigate()
+
   const handleUnitField = async (field, value) => {
     await updateUnit(unit.id, { [field]: value })
     onUnitChange({ ...unit, [field]: value })
@@ -1101,6 +960,10 @@ function RegistryDetailPanel({
     onUnitChange({ ...unit, photo_url: url })
   }
 
+  const goToContracts = () => {
+    navigate(`/admin?tab=contracts&unit=${unit.id}`)
+  }
+
   return (
     <motion.div
       initial={{ width: 0, opacity: 0 }}
@@ -1110,18 +973,18 @@ function RegistryDetailPanel({
         width: { duration: 0.32, ease: [0.4, 0, 0.2, 1] },
         opacity: { duration: 0.2, ease: 'easeOut' },
       }}
-      className="bg-card border-l border-border h-full overflow-hidden flex-shrink-0"
-      style={{ maxWidth: '100%' }}
+      className="h-full flex-shrink-0 p-3"
+      style={{ maxWidth: '100%', width: PANEL_WIDTH + 24 }}
     >
-      <div className="flex flex-col h-full" style={{ width: PANEL_WIDTH }}>
-        <div className="flex-shrink-0 px-5 py-4 border-b border-border bg-muted/30">
+      <div className="h-full rounded-md border border-border bg-card overflow-hidden flex flex-col">
+        <div className="flex-shrink-0 px-5 py-4 border-b border-border">
           <div className="flex items-start gap-3">
             <UnitAvatar unit={unit} size="lg" />
             <div className="min-w-0 flex-1">
               <p className="text-base font-bold text-foreground truncate">{unit.unit_code}</p>
               <p className="text-[11px] text-muted-foreground truncate">{unit.building}</p>
               <div className="flex items-center gap-2 mt-2 flex-wrap">
-                <DerivedStatusBadge unit={unit} />
+                <DerivedStatusText unit={unit} />
                 {unit.unit_type && (
                   <span className="inline-flex items-center px-2 py-0.5 rounded text-[10px] font-semibold bg-muted text-muted-foreground uppercase">
                     {unit.unit_type}
@@ -1133,7 +996,7 @@ function RegistryDetailPanel({
           </div>
         </div>
 
-        <div className="flex-1 overflow-y-auto p-4 space-y-3">
+        <div className="flex-1 overflow-y-auto p-4 space-y-4">
           <div className="flex items-center justify-end gap-2">
             <Button variant="outline" size="sm" className="h-7 rounded text-[11px] gap-1.5" onClick={onLogCall}>
               <PhoneCall size={11} /> Log Interaction
@@ -1143,44 +1006,51 @@ function RegistryDetailPanel({
             </Button>
           </div>
 
-          <SectionCard title="Unit" icon={Building2}>
-            <UnitPhotoUpload unit={unit} onSave={handlePhotoSave} />
-            <div className="pt-2 mt-2 border-t border-border space-y-0.5">
-              <EditableField label="Code" value={unit.unit_code} onSave={(v) => handleUnitField('unit_code', v)} auditTag="unit_code" />
-              <EditableField label="Building" value={unit.building} onSave={(v) => handleUnitField('building', v)} auditTag="building" />
-              <EditableField label="Type" value={unit.unit_type} options={UNIT_TYPES} onSave={(v) => handleUnitField('unit_type', v)} auditTag="unit_type" />
-            </div>
-          </SectionCard>
-
-          <SectionCard title="Owner" icon={UserPlus}>
-            <div className="flex items-center gap-2.5 mb-2 pb-2 border-b border-border">
-              <OwnerAvatar name={unit.owner_name} email={unit.owner_email} size="lg" />
-              <div className="min-w-0 flex-1">
-                <p className="text-sm font-semibold truncate">{unit.owner_name || 'No owner'}</p>
-                <p className="text-[11px] text-muted-foreground truncate">{unit.owner_email || 'No email'}</p>
+          <DetailSection title="Unit">
+            <div className="p-3 space-y-0.5">
+              <UnitPhotoUpload unit={unit} onSave={handlePhotoSave} />
+              <div className="pt-2 mt-2 border-t border-border space-y-0.5">
+                <EditableField label="Code" value={unit.unit_code} onSave={(v) => handleUnitField('unit_code', v)} auditTag="unit_code" />
+                <EditableField label="Building" value={unit.building} onSave={(v) => handleUnitField('building', v)} auditTag="building" />
+                <EditableField label="Type" value={unit.unit_type} options={UNIT_TYPES} onSave={(v) => handleUnitField('unit_type', v)} auditTag="unit_type" />
               </div>
             </div>
-            <EditableField label="Email" value={unit.owner_email} type="email" onSave={(v) => handleUnitField('owner_email', v)} actionHref={unit.owner_email ? `mailto:${unit.owner_email}` : null} actionIcon={Mail} actionTitle="Send email" auditTag="owner_email" />
-            <EditableField label="Phone" value={unit.owner_phone} type="tel" onSave={(v) => handleUnitField('owner_phone', v)} actionHref={unit.owner_phone ? `tel:${unit.owner_phone}` : null} actionIcon={Phone} actionTitle="Call" auditTag="owner_phone" />
-            <EditableField label="GC" value={unit.gc_status} options={GC_STATUS_OPTIONS} onSave={(v) => handleUnitField('gc_status', v)} auditTag="gc_status" />
-          </SectionCard>
+          </DetailSection>
+
+          <DetailSection title="Owner">
+            <div className="p-3 space-y-0.5">
+              <div className="flex items-center gap-2.5 mb-2 pb-2 border-b border-border">
+                <OwnerAvatar name={unit.owner_name} email={unit.owner_email} size="lg" />
+                <div className="min-w-0 flex-1">
+                  <p className="text-sm font-semibold truncate">{unit.owner_name || 'No owner'}</p>
+                  <p className="text-[11px] text-muted-foreground truncate">{unit.owner_email || 'No email'}</p>
+                </div>
+              </div>
+              <EditableField label="Email" value={unit.owner_email} type="email" onSave={(v) => handleUnitField('owner_email', v)} actionHref={unit.owner_email ? `mailto:${unit.owner_email}` : null} actionIcon={Mail} actionTitle="Send email" auditTag="owner_email" />
+              <EditableField label="Phone" value={unit.owner_phone} type="tel" onSave={(v) => handleUnitField('owner_phone', v)} actionHref={unit.owner_phone ? `tel:${unit.owner_phone}` : null} actionIcon={Phone} actionTitle="Call" auditTag="owner_phone" />
+              <EditableField label="GC" value={unit.gc_status} options={GC_STATUS_OPTIONS} onSave={(v) => handleUnitField('gc_status', v)} auditTag="gc_status" />
+            </div>
+          </DetailSection>
 
           <ContractSection
             unit={unit}
             contract={contract}
             loading={contractLoading}
-            onContractChange={onContractChange}
-            onUnitChange={onUnitChange}
+            onNavigateToContracts={goToContracts}
           />
 
-          <SectionCard title="Marketing" icon={Layers}>
-            <EditableField label="Title" value={unit.marketing_title} onSave={(v) => handleUnitField('marketing_title', v)} auditTag="marketing_title" />
-            <EditableField label="Inventory" value={unit.inventory_list} onSave={(v) => handleUnitField('inventory_list', v)} auditTag="inventory_list" />
-          </SectionCard>
+          <DetailSection title="Marketing">
+            <div className="p-3 space-y-0.5">
+              <EditableField label="Title" value={unit.marketing_title} onSave={(v) => handleUnitField('marketing_title', v)} auditTag="marketing_title" />
+              <EditableField label="Inventory" value={unit.inventory_list} onSave={(v) => handleUnitField('inventory_list', v)} auditTag="inventory_list" />
+            </div>
+          </DetailSection>
 
-          <SectionCard title="OTA Channels" icon={Tag}>
-            <OtaEditor unit={unit} onSave={handleOtaSave} channelOptions={channelOptions} />
-          </SectionCard>
+          <DetailSection title="OTA Channels">
+            <div className="p-3 space-y-0.5">
+              <OtaEditor unit={unit} onSave={handleOtaSave} channelOptions={channelOptions} />
+            </div>
+          </DetailSection>
 
           <InteractionsSection unit={unit} onLogCall={onLogCall} refreshKey={interactionsRefreshKey} />
         </div>
@@ -1192,7 +1062,7 @@ function RegistryDetailPanel({
 // ============================================================
 // ADD UNIT MODAL
 // ============================================================
-function AddUnitModal({ open, onClose, onCreated, existingBuildings, channelOptions }) {
+function AddUnitModal({ open, onClose, onCreated, existingBuildings = [], channelOptions = [] }) {
   const [form, setForm] = useState({
     unit_code: '', building: '', unit_type: 'Studio',
     owner_name: '', owner_email: '', owner_phone: '', gc_status: 'FIXED',
@@ -1494,7 +1364,7 @@ function StatusPills({ statusFilter, onStatusFilter, counts }) {
 }
 
 // ============================================================
-// UNIT LIST ROW — chevron removed
+// UNIT LIST ROW
 // ============================================================
 function UnitListRow({ unit, selected, onClick }) {
   return (
@@ -1521,7 +1391,7 @@ function UnitListRow({ unit, selected, onClick }) {
       </span>
 
       <div className="flex items-center gap-2 justify-end flex-shrink-0">
-        <DerivedStatusBadge unit={unit} />
+        <DerivedStatusText unit={unit} />
       </div>
     </motion.button>
   )
@@ -1708,14 +1578,10 @@ export default function RegistryPage() {
   }
 
   const handleUnitUpdate = (updatedUnit) => {
-    setAllUnits((prev) => prev.map((u) => (u.id === updatedUnit.id ? { ...u, ...updatedUnit } : u)))
-    fetchUnits()
-  }
-
-  const handleContractUpdate = (contract) => {
-    setSelectedContract(contract)
-    setAllUnits((prev) => prev.map((u) => (u.id === selected?.id ? { ...u, contract } : u)))
-    fetchUnits()
+    setAllUnits((prev) =>
+      prev.map((u) => (u.id === updatedUnit.id ? { ...u, ...updatedUnit } : u))
+    )
+    setTimeout(() => { fetchUnits() }, 300)
   }
 
   const handleDeleteUnit = async (unit) => {
@@ -1749,7 +1615,7 @@ export default function RegistryPage() {
 
   return (
     <div className="h-full flex min-h-0">
-      <div className="flex-1 min-h-0 flex flex-col overflow-hidden bg-card border border-border rounded-md">
+      <div className="flex-1 min-h-0 flex flex-col overflow-hidden">
         <div className="p-3 flex-1 min-h-0 flex flex-col gap-2.5">
 
           <div className={cn('flex-shrink-0 transition-all duration-300 ease-out overflow-hidden', cardsHidden ? 'max-h-0 opacity-0 -mb-3' : 'max-h-40 opacity-100')}>
@@ -1790,7 +1656,7 @@ export default function RegistryPage() {
             <WarningsStrip missingUnits={missingUnitsList} onSelectUnit={handleSelectUnit} />
           </div>
 
-          <div className="flex-1 min-h-0 rounded border border-border overflow-hidden">
+          <div className="flex-1 min-h-0 rounded border border-border overflow-hidden bg-card">
             <div
               ref={listScrollRef}
               className="h-full overflow-y-auto"
@@ -1838,7 +1704,6 @@ export default function RegistryPage() {
             contract={selectedContract}
             contractLoading={selectedContractLoading}
             onUnitChange={handleUnitUpdate}
-            onContractChange={handleContractUpdate}
             onClose={() => setSelectedId(null)}
             channelOptions={channelOptions}
             onLogCall={() => setLogCallUnit(selected)}

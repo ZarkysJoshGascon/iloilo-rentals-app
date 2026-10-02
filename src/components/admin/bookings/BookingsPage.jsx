@@ -195,8 +195,8 @@ function DateFieldPicker({
   minDate,
   maxDate,
   excludeBookingId,
-  otherDateISO,       // the other endpoint (check-in if picking check-out, or vice versa)
-  mode,               // 'check-in' | 'check-out'
+  otherDateISO,
+  mode,
 }) {
   const [open, setOpen] = useState(false)
   const [viewYear, setViewYear] = useState(() => {
@@ -209,14 +209,12 @@ function DateFieldPicker({
   })
   const wrapRef = useRef(null)
 
-  // Sync view to value if it changes externally
   useEffect(() => {
     if (!value) return
     setViewYear(Number(value.slice(0, 4)))
     setViewMonth(Number(value.slice(5, 7)) - 1)
   }, [value])
 
-  // Close on outside click / escape
   useEffect(() => {
     if (!open) return
     const onDown = (e) => { if (wrapRef.current && !wrapRef.current.contains(e.target)) setOpen(false) }
@@ -229,7 +227,6 @@ function DateFieldPicker({
     }
   }, [open])
 
-  // Build a set of occupied days for the given unit (from props, no extra query)
   const occupiedDays = useMemo(() => {
     const set = new Set()
     for (const b of bookings || []) {
@@ -237,7 +234,6 @@ function DateFieldPicker({
       if (b.deleted_at) continue
       if (excludeBookingId && b.id === excludeBookingId) continue
       let cur = b.check_in
-      // Nights occupied: check_in inclusive, check_out exclusive
       let guard = 0
       while (cur < b.check_out && guard < 1000) {
         set.add(cur)
@@ -270,23 +266,16 @@ function DateFieldPicker({
 
   const displayValue = value ? formatDate(value) : null
 
-  // Is a given day part of the currently-picked range?
   const inRange = (iso) => {
     if (!otherDateISO) return false
-    if (mode === 'check-in') {
-      // Picking check-in while check-out is set: highlight nothing (check-in is start)
-      return false
-    }
-    // Picking check-out: highlight from check-in to this day exclusive
+    if (mode === 'check-in') return false
     return iso > otherDateISO
   }
 
   const isSelectable = (iso) => {
     if (minDate && iso < minDate) return false
     if (maxDate && iso > maxDate) return false
-    // For check-out, must be strictly after check-in
     if (mode === 'check-out' && otherDateISO && iso <= otherDateISO) return false
-    // For check-in, must be strictly before check-out if check-out is set
     if (mode === 'check-in' && otherDateISO && iso >= otherDateISO) return false
     return true
   }
@@ -875,6 +864,9 @@ function BookingDetailPanel({ booking, contracts, onBookingChange, onClose, onAd
                   <span className="text-[10px] uppercase tracking-wider text-foreground font-semibold min-w-[72px]">Expiry</span>
                   <span className="text-xs tabular-nums text-foreground">{governing.expiry_date || <span className="italic text-muted-foreground">Open-ended</span>}</span>
                 </div>
+                <p className="pt-2 mt-2 border-t border-border text-[10px] text-muted-foreground italic">
+                  Contract PDF opens from the Contracts page.
+                </p>
               </div>
             ) : (
               <div className="p-3">
@@ -989,10 +981,10 @@ function BookingListRow({ booking, contracts, selected, highlighted, onClick }) 
       </div>
       <span className="font-mono text-xs text-foreground truncate">{booking.booking_code}</span>
       <div className="min-w-0">
-        <span className="font-mono text-xs font-bold text-foreground truncate block">
+        <span className="font-mono text-xs font-bold text-foreground truncate flex items-center gap-1">
           {booking.units?.unit_code || '—'}
           {!governing && (
-            <span className="ml-1.5 text-[9px] font-semibold uppercase tracking-wider text-red-600 dark:text-red-400">
+            <span className="text-[9px] font-semibold uppercase tracking-wider text-red-600 dark:text-red-400">
               No contract
             </span>
           )}
@@ -1062,7 +1054,6 @@ const emptyForm = () => ({
   initial_date: '',
 })
 
-// Overlap pre-check — nicer UX than waiting for the DB trigger to fire
 async function findOverlappingBooking({ unitId, checkIn, checkOut, excludeId }) {
   if (!unitId || !checkIn || !checkOut) return null
   let query = supabase
@@ -1160,7 +1151,6 @@ function BookingFormModal({ open, onClose, onSaved, units, editing, specialists,
     [selectedUnit, contracts],
   )
 
-  // Bookings for the currently-selected unit — fed into the calendar picker
   const unitBookings = useMemo(() => {
     if (!form.unit_id) return []
     return (bookings || []).filter((b) => b.unit_id === form.unit_id && !b.deleted_at)
@@ -1231,7 +1221,6 @@ function BookingFormModal({ open, onClose, onSaved, units, editing, specialists,
     const stayNights = computeNights(checkIn, checkOut)
     if (stayNights <= 0) { toast.error('Invalid stay length'); return }
 
-    // Overlap pre-check
     const conflict = await findOverlappingBooking({
       unitId: form.unit_id,
       checkIn,
@@ -1686,18 +1675,26 @@ function ExtendStayModal({ open, onClose, booking, onSaved, contracts }) {
 
   const labelClass = 'text-[10px] uppercase tracking-wider text-foreground font-semibold mb-1 block'
 
-  const snapshotBookerRate = booking.booker_rate != null
-    ? Number(booking.booker_rate)
-    : (booking.booker_code ? SPECIALIST_FLAT_RATE : null)
-  const snapshotAffiliateRate = booking.affiliate_rate != null
-    ? Number(booking.affiliate_rate)
-    : null
+  const snapshotBookerRate =
+    booking.booker_rate != null
+      ? Number(booking.booker_rate)
+      : (booking.booker_code ? SPECIALIST_FLAT_RATE : null)
+
+  const bookerRateWasInferred =
+    !!booking.booker_code && booking.booker_rate == null
+
+  const snapshotAffiliateRate =
+    booking.affiliate_rate != null ? Number(booking.affiliate_rate) : null
+
+  const affiliateRateWasInferred =
+    !!booking.affiliate_code && booking.affiliate_rate == null
 
   const previewTotal = Number(newTotal) || 0
-  const previewBooker = booking.booker_code && snapshotBookerRate != null
+
+  const previewBooker = booking.booker_code && snapshotBookerRate != null && !bookerRateWasInferred
     ? computeCommissionAtRate(previewTotal, snapshotBookerRate)
     : 0
-  const previewAffiliate = booking.affiliate_code && snapshotAffiliateRate != null
+  const previewAffiliate = booking.affiliate_code && snapshotAffiliateRate != null && !affiliateRateWasInferred
     ? computeCommissionAtRate(previewTotal, snapshotAffiliateRate)
     : 0
 
@@ -1757,12 +1754,15 @@ function ExtendStayModal({ open, onClose, booking, onSaved, contracts }) {
         tx.push({ amount: payAmt, method: payMethodClean || '', reference: payRefClean || '', date: payDateClean })
       }
 
-      const newBookerComm = booking.booker_code && snapshotBookerRate != null
-        ? computeCommissionAtRate(total, snapshotBookerRate)
-        : 0
-      const newAffComm = booking.affiliate_code && snapshotAffiliateRate != null
-        ? computeCommissionAtRate(total, snapshotAffiliateRate)
-        : 0
+      const newBookerComm =
+        booking.booker_code && booking.booker_rate != null
+          ? computeCommissionAtRate(total, Number(booking.booker_rate))
+          : (booking.booker_code ? booking.booker_commission : 0)
+
+      const newAffComm =
+        booking.affiliate_code && booking.affiliate_rate != null
+          ? computeCommissionAtRate(total, Number(booking.affiliate_rate))
+          : (booking.affiliate_code ? booking.affiliate_commission : 0)
 
       const patch = {
         check_out: newCheckOutClean,
@@ -1781,6 +1781,8 @@ function ExtendStayModal({ open, onClose, booking, onSaved, contracts }) {
         old_total: booking.total_amount,
         new_total: total,
         added_payment: addPayment ? payAmt : 0,
+        booker_rate_inferred: bookerRateWasInferred,
+        affiliate_rate_inferred: affiliateRateWasInferred,
       }).catch(() => {})
       toast.success('Booking extended')
       onSaved()
@@ -1806,11 +1808,27 @@ function ExtendStayModal({ open, onClose, booking, onSaved, contracts }) {
           </div>
           <button onClick={onClose} className="p-1 rounded hover:bg-muted"><X size={14} /></button>
         </div>
-        <div className="p-5 space-y-3">
+        <div className="p-5 space-y-3 max-h-[70vh] overflow-y-auto">
           <div className="grid grid-cols-2 gap-2 text-xs bg-muted/40 rounded p-3">
             <div><div className="text-foreground">Current check-out</div><div className="font-semibold text-foreground">{formatDate(booking.check_out)}</div></div>
             <div><div className="text-foreground">Current nights</div><div className="font-semibold tabular-nums text-foreground">{oldNights}</div></div>
           </div>
+
+          {bookerRateWasInferred && (
+            <div className="rounded-md bg-amber-500/10 border border-amber-500/30 p-2.5 text-[11px] text-amber-700 dark:text-amber-400">
+              <strong>Booker rate missing on this booking.</strong> Commission will
+              <em> not </em> be recalculated when extending — the existing value stays.
+              Edit the booking directly if you need to change the rate.
+            </div>
+          )}
+
+          {affiliateRateWasInferred && (
+            <div className="rounded-md bg-amber-500/10 border border-amber-500/30 p-2.5 text-[11px] text-amber-700 dark:text-amber-400">
+              <strong>Affiliate rate missing on this booking.</strong> Commission will
+              <em> not </em> be recalculated when extending.
+            </div>
+          )}
+
           {governingContract && (
             <p className="text-[10px] text-muted-foreground">
               Contract range: {governingContract.effective_date || '—'} → {governingContract.expiry_date || 'open-ended'}
@@ -1837,19 +1855,26 @@ function ExtendStayModal({ open, onClose, booking, onSaved, contracts }) {
             <div className="rounded-md bg-muted/40 border border-border p-2.5 space-y-1">
               <p className="text-[10px] font-bold uppercase tracking-wider text-foreground flex items-center gap-1">
                 <Lock size={9} className="opacity-60" />
-                Recalculated commissions
+                {bookerRateWasInferred || affiliateRateWasInferred
+                  ? 'Existing commissions will be preserved'
+                  : 'Recalculated commissions'}
               </p>
-              {booking.booker_code && snapshotBookerRate != null && (
+              {booking.booker_code && snapshotBookerRate != null && !bookerRateWasInferred && (
                 <div className="flex justify-between text-xs">
                   <span className="text-foreground">Booker ({snapshotBookerRate}%)</span>
                   <span className="font-semibold tabular-nums text-foreground">{formatMoney(previewBooker)}</span>
                 </div>
               )}
-              {booking.affiliate_code && snapshotAffiliateRate != null && (
+              {booking.affiliate_code && snapshotAffiliateRate != null && !affiliateRateWasInferred && (
                 <div className="flex justify-between text-xs">
                   <span className="text-foreground">Affiliate ({snapshotAffiliateRate}%)</span>
                   <span className="font-semibold tabular-nums text-foreground">{formatMoney(previewAffiliate)}</span>
                 </div>
+              )}
+              {(bookerRateWasInferred || affiliateRateWasInferred) && (
+                <p className="text-[10px] text-muted-foreground italic">
+                  Commission fields will retain their current values.
+                </p>
               )}
             </div>
           )}

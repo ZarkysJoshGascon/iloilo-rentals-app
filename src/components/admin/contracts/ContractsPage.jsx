@@ -1,14 +1,14 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { useSearchParams } from 'react-router-dom'
 import { motion, AnimatePresence } from 'framer-motion'
 import {
   Plus, Search, RefreshCw, X, Check, Loader2, Trash2,
-  FileText, Calendar,
-  AlertTriangle, Download, ExternalLink, User,
+  FileText, Calendar, Download, ExternalLink, User,
+  Upload, Eye,
 } from 'lucide-react'
-import { useSearchParams } from 'react-router-dom'
+import { createPortal } from 'react-dom'  
 import toast from 'react-hot-toast'
 import { Button } from '@/components/ui/button'
-import { Badge } from '@/components/ui/badge'
 import { Input } from '@/components/ui/input'
 import { Skeleton } from '@/components/ui/skeleton'
 import { Textarea } from '@/components/ui/textarea'
@@ -17,29 +17,51 @@ import {
 } from '@/components/ui/select'
 import { supabase } from '@/lib/supabase'
 import { logAudit } from '@/lib/auditLog'
-import {
-  cn,
-  sanitizeText,
-  sanitizeDateOnly,
-} from '@/lib/utils'
+import { cn, sanitizeText, sanitizeDateOnly } from '@/lib/utils'
 
 const BRAND = '#2d568e'
 
 // ============================================================
-// STATUS DERIVATION
+// PDF UPLOAD CONFIG
 // ============================================================
-const STATUS_CONFIG = {
-  active:     { label: 'Active',     className: 'bg-emerald-600 text-white border-0' },
-  expiring:   { label: 'Expiring',   className: 'bg-amber-600 text-white border-0' },
-  expired:    { label: 'Expired',    className: 'bg-red-600 text-white border-0' },
-  incomplete: { label: 'Incomplete', className: 'bg-gray-400 text-white border-0' },
+const PDF_BUCKET = 'contract-pdfs'
+const PDF_MAX_BYTES = 15 * 1024 * 1024 // 15 MB
+const PDF_ALLOWED_MIMES = new Set([
+  'application/pdf',
+  'image/jpeg',
+  'image/png',
+  'image/webp',
+])
+
+function pdfBytesLabel(b) {
+  if (!b) return '—'
+  if (b < 1024) return `${b} B`
+  if (b < 1024 * 1024) return `${(b / 1024).toFixed(1)} KB`
+  return `${(b / 1024 / 1024).toFixed(1)} MB`
 }
 
-const EXPIRING_SOON_DAYS = 60
+function pdfRandomId() {
+  const bytes = new Uint8Array(8)
+  crypto.getRandomValues(bytes)
+  return Array.from(bytes).map((b) => b.toString(36).padStart(2, '0')).join('').slice(0, 12)
+}
 
+async function pdfSniffMime(file) {
+  const head = new Uint8Array(await file.slice(0, 12).arrayBuffer())
+  const hex = Array.from(head).map((b) => b.toString(16).padStart(2, '0')).join('')
+
+  if (hex.startsWith('25504446')) return 'application/pdf'          // %PDF
+  if (hex.startsWith('ffd8ff')) return 'image/jpeg'
+  if (hex.startsWith('89504e470d0a1a0a')) return 'image/png'
+  if (hex.startsWith('52494646') && hex.slice(16, 24) === '57454250') return 'image/webp'
+  return null
+}
+
+// ============================================================
+// STATUS DERIVATION
+// ============================================================
 function deriveContractStatus(contract) {
   if (!contract) return 'incomplete'
-
   const eff = contract.effective_date ? new Date(contract.effective_date + 'T00:00:00Z') : null
   const exp = contract.expiry_date ? new Date(contract.expiry_date + 'T00:00:00Z') : null
   const today = new Date()
@@ -50,9 +72,22 @@ function deriveContractStatus(contract) {
   if (eff && exp) {
     if (exp < today) return 'expired'
     const daysLeft = Math.round((exp - today) / 86400000)
-    return daysLeft <= EXPIRING_SOON_DAYS ? 'expiring' : 'active'
+    return daysLeft <= 60 ? 'expiring' : 'active'
   }
   return exp < today ? 'expired' : 'active'
+}
+
+const STATUS_TEXT = {
+  active:     { label: 'Active',     className: 'text-emerald-600 dark:text-emerald-400' },
+  expiring:   { label: 'Expiring',   className: 'text-amber-600 dark:text-amber-400' },
+  expired:    { label: 'Expired',    className: 'text-red-600 dark:text-red-400' },
+  incomplete: { label: 'Incomplete', className: 'text-gray-500 dark:text-gray-400' },
+}
+
+function StatusText({ contract }) {
+  const status = deriveContractStatus(contract)
+  const config = STATUS_TEXT[status] || STATUS_TEXT.incomplete
+  return <span className={cn('text-[11px] font-semibold', config.className)}>{config.label}</span>
 }
 
 function formatDate(d) {
@@ -62,19 +97,379 @@ function formatDate(d) {
   return dt.toLocaleDateString('en-PH', { month: 'short', day: 'numeric', year: 'numeric', timeZone: 'UTC' })
 }
 
-function StatusBadge({ contract }) {
-  const status = deriveContractStatus(contract)
-  const config = STATUS_CONFIG[status] || STATUS_CONFIG.incomplete
+const ROW_GRID = 'grid grid-cols-[1.3fr_1.5fr_1fr_1fr_140px] gap-4 items-center'
+const PANEL_WIDTH = 480
+
+// ============================================================
+// DETAIL SECTION — title OUTSIDE the card (matches Bookings)
+// ============================================================
+function DetailSection({ title, action, className, children }) {
   return (
-    <Badge className={cn('text-[11px] font-semibold rounded-full px-2.5 py-0.5', config.className)}>
-      {config.label}
-    </Badge>
+    <div className={className}>
+      <div className="flex items-center justify-between gap-2 mb-2 px-0.5">
+        <h4 className="text-[10px] font-bold uppercase tracking-wider text-foreground">{title}</h4>
+        {action}
+      </div>
+      <div className="rounded-md bg-card border border-border overflow-hidden">
+        {children}
+      </div>
+    </div>
   )
 }
 
-// Grid: Contract | Unit | Effective | Expiry | Status
-const ROW_GRID = 'grid grid-cols-[1.3fr_1.5fr_1fr_1fr_140px] gap-4 items-center'
-const PANEL_WIDTH = 480
+// ============================================================
+// PDF LIGHTBOX
+//
+// Improvements over the previous version:
+//  - Escape key closes (via window keydown on mount)
+//  - Click on the backdrop/margin closes
+//  - Header bar with title + Open in new tab + explicit Close button
+//  - Footer hint: "Press Esc or click outside to close"
+//  - Body scroll is locked while open
+// ============================================================
+function PdfLightbox({ url, title = 'Contract document', onClose }) {
+  const [iframeLoaded, setIframeLoaded] = useState(false)
+
+  useEffect(() => {
+    const onKey = (e) => {
+      if (e.key === 'Escape') onClose()
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [onClose])
+
+  useEffect(() => {
+    const prev = document.body.style.overflow
+    document.body.style.overflow = 'hidden'
+    return () => { document.body.style.overflow = prev }
+  }, [])
+
+  const handleBackdrop = (e) => {
+    if (e.target === e.currentTarget) onClose()
+  }
+
+  return createPortal(
+    <motion.div
+      initial={{ opacity: 0 }}
+      animate={{ opacity: 1 }}
+      exit={{ opacity: 0 }}
+      transition={{ duration: 0.15 }}
+      className="fixed inset-0 bg-black/85 backdrop-blur-sm flex flex-col"
+      style={{ zIndex: 2147483647 }}
+      onClick={handleBackdrop}
+    >
+      {/* Header bar */}
+      <div
+        className="flex-shrink-0 h-14 px-4 flex items-center gap-3 border-b border-white/10 bg-black/60"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <FileText size={16} className="text-white/80 flex-shrink-0" />
+        <p className="text-sm font-semibold text-white truncate flex-1">
+          {title}
+        </p>
+
+        <a
+          href={url}
+          target="_blank"
+          rel="noopener noreferrer"
+          className="inline-flex items-center gap-1.5 h-8 px-3 rounded-md text-xs font-semibold text-white/90 hover:text-white bg-white/10 hover:bg-white/20 transition-colors flex-shrink-0"
+          title="Open in a new browser tab"
+        >
+          <ExternalLink size={12} />
+          <span className="hidden sm:inline">Open in new tab</span>
+        </a>
+
+        <button
+          type="button"
+          onClick={onClose}
+          className="inline-flex items-center gap-1.5 h-8 px-3 rounded-md text-xs font-semibold text-white/90 hover:text-white bg-white/10 hover:bg-white/20 transition-colors flex-shrink-0"
+          title="Close (Esc)"
+        >
+          <X size={12} />
+          <span className="hidden sm:inline">Close</span>
+        </button>
+      </div>
+
+      {/* Body */}
+      <div
+        className="flex-1 min-h-0 p-4 sm:p-6 flex items-center justify-center"
+        onClick={handleBackdrop}
+      >
+        <div
+          className="relative w-full h-full max-w-[1100px] rounded-lg overflow-hidden bg-white shadow-2xl"
+          onClick={(e) => e.stopPropagation()}
+        >
+          {!iframeLoaded && (
+            <div className="absolute inset-0 flex items-center justify-center bg-white z-10">
+              <div className="flex flex-col items-center gap-2">
+                <Loader2 size={22} className="animate-spin text-muted-foreground" />
+                <p className="text-[11px] text-muted-foreground">Loading document…</p>
+              </div>
+            </div>
+          )}
+          <iframe
+            src={url}
+            title={title}
+            className="w-full h-full border-0"
+            onLoad={() => setIframeLoaded(true)}
+          />
+        </div>
+      </div>
+
+      {/* Footer hint */}
+      <div className="flex-shrink-0 h-10 px-4 flex items-center justify-center border-t border-white/10 bg-black/60">
+        <p className="text-[11px] text-white/70">
+          Press <kbd className="px-1.5 py-0.5 rounded bg-white/10 text-white/90 font-mono">Esc</kbd> or click outside the document to close
+        </p>
+      </div>
+    </motion.div>,
+    document.body,
+  )
+}
+
+// ============================================================
+// CONTRACT PDF UPLOADER (inline)
+// ============================================================
+function ContractPdfUploader({ contract, onSaved }) {
+  const inputRef = useRef(null)
+  const [uploading, setUploading] = useState(false)
+  const [busyRemove, setBusyRemove] = useState(false)
+  const [signedUrl, setSignedUrl] = useState(null)
+  const [loadingUrl, setLoadingUrl] = useState(false)
+  const [lightboxOpen, setLightboxOpen] = useState(false)
+
+  const path = contract?.contract_pdf_path || null
+  const existingUrl = contract?.contract_pdf_url || null
+
+  // Refresh signed URL whenever the stored path changes
+  useEffect(() => {
+    let cancelled = false
+    if (!path) { setSignedUrl(null); return }
+    setLoadingUrl(true)
+    supabase.storage.from(PDF_BUCKET).createSignedUrl(path, 3600)
+      .then(({ data, error }) => {
+        if (cancelled) return
+        if (error) { console.warn(error); setSignedUrl(null) }
+        else setSignedUrl(data?.signedUrl || null)
+      })
+      .finally(() => { if (!cancelled) setLoadingUrl(false) })
+    return () => { cancelled = true }
+  }, [path])
+
+  const handleFile = async (e) => {
+    const file = e.target.files?.[0]
+    if (!file) return
+
+    if (file.size > PDF_MAX_BYTES) {
+      toast.error(`File too large (max ${pdfBytesLabel(PDF_MAX_BYTES)})`)
+      if (inputRef.current) inputRef.current.value = ''
+      return
+    }
+
+    const mime = await pdfSniffMime(file)
+    if (!mime || !PDF_ALLOWED_MIMES.has(mime)) {
+      toast.error('Unsupported file. Use PDF, JPEG, PNG, or WebP.')
+      if (inputRef.current) inputRef.current.value = ''
+      return
+    }
+
+    setUploading(true)
+    try {
+      const ext = mime === 'application/pdf' ? 'pdf'
+        : mime === 'image/png' ? 'png'
+        : mime === 'image/webp' ? 'webp'
+        : 'jpg'
+
+      const newPath = `${contract.id}/${pdfRandomId()}.${ext}`
+
+      const { error: upErr } = await supabase
+        .storage
+        .from(PDF_BUCKET)
+        .upload(newPath, file, {
+          cacheControl: '31536000',
+          upsert: false,
+          contentType: mime,
+        })
+      if (upErr) throw upErr
+
+      const { data: signedData, error: signErr } = await supabase
+        .storage
+        .from(PDF_BUCKET)
+        .createSignedUrl(newPath, 3600)
+      if (signErr) throw signErr
+
+      const { error: dbErr } = await supabase
+        .from('contracts')
+        .update({
+          contract_pdf_path: newPath,
+          contract_pdf_url: signedData?.signedUrl || existingUrl,
+        })
+        .eq('id', contract.id)
+      if (dbErr) throw dbErr
+
+      if (path) {
+        supabase.storage.from(PDF_BUCKET).remove([path]).catch((err) => {
+          console.warn('Failed to remove old contract pdf:', err)
+        })
+      }
+
+      logAudit('UPLOAD_CONTRACT_PDF', 'contracts', contract.id, {
+        filename: file.name,
+        size: file.size,
+        mime,
+      }).catch(() => {})
+
+      toast.success('Contract uploaded')
+      setSignedUrl(signedData?.signedUrl || null)
+      onSaved?.()
+    } catch (err) {
+      console.error(err)
+      toast.error(err?.message || 'Upload failed')
+    } finally {
+      setUploading(false)
+      if (inputRef.current) inputRef.current.value = ''
+    }
+  }
+
+  const handleRemove = async () => {
+    if (!path && !existingUrl) return
+    if (!window.confirm('Remove the contract file? This cannot be undone.')) return
+    setBusyRemove(true)
+    try {
+      if (path) {
+        const { error: rmErr } = await supabase.storage.from(PDF_BUCKET).remove([path])
+        if (rmErr) console.warn('Storage remove failed:', rmErr)
+      }
+      const { error: dbErr } = await supabase
+        .from('contracts')
+        .update({ contract_pdf_path: null, contract_pdf_url: null })
+        .eq('id', contract.id)
+      if (dbErr) throw dbErr
+      logAudit('REMOVE_CONTRACT_PDF', 'contracts', contract.id, {}).catch(() => {})
+      toast.success('Contract file removed')
+      setSignedUrl(null)
+      onSaved?.()
+    } catch (err) {
+      console.error(err)
+      toast.error(err?.message || 'Failed to remove')
+    } finally {
+      setBusyRemove(false)
+    }
+  }
+
+  const hasFile = !!path || !!existingUrl
+  const displayUrl = signedUrl || existingUrl
+
+  return (
+    <>
+      <input
+        ref={inputRef}
+        type="file"
+        accept="application/pdf,image/jpeg,image/png,image/webp"
+        className="hidden"
+        onChange={handleFile}
+        disabled={uploading || busyRemove}
+      />
+
+      {hasFile ? (
+        <div className="space-y-2">
+          <div className="flex items-center gap-3 p-2.5 rounded-md border border-border bg-background">
+            <div className="w-10 h-10 rounded-md bg-muted flex items-center justify-center flex-shrink-0">
+              <FileText size={18} className="text-muted-foreground" />
+            </div>
+            <div className="min-w-0 flex-1">
+              <p className="text-xs font-semibold text-foreground truncate">Contract document</p>
+              <p className="text-[10px] text-muted-foreground font-mono truncate">
+                {path || existingUrl || '—'}
+              </p>
+            </div>
+            <div className="flex items-center gap-1 flex-shrink-0">
+              {loadingUrl ? (
+                <Loader2 size={12} className="animate-spin text-muted-foreground" />
+              ) : displayUrl ? (
+                <>
+                  <button
+                    type="button"
+                    onClick={() => setLightboxOpen(true)}
+                    className="p-1.5 rounded hover:bg-muted text-muted-foreground hover:text-foreground transition-colors"
+                    title="Preview"
+                  >
+                    <Eye size={12} />
+                  </button>
+                  <a
+                    href={displayUrl}
+                    download
+                    className="p-1.5 rounded hover:bg-muted text-muted-foreground hover:text-foreground transition-colors"
+                    title="Download"
+                  >
+                    <Download size={12} />
+                  </a>
+                  <a
+                    href={displayUrl}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="p-1.5 rounded hover:bg-muted text-muted-foreground hover:text-foreground transition-colors"
+                    title="Open in new tab"
+                  >
+                    <ExternalLink size={12} />
+                  </a>
+                </>
+              ) : null}
+            </div>
+          </div>
+
+          <div className="flex items-center gap-2">
+            <Button
+              variant="outline"
+              size="sm"
+              className="h-7 rounded text-[11px] gap-1.5 flex-1"
+              onClick={() => inputRef.current?.click()}
+              disabled={uploading || busyRemove}
+            >
+              {uploading ? <Loader2 size={11} className="animate-spin" /> : <Upload size={11} />}
+              {uploading ? 'Uploading…' : 'Replace'}
+            </Button>
+            <Button
+              variant="outline"
+              size="sm"
+              className="h-7 rounded text-[11px] gap-1.5 text-red-600 border-red-200 hover:bg-red-50 dark:text-red-400 dark:border-red-800 dark:hover:bg-red-900/20"
+              onClick={handleRemove}
+              disabled={uploading || busyRemove}
+            >
+              {busyRemove ? <Loader2 size={11} className="animate-spin" /> : <X size={11} />}
+              Remove
+            </Button>
+          </div>
+        </div>
+      ) : (
+        <button
+          type="button"
+          onClick={() => inputRef.current?.click()}
+          disabled={uploading}
+          className="w-full flex flex-col items-center justify-center gap-1.5 py-5 rounded-md border-2 border-dashed border-border text-muted-foreground hover:bg-muted/40 active:bg-muted/60 transition-colors disabled:opacity-50"
+        >
+          {uploading ? <Loader2 size={16} className="animate-spin" /> : <Upload size={16} />}
+          <span className="text-[11px] font-semibold">
+            {uploading ? 'Uploading…' : 'Upload contract document'}
+          </span>
+          <span className="text-[10px]">
+            PDF, JPEG, PNG, WebP · max {pdfBytesLabel(PDF_MAX_BYTES)}
+          </span>
+        </button>
+      )}
+
+      <AnimatePresence>
+        {lightboxOpen && displayUrl && (
+          <PdfLightbox
+            url={displayUrl}
+            title={contract.contract_code ? `Contract · ${contract.contract_code}` : 'Contract document'}
+            onClose={() => setLightboxOpen(false)}
+          />
+        )}
+      </AnimatePresence>
+    </>
+  )
+}
 
 // ============================================================
 // SUMMARY CARDS
@@ -94,7 +489,7 @@ function SummaryCards({ contracts }) {
   const cards = [
     { label: 'Total Contracts', value: stats.total,    icon: FileText },
     { label: 'Active',          value: stats.active,   icon: Check },
-    { label: 'Expiring Soon',   value: stats.expiring, icon: AlertTriangle },
+    { label: 'Expiring Soon',   value: stats.expiring, icon: Calendar },
     { label: 'Expired',         value: stats.expired,  icon: X },
   ]
 
@@ -122,7 +517,7 @@ function SummaryCards({ contracts }) {
 }
 
 // ============================================================
-// STATUS PILLS
+// STATUS PILLS (filter)
 // ============================================================
 const STATUS_PILLS = [
   { id: 'all', label: 'All' },
@@ -252,7 +647,7 @@ function FilterPanel({
 }
 
 // ============================================================
-// CONTRACT ROW — chevron removed
+// CONTRACT ROW
 // ============================================================
 function ContractRow({ contract, selected, onClick }) {
   return (
@@ -293,34 +688,16 @@ function ContractRow({ contract, selected, onClick }) {
       </div>
 
       <div className="flex items-center justify-end flex-shrink-0">
-        <StatusBadge contract={contract} />
+        <StatusText contract={contract} />
       </div>
     </motion.button>
   )
 }
 
 // ============================================================
-// SECTION CARD
-// ============================================================
-function SectionCard({ title, icon: Icon, children, className, action }) {
-  return (
-    <div className={cn('rounded-md bg-card border border-border overflow-hidden', className)}>
-      <div className="flex items-center justify-between gap-2 px-3 py-2 border-b border-border bg-muted/30">
-        <div className="flex items-center gap-2 min-w-0">
-          {Icon && <Icon size={13} className="text-muted-foreground flex-shrink-0" />}
-          <h4 className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground truncate">{title}</h4>
-        </div>
-        {action}
-      </div>
-      <div className="p-3 space-y-0.5">{children}</div>
-    </div>
-  )
-}
-
-// ============================================================
 // EDITABLE FIELD
 // ============================================================
-function EditableField({ label, value, type = 'text', options, onSave, auditTag, maxLength = 500, sanitizer }) {
+function EditableField({ label, value, type = 'text', options, onSave, auditTag, maxLength = 500 }) {
   const [draft, setDraft] = useState(value ?? '')
   const [status, setStatus] = useState('idle')
 
@@ -330,7 +707,7 @@ function EditableField({ label, value, type = 'text', options, onSave, auditTag,
     if (draft === (value ?? '')) return
     setStatus('saving')
     try {
-      const cleaned = sanitizer ? sanitizer(draft) : (draft === '' ? null : String(draft).slice(0, maxLength))
+      const cleaned = draft === '' ? null : String(draft).slice(0, maxLength)
       const next = cleaned === '' ? null : cleaned
       await onSave(next)
       setStatus('saved')
@@ -400,11 +777,11 @@ function EditableField({ label, value, type = 'text', options, onSave, auditTag,
 }
 
 // ============================================================
-// CONTRACT DETAIL PANEL
+// CONTRACT DETAIL PANEL — right side slide-in
 // ============================================================
 function ContractDetailPanel({ contract, onClose, onChanged, onDelete }) {
   const status = deriveContractStatus(contract)
-  const statusConfig = STATUS_CONFIG[status] || STATUS_CONFIG.incomplete
+  const statusConfig = STATUS_TEXT[status] || STATUS_TEXT.incomplete
 
   const updateField = async (field, value) => {
     const { error } = await supabase.from('contracts').update({ [field]: value }).eq('id', contract.id)
@@ -422,11 +799,13 @@ function ContractDetailPanel({ contract, onClose, onChanged, onDelete }) {
       animate={{ width: PANEL_WIDTH, opacity: 1 }}
       exit={{ width: 0, opacity: 0 }}
       transition={{ width: { duration: 0.32, ease: [0.4, 0, 0.2, 1] }, opacity: { duration: 0.2, ease: 'easeOut' } }}
-      className="bg-card border-l border-border h-full overflow-hidden flex-shrink-0"
-      style={{ maxWidth: '100%' }}
+      className="h-full flex-shrink-0 p-3"
+      style={{ maxWidth: '100%', width: PANEL_WIDTH + 24 }}
     >
-      <div className="flex flex-col h-full" style={{ width: PANEL_WIDTH }}>
-        <div className="flex-shrink-0 px-5 py-4 border-b border-border bg-muted/30">
+      <div className="h-full rounded-md border border-border bg-card overflow-hidden flex flex-col">
+
+        {/* Header */}
+        <div className="flex-shrink-0 px-5 py-4 border-b border-border">
           <div className="flex items-start gap-3">
             <div className="w-12 h-12 rounded-md bg-muted flex items-center justify-center flex-shrink-0">
               <FileText size={20} className="text-muted-foreground" />
@@ -437,102 +816,106 @@ function ContractDetailPanel({ contract, onClose, onChanged, onDelete }) {
                 {unit?.unit_code || '—'} · {unit?.building || '—'}
               </p>
               <div className="flex items-center gap-2 mt-2 flex-wrap">
-                <Badge className={cn('text-[11px] font-semibold rounded-full px-2.5 py-0.5', statusConfig.className)}>
+                <span className={cn('text-[11px] font-semibold', statusConfig.className)}>
                   {statusConfig.label}
-                </Badge>
+                </span>
               </div>
             </div>
             <button onClick={onClose} className="p-1 rounded hover:bg-muted text-muted-foreground flex-shrink-0"><X size={16} /></button>
           </div>
+
+          <div className="flex items-center gap-2 mt-3">
+            <Button variant="outline" size="sm" className="h-7 rounded text-[11px] gap-1.5" onClick={onDelete}>
+              <Trash2 size={11} /> Delete
+            </Button>
+          </div>
         </div>
 
-        <div className="flex-1 overflow-y-auto p-4 space-y-3">
-          <SectionCard title="Owner" icon={User}>
-            <div className="flex items-center gap-2.5 pb-2 mb-2 border-b border-border">
-              <div className="w-10 h-10 rounded-full bg-muted flex items-center justify-center flex-shrink-0 text-muted-foreground">
-                <User size={16} />
+        {/* Body */}
+        <div className="flex-1 overflow-y-auto p-4 space-y-4">
+          <DetailSection title="Owner">
+            <div className="p-3">
+              <div className="flex items-center gap-2.5 pb-2 mb-2 border-b border-border">
+                <div className="w-10 h-10 rounded-full bg-muted flex items-center justify-center flex-shrink-0 text-muted-foreground">
+                  <User size={16} />
+                </div>
+                <div className="min-w-0 flex-1">
+                  <p className="text-sm font-semibold truncate">{owner?.name || '—'}</p>
+                  <p className="text-[11px] text-muted-foreground truncate">{owner?.email || 'No email'}</p>
+                </div>
               </div>
-              <div className="min-w-0 flex-1">
-                <p className="text-sm font-semibold truncate">{owner?.name || '—'}</p>
-                <p className="text-[11px] text-muted-foreground truncate">{owner?.email || 'No email'}</p>
-              </div>
+              {owner?.phone && (
+                <div className="flex items-center gap-2 py-0.5">
+                  <span className="text-[10px] uppercase tracking-wider text-muted-foreground font-semibold min-w-[72px]">Phone</span>
+                  <span className="text-xs text-foreground">{owner.phone}</span>
+                </div>
+              )}
             </div>
-            {owner?.phone && (
+          </DetailSection>
+
+          <DetailSection title="Unit">
+            <div className="p-3 space-y-0.5">
               <div className="flex items-center gap-2 py-0.5">
-                <span className="text-[10px] uppercase tracking-wider text-muted-foreground font-semibold min-w-[72px]">Phone</span>
-                <span className="text-xs text-foreground">{owner.phone}</span>
+                <span className="text-[10px] uppercase tracking-wider text-muted-foreground font-semibold min-w-[72px]">Code</span>
+                <span className="text-xs font-mono text-foreground">{unit?.unit_code || '—'}</span>
               </div>
-            )}
-          </SectionCard>
-
-          <SectionCard title="Unit" icon={FileText}>
-            <div className="flex items-center gap-2 py-0.5">
-              <span className="text-[10px] uppercase tracking-wider text-muted-foreground font-semibold min-w-[72px]">Code</span>
-              <span className="text-xs font-mono text-foreground">{unit?.unit_code || '—'}</span>
-            </div>
-            <div className="flex items-center gap-2 py-0.5">
-              <span className="text-[10px] uppercase tracking-wider text-muted-foreground font-semibold min-w-[72px]">Building</span>
-              <span className="text-xs text-foreground">{unit?.building || '—'}</span>
-            </div>
-          </SectionCard>
-
-          <SectionCard title="Contract Terms" icon={Calendar}>
-            <EditableField
-              label="Effective"
-              value={contract.effective_date}
-              type="date"
-              onSave={(v) => updateField('effective_date', v)}
-              auditTag="effective_date"
-            />
-            <EditableField
-              label="Expiry"
-              value={contract.expiry_date}
-              type="date"
-              onSave={(v) => updateField('expiry_date', v)}
-              auditTag="expiry_date"
-            />
-            <EditableField
-              label="PDF"
-              value={contract.contract_pdf_url}
-              onSave={(v) => updateField('contract_pdf_url', v)}
-              auditTag="contract_pdf_url"
-              maxLength={500}
-            />
-            {contract.contract_pdf_url && (
-              <div className="pt-2 mt-2 border-t border-border">
-                <a
-                  href={contract.contract_pdf_url}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="inline-flex items-center gap-1.5 text-xs font-semibold text-primary hover:underline"
-                >
-                  <ExternalLink size={11} />
-                  Open contract PDF
-                </a>
+              <div className="flex items-center gap-2 py-0.5">
+                <span className="text-[10px] uppercase tracking-wider text-muted-foreground font-semibold min-w-[72px]">Building</span>
+                <span className="text-xs text-foreground">{unit?.building || '—'}</span>
               </div>
-            )}
-          </SectionCard>
+            </div>
+          </DetailSection>
 
-          <SectionCard title="Notes" icon={FileText}>
-            <Textarea
-              key={contract.id}
-              defaultValue={contract.notes || ''}
-              maxLength={2000}
-              onBlur={async (e) => {
-                const cleaned = sanitizeText(e.target.value, { max: 2000, allowNewlines: true })
-                if (cleaned === (contract.notes || null)) return
-                try {
-                  await updateField('notes', cleaned)
-                  toast.success('Notes saved')
-                } catch {
-                  toast.error('Failed to save')
-                }
-              }}
-              rows={3}
-              className="text-xs rounded resize-none w-full"
-              placeholder="Add notes..."
-            />
-          </SectionCard>
+          <DetailSection title="Contract Terms">
+            <div className="p-3 space-y-0.5">
+              <EditableField
+                label="Effective"
+                value={contract.effective_date}
+                type="date"
+                onSave={(v) => updateField('effective_date', v)}
+                auditTag="effective_date"
+              />
+              <EditableField
+                label="Expiry"
+                value={contract.expiry_date}
+                type="date"
+                onSave={(v) => updateField('expiry_date', v)}
+                auditTag="expiry_date"
+              />
+            </div>
+          </DetailSection>
+
+          <DetailSection title="Contract Document">
+            <div className="p-3">
+              <ContractPdfUploader
+                contract={contract}
+                onSaved={onChanged}
+              />
+            </div>
+          </DetailSection>
+
+          <DetailSection title="Notes">
+            <div className="p-3">
+              <Textarea
+                key={contract.id}
+                defaultValue={contract.notes || ''}
+                maxLength={2000}
+                onBlur={async (e) => {
+                  const cleaned = sanitizeText(e.target.value, { max: 2000, allowNewlines: true })
+                  if (cleaned === (contract.notes || null)) return
+                  try {
+                    await updateField('notes', cleaned)
+                    toast.success('Notes saved')
+                  } catch {
+                    toast.error('Failed to save')
+                  }
+                }}
+                rows={3}
+                className="text-xs rounded resize-none w-full"
+                placeholder="Add notes..."
+              />
+            </div>
+          </DetailSection>
 
           <div className="pt-2 border-t border-border">
             <Button
@@ -695,6 +1078,12 @@ export default function ContractsPage() {
     if (!confirmed) return
 
     try {
+      if (contract.contract_pdf_path) {
+        supabase.storage.from(PDF_BUCKET).remove([contract.contract_pdf_path]).catch((err) => {
+          console.warn('Failed to remove contract pdf:', err)
+        })
+      }
+
       const { error } = await supabase.from('contracts').delete().eq('id', contract.id)
       if (error) throw error
       logAudit('DELETE_CONTRACT', 'contracts', contract.id, { contract_code: contract.contract_code, unit_id: contract.unit_id }).catch(() => {})
@@ -709,7 +1098,7 @@ export default function ContractsPage() {
 
   const handleExport = () => {
     if (filtered.length === 0) { toast.error('Nothing to export'); return }
-    const headers = ['Code', 'Unit', 'Building', 'Owner', 'Owner Email', 'Effective', 'Expiry', 'Status', 'PDF URL']
+    const headers = ['Code', 'Unit', 'Building', 'Owner', 'Owner Email', 'Effective', 'Expiry', 'Status', 'Has PDF']
     const rows = filtered.map((c) => [
       c.contract_code || '',
       c.units?.unit_code || '',
@@ -718,8 +1107,8 @@ export default function ContractsPage() {
       c.owners?.email || '',
       c.effective_date || '',
       c.expiry_date || '',
-      STATUS_CONFIG[deriveContractStatus(c)]?.label || '',
-      c.contract_pdf_url || '',
+      STATUS_TEXT[deriveContractStatus(c)]?.label || '',
+      c.contract_pdf_path ? 'Yes' : 'No',
     ])
     const csv = [headers, ...rows].map((row) => row.map((v) => `"${String(v).replace(/"/g, '""')}"`).join(',')).join('\n')
     const blob = new Blob(['\uFEFF' + csv], { type: 'text/csv;charset=utf-8;' })
@@ -734,7 +1123,7 @@ export default function ContractsPage() {
 
   return (
     <div className="h-full flex min-h-0">
-      <div className="flex-1 min-h-0 flex flex-col overflow-hidden bg-card border border-border rounded-md">
+      <div className="flex-1 min-h-0 flex flex-col overflow-hidden">
         <div className="p-3 flex-1 min-h-0 flex flex-col gap-2.5">
           <div className="flex-shrink-0">
             <SummaryCards contracts={contracts} />
@@ -809,7 +1198,7 @@ export default function ContractsPage() {
             <StatusPills statusFilter={statusFilter} onStatusFilter={setStatusFilter} counts={counts} />
           </div>
 
-          <div className="flex-1 min-h-0 rounded border border-border overflow-hidden">
+          <div className="flex-1 min-h-0 rounded border border-border overflow-hidden bg-card">
             <div className="h-full overflow-y-auto" style={{ scrollbarGutter: 'stable' }}>
               <div className={cn('sticky top-0 z-10 px-4 py-2 border-b border-border bg-card', ROW_GRID)}>
                 <span className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground truncate">Contract</span>
