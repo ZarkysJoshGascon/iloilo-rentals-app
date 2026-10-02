@@ -95,3 +95,31 @@ export function generateCleaningCode(prefix = 'CL') {
   }
   return `${prefix}-${s}`
 }
+// ------------------------------------------------------------
+// Stay timing constants (Iloilo Rentals policy)
+//   Check-in:  3:00 PM
+//   Check-out: 11:00 AM
+// Change them here and every reference across the app updates.
+// ------------------------------------------------------------
+export const STAY_TIMES = {
+  checkIn:  { hour: 15, minute: 0, label: '3:00 PM' },
+  checkOut: { hour: 11, minute: 0, label: '11:00 AM' },
+}
+
+export const CLEANING_WINDOW = {
+  label: '11:00 AM – 3:00 PM',
+}
+
+// Nights between two YYYY-MM-DD strings
+export function computeNights(checkIn, checkOut) {
+  if (!checkIn || !checkOut) return 0
+  const a = new Date(checkIn + 'T00:00:00Z')
+  const b = new Date(checkOut + 'T00:00:00Z')
+  if (Number.isNaN(a.getTime()) || Number.isNaN(b.getTime())) return 0
+  return Math.max(0, Math.round((b - a) / 86400000))
+}
+
+// < 7 nights → basic, >= 7 nights → deep
+export function cleaningTypeForStay(checkIn, checkOut) {
+  return computeNights(checkIn, checkOut) >= 7 ? 'deep' : 'basic'
+}

@@ -4,8 +4,8 @@ import { motion, AnimatePresence } from 'framer-motion'
 import {
   Check, Download, Loader2,
   Plus, RefreshCw, Search, X, Trash2,
-  Building2, CheckCircle2, Clock, AlertTriangle, Calendar, User, Wallet,
-  Edit2, Lock, LogIn, LogOut,
+  Building2, CheckCircle2, Clock, AlertTriangle, Calendar as CalendarIcon, User, Wallet,
+  Edit2, Lock, LogIn, LogOut, ChevronLeft, ChevronRight,
 } from 'lucide-react'
 import toast from 'react-hot-toast'
 import { Button } from '@/components/ui/button'
@@ -25,6 +25,7 @@ import {
   sanitizeMoney,
   sanitizeInt,
   sanitizeDateOnly,
+  STAY_TIMES,
 } from '@/lib/utils'
 import {
   getTierInfo, SPECIALIST_FLAT_RATE,
@@ -45,8 +46,55 @@ const STATUS_PILLS = [
 const ROW_GRID = 'grid grid-cols-[1.4fr_1fr_1.2fr_1.1fr_1fr_160px] gap-4 items-center'
 const PANEL_WIDTH = 448
 
+const MONTHS = ['January','February','March','April','May','June','July','August','September','October','November','December']
+const DOW = ['Su','Mo','Tu','We','Th','Fr','Sa']
+
 function today() { const d = new Date(); d.setHours(0, 0, 0, 0); return d }
 function parseDateOnly(d) { if (!d) return null; const dt = new Date(d); dt.setHours(0, 0, 0, 0); return dt }
+function todayISO() {
+  const d = new Date(); d.setHours(0, 0, 0, 0)
+  const y = d.getFullYear(); const m = String(d.getMonth() + 1).padStart(2, '0'); const dd = String(d.getDate()).padStart(2, '0')
+  return `${y}-${m}-${dd}`
+}
+function toISODate(y, m, d) {
+  return `${y}-${String(m + 1).padStart(2, '0')}-${String(d).padStart(2, '0')}`
+}
+function isoAddDays(iso, n) {
+  const d = new Date(iso + 'T00:00:00Z')
+  d.setUTCDate(d.getUTCDate() + n)
+  return d.toISOString().slice(0, 10)
+}
+
+function findGoverningContract(unit, contracts) {
+  if (!unit) return null
+  const todayStr = todayISO()
+  const isActive = (c) => {
+    if (!c?.effective_date) return false
+    if (c.effective_date > todayStr) return false
+    if (c.expiry_date && c.expiry_date < todayStr) return false
+    return true
+  }
+  if (unit.current_contract_id) {
+    const c = contracts.find((x) => x.id === unit.current_contract_id)
+    if (c && isActive(c)) return c
+  }
+  const candidates = contracts
+    .filter((x) => x.unit_id === unit.id && isActive(x))
+    .sort((a, b) => (b.effective_date || '').localeCompare(a.effective_date || ''))
+  return candidates[0] || null
+}
+
+function findContractForBooking(booking, contracts) {
+  if (!booking?.unit_id || !booking?.check_in) return null
+  const candidates = (contracts || []).filter((c) =>
+    c.unit_id === booking.unit_id &&
+    c.effective_date &&
+    c.effective_date <= booking.check_in &&
+    (!c.expiry_date || c.expiry_date >= booking.check_in)
+  )
+  if (candidates.length === 0) return null
+  return candidates.sort((a, b) => (b.effective_date || '').localeCompare(a.effective_date || ''))[0]
+}
 
 function deriveBookingStatus(b) {
   if (b.completed_at) return 'completed'
@@ -114,9 +162,6 @@ function GuestAvatar({ name, size = 'md' }) {
   )
 }
 
-// ============================================================
-// STATUS + PAYMENT — plain colored text
-// ============================================================
 const BOOKING_STATUS_TEXT = {
   upcoming: { label: 'Upcoming', className: 'text-blue-600 dark:text-blue-400' },
   active: { label: 'Active', className: 'text-emerald-600 dark:text-emerald-400' },
@@ -142,6 +187,232 @@ function PaymentStatusBadge({ status }) {
 }
 
 // ============================================================
+// INLINE DATE PICKER WITH OCCUPANCY MARKS
+// ============================================================
+function DateFieldPicker({
+  value, onChange, placeholder,
+  bookings = [],
+  minDate,
+  maxDate,
+  excludeBookingId,
+  otherDateISO,       // the other endpoint (check-in if picking check-out, or vice versa)
+  mode,               // 'check-in' | 'check-out'
+}) {
+  const [open, setOpen] = useState(false)
+  const [viewYear, setViewYear] = useState(() => {
+    const base = value || todayISO()
+    return Number(base.slice(0, 4))
+  })
+  const [viewMonth, setViewMonth] = useState(() => {
+    const base = value || todayISO()
+    return Number(base.slice(5, 7)) - 1
+  })
+  const wrapRef = useRef(null)
+
+  // Sync view to value if it changes externally
+  useEffect(() => {
+    if (!value) return
+    setViewYear(Number(value.slice(0, 4)))
+    setViewMonth(Number(value.slice(5, 7)) - 1)
+  }, [value])
+
+  // Close on outside click / escape
+  useEffect(() => {
+    if (!open) return
+    const onDown = (e) => { if (wrapRef.current && !wrapRef.current.contains(e.target)) setOpen(false) }
+    const onKey = (e) => { if (e.key === 'Escape') setOpen(false) }
+    document.addEventListener('mousedown', onDown)
+    window.addEventListener('keydown', onKey)
+    return () => {
+      document.removeEventListener('mousedown', onDown)
+      window.removeEventListener('keydown', onKey)
+    }
+  }, [open])
+
+  // Build a set of occupied days for the given unit (from props, no extra query)
+  const occupiedDays = useMemo(() => {
+    const set = new Set()
+    for (const b of bookings || []) {
+      if (!b.check_in || !b.check_out) continue
+      if (b.deleted_at) continue
+      if (excludeBookingId && b.id === excludeBookingId) continue
+      let cur = b.check_in
+      // Nights occupied: check_in inclusive, check_out exclusive
+      let guard = 0
+      while (cur < b.check_out && guard < 1000) {
+        set.add(cur)
+        cur = isoAddDays(cur, 1)
+        guard++
+      }
+    }
+    return set
+  }, [bookings, excludeBookingId])
+
+  const daysInMonth = new Date(viewYear, viewMonth + 1, 0).getDate()
+  const firstDow = new Date(viewYear, viewMonth, 1).getDay()
+
+  const cells = []
+  for (let i = 0; i < firstDow; i++) cells.push(null)
+  for (let d = 1; d <= daysInMonth; d++) cells.push(d)
+  while (cells.length % 7 !== 0) cells.push(null)
+
+  const monthLabel = `${MONTHS[viewMonth]} ${viewYear}`
+  const todayStr = todayISO()
+
+  const goPrevMonth = () => {
+    if (viewMonth === 0) { setViewYear(viewYear - 1); setViewMonth(11) }
+    else setViewMonth(viewMonth - 1)
+  }
+  const goNextMonth = () => {
+    if (viewMonth === 11) { setViewYear(viewYear + 1); setViewMonth(0) }
+    else setViewMonth(viewMonth + 1)
+  }
+
+  const displayValue = value ? formatDate(value) : null
+
+  // Is a given day part of the currently-picked range?
+  const inRange = (iso) => {
+    if (!otherDateISO) return false
+    if (mode === 'check-in') {
+      // Picking check-in while check-out is set: highlight nothing (check-in is start)
+      return false
+    }
+    // Picking check-out: highlight from check-in to this day exclusive
+    return iso > otherDateISO
+  }
+
+  const isSelectable = (iso) => {
+    if (minDate && iso < minDate) return false
+    if (maxDate && iso > maxDate) return false
+    // For check-out, must be strictly after check-in
+    if (mode === 'check-out' && otherDateISO && iso <= otherDateISO) return false
+    // For check-in, must be strictly before check-out if check-out is set
+    if (mode === 'check-in' && otherDateISO && iso >= otherDateISO) return false
+    return true
+  }
+
+  const handlePick = (day) => {
+    if (day == null) return
+    const iso = toISODate(viewYear, viewMonth, day)
+    if (!isSelectable(iso)) return
+    onChange(iso)
+    setOpen(false)
+  }
+
+  return (
+    <div className="relative" ref={wrapRef}>
+      <button
+        type="button"
+        onClick={() => setOpen((v) => !v)}
+        className={cn(
+          'w-full h-8 text-xs rounded border bg-transparent px-2.5 flex items-center justify-between gap-2 text-left transition-colors',
+          open ? 'border-ring ring-2 ring-ring/30' : 'border-input hover:bg-muted/50',
+        )}
+      >
+        <span className={cn('truncate', !displayValue && 'text-muted-foreground')}>
+          {displayValue || placeholder}
+        </span>
+        <CalendarIcon size={13} className="text-muted-foreground flex-shrink-0" />
+      </button>
+
+      <AnimatePresence>
+        {open && (
+          <motion.div
+            initial={{ opacity: 0, y: -4 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: -4 }}
+            transition={{ duration: 0.12 }}
+            className="absolute z-30 mt-1 w-[268px] rounded-lg border border-border bg-popover shadow-lg p-3"
+          >
+            <div className="flex items-center justify-between mb-2">
+              <button
+                type="button"
+                onClick={goPrevMonth}
+                className="p-1 rounded hover:bg-muted text-muted-foreground"
+              >
+                <ChevronLeft size={13} />
+              </button>
+              <span className="text-xs font-bold text-foreground">{monthLabel}</span>
+              <button
+                type="button"
+                onClick={goNextMonth}
+                className="p-1 rounded hover:bg-muted text-muted-foreground"
+              >
+                <ChevronRight size={13} />
+              </button>
+            </div>
+
+            <div className="grid grid-cols-7 mb-1">
+              {DOW.map((d) => (
+                <div key={d} className="text-[10px] font-semibold text-muted-foreground text-center py-1">{d}</div>
+              ))}
+            </div>
+
+            <div className="grid grid-cols-7 gap-y-0.5">
+              {cells.map((day, idx) => {
+                if (day == null) return <div key={idx} />
+                const iso = toISODate(viewYear, viewMonth, day)
+                const occupied = occupiedDays.has(iso)
+                const selected = value === iso
+                const isToday = iso === todayStr
+                const selectable = isSelectable(iso)
+                const rangeHighlight = inRange(iso)
+
+                return (
+                  <button
+                    key={idx}
+                    type="button"
+                    onClick={() => handlePick(day)}
+                    disabled={!selectable}
+                    className={cn(
+                      'relative h-7 text-[11px] rounded transition-colors flex items-center justify-center tabular-nums',
+                      !selectable && 'text-muted-foreground/40 cursor-not-allowed',
+                      selectable && !selected && !rangeHighlight && 'hover:bg-muted text-foreground',
+                      rangeHighlight && !selected && 'bg-primary/10 text-foreground',
+                      selected && 'bg-primary text-primary-foreground font-bold',
+                      isToday && !selected && 'ring-1 ring-primary/40',
+                    )}
+                    title={occupied ? 'Occupied by another booking' : undefined}
+                  >
+                    {day}
+                    {occupied && (
+                      <span
+                        className={cn(
+                          'absolute bottom-0.5 w-1 h-1 rounded-full',
+                          selected ? 'bg-primary-foreground' : 'bg-red-500',
+                        )}
+                      />
+                    )}
+                  </button>
+                )
+              })}
+            </div>
+
+            <div className="flex items-center justify-between pt-2 mt-2 border-t border-border">
+              <div className="flex items-center gap-3 text-[10px] text-muted-foreground">
+                <span className="inline-flex items-center gap-1">
+                  <span className="w-1.5 h-1.5 rounded-full bg-red-500" /> Occupied
+                </span>
+                <span className="inline-flex items-center gap-1">
+                  <span className="w-2.5 h-2.5 rounded-sm bg-primary/20" /> Range
+                </span>
+              </div>
+              <button
+                type="button"
+                onClick={() => { onChange(''); setOpen(false) }}
+                className="text-[10px] font-semibold text-muted-foreground hover:text-foreground"
+              >
+                Clear
+              </button>
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+    </div>
+  )
+}
+
+// ============================================================
 // SUMMARY CARDS
 // ============================================================
 function SummaryCards({ bookings }) {
@@ -157,7 +428,7 @@ function SummaryCards({ bookings }) {
   }, [bookings])
 
   const cards = [
-    { label: 'Total Bookings', value: stats.total, icon: Calendar },
+    { label: 'Total Bookings', value: stats.total, icon: CalendarIcon },
     { label: 'Upcoming', value: stats.upcoming, icon: Clock },
     { label: 'Active', value: stats.active, icon: Building2 },
     { label: 'Done', value: stats.finished, icon: CheckCircle2 },
@@ -179,9 +450,6 @@ function SummaryCards({ bookings }) {
   )
 }
 
-// ============================================================
-// STATUS PILLS
-// ============================================================
 function StatusPills({ statusFilter, onStatusFilter, counts }) {
   const containerRef = useRef(null)
   const [indicator, setIndicator] = useState({ left: 0, width: 0 })
@@ -224,9 +492,6 @@ function StatusPills({ statusFilter, onStatusFilter, counts }) {
   )
 }
 
-// ============================================================
-// TODAY PANEL — mini version of the main list row
-// ============================================================
 function TodayPanel({ title, icon: Icon, rows, loading, empty, onRowClick }) {
   return (
     <section className="flex flex-col min-h-0">
@@ -261,7 +526,6 @@ function TodayPanel({ title, icon: Icon, rows, loading, empty, onRowClick }) {
                   onClick={() => onRowClick(b)}
                   className="w-full text-left px-3 py-2 border-b border-border last:border-0 hover:bg-muted/30 transition-colors grid grid-cols-[1fr_auto_1fr_auto] gap-3 items-center"
                 >
-                  {/* Guest: avatar + name */}
                   <div className="flex items-center gap-2 min-w-0">
                     <GuestAvatar name={b.guest_name} size="sm" />
                     <div className="min-w-0 flex-1">
@@ -271,17 +535,11 @@ function TodayPanel({ title, icon: Icon, rows, loading, empty, onRowClick }) {
                       </p>
                     </div>
                   </div>
-
-                  {/* Code */}
                   <span className="font-mono text-[11px] font-semibold text-foreground truncate">{b.booking_code || '—'}</span>
-
-                  {/* Unit */}
                   <div className="min-w-0">
                     <span className="font-mono text-[11px] font-bold text-foreground truncate block">{b.units?.unit_code || '—'}</span>
                     <span className="text-[10px] text-muted-foreground truncate block">{b.units?.building || '—'}</span>
                   </div>
-
-                  {/* Payment */}
                   <div className="flex items-center justify-end flex-shrink-0">
                     <PaymentStatusBadge status={b.payment_status} />
                   </div>
@@ -295,9 +553,6 @@ function TodayPanel({ title, icon: Icon, rows, loading, empty, onRowClick }) {
   )
 }
 
-// ============================================================
-// WARNINGS STRIP
-// ============================================================
 function WarningChip({ icon: Icon, label, count, active, onClick, triggerRef, children }) {
   return (
     <div className="relative" ref={triggerRef}>
@@ -460,9 +715,6 @@ function WarningsStrip({ needsCompletion, endingSoon, onSelect }) {
   )
 }
 
-// ============================================================
-// DETAIL PANEL SECTION — title outside card, uppercase, black text
-// ============================================================
 function DetailSection({ title, children }) {
   return (
     <div>
@@ -474,10 +726,7 @@ function DetailSection({ title, children }) {
   )
 }
 
-// ============================================================
-// BOOKING DETAIL PANEL
-// ============================================================
-function BookingDetailPanel({ booking, onBookingChange, onClose, onAddPayment, onExtend, onComplete, onEdit, onDelete }) {
+function BookingDetailPanel({ booking, contracts, onBookingChange, onClose, onAddPayment, onExtend, onComplete, onEdit, onDelete }) {
   const status = deriveBookingStatus(booking)
   const isCompleted = status === 'completed'
   const isPaid = booking.payment_status === 'paid'
@@ -495,6 +744,11 @@ function BookingDetailPanel({ booking, onBookingChange, onClose, onAddPayment, o
     ? (booking.affiliate_rate != null ? `${booking.affiliate_rate}%` : '—')
     : null
 
+  const governing = useMemo(
+    () => findContractForBooking(booking, contracts),
+    [booking, contracts],
+  )
+
   return (
     <motion.div
       initial={{ width: 0, opacity: 0 }}
@@ -506,7 +760,6 @@ function BookingDetailPanel({ booking, onBookingChange, onClose, onAddPayment, o
     >
       <div className="h-full rounded-md border border-border bg-card overflow-y-auto flex flex-col">
 
-        {/* Header — avatar, name, code, status, close */}
         <div className="px-5 py-4 border-b border-border flex-shrink-0">
           <div className="flex items-start gap-3">
             <GuestAvatar name={booking.guest_name} size="lg" />
@@ -521,7 +774,6 @@ function BookingDetailPanel({ booking, onBookingChange, onClose, onAddPayment, o
             <button onClick={onClose} className="p-1 rounded hover:bg-muted text-foreground flex-shrink-0"><X size={16} /></button>
           </div>
 
-          {/* Edit / Delete — right below the title block */}
           <div className="flex items-center gap-2 mt-3">
             <Button variant="outline" size="sm" className="h-7 rounded text-[11px] gap-1.5" onClick={onEdit}>
               <Edit2 size={11} /> Edit
@@ -532,9 +784,7 @@ function BookingDetailPanel({ booking, onBookingChange, onClose, onAddPayment, o
           </div>
         </div>
 
-        {/* Body */}
         <div className="p-4 space-y-4">
-          {/* Action buttons */}
           <div className="flex items-center justify-end gap-2 flex-wrap">
             {!isCompleted && (
               <Button variant="outline" size="sm" className="h-7 rounded text-[11px] gap-1.5" onClick={onAddPayment}>
@@ -543,7 +793,7 @@ function BookingDetailPanel({ booking, onBookingChange, onClose, onAddPayment, o
             )}
             {canExtend && (
               <Button variant="outline" size="sm" className="h-7 rounded text-[11px] gap-1.5" onClick={onExtend}>
-                <Calendar size={11} /> Extend Stay
+                <CalendarIcon size={11} /> Extend Stay
               </Button>
             )}
             {!isCompleted && (
@@ -610,6 +860,34 @@ function BookingDetailPanel({ booking, onBookingChange, onClose, onAddPayment, o
             </div>
           </DetailSection>
 
+          <DetailSection title="Contract">
+            {governing ? (
+              <div className="p-3 space-y-0.5">
+                <div className="flex items-center gap-2 py-0.5">
+                  <span className="text-[10px] uppercase tracking-wider text-foreground font-semibold min-w-[72px]">Code</span>
+                  <span className="text-xs font-mono text-foreground truncate">{governing.contract_code || '—'}</span>
+                </div>
+                <div className="flex items-center gap-2 py-0.5">
+                  <span className="text-[10px] uppercase tracking-wider text-foreground font-semibold min-w-[72px]">Effective</span>
+                  <span className="text-xs tabular-nums text-foreground">{governing.effective_date || '—'}</span>
+                </div>
+                <div className="flex items-center gap-2 py-0.5">
+                  <span className="text-[10px] uppercase tracking-wider text-foreground font-semibold min-w-[72px]">Expiry</span>
+                  <span className="text-xs tabular-nums text-foreground">{governing.expiry_date || <span className="italic text-muted-foreground">Open-ended</span>}</span>
+                </div>
+              </div>
+            ) : (
+              <div className="p-3">
+                <p className="text-xs text-red-600 dark:text-red-400 font-semibold">
+                  No contract covers this booking&apos;s check-in.
+                </p>
+                <p className="text-[10px] text-muted-foreground mt-1">
+                  This booking won&apos;t appear in Accounting for any contract. It was created before the current booking rules, or its contract has been deleted.
+                </p>
+              </div>
+            )}
+          </DetailSection>
+
           <DetailSection title="Guest">
             <div className="p-3 space-y-0.5">
               <div className="flex items-center gap-2 py-0.5">
@@ -635,11 +913,15 @@ function BookingDetailPanel({ booking, onBookingChange, onClose, onAddPayment, o
             <div className="p-3 space-y-0.5">
               <div className="flex items-center gap-2 py-0.5">
                 <span className="text-[10px] uppercase tracking-wider text-foreground font-semibold min-w-[72px]">Check-in</span>
-                <span className="text-xs tabular-nums text-foreground">{formatDate(booking.check_in)}</span>
+                <span className="text-xs tabular-nums text-foreground">
+                  {formatDate(booking.check_in)} · {STAY_TIMES.checkIn.label}
+                </span>
               </div>
               <div className="flex items-center gap-2 py-0.5">
                 <span className="text-[10px] uppercase tracking-wider text-foreground font-semibold min-w-[72px]">Check-out</span>
-                <span className="text-xs tabular-nums text-foreground">{formatDate(booking.check_out)}</span>
+                <span className="text-xs tabular-nums text-foreground">
+                  {formatDate(booking.check_out)} · {STAY_TIMES.checkOut.label}
+                </span>
               </div>
               <div className="flex items-center gap-2 py-0.5">
                 <span className="text-[10px] uppercase tracking-wider text-foreground font-semibold min-w-[72px] flex-shrink-0">Nights</span>
@@ -673,12 +955,11 @@ function BookingDetailPanel({ booking, onBookingChange, onClose, onAddPayment, o
     </motion.div>
   )
 }
-// ============================================================
-// BOOKING LIST ROW
-// ============================================================
-function BookingListRow({ booking, selected, highlighted, onClick }) {
+
+function BookingListRow({ booking, contracts, selected, highlighted, onClick }) {
   const status = deriveBookingStatus(booking)
   const nights = computeNights(booking.check_in, booking.check_out)
+  const governing = findContractForBooking(booking, contracts)
   return (
     <motion.button
       type="button"
@@ -708,7 +989,14 @@ function BookingListRow({ booking, selected, highlighted, onClick }) {
       </div>
       <span className="font-mono text-xs text-foreground truncate">{booking.booking_code}</span>
       <div className="min-w-0">
-        <span className="font-mono text-xs font-bold text-foreground truncate block">{booking.units?.unit_code || '—'}</span>
+        <span className="font-mono text-xs font-bold text-foreground truncate block">
+          {booking.units?.unit_code || '—'}
+          {!governing && (
+            <span className="ml-1.5 text-[9px] font-semibold uppercase tracking-wider text-red-600 dark:text-red-400">
+              No contract
+            </span>
+          )}
+        </span>
         <span className="text-[10px] text-muted-foreground truncate block">{booking.units?.building || '—'}</span>
       </div>
       <div className="text-[11px] tabular-nums text-foreground min-w-0">
@@ -725,9 +1013,6 @@ function BookingListRow({ booking, selected, highlighted, onClick }) {
   )
 }
 
-// ============================================================
-// CSV EXPORT
-// ============================================================
 function downloadCSV(bookings, filename) {
   const headers = [
     'Booking Code', 'Building', 'Unit', 'Guest', 'Email', 'Contact', 'Guests',
@@ -758,9 +1043,6 @@ function downloadCSV(bookings, filename) {
   URL.revokeObjectURL(url)
 }
 
-// ============================================================
-// BOOKING FORM MODAL
-// ============================================================
 const emptyForm = () => ({
   unit_id: '',
   guest_name: '',
@@ -780,7 +1062,28 @@ const emptyForm = () => ({
   initial_date: '',
 })
 
-function BookingFormModal({ open, onClose, onSaved, units, editing, specialists, affiliates, affiliateCounts }) {
+// Overlap pre-check — nicer UX than waiting for the DB trigger to fire
+async function findOverlappingBooking({ unitId, checkIn, checkOut, excludeId }) {
+  if (!unitId || !checkIn || !checkOut) return null
+  let query = supabase
+    .from('bookings')
+    .select('booking_code, check_in, check_out')
+    .eq('unit_id', unitId)
+    .is('deleted_at', null)
+    .lt('check_in', checkOut)
+    .gt('check_out', checkIn)
+    .order('check_in')
+    .limit(1)
+  if (excludeId) query = query.neq('id', excludeId)
+  const { data, error } = await query
+  if (error) {
+    console.error('Overlap check failed:', error)
+    return null
+  }
+  return data?.[0] || null
+}
+
+function BookingFormModal({ open, onClose, onSaved, units, editing, specialists, affiliates, affiliateCounts, contracts, bookings }) {
   const [form, setForm] = useState(emptyForm())
   const [saving, setSaving] = useState(false)
   const [liveAffiliateCount, setLiveAffiliateCount] = useState(null)
@@ -852,6 +1155,30 @@ function BookingFormModal({ open, onClose, onSaved, units, editing, specialists,
   const willBePaid = initialAmount >= totalAmount && totalAmount > 0
   const selectedUnit = useMemo(() => units.find((u) => u.id === form.unit_id) || null, [units, form.unit_id])
 
+  const selectedContract = useMemo(
+    () => findGoverningContract(selectedUnit, contracts),
+    [selectedUnit, contracts],
+  )
+
+  // Bookings for the currently-selected unit — fed into the calendar picker
+  const unitBookings = useMemo(() => {
+    if (!form.unit_id) return []
+    return (bookings || []).filter((b) => b.unit_id === form.unit_id && !b.deleted_at)
+  }, [bookings, form.unit_id])
+
+  const unitsForDropdown = useMemo(() => {
+    if (!editing?.unit_id) return units
+    if (units.some((u) => u.id === editing.unit_id)) return units
+    return [
+      ...units,
+      {
+        id: editing.unit_id,
+        unit_code: editing.units?.unit_code || '—',
+        building: editing.units?.building || '',
+      },
+    ]
+  }, [units, editing])
+
   const handleSubmit = async () => {
     const guestName = sanitizeText(form.guest_name, { max: 120 })
     const guestEmail = sanitizeEmail(form.guest_email)
@@ -875,8 +1202,48 @@ function BookingFormModal({ open, onClose, onSaved, units, editing, specialists,
     if (totalAmt <= 0) { toast.error('Total amount must be greater than 0'); return }
     if (initialAmt > totalAmt) { toast.error('Initial payment cannot exceed total'); return }
 
+    if (!selectedContract) {
+      const hasAny = contracts.some((c) => c.unit_id === form.unit_id)
+      if (!hasAny) {
+        toast.error('This unit has no contract. Create one in Contracts before booking.')
+      } else {
+        toast.error('No contract covers the check-in date. Extend a contract or pick a different date.')
+      }
+      return
+    }
+    if (selectedContract.effective_date && checkIn < selectedContract.effective_date) {
+      toast.error(`Check-in is before the contract start (${selectedContract.effective_date}).`)
+      return
+    }
+    if (selectedContract.expiry_date && checkIn > selectedContract.expiry_date) {
+      toast.error(`Check-in is after the contract ends (${selectedContract.expiry_date}).`)
+      return
+    }
+    if (selectedContract.effective_date && checkOut < selectedContract.effective_date) {
+      toast.error(`Check-out is before the contract start (${selectedContract.effective_date}).`)
+      return
+    }
+    if (selectedContract.expiry_date && checkOut > selectedContract.expiry_date) {
+      toast.error(`Check-out is after the contract ends (${selectedContract.expiry_date}). Renew the contract or pick an earlier date.`)
+      return
+    }
+
     const stayNights = computeNights(checkIn, checkOut)
     if (stayNights <= 0) { toast.error('Invalid stay length'); return }
+
+    // Overlap pre-check
+    const conflict = await findOverlappingBooking({
+      unitId: form.unit_id,
+      checkIn,
+      checkOut,
+      excludeId: editing?.id,
+    })
+    if (conflict) {
+      toast.error(
+        `This unit is already booked from ${conflict.check_in} to ${conflict.check_out} (booking ${conflict.booking_code}). Pick different dates.`
+      )
+      return
+    }
 
     setSaving(true)
     try {
@@ -967,7 +1334,6 @@ function BookingFormModal({ open, onClose, onSaved, units, editing, specialists,
 
   if (!open) return null
   const labelClass = 'text-[10px] uppercase tracking-wider text-foreground font-semibold mb-1 block'
-  const inputClass = 'h-8 text-xs rounded'
 
   return (
     <div className="fixed inset-0 z-[9999] flex items-center justify-center p-4">
@@ -989,20 +1355,32 @@ function BookingFormModal({ open, onClose, onSaved, units, editing, specialists,
               <div>
                 <label className={labelClass}>Unit *</label>
                 <Select value={form.unit_id} onValueChange={(v) => setField('unit_id', v)}>
-                  <SelectTrigger className={cn(inputClass, 'w-full')}>
+                  <SelectTrigger className="h-8 text-xs rounded w-full">
                     <SelectValue placeholder="Select a unit...">
                       {selectedUnit ? unitLabel(selectedUnit) : null}
                     </SelectValue>
                   </SelectTrigger>
                   <SelectContent>
-                    {units.map((u) => <SelectItem key={u.id} value={u.id} className="text-xs">{unitLabel(u)}</SelectItem>)}
+                    {unitsForDropdown.map((u) => <SelectItem key={u.id} value={u.id} className="text-xs">{unitLabel(u)}</SelectItem>)}
                   </SelectContent>
                 </Select>
+                {selectedUnit && !selectedContract && (
+                  <p className="text-[10px] text-red-600 dark:text-red-400 mt-1 font-semibold">
+                    {contracts.some((c) => c.unit_id === selectedUnit.id)
+                      ? 'No active contract at this date. Extend a contract or pick a different date.'
+                      : 'This unit has no contract. Create one first.'}
+                  </p>
+                )}
+                {selectedUnit && selectedContract && (
+                  <p className="text-[10px] text-muted-foreground mt-1">
+                    Contract: {selectedContract.effective_date || '—'} → {selectedContract.expiry_date || 'open-ended'}
+                  </p>
+                )}
               </div>
               <div>
                 <label className={labelClass}>Booked by</label>
                 <Select value={form.booker_code || '__none__'} onValueChange={(v) => setField('booker_code', v === '__none__' ? '' : v)}>
-                  <SelectTrigger className={cn(inputClass, 'w-full')}>
+                  <SelectTrigger className="h-8 text-xs rounded w-full">
                     <SelectValue placeholder="No specialist">
                       {form.booker_code
                         ? (specialists.find((s) => s.code === form.booker_code)?.name || form.booker_code)
@@ -1025,23 +1403,68 @@ function BookingFormModal({ open, onClose, onSaved, units, editing, specialists,
           <section>
             <h3 className="text-[10px] font-bold uppercase tracking-wider text-foreground mb-3">Guest</h3>
             <div className="grid grid-cols-1 md:grid-cols-2 gap-x-4 gap-y-3">
-              <div><label className={labelClass}>Guest Name *</label><Input value={form.guest_name} onChange={(e) => setField('guest_name', e.target.value)} className={inputClass} maxLength={120} autoFocus /></div>
-              <div><label className={labelClass}>Guests</label><Input type="number" min={1} max={50} value={form.guests} onChange={(e) => setField('guests', e.target.value)} className={inputClass} /></div>
-              <div><label className={labelClass}>Email</label><Input type="email" value={form.guest_email} onChange={(e) => setField('guest_email', e.target.value)} className={inputClass} maxLength={254} /></div>
-              <div><label className={labelClass}>Contact</label><Input type="tel" value={form.guest_contact} onChange={(e) => setField('guest_contact', e.target.value)} className={inputClass} maxLength={40} /></div>
+              <div><label className={labelClass}>Guest Name *</label><Input value={form.guest_name} onChange={(e) => setField('guest_name', e.target.value)} className="h-8 text-xs rounded" maxLength={120} autoFocus /></div>
+              <div><label className={labelClass}>Guests</label><Input type="number" min={1} max={50} value={form.guests} onChange={(e) => setField('guests', e.target.value)} className="h-8 text-xs rounded" /></div>
+              <div><label className={labelClass}>Email</label><Input type="email" value={form.guest_email} onChange={(e) => setField('guest_email', e.target.value)} className="h-8 text-xs rounded" maxLength={254} /></div>
+              <div><label className={labelClass}>Contact</label><Input type="tel" value={form.guest_contact} onChange={(e) => setField('guest_contact', e.target.value)} className="h-8 text-xs rounded" maxLength={40} /></div>
             </div>
           </section>
 
           <section>
             <h3 className="text-[10px] font-bold uppercase tracking-wider text-foreground mb-3">Dates & Amount</h3>
             <div className="grid grid-cols-1 md:grid-cols-3 gap-x-4 gap-y-3">
-              <div><label className={labelClass}>Check-in *</label><Input type="date" value={form.check_in} onChange={(e) => setField('check_in', e.target.value)} className={inputClass} /></div>
-              <div><label className={labelClass}>Check-out *</label><Input type="date" value={form.check_out} onChange={(e) => setField('check_out', e.target.value)} className={inputClass} /></div>
-              <div><label className={labelClass}>Nights</label><Input value={nights} readOnly className={cn(inputClass, 'bg-muted/50')} /></div>
+              <div>
+                <label className={labelClass}>Check-in *</label>
+                <DateFieldPicker
+                  value={form.check_in}
+                  onChange={(v) => setField('check_in', v)}
+                  placeholder={`From ${STAY_TIMES.checkIn.label}`}
+                  bookings={unitBookings}
+                  minDate={selectedContract?.effective_date || todayISO()}
+                  maxDate={selectedContract?.expiry_date || undefined}
+                  excludeBookingId={editing?.id}
+                  otherDateISO={form.check_out || null}
+                  mode="check-in"
+                />
+                <p className="text-[10px] text-muted-foreground mt-1">
+                  From {STAY_TIMES.checkIn.label}
+                </p>
+              </div>
+              <div>
+                <label className={labelClass}>Check-out *</label>
+                <DateFieldPicker
+                  value={form.check_out}
+                  onChange={(v) => setField('check_out', v)}
+                  placeholder={`Before ${STAY_TIMES.checkOut.label}`}
+                  bookings={unitBookings}
+                  minDate={form.check_in || selectedContract?.effective_date || todayISO()}
+                  maxDate={selectedContract?.expiry_date || undefined}
+                  excludeBookingId={editing?.id}
+                  otherDateISO={form.check_in || null}
+                  mode="check-out"
+                />
+                <p className="text-[10px] text-muted-foreground mt-1">
+                  Before {STAY_TIMES.checkOut.label}
+                </p>
+              </div>
+              <div>
+                <label className={labelClass}>Nights</label>
+                <Input value={nights} readOnly className="h-8 text-xs rounded bg-muted/50" />
+                {form.unit_id && unitBookings.length > 0 && (
+                  <p className="text-[10px] text-muted-foreground mt-1">
+                    {unitBookings.length} existing booking{unitBookings.length === 1 ? '' : 's'} · red dots mark occupied days
+                  </p>
+                )}
+                {!form.unit_id && (
+                  <p className="text-[10px] text-muted-foreground italic mt-1">
+                    Pick a unit to see existing bookings
+                  </p>
+                )}
+              </div>
             </div>
             <div className="grid grid-cols-1 md:grid-cols-2 gap-x-4 gap-y-3 mt-3">
-              <div><label className={labelClass}>Total Amount (₱) *</label><Input type="number" min={0} value={form.total_amount} onChange={(e) => setField('total_amount', e.target.value)} className={inputClass} /></div>
-              <div><label className={labelClass}>Notes</label><Input value={form.notes} onChange={(e) => setField('notes', e.target.value)} className={inputClass} maxLength={2000} /></div>
+              <div><label className={labelClass}>Total Amount (₱) *</label><Input type="number" min={0} value={form.total_amount} onChange={(e) => setField('total_amount', e.target.value)} className="h-8 text-xs rounded" /></div>
+              <div><label className={labelClass}>Notes</label><Input value={form.notes} onChange={(e) => setField('notes', e.target.value)} className="h-8 text-xs rounded" maxLength={2000} /></div>
             </div>
           </section>
 
@@ -1049,10 +1472,10 @@ function BookingFormModal({ open, onClose, onSaved, units, editing, specialists,
             <section>
               <h3 className="text-[10px] font-bold uppercase tracking-wider text-foreground mb-3">Initial Payment (optional)</h3>
               <div className="grid grid-cols-2 md:grid-cols-4 gap-x-4 gap-y-3">
-                <div><label className={labelClass}>Amount (₱)</label><Input type="number" min={0} value={form.initial_amount} onChange={(e) => setField('initial_amount', e.target.value)} className={inputClass} /></div>
-                <div><label className={labelClass}>Method</label><Input value={form.initial_method} onChange={(e) => setField('initial_method', e.target.value)} placeholder="GCash, Bank..." className={inputClass} maxLength={60} /></div>
-                <div><label className={labelClass}>Reference</label><Input value={form.initial_reference} onChange={(e) => setField('initial_reference', e.target.value)} className={inputClass} maxLength={100} /></div>
-                <div><label className={labelClass}>Date</label><Input type="date" value={form.initial_date} onChange={(e) => setField('initial_date', e.target.value)} className={inputClass} /></div>
+                <div><label className={labelClass}>Amount (₱)</label><Input type="number" min={0} value={form.initial_amount} onChange={(e) => setField('initial_amount', e.target.value)} className="h-8 text-xs rounded" /></div>
+                <div><label className={labelClass}>Method</label><Input value={form.initial_method} onChange={(e) => setField('initial_method', e.target.value)} placeholder="GCash, Bank..." className="h-8 text-xs rounded" maxLength={60} /></div>
+                <div><label className={labelClass}>Reference</label><Input value={form.initial_reference} onChange={(e) => setField('initial_reference', e.target.value)} className="h-8 text-xs rounded" maxLength={100} /></div>
+                <div><label className={labelClass}>Date</label><Input type="date" value={form.initial_date} onChange={(e) => setField('initial_date', e.target.value)} className="h-8 text-xs rounded" /></div>
               </div>
               {initialAmount > 0 && totalAmount > 0 && (
                 <p className="text-[10px] mt-2">
@@ -1076,7 +1499,7 @@ function BookingFormModal({ open, onClose, onSaved, units, editing, specialists,
               <div>
                 <label className={labelClass}>Affiliate</label>
                 <Select value={form.affiliate_code || '__none__'} onValueChange={(v) => setField('affiliate_code', v === '__none__' ? '' : v)}>
-                  <SelectTrigger className={cn(inputClass, 'w-full')}>
+                  <SelectTrigger className="h-8 text-xs rounded w-full">
                     <SelectValue placeholder="No affiliate">
                       {form.affiliate_code
                         ? (affiliates.find((a) => a.code === form.affiliate_code)?.name || form.affiliate_code)
@@ -1102,7 +1525,7 @@ function BookingFormModal({ open, onClose, onSaved, units, editing, specialists,
                 <label className={labelClass}>Affiliate Commission (₱)</label>
                 <div className="relative">
                   <Input type="number" value={affiliateCommission} readOnly tabIndex={-1}
-                    className={cn(inputClass, 'bg-muted/50 cursor-not-allowed pr-20')} />
+                    className="h-8 text-xs rounded bg-muted/50 cursor-not-allowed pr-20" />
                   <span className="absolute right-2 top-1/2 -translate-y-1/2 text-[10px] text-muted-foreground flex items-center gap-1">
                     <Lock size={9} className="opacity-60" />
                     Auto
@@ -1123,7 +1546,7 @@ function BookingFormModal({ open, onClose, onSaved, units, editing, specialists,
                 <label className={labelClass}>Booker Commission (₱)</label>
                 <div className="relative">
                   <Input type="number" value={bookerCommission} readOnly tabIndex={-1}
-                    className={cn(inputClass, 'bg-muted/50 cursor-not-allowed pr-20')} />
+                    className="h-8 text-xs rounded bg-muted/50 cursor-not-allowed pr-20" />
                   <span className="absolute right-2 top-1/2 -translate-y-1/2 text-[10px] text-muted-foreground flex items-center gap-1">
                     <Lock size={9} className="opacity-60" />
                     Auto
@@ -1135,7 +1558,7 @@ function BookingFormModal({ open, onClose, onSaved, units, editing, specialists,
                   <p className="text-[10px] text-muted-foreground italic mt-1">Select a specialist to enable</p>
                 )}
               </div>
-              <div><label className={labelClass}>Affiliate Notes</label><Input value={form.affiliate_notes} onChange={(e) => setField('affiliate_notes', e.target.value)} className={inputClass} maxLength={2000} /></div>
+              <div><label className={labelClass}>Affiliate Notes</label><Input value={form.affiliate_notes} onChange={(e) => setField('affiliate_notes', e.target.value)} className="h-8 text-xs rounded" maxLength={2000} /></div>
             </div>
           </section>
         </div>
@@ -1152,9 +1575,6 @@ function BookingFormModal({ open, onClose, onSaved, units, editing, specialists,
   )
 }
 
-// ============================================================
-// ADD PAYMENT MODAL
-// ============================================================
 function AddPaymentModal({ open, onClose, booking, onSaved }) {
   const [amount, setAmount] = useState('')
   const [method, setMethod] = useState('')
@@ -1195,7 +1615,6 @@ function AddPaymentModal({ open, onClose, booking, onSaved }) {
   }
 
   const labelClass = 'text-[10px] uppercase tracking-wider text-foreground font-semibold mb-1 block'
-  const inputClass = 'h-8 text-xs rounded'
   const paid = Number(booking.amount_paid || 0)
   const total = Number(booking.total_amount || 0)
   const balance = Math.max(0, total - paid)
@@ -1218,10 +1637,10 @@ function AddPaymentModal({ open, onClose, booking, onSaved }) {
             <div><div className="text-foreground">Paid</div><div className="font-semibold tabular-nums text-foreground">{formatMoney(paid)}</div></div>
             <div><div className="text-foreground">Balance</div><div className="font-semibold tabular-nums text-foreground">{formatMoney(balance)}</div></div>
           </div>
-          <div><label className={labelClass}>Amount (₱) *</label><Input type="number" min={0} value={amount} onChange={(e) => setAmount(e.target.value)} className={inputClass} autoFocus /></div>
-          <div><label className={labelClass}>Method</label><Input value={method} onChange={(e) => setMethod(e.target.value)} placeholder="GCash, Bank transfer, Cash..." className={inputClass} maxLength={60} /></div>
-          <div><label className={labelClass}>Reference</label><Input value={reference} onChange={(e) => setReference(e.target.value)} className={inputClass} maxLength={100} /></div>
-          <div><label className={labelClass}>Date</label><Input type="date" value={date} onChange={(e) => setDate(e.target.value)} className={inputClass} /></div>
+          <div><label className={labelClass}>Amount (₱) *</label><Input type="number" min={0} value={amount} onChange={(e) => setAmount(e.target.value)} className="h-8 text-xs rounded" autoFocus /></div>
+          <div><label className={labelClass}>Method</label><Input value={method} onChange={(e) => setMethod(e.target.value)} placeholder="GCash, Bank transfer, Cash..." className="h-8 text-xs rounded" maxLength={60} /></div>
+          <div><label className={labelClass}>Reference</label><Input value={reference} onChange={(e) => setReference(e.target.value)} className="h-8 text-xs rounded" maxLength={100} /></div>
+          <div><label className={labelClass}>Date</label><Input type="date" value={date} onChange={(e) => setDate(e.target.value)} className="h-8 text-xs rounded" /></div>
         </div>
         <div className="flex items-center justify-end gap-2 px-5 py-3 border-t border-border bg-muted/30">
           <Button variant="outline" size="sm" className="h-8 rounded text-xs" onClick={onClose} disabled={saving}>Cancel</Button>
@@ -1235,10 +1654,7 @@ function AddPaymentModal({ open, onClose, booking, onSaved }) {
   )
 }
 
-// ============================================================
-// EXTEND STAY MODAL
-// ============================================================
-function ExtendStayModal({ open, onClose, booking, onSaved }) {
+function ExtendStayModal({ open, onClose, booking, onSaved, contracts }) {
   const [newCheckOut, setNewCheckOut] = useState('')
   const [newTotal, setNewTotal] = useState('')
   const [addPayment, setAddPayment] = useState(false)
@@ -1258,10 +1674,17 @@ function ExtendStayModal({ open, onClose, booking, onSaved }) {
     }
   }, [open, booking])
 
+  const governingContract = useMemo(() => {
+    if (!booking) return null
+    const unit = booking.units
+      ? { id: booking.unit_id, unit_code: booking.units.unit_code, building: booking.units.building }
+      : { id: booking.unit_id }
+    return findGoverningContract(unit, contracts || [])
+  }, [booking, contracts])
+
   if (!open || !booking) return null
 
   const labelClass = 'text-[10px] uppercase tracking-wider text-foreground font-semibold mb-1 block'
-  const inputClass = 'h-8 text-xs rounded'
 
   const snapshotBookerRate = booking.booker_rate != null
     ? Number(booking.booker_rate)
@@ -1285,6 +1708,32 @@ function ExtendStayModal({ open, onClose, booking, onSaved }) {
     const oldCheckOut = parseDateOnly(booking.check_out)
     const parsed = parseDateOnly(newCheckOutClean)
     if (parsed <= oldCheckOut) { toast.error('New check-out must be after the current one'); return }
+
+    if (!governingContract) {
+      toast.error('No contract covers this unit. Cannot extend.')
+      return
+    }
+    if (governingContract.effective_date && newCheckOutClean < governingContract.effective_date) {
+      toast.error(`New check-out is before the contract start (${governingContract.effective_date}).`)
+      return
+    }
+    if (governingContract.expiry_date && newCheckOutClean > governingContract.expiry_date) {
+      toast.error(`New check-out is after the contract ends (${governingContract.expiry_date}). Renew the contract first.`)
+      return
+    }
+
+    const conflict = await findOverlappingBooking({
+      unitId: booking.unit_id,
+      checkIn: booking.check_in,
+      checkOut: newCheckOutClean,
+      excludeId: booking.id,
+    })
+    if (conflict) {
+      toast.error(
+        `Extending would overlap with booking ${conflict.booking_code} (${conflict.check_in} → ${conflict.check_out}). Pick an earlier check-out.`
+      )
+      return
+    }
 
     const total = sanitizeMoney(newTotal)
     if (total <= 0) { toast.error('Total amount must be greater than 0'); return }
@@ -1362,8 +1811,26 @@ function ExtendStayModal({ open, onClose, booking, onSaved }) {
             <div><div className="text-foreground">Current check-out</div><div className="font-semibold text-foreground">{formatDate(booking.check_out)}</div></div>
             <div><div className="text-foreground">Current nights</div><div className="font-semibold tabular-nums text-foreground">{oldNights}</div></div>
           </div>
-          <div><label className={labelClass}>New Check-out *</label><Input type="date" value={newCheckOut} min={booking.check_out} onChange={(e) => setNewCheckOut(e.target.value)} className={inputClass} /></div>
-          <div><label className={labelClass}>New Total Amount (₱) *</label><Input type="number" min={0} value={newTotal} onChange={(e) => setNewTotal(e.target.value)} className={inputClass} /></div>
+          {governingContract && (
+            <p className="text-[10px] text-muted-foreground">
+              Contract range: {governingContract.effective_date || '—'} → {governingContract.expiry_date || 'open-ended'}
+            </p>
+          )}
+          <div>
+            <label className={labelClass}>New Check-out *</label>
+            <Input
+              type="date"
+              value={newCheckOut}
+              onChange={(e) => setNewCheckOut(e.target.value)}
+              min={booking.check_out || governingContract?.effective_date || undefined}
+              max={governingContract?.expiry_date || undefined}
+              className="h-8 text-xs rounded"
+            />
+            <p className="text-[10px] text-muted-foreground mt-1">
+              Before {STAY_TIMES.checkOut.label}
+            </p>
+          </div>
+          <div><label className={labelClass}>New Total Amount (₱) *</label><Input type="number" min={0} value={newTotal} onChange={(e) => setNewTotal(e.target.value)} className="h-8 text-xs rounded" /></div>
           {newNights > oldNights && <p className="text-[10px] text-foreground">Extended by {newNights - oldNights} night{newNights - oldNights === 1 ? '' : 's'} · new total {newNights} night{newNights === 1 ? '' : 's'}</p>}
 
           {(booking.booker_code || booking.affiliate_code) && previewTotal > 0 && (
@@ -1393,17 +1860,17 @@ function ExtendStayModal({ open, onClose, booking, onSaved }) {
           </label>
           {addPayment && (
             <div className="space-y-2 pl-5 border-l-2 border-border">
-              <div><label className={labelClass}>Amount (₱)</label><Input type="number" min={0} value={payAmount} onChange={(e) => setPayAmount(e.target.value)} className={inputClass} /></div>
-              <div><label className={labelClass}>Method</label><Input value={payMethod} onChange={(e) => setPayMethod(e.target.value)} placeholder="GCash, Bank..." className={inputClass} maxLength={60} /></div>
-              <div><label className={labelClass}>Reference</label><Input value={payReference} onChange={(e) => setPayReference(e.target.value)} className={inputClass} maxLength={100} /></div>
-              <div><label className={labelClass}>Date</label><Input type="date" value={payDate} onChange={(e) => setPayDate(e.target.value)} className={inputClass} /></div>
+              <div><label className={labelClass}>Amount (₱)</label><Input type="number" min={0} value={payAmount} onChange={(e) => setPayAmount(e.target.value)} className="h-8 text-xs rounded" /></div>
+              <div><label className={labelClass}>Method</label><Input value={payMethod} onChange={(e) => setPayMethod(e.target.value)} placeholder="GCash, Bank..." className="h-8 text-xs rounded" maxLength={60} /></div>
+              <div><label className={labelClass}>Reference</label><Input value={payReference} onChange={(e) => setPayReference(e.target.value)} className="h-8 text-xs rounded" maxLength={100} /></div>
+              <div><label className={labelClass}>Date</label><Input type="date" value={payDate} onChange={(e) => setPayDate(e.target.value)} className="h-8 text-xs rounded" /></div>
             </div>
           )}
         </div>
         <div className="flex items-center justify-end gap-2 px-5 py-3 border-t border-border bg-muted/30">
           <Button variant="outline" size="sm" className="h-8 rounded text-xs" onClick={onClose} disabled={saving}>Cancel</Button>
           <Button size="sm" className="h-8 rounded text-xs" onClick={save} disabled={saving} style={{ backgroundColor: BRAND }}>
-            {saving ? <Loader2 size={12} className="mr-1.5 animate-spin" /> : <Calendar size={12} className="mr-1.5" />}
+            {saving ? <Loader2 size={12} className="mr-1.5 animate-spin" /> : <CalendarIcon size={12} className="mr-1.5" />}
             {saving ? 'Saving...' : 'Extend Stay'}
           </Button>
         </div>
@@ -1412,9 +1879,6 @@ function ExtendStayModal({ open, onClose, booking, onSaved }) {
   )
 }
 
-// ============================================================
-// COMPLETE CONFIRM MODAL
-// ============================================================
 function CompleteConfirmModal({ open, onClose, booking, onConfirmed }) {
   const [saving, setSaving] = useState(false)
   if (!open || !booking) return null
@@ -1464,14 +1928,12 @@ function CompleteConfirmModal({ open, onClose, booking, onConfirmed }) {
   )
 }
 
-// ============================================================
-// MAIN PAGE
-// ============================================================
 export default function BookingsPage() {
   const [bookings, setBookings] = useState([])
   const [units, setUnits] = useState([])
   const [specialists, setSpecialists] = useState([])
   const [affiliates, setAffiliates] = useState([])
+  const [contracts, setContracts] = useState([])
   const [affiliateCounts, setAffiliateCounts] = useState({})
 
   const [isFirstLoad, setIsFirstLoad] = useState(true)
@@ -1510,20 +1972,23 @@ export default function BookingsPage() {
     if (!hasLoadedOnce.current) setIsFirstLoad(true)
     else setIsRefreshing(true)
     try {
-      const [bRes, uRes, sRes, aRes] = await Promise.all([
+      const [bRes, uRes, sRes, aRes, cRes] = await Promise.all([
         supabase.from('bookings').select('*, units:unit_id ( id, unit_code, building )').is('deleted_at', null).order('check_in', { ascending: false }),
-        supabase.from('units').select('id, unit_code, building, status').order('unit_code'),
+        supabase.from('units').select('id, unit_code, building, status, current_contract_id').order('unit_code'),
         supabase.from('specialists').select('id, code, name').order('name'),
         supabase.from('affiliates').select('id, code, name').order('name'),
+        supabase.from('contracts').select('id, unit_id, contract_code, effective_date, expiry_date'),
       ])
       if (bRes.error) throw bRes.error
       if (uRes.error) throw uRes.error
       if (sRes.error) throw sRes.error
       if (aRes.error) throw aRes.error
+      if (cRes.error) throw cRes.error
       setBookings(bRes.data || [])
       setUnits(uRes.data || [])
       setSpecialists(sRes.data || [])
       setAffiliates(aRes.data || [])
+      setContracts(cRes.data || [])
 
       const affCounts = await fetchAffiliateCounts((aRes.data || []).map((a) => a.code))
       setAffiliateCounts(affCounts)
@@ -1544,7 +2009,34 @@ export default function BookingsPage() {
     return () => { supabase.removeChannel(ch) }
   }, [fetchData])
 
-  const activeUnits = useMemo(() => units.filter((u) => u.status === 'ACTIVE'), [units])
+  const activeUnits = useMemo(() => {
+    const todayStr = todayISO()
+
+    const byUnit = new Map()
+    for (const c of contracts) {
+      if (!c.effective_date) continue
+      if (c.effective_date > todayStr) continue
+      if (c.expiry_date && c.expiry_date < todayStr) continue
+
+      const existing = byUnit.get(c.unit_id)
+      if (!existing || (c.effective_date > existing.effective_date)) {
+        byUnit.set(c.unit_id, c)
+      }
+    }
+
+    return units.filter((u) => {
+      if (u.status !== 'ACTIVE') return false
+
+      if (u.current_contract_id) {
+        const c = contracts.find((x) => x.id === u.current_contract_id)
+        if (c && c.effective_date && c.effective_date <= todayStr) {
+          if (!c.expiry_date || c.expiry_date >= todayStr) return true
+        }
+      }
+
+      return byUnit.has(u.id)
+    })
+  }, [units, contracts])
 
   const counts = useMemo(() => {
     const c = { all: bookings.length, upcoming: 0, active: 0, 'needs-action': 0, completed: 0 }
@@ -1555,11 +2047,7 @@ export default function BookingsPage() {
     return c
   }, [bookings])
 
-  const todayISOStr = useMemo(() => {
-    const d = new Date(); d.setHours(0, 0, 0, 0)
-    const y = d.getFullYear(); const m = String(d.getMonth() + 1).padStart(2, '0'); const dd = String(d.getDate()).padStart(2, '0')
-    return `${y}-${m}-${dd}`
-  }, [])
+  const todayISOStr = useMemo(() => todayISO(), [])
 
   const checkInsToday = useMemo(
     () => bookings.filter((b) => b.check_in === todayISOStr && !b.deleted_at),
@@ -1664,15 +2152,12 @@ export default function BookingsPage() {
 
   return (
     <div className="h-full flex min-h-0">
-      {/* NO outer wrapper — content sits directly on the page background */}
       <div className="flex-1 min-h-0 flex flex-col p-3 gap-3">
 
-        {/* SUMMARY CARDS */}
         <div className={cn('flex-shrink-0 transition-all duration-300 ease-out overflow-hidden', cardsHidden ? 'max-h-0 opacity-0 -mb-3' : 'max-h-40 opacity-100')}>
           <SummaryCards bookings={bookings} />
         </div>
 
-        {/* TODAY PANELS — same look as check-in row, mini list rows */}
         <div className={cn('flex-shrink-0 grid grid-cols-1 lg:grid-cols-2 gap-4 transition-all duration-300 ease-out overflow-hidden', cardsHidden ? 'max-h-0 opacity-0 -mb-3' : 'max-h-60 opacity-100')}>
           <TodayPanel
             title="Check-ins today"
@@ -1692,7 +2177,6 @@ export default function BookingsPage() {
           />
         </div>
 
-        {/* SEARCH + ACTIONS */}
         <div ref={headerRef} className="flex-shrink-0 flex items-center gap-2">
           <div className="relative flex-1 min-w-0">
             <Search size={13} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-muted-foreground" />
@@ -1710,7 +2194,6 @@ export default function BookingsPage() {
           </Button>
         </div>
 
-        {/* STATUS PILLS + WARNINGS */}
         <div className="flex-shrink-0 flex items-center justify-between gap-3 flex-wrap">
           <StatusPills statusFilter={statusFilter} onStatusFilter={setStatusFilter} counts={counts} />
           <WarningsStrip
@@ -1727,8 +2210,7 @@ export default function BookingsPage() {
           />
         </div>
 
-        {/* BOOKINGS LIST */}
-        <div className="flex-1 min-h-0 rounded-md border border-border overflow-hidden bg-card">
+        <div className="flex-1 min-h-0 rounded border border-border overflow-hidden bg-card">
           <div className="h-full overflow-y-auto" style={{ scrollbarGutter: 'stable' }}
             onMouseMove={handleListMouseMove} onMouseLeave={handleListMouseLeave}>
             <div className={cn('sticky top-0 z-10 px-4 py-2 border-b border-border bg-card', ROW_GRID)}>
@@ -1745,7 +2227,7 @@ export default function BookingsPage() {
             ) : sorted.length === 0 ? (
               <div className="h-full flex items-center justify-center text-center py-12">
                 <div>
-                  <Calendar size={36} className="text-muted-foreground/40 mx-auto mb-3" />
+                  <CalendarIcon size={36} className="text-muted-foreground/40 mx-auto mb-3" />
                   <p className="text-sm text-foreground font-semibold">No bookings match your filters</p>
                   <p className="text-xs text-muted-foreground mt-1">Try clearing filters or creating a new booking</p>
                 </div>
@@ -1755,6 +2237,7 @@ export default function BookingsPage() {
                 <BookingListRow
                   key={booking.id}
                   booking={booking}
+                  contracts={contracts}
                   selected={selectedId === booking.id}
                   highlighted={highlightedId === booking.id}
                   onClick={() => handleSelect(booking)}
@@ -1770,6 +2253,7 @@ export default function BookingsPage() {
           <BookingDetailPanel
             key={selected.id}
             booking={selected}
+            contracts={contracts}
             onBookingChange={handleBookingChange}
             onClose={() => setSelectedId(null)}
             onAddPayment={() => setPayForBooking(selected)}
@@ -1790,10 +2274,12 @@ export default function BookingsPage() {
         specialists={specialists}
         affiliates={affiliates}
         affiliateCounts={affiliateCounts}
+        contracts={contracts}
+        bookings={bookings}
       />
 
       <AddPaymentModal open={!!payForBooking} onClose={() => setPayForBooking(null)} booking={payForBooking} onSaved={fetchData} />
-      <ExtendStayModal open={!!extendForBooking} onClose={() => setExtendForBooking(null)} booking={extendForBooking} onSaved={fetchData} />
+      <ExtendStayModal open={!!extendForBooking} onClose={() => setExtendForBooking(null)} booking={extendForBooking} onSaved={fetchData} contracts={contracts} />
       <CompleteConfirmModal open={!!completeForBooking} onClose={() => setCompleteForBooking(null)} booking={completeForBooking} onConfirmed={fetchData} />
     </div>
   )

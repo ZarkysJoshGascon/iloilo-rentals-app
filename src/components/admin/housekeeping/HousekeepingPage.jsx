@@ -18,7 +18,7 @@ import {
 } from '@/components/ui/select'
 import { supabase } from '@/lib/supabase'
 import { logAudit } from '@/lib/auditLog'
-import { cn, sanitizeText, sanitizeMoney, sanitizeDateOnly } from '@/lib/utils'
+import { cn, sanitizeText, sanitizeMoney, sanitizeDateOnly, CLEANING_WINDOW } from '@/lib/utils'
 import {
   listCleanings, createCleaning, updateCleaning, deleteCleaning,
   addPhotoToCleaning, removePhotoFromCleaning,
@@ -35,6 +35,7 @@ const BRAND = '#2d568e'
 // ============================================================
 function getEffectiveStatus(cleaning) {
   if (cleaning.status === 'completed') return 'completed'
+  if (cleaning.status === 'cancelled') return 'cancelled'
   if (cleaning.status === 'submitted') return 'to-be-evaluated'
   if (!cleaning.bookings?.check_out) return 'ready'
   const today = new Date(); today.setHours(0, 0, 0, 0)
@@ -56,6 +57,7 @@ const STATUS_CONFIG = {
   ready:             { label: 'Ready',            className: 'bg-blue-600 text-white border-0' },
   'to-be-evaluated': { label: 'To Be Evaluated',  className: 'bg-gray-600 text-white border-0' },
   completed:         { label: 'Completed',        className: 'bg-emerald-600 text-white border-0' },
+  cancelled:         { label: 'Cancelled',        className: 'bg-red-600 text-white border-0' },
 }
 
 const STATUS_PILLS = [
@@ -64,6 +66,7 @@ const STATUS_PILLS = [
   { id: 'ready', label: 'Ready' },
   { id: 'to-be-evaluated', label: 'To Be Evaluated' },
   { id: 'completed', label: 'Completed' },
+  { id: 'cancelled', label: 'Cancelled' },
 ]
 
 const PILL_TEXT_ACTIVE = {
@@ -72,6 +75,7 @@ const PILL_TEXT_ACTIVE = {
   ready: 'text-blue-700 dark:text-blue-400',
   'to-be-evaluated': 'text-gray-700 dark:text-gray-300',
   completed: 'text-emerald-700 dark:text-emerald-400',
+  cancelled: 'text-red-700 dark:text-red-400',
 }
 
 const PHOTO_LIMITS = { before: 15, after: 15, report: 10 }
@@ -1042,7 +1046,7 @@ const emptyNewCleaning = () => ({
   notes: '',
 })
 
-function NewCleaningModal({ open, onClose, onCreated, units, bookings, housekeepers }) {
+function NewCleaningModal({ open, onClose, onCreated, units, bookings, housekeepers, contracts }) {
   const [form, setForm] = useState(emptyNewCleaning())
   const [saving, setSaving] = useState(false)
 
@@ -1050,6 +1054,33 @@ function NewCleaningModal({ open, onClose, onCreated, units, bookings, housekeep
   if (!open) return null
 
   const setField = (k, v) => setForm((p) => ({ ...p, [k]: v }))
+
+  const eligibleUnits = useMemo(() => {
+    const today = new Date().toISOString().slice(0, 10)
+    return units.filter((u) => {
+      if (u.status !== 'ACTIVE') return false
+      return contracts.some((c) =>
+        c.unit_id === u.id &&
+        c.effective_date &&
+        c.effective_date <= today &&
+        (!c.expiry_date || c.expiry_date >= today)
+      )
+    })
+  }, [units, contracts])
+
+  const unitStatus = useMemo(() => {
+    if (!form.unit_id) return null
+    const hasAny = contracts.some((c) => c.unit_id === form.unit_id)
+    if (!hasAny) return 'no_contract'
+    const covering = contracts.some((c) =>
+      c.unit_id === form.unit_id &&
+      c.effective_date &&
+      c.effective_date <= form.scheduled_date &&
+      (!c.expiry_date || c.expiry_date >= form.scheduled_date)
+    )
+    return covering ? 'ok' : 'out_of_range'
+  }, [form.unit_id, form.scheduled_date, contracts])
+
   const handleBookingChange = (bookingId) => {
     if (bookingId === '__none__') { setField('booking_id', ''); return }
     const b = bookings.find((x) => x.id === bookingId)
@@ -1060,6 +1091,17 @@ function NewCleaningModal({ open, onClose, onCreated, units, bookings, housekeep
     if (!form.unit_id) { toast.error('Select a unit'); return }
     const notes = sanitizeText(form.notes, { max: MAX_NOTE_LEN, allowNewlines: true })
     const scheduledDate = sanitizeDateOnly(form.scheduled_date)
+    if (!scheduledDate) { toast.error('Set a valid scheduled date'); return }
+
+    if (unitStatus === 'no_contract') {
+      toast.error('This unit has no contract. Create a contract before scheduling a cleaning.')
+      return
+    }
+    if (unitStatus === 'out_of_range') {
+      toast.error('No contract covers this date. Extend a contract or pick a different date.')
+      return
+    }
+
     setSaving(true)
     try {
       await createCleaning({
@@ -1105,9 +1147,34 @@ function NewCleaningModal({ open, onClose, onCreated, units, bookings, housekeep
                 </SelectValue>
               </SelectTrigger>
               <SelectContent>
-                {units.map((u) => <SelectItem key={u.id} value={u.id} className="text-xs">{u.building || '—'} — {u.unit_code || '—'}</SelectItem>)}
+                {eligibleUnits.length === 0 ? (
+                  <div className="px-3 py-2 text-xs text-muted-foreground italic">
+                    No units with an active contract
+                  </div>
+                ) : (
+                  eligibleUnits.map((u) => (
+                    <SelectItem key={u.id} value={u.id} className="text-xs">
+                      {u.building || '—'} — {u.unit_code || '—'}
+                    </SelectItem>
+                  ))
+                )}
               </SelectContent>
             </Select>
+            {eligibleUnits.length === 0 && (
+              <p className="text-[10px] text-amber-600 dark:text-amber-400 mt-1">
+                Every unit either has no contract or its contract has expired. Create a contract in the Contracts page first.
+              </p>
+            )}
+            {unitStatus === 'no_contract' && (
+              <p className="text-[10px] text-red-600 dark:text-red-400 mt-1">
+                This unit has no contract at all.
+              </p>
+            )}
+            {unitStatus === 'out_of_range' && (
+              <p className="text-[10px] text-amber-600 dark:text-amber-400 mt-1">
+                No contract covers {form.scheduled_date}. Adjust the date or extend a contract.
+              </p>
+            )}
           </div>
           <div>
             <label className={labelClass}>Linked Booking (optional)</label>
@@ -1139,6 +1206,7 @@ function NewCleaningModal({ open, onClose, onCreated, units, bookings, housekeep
             <div>
               <label className={labelClass}>Scheduled date</label>
               <Input type="date" value={form.scheduled_date} onChange={(e) => setField('scheduled_date', e.target.value)} className={inputClass} />
+              <p className="text-[10px] text-muted-foreground mt-1">Window: {CLEANING_WINDOW.label}</p>
             </div>
           </div>
           <div>
@@ -1164,7 +1232,7 @@ function NewCleaningModal({ open, onClose, onCreated, units, bookings, housekeep
         </div>
         <div className="flex items-center justify-end gap-2 px-5 py-3 border-t border-border bg-muted/30">
           <Button variant="outline" size="sm" className="h-8 rounded text-xs" onClick={onClose} disabled={saving}>Cancel</Button>
-          <Button size="sm" className="h-8 rounded text-xs" onClick={handleSubmit} disabled={saving} style={{ backgroundColor: BRAND }}>
+          <Button size="sm" className="h-8 rounded text-xs" onClick={handleSubmit} disabled={saving || unitStatus !== 'ok'} style={{ backgroundColor: BRAND }}>
             {saving ? <Loader2 size={12} className="mr-1.5 animate-spin" /> : <Check size={12} className="mr-1.5" />}
             {saving ? 'Creating...' : 'Create Cleaning'}
           </Button>
@@ -1293,6 +1361,7 @@ function CleaningDetailPanel({ cleaning, onClose, onChanged, onDelete, housekeep
                     if (v === 'completed') updateField('status', 'completed')
                     else if (v === 'ready') updateField('status', 'ready')
                     else if (v === 'to-be-evaluated') updateField('status', 'submitted')
+                    else if (v === 'cancelled') updateField('status', 'cancelled')
                     else updateField('status', 'scheduled')
                   }}>
                     <SelectTrigger className="h-7 text-xs rounded"><SelectValue /></SelectTrigger>
@@ -1301,6 +1370,7 @@ function CleaningDetailPanel({ cleaning, onClose, onChanged, onDelete, housekeep
                       <SelectItem value="ready" className="text-xs">Ready</SelectItem>
                       <SelectItem value="to-be-evaluated" className="text-xs">To Be Evaluated</SelectItem>
                       <SelectItem value="completed" className="text-xs">Completed</SelectItem>
+                      <SelectItem value="cancelled" className="text-xs">Cancelled</SelectItem>
                     </SelectContent>
                   </Select>
                 </div>
@@ -1308,6 +1378,10 @@ function CleaningDetailPanel({ cleaning, onClose, onChanged, onDelete, housekeep
               <div className="flex items-center gap-2 py-0.5">
                 <span className="text-[10px] uppercase tracking-wider text-muted-foreground font-semibold min-w-[72px] flex-shrink-0">Scheduled</span>
                 <Input type="date" value={cleaning.scheduled_date || ''} onChange={(e) => updateField('scheduled_date', sanitizeDateOnly(e.target.value))} className="h-7 text-xs rounded bg-background flex-1" />
+              </div>
+              <div className="flex items-center gap-2 py-0.5">
+                <span className="text-[10px] uppercase tracking-wider text-muted-foreground font-semibold min-w-[72px] flex-shrink-0">Window</span>
+                <span className="text-xs text-foreground">{CLEANING_WINDOW.label}</span>
               </div>
               <div className="flex items-center gap-2 py-0.5">
                 <span className="text-[10px] uppercase tracking-wider text-muted-foreground font-semibold min-w-[72px] flex-shrink-0">Submitted</span>
@@ -1421,7 +1495,7 @@ function CleaningDetailPanel({ cleaning, onClose, onChanged, onDelete, housekeep
 }
 
 // ============================================================
-// LIST ROW — with cleaning code
+// LIST ROW
 // ============================================================
 function CleaningListRow({ cleaning, selected, onClick }) {
   return (
@@ -1484,6 +1558,7 @@ export default function HousekeepingPage() {
   const [units, setUnits] = useState([])
   const [bookings, setBookings] = useState([])
   const [housekeepers, setHousekeepers] = useState([])
+  const [contracts, setContracts] = useState([])
 
   const [isFirstLoad, setIsFirstLoad] = useState(true)
   const [isRefreshing, setIsRefreshing] = useState(false)
@@ -1505,19 +1580,22 @@ export default function HousekeepingPage() {
     if (!hasLoadedOnce.current) setIsFirstLoad(true)
     else setIsRefreshing(true)
     try {
-      const [cRes, uRes, bRes, hRes] = await Promise.all([
+      const [cRes, uRes, bRes, hRes, ctRes] = await Promise.all([
         listCleanings({}),
         supabase.from('units').select('id, unit_code, building, status').order('unit_code'),
         supabase.from('bookings').select('id, booking_code, guest_name, unit_id, check_in, check_out, completed_at').is('deleted_at', null).order('check_in', { ascending: false }).limit(200),
         supabase.from('housekeepers').select('id, code, name, photo_url').eq('status', 'active').order('name'),
+        supabase.from('contracts').select('id, unit_id, contract_code, effective_date, expiry_date'),
       ])
       if (uRes.error) throw uRes.error
       if (bRes.error) throw bRes.error
       if (hRes.error) throw hRes.error
+      if (ctRes.error) throw ctRes.error
       setCleanings(cRes)
       setUnits(uRes.data || [])
       setBookings(bRes.data || [])
       setHousekeepers(hRes.data || [])
+      setContracts(ctRes.data || [])
     } catch (err) {
       console.error('Failed to load housekeeping data:', err)
       toast.error('Failed to load cleanings')
@@ -1537,7 +1615,7 @@ export default function HousekeepingPage() {
   }, [fetchData])
 
   const counts = useMemo(() => {
-    const c = { all: cleanings.length, scheduled: 0, ready: 0, 'to-be-evaluated': 0, completed: 0 }
+    const c = { all: cleanings.length, scheduled: 0, ready: 0, 'to-be-evaluated': 0, completed: 0, cancelled: 0 }
     for (const x of cleanings) {
       const eff = getEffectiveStatus(x)
       if (c[eff] !== undefined) c[eff]++
@@ -1668,6 +1746,7 @@ export default function HousekeepingPage() {
         units={units}
         bookings={bookings}
         housekeepers={housekeepers}
+        contracts={contracts}
       />
     </div>
   )

@@ -12,7 +12,6 @@ import {
 } from 'recharts'
 import toast from 'react-hot-toast'
 import { Button } from '@/components/ui/button'
-import { Badge } from '@/components/ui/badge'
 import { Input } from '@/components/ui/input'
 import { Skeleton } from '@/components/ui/skeleton'
 import { Textarea } from '@/components/ui/textarea'
@@ -22,11 +21,11 @@ import {
   cn, sanitizeMoney, sanitizeText, sanitizeDateOnly,
 } from '@/lib/utils'
 import {
-  computeMonthlyStatement, computeLifetime,
-  monthRangeFromDates, monthLabel, monthKeyToDate, formatMoney, formatMoneyCompact,
+  computeLifetime,
+  monthLabel, monthKeyToDate, formatMoney, formatMoneyCompact,
   OWNER_SPLIT_PCT, COMPANY_SPLIT_PCT,
 } from '@/lib/accounting'
-import { fetchContractsLifetime } from '@/lib/accountingRpc'
+import { fetchContractsLifetime, fetchContractMonthlyBreakdown } from '@/lib/accountingRpc'
 
 const BRAND = '#2d568e'
 const CLEAN_COLOR = '#7c3aed'
@@ -36,7 +35,6 @@ const MONTHS_SHORT = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'S
 const DOW_SHORT = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat']
 const PAGE_SIZE = 25
 const REALTIME_DEBOUNCE_MS = 1500
-const ANALYTICS_MONTHS = 12
 
 const SORT_OPTIONS = [
   { id: 'unit_asc', label: 'Unit (A→Z)' },
@@ -61,12 +59,12 @@ function deriveContractStatus(contract) {
   return daysLeft <= 60 ? 'expiring' : 'active'
 }
 
-const STATUS_CONFIG = {
-  active:     { label: 'Active',     className: 'bg-emerald-600 text-white border-0' },
-  expiring:   { label: 'Expiring',   className: 'bg-amber-600 text-white border-0' },
-  expired:    { label: 'Expired',    className: 'bg-red-600 text-white border-0' },
-  incomplete: { label: 'Incomplete', className: 'bg-gray-400 text-white border-0' },
-  inactive:   { label: 'Inactive',   className: 'bg-gray-500 text-white border-0' },
+const STATUS_TEXT = {
+  active:     { label: 'Active',     className: 'text-emerald-600 dark:text-emerald-400' },
+  expiring:   { label: 'Expiring',   className: 'text-amber-600 dark:text-amber-400' },
+  expired:    { label: 'Expired',    className: 'text-red-600 dark:text-red-400' },
+  incomplete: { label: 'Incomplete', className: 'text-gray-500 dark:text-gray-400' },
+  inactive:   { label: 'Inactive',   className: 'text-gray-500 dark:text-gray-400' },
 }
 
 const STATUS_PILLS = [
@@ -83,13 +81,9 @@ const PILL_TEXT_ACTIVE = {
   expired: 'text-red-700 dark:text-red-400',
 }
 
-function StatusBadge({ status }) {
-  const config = STATUS_CONFIG[status] || STATUS_CONFIG.inactive
-  return (
-    <Badge className={cn('text-[11px] font-semibold rounded-full px-2.5 py-0.5', config.className)}>
-      {config.label}
-    </Badge>
-  )
+function StatusText({ status }) {
+  const config = STATUS_TEXT[status] || STATUS_TEXT.inactive
+  return <span className={cn('text-[11px] font-semibold', config.className)}>{config.label}</span>
 }
 
 function formatDateShort(d) {
@@ -470,7 +464,7 @@ function ContractRow({ contract, lifetime, onClick }) {
       </div>
 
       <div className="flex items-center justify-end flex-shrink-0">
-        <StatusBadge status={deriveContractStatus(contract)} />
+        <StatusText status={deriveContractStatus(contract)} />
       </div>
     </motion.button>
   )
@@ -947,17 +941,18 @@ function WeeklyCumulativeChart({ statement, monthlyExpenses, contract }) {
 function CumulativeNetChart({ statements, selectedYear, yearSections, onSelectYear }) {
   const data = useMemo(() => {
     const ordered = [...statements].sort((a, b) => a.month.localeCompare(b.month))
+    const withCumulative = []
     let running = 0
-    const all = ordered.map((s) => {
+    for (const s of ordered) {
       running += s.netProfit
-      return {
+      withCumulative.push({
         label: MONTHS_SHORT[Number(s.month.split('-')[1]) - 1],
         monthKey: s.month,
         year: Number(s.month.split('-')[0]),
         cumulative: running,
-      }
-    })
-    return all.filter((d) => d.year === selectedYear)
+      })
+    }
+    return withCumulative.filter((d) => d.year === selectedYear)
   }, [statements, selectedYear])
 
   const maxValue = useMemo(() => {
@@ -1035,7 +1030,7 @@ function CumulativeNetChart({ statements, selectedYear, yearSections, onSelectYe
 // ============================================================
 // BOOKING CALENDAR
 // ============================================================
-function BookingCalendar({ month, bookings, cleanings }) {
+function BookingCalendar({ month, bookings, cleanings, selectedId, onSelect }) {
   const [y, m] = month.split('-').map(Number)
   const firstDay = new Date(Date.UTC(y, m - 1, 1))
   const daysInMonth = new Date(Date.UTC(y, m, 0)).getUTCDate()
@@ -1100,9 +1095,9 @@ function BookingCalendar({ month, bookings, cleanings }) {
           }
           const dayB = dayBookings[day] || []
           const dayC = dayCleanings[day] || []
-          const shownB = dayB.slice(0, 2)
-          const shownC = dayC.slice(0, 2)
-          const extra = Math.max(0, (dayB.length - 2) + (dayC.length - 2))
+          const shownB = dayB.slice(0, 3)
+          const shownC = dayC.slice(0, 3)
+          const extra = Math.max(0, (dayB.length - 3) + (dayC.length - 3))
           return (
             <div
               key={idx}
@@ -1117,11 +1112,21 @@ function BookingCalendar({ month, bookings, cleanings }) {
                 </span>
               </div>
               <div className="space-y-0.5">
-                {shownB.map((b, i) => (
-                  <CalendarBookingBar key={`b-${b.id}-${i}`} booking={b} />
+                {shownB.map((b) => (
+                  <CalendarBookingBar
+                    key={`b-${b.id}`}
+                    booking={b}
+                    selected={selectedId?.type === 'booking' && selectedId.id === b.id}
+                    onSelect={() => onSelect?.('booking', b.id)}
+                  />
                 ))}
-                {shownC.map((c, i) => (
-                  <CalendarCleaningChip key={`c-${c.id}-${i}`} cleaning={c} />
+                {shownC.map((c) => (
+                  <CalendarCleaningChip
+                    key={`c-${c.id}`}
+                    cleaning={c}
+                    selected={selectedId?.type === 'cleaning' && selectedId.id === c.id}
+                    onSelect={() => onSelect?.('cleaning', c.id)}
+                  />
                 ))}
                 {extra > 0 && (
                   <div className="text-[10px] font-semibold text-foreground pl-1">+{extra} more</div>
@@ -1135,25 +1140,30 @@ function BookingCalendar({ month, bookings, cleanings }) {
   )
 }
 
-function CalendarBookingBar({ booking }) {
+function CalendarBookingBar({ booking, selected, onSelect }) {
   const { cursor, onMove, onLeave } = useCursorTooltip()
   const bookerComm = Number(booking.booker_commission || 0)
   const affiliateComm = Number(booking.affiliate_commission || 0)
 
   return (
     <>
-      <motion.div
+      <motion.button
+        type="button"
+        onClick={(e) => { e.stopPropagation(); onSelect?.() }}
         onMouseEnter={onMove}
         onMouseMove={onMove}
         onMouseLeave={onLeave}
         initial={{ opacity: 0, x: -4 }}
         animate={{ opacity: 1, x: 0 }}
         transition={{ duration: 0.2 }}
-        className="px-1.5 py-0.5 rounded text-[10px] font-semibold text-white truncate cursor-default"
+        className={cn(
+          'w-full text-left px-1.5 py-0.5 rounded text-[10px] font-semibold text-white truncate cursor-pointer',
+          selected && 'ring-2 ring-offset-1 ring-offset-card ring-white',
+        )}
         style={{ backgroundColor: BRAND }}
       >
         {booking.guest_name || booking.booking_code}
-      </motion.div>
+      </motion.button>
       <CursorTooltip cursor={cursor}>
         <p className="font-mono font-semibold text-foreground mb-0.5">{booking.booking_code}</p>
         <p className="text-foreground font-semibold mb-2">{booking.guest_name}</p>
@@ -1176,26 +1186,31 @@ function CalendarBookingBar({ booking }) {
   )
 }
 
-function CalendarCleaningChip({ cleaning }) {
+function CalendarCleaningChip({ cleaning, selected, onSelect }) {
   const { cursor, onMove, onLeave } = useCursorTooltip()
   const housekeeper = Number(cleaning.payment_amount || 0)
   const laundry = Number(cleaning.laundry_payment_amount || 0)
 
   return (
     <>
-      <motion.div
+      <motion.button
+        type="button"
+        onClick={(e) => { e.stopPropagation(); onSelect?.() }}
         onMouseEnter={onMove}
         onMouseMove={onMove}
         onMouseLeave={onLeave}
         initial={{ opacity: 0, x: -4 }}
         animate={{ opacity: 1, x: 0 }}
         transition={{ duration: 0.2 }}
-        className="px-1.5 py-0.5 rounded text-[10px] font-semibold text-white truncate cursor-default italic"
+        className={cn(
+          'w-full text-left px-1.5 py-0.5 rounded text-[10px] font-semibold text-white truncate italic cursor-pointer',
+          selected && 'ring-2 ring-offset-1 ring-offset-card ring-white',
+        )}
         style={{ backgroundColor: CLEAN_COLOR }}
       >
         <Sparkles size={9} className="inline mr-1" />
         {cleaning.type || 'cleaning'}
-      </motion.div>
+      </motion.button>
       <CursorTooltip cursor={cursor}>
         <p className="font-semibold text-foreground mb-1.5">Cleaning</p>
         <div className="space-y-0.5">
@@ -1387,7 +1402,7 @@ function ContractSidebar({ contract, onBack, onEdit }) {
             <div className="min-w-0 flex-1">
               <div className="flex items-center gap-2 flex-wrap">
                 <p className="font-mono text-sm font-bold text-foreground truncate">{contract.units?.unit_code || '—'}</p>
-                <StatusBadge status={deriveContractStatus(contract)} />
+                <StatusText status={deriveContractStatus(contract)} />
               </div>
               <p className="text-xs text-foreground truncate mt-0.5">{contract.units?.building || '—'}</p>
             </div>
@@ -1528,6 +1543,127 @@ function StatCard({ label, value, icon: Icon }) {
       </div>
       <p className="text-2xl font-bold tabular-nums text-foreground truncate">{value}</p>
     </motion.div>
+  )
+}
+
+// ============================================================
+// MONTHLY LEDGER  ← NEW
+// ============================================================
+function MonthlyLedger({ statements, selectedMonth, onSelectMonth }) {
+  const ordered = useMemo(
+    () => [...statements].sort((a, b) => a.month.localeCompare(b.month)),
+    [statements]
+  )
+
+  const lifetime = useMemo(() => computeLifetime(ordered), [ordered])
+
+  if (ordered.length === 0) {
+    return (
+      <CardBody>
+        <div className="p-4 text-xs text-muted-foreground italic">
+          No months on this contract yet
+        </div>
+      </CardBody>
+    )
+  }
+
+  const ROW = 'grid grid-cols-[110px_1fr_1fr_1fr] gap-4 items-center'
+
+  return (
+    <CardBody>
+      {/* Header */}
+      <div
+        className={cn(
+          'px-4 py-2 border-b border-border bg-muted/20 sticky top-0 z-10',
+          ROW
+        )}
+      >
+        <span className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground">
+          Month
+        </span>
+        <span className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground text-right">
+          Gross
+        </span>
+        <span className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground text-right">
+          Expenses
+        </span>
+        <span className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground text-right">
+          Net
+        </span>
+      </div>
+
+      {/* Rows */}
+      <div className="max-h-[340px] overflow-y-auto">
+        {ordered.map((s) => {
+          const isSelected = s.month === selectedMonth
+          const [y, m] = s.month.split('-').map(Number)
+          const label = `${MONTHS_SHORT[m - 1]} ${y}`
+
+          return (
+            <button
+              key={s.month}
+              type="button"
+              onClick={() => onSelectMonth(s.month)}
+              className={cn(
+                'w-full text-left px-4 py-2.5 border-b border-border last:border-0 transition-colors cursor-pointer',
+                ROW,
+                isSelected
+                  ? 'bg-[#2d568e]/10 hover:bg-[#2d568e]/15'
+                  : 'hover:bg-muted/40'
+              )}
+            >
+              <span
+                className={cn(
+                  'text-xs font-semibold tabular-nums',
+                  isSelected ? 'text-[#2d568e]' : 'text-foreground'
+                )}
+              >
+                {label}
+              </span>
+              <span className="text-xs tabular-nums text-foreground text-right">
+                {formatMoney(s.grossRevenue)}
+              </span>
+              <span className="text-xs tabular-nums text-foreground text-right">
+                {formatMoney(s.totalExpenses)}
+              </span>
+              <span
+                className={cn(
+                  'text-xs tabular-nums font-semibold text-right',
+                  s.netProfit < 0
+                    ? 'text-red-600 dark:text-red-400'
+                    : 'text-emerald-600 dark:text-emerald-400'
+                )}
+              >
+                {formatMoney(s.netProfit)}
+              </span>
+            </button>
+          )
+        })}
+      </div>
+
+      {/* Totals footer */}
+      <div className={cn('px-4 py-2.5 border-t-2 border-border bg-muted/30', ROW)}>
+        <span className="text-[11px] font-bold uppercase tracking-wider text-foreground">
+          Lifetime
+        </span>
+        <span className="text-xs font-bold tabular-nums text-foreground text-right">
+          {formatMoney(lifetime.gross)}
+        </span>
+        <span className="text-xs font-bold tabular-nums text-foreground text-right">
+          {formatMoney(lifetime.expenses)}
+        </span>
+        <span
+          className={cn(
+            'text-xs font-bold tabular-nums text-right',
+            lifetime.net < 0
+              ? 'text-red-600 dark:text-red-400'
+              : 'text-emerald-600 dark:text-emerald-400'
+          )}
+        >
+          {formatMoney(lifetime.net)}
+        </span>
+      </div>
+    </CardBody>
   )
 }
 
@@ -2064,139 +2200,6 @@ function AddExpenseModal({ open, onClose, onSubmit, contractId }) {
   )
 }
 
-// ============================================================
-// BOOKING ROW
-// ============================================================
-function BookingRow({ booking }) {
-  const bookerComm = Number(booking.booker_commission || 0)
-  const affiliateComm = Number(booking.affiliate_commission || 0)
-
-  const nights = booking.check_in && booking.check_out
-    ? Math.max(0, Math.round(
-        (new Date(booking.check_out + 'T00:00:00Z') - new Date(booking.check_in + 'T00:00:00Z')) / 86400000
-      ))
-    : 0
-
-  const paymentBadge = {
-    paid:    { label: 'Paid',    className: 'bg-emerald-600 text-white' },
-    partial: { label: 'Partial', className: 'bg-amber-600 text-white' },
-    unpaid:  { label: 'Unpaid',  className: 'bg-red-600 text-white' },
-  }[booking.payment_status] || null
-
-  return (
-    <div className="rounded-md border border-border bg-background px-3 py-2.5 min-w-0">
-      <div className="flex items-center gap-2 min-w-0">
-        <span className="font-mono text-[11px] text-foreground flex-shrink-0">
-          {booking.booking_code}
-        </span>
-        <span className="text-xs font-semibold text-foreground truncate flex-1">
-          {booking.guest_name}
-        </span>
-        <span className="text-xs font-semibold tabular-nums text-foreground flex-shrink-0">
-          {formatMoney(booking.total_amount)}
-        </span>
-        {paymentBadge && (
-          <span className={cn('text-[10px] font-semibold rounded-full px-2 py-0.5 flex-shrink-0', paymentBadge.className)}>
-            {paymentBadge.label}
-          </span>
-        )}
-      </div>
-
-      <div className="mt-1 flex items-center gap-2 text-[11px] text-foreground/80 min-w-0 flex-wrap">
-        <span className="tabular-nums">
-          {formatDateShort(booking.check_in)} → {formatDateShort(booking.check_out)}
-        </span>
-        <span className="text-muted-foreground">·</span>
-        <span className="tabular-nums">{nights} night{nights === 1 ? '' : 's'}</span>
-        {booking.guests > 0 && (
-          <>
-            <span className="text-muted-foreground">·</span>
-            <span>{booking.guests} guest{booking.guests === 1 ? '' : 's'}</span>
-          </>
-        )}
-      </div>
-
-      {(bookerComm > 0 || affiliateComm > 0) && (
-        <div className="mt-1 flex flex-wrap gap-x-3 gap-y-0.5 text-[11px] text-foreground/80">
-          {bookerComm > 0 && (
-            <span>
-              Booker · <span className="tabular-nums font-semibold text-foreground">−{formatMoney(bookerComm)}</span>
-            </span>
-          )}
-          {affiliateComm > 0 && (
-            <span>
-              Affiliate · <span className="tabular-nums font-semibold text-foreground">−{formatMoney(affiliateComm)}</span>
-            </span>
-          )}
-        </div>
-      )}
-    </div>
-  )
-}
-
-// ============================================================
-// CLEANING ROW
-// ============================================================
-function CleaningRow({ cleaning }) {
-  const housekeeper = Number(cleaning.payment_amount || 0)
-  const laundry = Number(cleaning.laundry_payment_amount || 0)
-
-  const photoCount =
-    (Array.isArray(cleaning.photos_before) ? cleaning.photos_before.length : 0) +
-    (Array.isArray(cleaning.photos_after)  ? cleaning.photos_after.length  : 0) +
-    (Array.isArray(cleaning.photos_report) ? cleaning.photos_report.length : 0)
-
-  const statusBadge = {
-    scheduled: { label: 'Scheduled', className: 'bg-amber-600 text-white' },
-    ready:     { label: 'Ready',     className: 'bg-blue-600 text-white' },
-    submitted: { label: 'Submitted', className: 'bg-gray-600 text-white' },
-    completed: { label: 'Completed', className: 'bg-emerald-600 text-white' },
-  }[cleaning.status] || null
-
-  return (
-    <div className="rounded-md border border-border bg-background px-3 py-2.5 min-w-0">
-      <div className="flex items-center gap-2 min-w-0">
-        <span className="font-mono text-[11px] text-foreground flex-shrink-0">
-          {cleaning.cleaning_code || '—'}
-        </span>
-        <span className="text-xs font-semibold capitalize text-foreground flex-shrink-0">
-          {cleaning.type}
-        </span>
-        {statusBadge && (
-          <span className={cn('text-[10px] font-semibold rounded-full px-2 py-0.5 flex-shrink-0', statusBadge.className)}>
-            {statusBadge.label}
-          </span>
-        )}
-        <span className="flex-1 min-w-0" />
-        <span className="text-xs font-semibold tabular-nums text-foreground flex-shrink-0">
-          {formatMoney(housekeeper)}
-        </span>
-      </div>
-
-      <div className="mt-1 flex items-center gap-2 text-[11px] text-foreground/80 flex-wrap">
-        <span className="tabular-nums">{formatDateShort(cleaning.scheduled_date)}</span>
-        {laundry > 0 && (
-          <>
-            <span className="text-muted-foreground">·</span>
-            <span>
-              Laundry · <span className="tabular-nums font-semibold text-foreground">−{formatMoney(laundry)}</span>
-            </span>
-          </>
-        )}
-        {photoCount > 0 && (
-          <>
-            <span className="text-muted-foreground">·</span>
-            <span className="inline-flex items-center gap-1">
-              <Camera size={10} />
-              {photoCount} photo{photoCount === 1 ? '' : 's'}
-            </span>
-          </>
-        )}
-      </div>
-    </div>
-  )
-}
-
 function ExpenseLine({ icon: Icon, label, value }) {
   return (
     <div className="flex items-center gap-2 text-xs py-0.5">
@@ -2219,6 +2222,13 @@ function TotalLine({ label, value, bold = false }) {
 // ============================================================
 // MONTHLY SECTION
 // ============================================================
+function monthKeyFromDate(iso) {
+  if (!iso) return null
+  const s = String(iso).slice(0, 10)
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(s)) return null
+  return s.slice(0, 7)
+}
+
 function MonthlySection({
   statements,
   selectedMonth,
@@ -2230,12 +2240,18 @@ function MonthlySection({
   yearSections,
   selectedYear,
   onSelectYear,
+  allBookings,
+  allCleanings,
 }) {
   const options = useMemo(() => [...statements].reverse(), [statements])
   const statement = statements.find((s) => s.month === selectedMonth) || null
-  const [tab, setTab] = useState('bookings')
+  const [selectedCalendarId, setSelectedCalendarId] = useState(null)
+  const [listTab, setListTab] = useState('bookings')
 
-  useEffect(() => { setTab('bookings') }, [selectedMonth])
+  useEffect(() => {
+    setSelectedCalendarId(null)
+    setListTab('bookings')
+  }, [contract.id])
 
   const monthOccupancy = useMemo(() => {
     if (!statement) return null
@@ -2243,6 +2259,85 @@ function MonthlySection({
     const { nights, daysInMonth } = nightsInMonthFromBookings(statement.bookingsList, y, m, contract)
     return { pct: daysInMonth > 0 ? nights / daysInMonth : 0, nights, daysInMonth }
   }, [statement, contract])
+
+  const defaultMonthKey = useMemo(() => {
+    if (statements.length === 0) return selectedMonth
+    const now = new Date()
+    const currentKey = `${now.getUTCFullYear()}-${String(now.getUTCMonth() + 1).padStart(2, '0')}`
+    if (statements.some((s) => s.month === currentKey)) return currentKey
+    for (let i = statements.length - 1; i >= 0; i--) {
+      const s = statements[i]
+      if (s.grossRevenue > 0 || s.totalExpenses > 0 || s.manualRow) return s.month
+    }
+    return statements[statements.length - 1].month
+  }, [statements, selectedMonth])
+
+  const resetToDefaultMonth = useCallback(() => {
+    if (defaultMonthKey && defaultMonthKey !== selectedMonth) {
+      onSelectMonth(defaultMonthKey)
+    }
+  }, [defaultMonthKey, selectedMonth, onSelectMonth])
+
+  const allBookingsSorted = useMemo(() => {
+    return [...(allBookings || [])].sort((a, b) => {
+      const av = a.check_in ?? ''
+      const bv = b.check_in ?? ''
+      if (av > bv) return -1
+      if (av < bv) return 1
+      return 0
+    })
+  }, [allBookings])
+
+  const allCleaningsSorted = useMemo(() => {
+    return [...(allCleanings || [])].sort((a, b) => {
+      const av = a.scheduled_date ?? ''
+      const bv = b.scheduled_date ?? ''
+      if (av > bv) return -1
+      if (av < bv) return 1
+      return 0
+    })
+  }, [allCleanings])
+
+  const focusBooking = useCallback((booking) => {
+    if (!booking?.id) return
+    const isSame = selectedCalendarId?.type === 'booking' && selectedCalendarId.id === booking.id
+    if (isSame) {
+      setSelectedCalendarId(null)
+      resetToDefaultMonth()
+      return
+    }
+    const mk = monthKeyFromDate(booking.check_in)
+    if (mk && mk !== selectedMonth) onSelectMonth(mk)
+    setSelectedCalendarId({ type: 'booking', id: booking.id })
+  }, [selectedCalendarId, selectedMonth, onSelectMonth, resetToDefaultMonth])
+
+  const focusCleaning = useCallback((cleaning) => {
+    if (!cleaning?.id) return
+    const isSame = selectedCalendarId?.type === 'cleaning' && selectedCalendarId.id === cleaning.id
+    if (isSame) {
+      setSelectedCalendarId(null)
+      resetToDefaultMonth()
+      return
+    }
+    const mk = monthKeyFromDate(cleaning.scheduled_date)
+    if (mk && mk !== selectedMonth) onSelectMonth(mk)
+    setSelectedCalendarId({ type: 'cleaning', id: cleaning.id })
+  }, [selectedCalendarId, selectedMonth, onSelectMonth, resetToDefaultMonth])
+
+  const clearFocus = useCallback(() => {
+    setSelectedCalendarId(null)
+    resetToDefaultMonth()
+  }, [resetToDefaultMonth])
+
+  const focusedBooking = useMemo(() => {
+    if (selectedCalendarId?.type !== 'booking') return null
+    return allBookingsSorted.find((b) => b.id === selectedCalendarId.id) || null
+  }, [selectedCalendarId, allBookingsSorted])
+
+  const focusedCleaning = useMemo(() => {
+    if (selectedCalendarId?.type !== 'cleaning') return null
+    return allCleaningsSorted.find((c) => c.id === selectedCalendarId.id) || null
+  }, [selectedCalendarId, allCleaningsSorted])
 
   return (
     <div className="space-y-4">
@@ -2271,7 +2366,7 @@ function MonthlySection({
                 <h3 className="text-base font-semibold text-foreground truncate">Month Occupancy</h3>
               </div>
               <CardBody className="flex-1">
-                <div className="p-3 h-full min-h-[292px] flex items-center justify-center">
+                <div className="p-3 h-full flex flex-col items-center justify-center gap-4">
                   <HalfGauge
                     pct={monthOccupancy?.pct || 0}
                     sublabel={
@@ -2284,41 +2379,45 @@ function MonthlySection({
               </CardBody>
             </div>
 
-            <div className="flex flex-col gap-3">
+            <div className="grid grid-rows-2 gap-3">
               <motion.div
                 initial={{ opacity: 0, y: 8 }}
                 animate={{ opacity: 1, y: 0 }}
                 transition={{ duration: 0.3 }}
-                className="rounded-md bg-card border border-border p-4 flex-1 flex flex-col justify-center"
+                className="rounded-md bg-card border border-border p-4 flex flex-col justify-between"
               >
                 <div className="flex items-center gap-2 mb-2">
                   <Home size={14} className="text-muted-foreground" />
                   <span className="text-[11px] font-semibold text-foreground">Total Bookings</span>
                 </div>
-                <p className="text-3xl font-bold tabular-nums text-foreground">
-                  {statement.bookingsList.length}
-                </p>
-                <p className="text-[11px] text-muted-foreground mt-1">
-                  {formatMoney(statement.grossRevenue)} gross
-                </p>
+                <div>
+                  <p className="text-3xl font-bold tabular-nums text-foreground">
+                    {statement.bookingsList.length}
+                  </p>
+                  <p className="text-[11px] text-muted-foreground mt-1">
+                    {formatMoney(statement.grossRevenue)} gross
+                  </p>
+                </div>
               </motion.div>
 
               <motion.div
                 initial={{ opacity: 0, y: 8 }}
                 animate={{ opacity: 1, y: 0 }}
                 transition={{ duration: 0.3, delay: 0.05 }}
-                className="rounded-md bg-card border border-border p-4 flex-1 flex flex-col justify-center"
+                className="rounded-md bg-card border border-border p-4 flex flex-col justify-between"
               >
                 <div className="flex items-center gap-2 mb-2">
                   <Sparkles size={14} className="text-muted-foreground" />
                   <span className="text-[11px] font-semibold text-foreground">Total Cleanings</span>
                 </div>
-                <p className="text-3xl font-bold tabular-nums text-foreground">
-                  {statement.cleaningsList.length}
-                </p>
-                <p className="text-[11px] text-muted-foreground mt-1">
-                  {formatMoney(statement.housekeeping + statement.laundry)} paid
-                </p>
+                <div>
+                  <p className="text-3xl font-bold tabular-nums text-foreground">
+                    {statement.cleaningsList.length}
+                  </p>
+                  <p className="text-[11px] text-muted-foreground mt-1">
+                    {formatMoney(statement.housekeeping + statement.laundry)} paid
+                  </p>
+                </div>
               </motion.div>
             </div>
           </div>
@@ -2329,59 +2428,257 @@ function MonthlySection({
           </div>
 
           <div className="grid grid-cols-1 lg:grid-cols-[2fr_1fr] gap-4">
-            <div>
+            <div className="space-y-4">
               <div className="flex items-center justify-between gap-2 mb-2">
                 <h3 className="text-sm font-semibold text-foreground truncate">{monthLabel(statement.month)} Calendar</h3>
                 <span className="text-[11px] text-foreground tabular-nums">
                   {statement.bookingsList.length} booking{statement.bookingsList.length === 1 ? '' : 's'} · {statement.cleaningsList.length} cleaning{statement.cleaningsList.length === 1 ? '' : 's'}
                 </span>
               </div>
-              <BookingCalendar month={statement.month} bookings={statement.bookingsList} cleanings={statement.cleaningsList} />
+
+              <BookingCalendar
+                month={statement.month}
+                bookings={statement.bookingsList}
+                cleanings={statement.cleaningsList}
+                selectedId={selectedCalendarId}
+                onSelect={(type, id) => {
+                  const isSame = selectedCalendarId?.type === type && selectedCalendarId?.id === id
+                  if (isSame) {
+                    setSelectedCalendarId(null)
+                    resetToDefaultMonth()
+                    return
+                  }
+                  setSelectedCalendarId({ type, id })
+                }}
+              />
             </div>
 
             <div className="space-y-3">
               <div className="inline-flex items-center gap-1 bg-muted/60 rounded-full p-1">
                 <button
                   type="button"
-                  onClick={() => setTab('bookings')}
+                  onClick={() => setListTab('bookings')}
                   className={cn(
                     'px-3 py-1 rounded-full text-[11px] font-semibold transition-colors',
-                    tab === 'bookings' ? 'bg-card border border-border text-foreground shadow-sm' : 'text-muted-foreground hover:text-foreground'
+                    listTab === 'bookings' ? 'bg-card border border-border text-foreground shadow-sm' : 'text-muted-foreground hover:text-foreground'
                   )}
                 >
-                  Bookings · {statement.bookingsList.length}
+                  Bookings · {allBookingsSorted.length}
                 </button>
                 <button
                   type="button"
-                  onClick={() => setTab('cleanings')}
+                  onClick={() => setListTab('cleanings')}
                   className={cn(
                     'px-3 py-1 rounded-full text-[11px] font-semibold transition-colors',
-                    tab === 'cleanings' ? 'bg-card border border-border text-foreground shadow-sm' : 'text-muted-foreground hover:text-foreground'
+                    listTab === 'cleanings' ? 'bg-card border border-border text-foreground shadow-sm' : 'text-muted-foreground hover:text-foreground'
                   )}
                 >
-                  Cleanings · {statement.cleaningsList.length}
+                  Cleanings · {allCleaningsSorted.length}
                 </button>
               </div>
 
-              {tab === 'bookings' ? (
-                statement.bookingsList.length === 0 ? (
-                  <CardBody><div className="p-3 text-xs text-muted-foreground italic">No bookings this month</div></CardBody>
+              {listTab === 'bookings' ? (
+                allBookingsSorted.length === 0 ? (
+                  <CardBody><div className="p-3 text-xs text-muted-foreground italic">No bookings on this contract</div></CardBody>
                 ) : (
-                  <div className="space-y-1.5 max-h-[480px] overflow-y-auto overscroll-contain pr-1">
-                    {statement.bookingsList.map((b) => <BookingRow key={b.id} booking={b} />)}
+                  <div className="space-y-1.5 max-h-[520px] overflow-y-auto overscroll-contain pr-1">
+                    {allBookingsSorted.map((b) => {
+                      const isSelected = selectedCalendarId?.type === 'booking' && selectedCalendarId.id === b.id
+                      const inCurrentMonth = monthKeyFromDate(b.check_in) === selectedMonth
+                      return (
+                        <button
+                          key={b.id}
+                          type="button"
+                          onClick={() => focusBooking(b)}
+                          className={cn(
+                            'w-full text-left rounded-md border bg-background px-3 py-2.5 min-w-0 transition-colors',
+                            isSelected ? 'border-primary ring-1 ring-primary/30' : 'border-border hover:bg-muted/40'
+                          )}
+                        >
+                          <div className="flex items-center gap-2 min-w-0">
+                            <span className="font-mono text-[11px] text-foreground flex-shrink-0">{b.booking_code}</span>
+                            <span className="text-xs font-semibold text-foreground truncate flex-1">{b.guest_name}</span>
+                            <span className="text-xs font-semibold tabular-nums text-foreground flex-shrink-0">{formatMoney(b.total_amount)}</span>
+                          </div>
+                          <div className="mt-1 flex items-center gap-2 text-[11px] text-foreground/80 min-w-0 flex-wrap">
+                            <span className="tabular-nums">{formatDateShort(b.check_in)} → {formatDateShort(b.check_out)}</span>
+                            <span className="text-muted-foreground">·</span>
+                            <span className="capitalize">{b.payment_status || '—'}</span>
+                            {!inCurrentMonth && (
+                              <span className="ml-auto text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
+                                {monthKeyFromDate(b.check_in)}
+                              </span>
+                            )}
+                          </div>
+                        </button>
+                      )
+                    })}
                   </div>
                 )
               ) : (
-                statement.cleaningsList.length === 0 ? (
-                  <CardBody><div className="p-3 text-xs text-muted-foreground italic">No cleanings this month</div></CardBody>
+                allCleaningsSorted.length === 0 ? (
+                  <CardBody><div className="p-3 text-xs text-muted-foreground italic">No cleanings on this contract</div></CardBody>
                 ) : (
-                  <div className="space-y-1.5 max-h-[480px] overflow-y-auto overscroll-contain pr-1">
-                    {statement.cleaningsList.map((c) => <CleaningRow key={c.id} cleaning={c} />)}
+                  <div className="space-y-1.5 max-h-[520px] overflow-y-auto overscroll-contain pr-1">
+                    {allCleaningsSorted.map((c) => {
+                      const isSelected = selectedCalendarId?.type === 'cleaning' && selectedCalendarId.id === c.id
+                      const housekeeper = Number(c.payment_amount || 0)
+                      const laundry = Number(c.laundry_payment_amount || 0)
+                      const inCurrentMonth = monthKeyFromDate(c.scheduled_date) === selectedMonth
+                      return (
+                        <button
+                          key={c.id}
+                          type="button"
+                          onClick={() => focusCleaning(c)}
+                          className={cn(
+                            'w-full text-left rounded-md border bg-background px-3 py-2.5 min-w-0 transition-colors',
+                            isSelected ? 'border-primary ring-1 ring-primary/30' : 'border-border hover:bg-muted/40'
+                          )}
+                        >
+                          <div className="flex items-center gap-2 min-w-0">
+                            <span className="font-mono text-[11px] text-foreground flex-shrink-0">{c.cleaning_code || '—'}</span>
+                            <span className="text-xs font-semibold capitalize text-foreground flex-shrink-0">{c.type}</span>
+                            <span className="flex-1 min-w-0" />
+                            <span className="text-xs font-semibold tabular-nums text-foreground flex-shrink-0">{formatMoney(housekeeper)}</span>
+                          </div>
+                          <div className="mt-1 flex items-center gap-2 text-[11px] text-foreground/80 flex-wrap">
+                            <span className="tabular-nums">{formatDateShort(c.scheduled_date)}</span>
+                            <span className="text-muted-foreground">·</span>
+                            <span className="capitalize">{c.status || '—'}</span>
+                            {laundry > 0 && (
+                              <>
+                                <span className="text-muted-foreground">·</span>
+                                <span>Laundry · <span className="tabular-nums font-semibold text-foreground">−{formatMoney(laundry)}</span></span>
+                              </>
+                            )}
+                            {!inCurrentMonth && (
+                              <span className="ml-auto text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
+                                {monthKeyFromDate(c.scheduled_date)}
+                              </span>
+                            )}
+                          </div>
+                        </button>
+                      )
+                    })}
                   </div>
                 )
               )}
             </div>
           </div>
+
+          <AnimatePresence initial={false}>
+            {focusedBooking && (
+              <motion.div
+                key={`booking-${focusedBooking.id}`}
+                initial={{ opacity: 0, y: 8 }}
+                animate={{ opacity: 1, y: 0 }}
+                exit={{ opacity: 0, y: 8 }}
+                transition={{ duration: 0.2 }}
+                className="rounded-md bg-card border border-border p-3"
+              >
+                <div className="flex items-center justify-between gap-2 mb-2">
+                  <div className="min-w-0">
+                    <p className="font-mono text-xs font-bold text-foreground truncate">{focusedBooking.booking_code}</p>
+                    <p className="text-[11px] text-muted-foreground truncate">{focusedBooking.guest_name}</p>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={clearFocus}
+                    className="p-1 rounded hover:bg-muted text-muted-foreground flex-shrink-0"
+                  >
+                    <X size={12} />
+                  </button>
+                </div>
+                <div className="space-y-0.5">
+                  <div className="flex justify-between text-[11px]">
+                    <span className="text-foreground">Check-in</span>
+                    <span className="tabular-nums text-foreground font-semibold">{focusedBooking.check_in}</span>
+                  </div>
+                  <div className="flex justify-between text-[11px]">
+                    <span className="text-foreground">Check-out</span>
+                    <span className="tabular-nums text-foreground font-semibold">{focusedBooking.check_out}</span>
+                  </div>
+                  <div className="flex justify-between text-[11px]">
+                    <span className="text-foreground">Total</span>
+                    <span className="tabular-nums text-foreground font-semibold">{formatMoney(focusedBooking.total_amount)}</span>
+                  </div>
+                  <div className="flex justify-between text-[11px]">
+                    <span className="text-foreground">Guests</span>
+                    <span className="tabular-nums text-foreground font-semibold">{focusedBooking.guests || 1}</span>
+                  </div>
+                  <div className="flex justify-between text-[11px]">
+                    <span className="text-foreground">Payment</span>
+                    <span className="text-foreground font-semibold capitalize">{focusedBooking.payment_status || '—'}</span>
+                  </div>
+                  {Number(focusedBooking.booker_commission || 0) > 0 && (
+                    <div className="flex justify-between text-[11px]">
+                      <span className="text-foreground">Booker commission</span>
+                      <span className="tabular-nums text-foreground font-semibold">{formatMoney(focusedBooking.booker_commission)}</span>
+                    </div>
+                  )}
+                  {Number(focusedBooking.affiliate_commission || 0) > 0 && (
+                    <div className="flex justify-between text-[11px]">
+                      <span className="text-foreground">Affiliate commission</span>
+                      <span className="tabular-nums text-foreground font-semibold">{formatMoney(focusedBooking.affiliate_commission)}</span>
+                    </div>
+                  )}
+                </div>
+              </motion.div>
+            )}
+
+            {focusedCleaning && (
+              <motion.div
+                key={`cleaning-${focusedCleaning.id}`}
+                initial={{ opacity: 0, y: 8 }}
+                animate={{ opacity: 1, y: 0 }}
+                exit={{ opacity: 0, y: 8 }}
+                transition={{ duration: 0.2 }}
+                className="rounded-md bg-card border border-border p-3"
+              >
+                <div className="flex items-center justify-between gap-2 mb-2">
+                  <div className="min-w-0">
+                    <p className="font-mono text-xs font-bold text-foreground truncate">{focusedCleaning.cleaning_code || '—'}</p>
+                    <p className="text-[11px] text-muted-foreground capitalize truncate">{focusedCleaning.type || 'cleaning'}</p>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={clearFocus}
+                    className="p-1 rounded hover:bg-muted text-muted-foreground flex-shrink-0"
+                  >
+                    <X size={12} />
+                  </button>
+                </div>
+                <div className="space-y-0.5">
+                  <div className="flex justify-between text-[11px]">
+                    <span className="text-foreground">Scheduled</span>
+                    <span className="tabular-nums text-foreground font-semibold">{focusedCleaning.scheduled_date}</span>
+                  </div>
+                  <div className="flex justify-between text-[11px]">
+                    <span className="text-foreground">Status</span>
+                    <span className="text-foreground font-semibold capitalize">{focusedCleaning.status || '—'}</span>
+                  </div>
+                  <div className="flex justify-between text-[11px]">
+                    <span className="text-foreground">Housekeeper</span>
+                    <span className="text-foreground font-semibold tabular-nums">
+                      {formatMoney(focusedCleaning.payment_amount || 0)}
+                    </span>
+                  </div>
+                  <div className="flex justify-between text-[11px]">
+                    <span className="text-foreground">Laundry</span>
+                    <span className="text-foreground font-semibold tabular-nums">
+                      {formatMoney(focusedCleaning.laundry_payment_amount || 0)}
+                    </span>
+                  </div>
+                  <div className="flex justify-between text-[11px] pt-1 border-t border-border mt-1">
+                    <span className="text-foreground font-semibold">Total cost</span>
+                    <span className="text-foreground font-bold tabular-nums">
+                      {formatMoney((focusedCleaning.payment_amount || 0) + (focusedCleaning.laundry_payment_amount || 0))}
+                    </span>
+                  </div>
+                </div>
+              </motion.div>
+            )}
+          </AnimatePresence>
 
           <ExpensesPanel statement={statement} contract={contract} onChanged={onChanged} />
         </>
@@ -2433,24 +2730,27 @@ const ContractDetail = memo(function ContractDetail({ contract, onBack, onChange
   const [monthlyExpenses, setMonthlyExpenses] = useState([])
   const [loading, setLoading] = useState(true)
 
+  const contractId = contract?.id
+  const contractUnitId = contract?.unit_id
+
   const fetchDetailData = useCallback(async () => {
-    if (!contract?.id || !contract?.unit_id) return
+    if (!contractId || !contractUnitId) return
     setLoading(true)
     try {
       const [bRes, clRes, exRes] = await Promise.all([
         supabase
           .from('bookings')
           .select('id, unit_id, booking_code, guest_name, check_in, check_out, guests, total_amount, booker_commission, affiliate_commission, payment_status, balance, deleted_at')
-          .eq('unit_id', contract.unit_id)
+          .eq('unit_id', contractUnitId)
           .is('deleted_at', null),
         supabase
           .from('cleanings')
           .select('id, cleaning_code, unit_id, type, scheduled_date, status, payment_amount, laundry_payment_amount, photos_before, photos_after, photos_report')
-          .eq('unit_id', contract.unit_id),
+          .eq('unit_id', contractUnitId),
         supabase
           .from('contract_monthly_expenses')
           .select('*')
-          .eq('contract_id', contract.id),
+          .eq('contract_id', contractId),
       ])
       if (bRes.error) throw bRes.error
       if (clRes.error) throw clRes.error
@@ -2464,38 +2764,93 @@ const ContractDetail = memo(function ContractDetail({ contract, onBack, onChange
     } finally {
       setLoading(false)
     }
-  }, [contract?.id, contract?.unit_id])
+  }, [contractId, contractUnitId])
 
   useEffect(() => { fetchDetailData() }, [fetchDetailData])
 
   useEffect(() => {
-    if (!contract?.unit_id) return
+    if (!contractUnitId) return
     const ch = supabase
-      .channel(`contract-detail-${contract.id}-${Math.random().toString(36).slice(2, 8)}`)
+      .channel(`contract-detail-${contractId}-${Math.random().toString(36).slice(2, 8)}`)
       .on('postgres_changes',
-        { event: '*', schema: 'public', table: 'bookings', filter: `unit_id=eq.${contract.unit_id}` },
+        { event: '*', schema: 'public', table: 'bookings', filter: `unit_id=eq.${contractUnitId}` },
         () => fetchDetailData())
       .on('postgres_changes',
-        { event: '*', schema: 'public', table: 'cleanings', filter: `unit_id=eq.${contract.unit_id}` },
+        { event: '*', schema: 'public', table: 'cleanings', filter: `unit_id=eq.${contractUnitId}` },
         () => fetchDetailData())
       .on('postgres_changes',
-        { event: '*', schema: 'public', table: 'contract_monthly_expenses', filter: `contract_id=eq.${contract.id}` },
+        { event: '*', schema: 'public', table: 'contract_monthly_expenses', filter: `contract_id=eq.${contractId}` },
         () => fetchDetailData())
       .subscribe()
     return () => { supabase.removeChannel(ch) }
-  }, [contract?.id, contract?.unit_id, fetchDetailData])
+  }, [contractId, contractUnitId, fetchDetailData])
 
   const effectiveDate = useMemo(() => contract.effective_date || null, [contract.effective_date])
   const expiryDate = useMemo(() => contract.expiry_date || null, [contract.expiry_date])
 
-  const allMonths = useMemo(
-    () => monthRangeFromDates(effectiveDate, expiryDate),
-    [effectiveDate, expiryDate]
-  )
+  const [statements, setStatements] = useState([])
+  const [statementsLoading, setStatementsLoading] = useState(true)
 
-  const statements = useMemo(() => allMonths.map((m) =>
-    computeMonthlyStatement({ contract, bookings, cleanings, monthlyExpenses, month: m })
-  ), [allMonths, contract, bookings, cleanings, monthlyExpenses])
+  useEffect(() => {
+    if (!contractId) return
+
+    let cancelled = false
+    setStatementsLoading(true)
+
+    fetchContractMonthlyBreakdown(contractId)
+      .then((rows) => {
+        if (cancelled) return
+
+        const merged = rows.map((row) => {
+          const [y, m] = row.month.split('-').map(Number)
+          const monthStartDate = new Date(Date.UTC(y, m - 1, 1))
+          const monthEndDate   = new Date(Date.UTC(y, m, 1))
+
+          const inMonth = (d) => {
+            if (!d) return false
+            const dt = new Date(d + 'T00:00:00Z')
+            return dt >= monthStartDate && dt < monthEndDate
+          }
+
+          const monthBookings = (bookings || []).filter((b) => inMonth(b.check_in))
+          const monthCleanings = (cleanings || []).filter((c) => inMonth(c.scheduled_date))
+          const manualRow = (monthlyExpenses || []).find((e) =>
+            typeof e.month === 'string' && e.month.startsWith(row.month)
+          ) || null
+
+          const customItems = manualRow && Array.isArray(manualRow.custom_items)
+            ? manualRow.custom_items
+                .filter((x) => x && typeof x === 'object')
+                .map((x) => ({
+                  id:     typeof x.id === 'string' && x.id ? x.id : `ci_${Math.random().toString(36).slice(2, 10)}`,
+                  name:   typeof x.name === 'string' ? x.name.slice(0, 80) : '',
+                  amount: Number(x.amount) || 0,
+                  image:  typeof x.image === 'string' ? x.image : null,
+                }))
+                .filter((x) => x.name.length > 0)
+            : []
+
+          return {
+            ...row,
+            bookingsList:  monthBookings,
+            cleaningsList: monthCleanings,
+            manualRow,
+            customItems,
+          }
+        })
+
+        setStatements(merged)
+      })
+      .catch((err) => {
+        console.error('Failed to load monthly breakdown:', err)
+        toast.error('Failed to load monthly breakdown')
+      })
+      .finally(() => {
+        if (!cancelled) setStatementsLoading(false)
+      })
+
+    return () => { cancelled = true }
+  }, [contractId, bookings, cleanings, monthlyExpenses])
 
   const lifetime = useMemo(() => computeLifetime(statements), [statements])
 
@@ -2529,12 +2884,25 @@ const ContractDetail = memo(function ContractDetail({ contract, onBack, onChange
   const [selectedMonth, setSelectedMonth] = useState(defaultMonth)
   useEffect(() => { setSelectedMonth(defaultMonth) }, [defaultMonth])
 
+  // Ref + handler for ledger → detail jump
+  const monthSectionRef = useRef(null)
+
+  const handleJumpToMonth = useCallback((monthKey) => {
+    setSelectedMonth(monthKey)
+    requestAnimationFrame(() => {
+      monthSectionRef.current?.scrollIntoView({
+        behavior: 'smooth',
+        block: 'start',
+      })
+    })
+  }, [])
+
   const handleChanged = useCallback(() => {
     fetchDetailData()
     onChanged?.()
   }, [fetchDetailData, onChanged])
 
-  if (loading && statements.length === 0) {
+  if ((loading || statementsLoading) && statements.length === 0) {
     return (
       <div className="h-full flex flex-col lg:flex-row min-h-0 bg-card border border-border rounded-md overflow-hidden">
         <ContractSidebar contract={contract} onBack={onBack} onEdit={() => setEditModalOpen(true)} />
@@ -2563,7 +2931,17 @@ const ContractDetail = memo(function ContractDetail({ contract, onBack, onChange
           />
         </section>
 
+        {/* ==== NEW: Monthly Ledger ==== */}
         <section>
+          <SectionHeader icon={Calendar} title="Monthly Ledger" />
+          <MonthlyLedger
+            statements={statements}
+            selectedMonth={selectedMonth}
+            onSelectMonth={handleJumpToMonth}
+          />
+        </section>
+
+        <section ref={monthSectionRef} className="scroll-mt-4">
           <SectionHeader icon={Calendar} title="Specific Month" />
           <MonthlySection
             statements={statements}
@@ -2576,6 +2954,8 @@ const ContractDetail = memo(function ContractDetail({ contract, onBack, onChange
             yearSections={yearSections}
             selectedYear={selectedYear}
             onSelectYear={setSelectedYear}
+            allBookings={bookings}
+            allCleanings={cleanings}
           />
         </section>
       </div>
@@ -2677,19 +3057,115 @@ function Pagination({ page, totalPages, onPageChange }) {
 }
 
 // ============================================================
-// ANALYTICS PANELS (portfolio-wide, last 12 months)
+// ANALYTICS PANELS — 3 graphs, shared year nav
 // ============================================================
+function MultiMetricChart({
+  title,
+  icon: Icon,
+  data,
+  loading,
+  solidKey,
+  secondaryKeys,
+}) {
+  const chartData = useMemo(() => (data || []).map((r) => ({
+    label: MONTHS_SHORT[new Date(r.month_start + 'T00:00:00Z').getUTCMonth()],
+    gross: Number(r.gross || 0),
+    expenses: Number(r.expenses || 0),
+    net: Number(r.net || 0),
+  })), [data])
+
+  const gradientId = `gradient-${solidKey}`
+
+  return (
+    <section className="flex flex-col min-h-0">
+      <div className="flex items-center gap-2 mb-2">
+        {Icon && <Icon size={13} className="text-foreground flex-shrink-0" />}
+        <h3 className="text-[11px] font-semibold uppercase tracking-wider text-foreground truncate">{title}</h3>
+      </div>
+      <div className="rounded-md bg-card border border-border overflow-hidden flex-1 min-h-0">
+        <div className="h-[260px] p-3">
+          {loading ? (
+            <div className="h-full w-full rounded bg-muted/50 animate-pulse" />
+          ) : chartData.length === 0 ? (
+            <div className="h-full flex items-center justify-center text-xs text-muted-foreground italic">No data</div>
+          ) : (
+            <ResponsiveContainer width="100%" height="100%">
+              <AreaChart data={chartData} margin={{ top: 6, right: 6, left: -12, bottom: 0 }}>
+                <defs>
+                  <linearGradient id={gradientId} x1="0" y1="0" x2="0" y2="1">
+                    <stop offset="0%" stopColor={BRAND} stopOpacity={0.4} />
+                    <stop offset="60%" stopColor={BRAND} stopOpacity={0.12} />
+                    <stop offset="100%" stopColor={BRAND} stopOpacity={0} />
+                  </linearGradient>
+                </defs>
+                <CartesianGrid strokeDasharray="3 3" stroke="currentColor" strokeOpacity={0.1} vertical={false} />
+                <XAxis dataKey="label" tick={{ fontSize: 10 }} stroke="currentColor" strokeOpacity={0.4} tickLine={false} axisLine={false} />
+                <YAxis
+                  tick={{ fontSize: 10 }}
+                  tickFormatter={formatMoneyCompact}
+                  stroke="currentColor"
+                  strokeOpacity={0.4}
+                  tickLine={false}
+                  axisLine={false}
+                  width={56}
+                />
+                <Tooltip content={<ChartTooltip />} cursor={{ stroke: BRAND, strokeOpacity: 0.2 }} />
+                <Area
+                  type="monotone"
+                  dataKey={solidKey}
+                  stroke={BRAND}
+                  strokeWidth={2.5}
+                  fill={`url(#${gradientId})`}
+                  dot={false}
+                  activeDot={{ r: 4, fill: BRAND }}
+                  animationDuration={700}
+                />
+                {secondaryKeys.map((k) => (
+                  <Area
+                    key={k}
+                    type="monotone"
+                    dataKey={k}
+                    stroke={BRAND}
+                    strokeWidth={1.5}
+                    strokeDasharray="4 4"
+                    strokeOpacity={0.55}
+                    fill="transparent"
+                    fillOpacity={0}
+                    dot={false}
+                    activeDot={false}
+                    animationDuration={700}
+                  />
+                ))}
+              </AreaChart>
+            </ResponsiveContainer>
+          )}
+        </div>
+      </div>
+    </section>
+  )
+}
+
 function AccountingAnalyticsPanels({ collapsed }) {
   const [data, setData] = useState([])
   const [loading, setLoading] = useState(true)
+  const [selectedYear, setSelectedYear] = useState(() => new Date().getUTCFullYear())
+
+  const yearRange = useMemo(() => {
+    const cy = new Date().getUTCFullYear()
+    const years = []
+    for (let y = cy - 3; y <= cy + 3; y++) years.push(y)
+    return years
+  }, [])
+
+  const yearSections = useMemo(() => yearRange.map((y) => ({ year: y })), [yearRange])
 
   useEffect(() => {
     let cancelled = false
     async function load() {
       setLoading(true)
       try {
-        const { data: monthly, error } = await supabase.rpc('dashboard_analytics', {
-          p_months: ANALYTICS_MONTHS,
+        const { data: monthly, error } = await supabase.rpc('accounting_analytics_by_year', {
+          p_year: selectedYear,
         })
         if (error) throw error
         if (!cancelled) setData(monthly || [])
@@ -2702,102 +3178,41 @@ function AccountingAnalyticsPanels({ collapsed }) {
     }
     load()
     return () => { cancelled = true }
-  }, [])
-
-  const bookingsData = useMemo(() => (data || []).map((r) => ({
-    label: MONTHS_SHORT[new Date(r.month_start + 'T00:00:00Z').getUTCMonth()],
-    bookings: Number(r.bookings_count || 0),
-  })), [data])
-
-  const occupancyData = useMemo(() => (data || []).map((r) => ({
-    label: MONTHS_SHORT[new Date(r.month_start + 'T00:00:00Z').getUTCMonth()],
-    pct: Number(r.occupancy_pct || 0),
-  })), [data])
+  }, [selectedYear])
 
   return (
-    <div className={cn('flex-shrink-0 grid grid-cols-1 lg:grid-cols-2 gap-4 transition-all duration-300 ease-out overflow-hidden', collapsed ? 'max-h-0 opacity-0 -mb-3' : 'max-h-[340px] opacity-100')}>
-      {/* Bookings per month */}
-      <section className="flex flex-col min-h-0">
-        <div className="flex items-center gap-2 mb-2">
-          <Calendar size={13} className="text-foreground flex-shrink-0" />
-          <h3 className="text-[11px] font-semibold uppercase tracking-wider text-foreground truncate">Bookings — Last 12 Months</h3>
-        </div>
-        <div className="rounded-md bg-card border border-border overflow-hidden flex-1 min-h-0">
-          <div className="h-[240px] p-3">
-            {loading ? (
-              <div className="h-full w-full rounded bg-muted/50 animate-pulse" />
-            ) : bookingsData.length === 0 ? (
-              <div className="h-full flex items-center justify-center text-xs text-muted-foreground italic">No data</div>
-            ) : (
-              <ResponsiveContainer width="100%" height="100%">
-                <BarChart data={bookingsData} margin={{ top: 4, right: 4, left: -12, bottom: 0 }}>
-                  <CartesianGrid strokeDasharray="3 3" stroke="currentColor" strokeOpacity={0.1} vertical={false} />
-                  <XAxis dataKey="label" tick={{ fontSize: 10 }} stroke="currentColor" strokeOpacity={0.4} tickLine={false} axisLine={false} />
-                  <YAxis tick={{ fontSize: 10 }} stroke="currentColor" strokeOpacity={0.4} tickLine={false} axisLine={false} allowDecimals={false} />
-                  <Tooltip
-                    contentStyle={{ borderRadius: 8, border: '1px solid var(--border)', fontSize: 12 }}
-                    formatter={(v) => [v, 'Bookings']}
-                  />
-                  <Bar dataKey="bookings" fill={BRAND} radius={[4, 4, 0, 0]} maxBarSize={28} />
-                </BarChart>
-              </ResponsiveContainer>
-            )}
-          </div>
-        </div>
-      </section>
+    <div className={cn('flex-shrink-0 flex flex-col gap-3 transition-all duration-300 ease-out overflow-hidden', collapsed ? 'max-h-0 opacity-0' : 'max-h-[400px] opacity-100')}>
+      <div className="flex items-center justify-between gap-3">
+        <h3 className="text-[11px] font-semibold uppercase tracking-wider text-foreground">Portfolio Analytics</h3>
+        <YearNav yearSections={yearSections} selectedYear={selectedYear} onSelectYear={setSelectedYear} />
+      </div>
 
-      {/* Occupancy — area chart with gradient, no dots, blue */}
-      <section className="flex flex-col min-h-0">
-        <div className="flex items-center gap-2 mb-2">
-          <Home size={13} className="text-foreground flex-shrink-0" />
-          <h3 className="text-[11px] font-semibold uppercase tracking-wider text-foreground truncate">Occupancy — Last 12 Months</h3>
-        </div>
-        <div className="rounded-md bg-card border border-border overflow-hidden flex-1 min-h-0">
-          <div className="h-[240px] p-3">
-            {loading ? (
-              <div className="h-full w-full rounded bg-muted/50 animate-pulse" />
-            ) : occupancyData.length === 0 ? (
-              <div className="h-full flex items-center justify-center text-xs text-muted-foreground italic">No data</div>
-            ) : (
-              <ResponsiveContainer width="100%" height="100%">
-                <AreaChart data={occupancyData} margin={{ top: 4, right: 4, left: -12, bottom: 0 }}>
-                  <defs>
-                    <linearGradient id="occupancy-fill" x1="0" y1="0" x2="0" y2="1">
-                      <stop offset="0%" stopColor={BRAND} stopOpacity={0.35} />
-                      <stop offset="60%" stopColor={BRAND} stopOpacity={0.12} />
-                      <stop offset="100%" stopColor={BRAND} stopOpacity={0} />
-                    </linearGradient>
-                  </defs>
-                  <CartesianGrid strokeDasharray="3 3" stroke="currentColor" strokeOpacity={0.1} vertical={false} />
-                  <XAxis dataKey="label" tick={{ fontSize: 10 }} stroke="currentColor" strokeOpacity={0.4} tickLine={false} axisLine={false} />
-                  <YAxis
-                    tick={{ fontSize: 10 }}
-                    tickFormatter={(v) => `${v}%`}
-                    stroke="currentColor"
-                    strokeOpacity={0.4}
-                    tickLine={false}
-                    axisLine={false}
-                    domain={[0, 100]}
-                  />
-                  <Tooltip
-                    contentStyle={{ borderRadius: 8, border: '1px solid var(--border)', fontSize: 12 }}
-                    formatter={(v) => [`${v}%`, 'Occupancy']}
-                  />
-                  <Area
-                    type="monotone"
-                    dataKey="pct"
-                    stroke={BRAND}
-                    strokeWidth={2}
-                    fill="url(#occupancy-fill)"
-                    dot={false}
-                    activeDot={{ r: 4, fill: BRAND }}
-                  />
-                </AreaChart>
-              </ResponsiveContainer>
-            )}
-          </div>
-        </div>
-      </section>
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
+        <MultiMetricChart
+          title="Gross"
+          icon={TrendingUp}
+          data={data}
+          loading={loading}
+          solidKey="gross"
+          secondaryKeys={['expenses', 'net']}
+        />
+        <MultiMetricChart
+          title="Expenses"
+          icon={Wallet}
+          data={data}
+          loading={loading}
+          solidKey="expenses"
+          secondaryKeys={['gross', 'net']}
+        />
+        <MultiMetricChart
+          title="Net"
+          icon={TrendingUp}
+          data={data}
+          loading={loading}
+          solidKey="net"
+          secondaryKeys={['gross', 'expenses']}
+        />
+      </div>
     </div>
   )
 }
@@ -2823,8 +3238,6 @@ function ContractList({
 }) {
   const [debouncedSearch, setDebouncedSearch] = useState('')
   const [page, setPage] = useState(1)
-  const [panelsHidden, setPanelsHidden] = useState(false)
-  const headerRef = useRef(null)
 
   useEffect(() => {
     const t = setTimeout(() => setDebouncedSearch(search), 300)
@@ -2900,29 +3313,17 @@ function ContractList({
     toast.success('Exported')
   }
 
-  const handleListMouseMove = useCallback((e) => {
-    const headerEl = headerRef.current
-    if (!headerEl) return
-    const rect = headerEl.getBoundingClientRect()
-    setPanelsHidden(e.clientY > rect.bottom)
-  }, [])
-
-  const handleListMouseLeave = useCallback(() => setPanelsHidden(false), [])
-
   return (
-    <div className="h-full flex flex-col min-h-0">
-      <div className="p-3 flex-1 min-h-0 flex flex-col gap-2.5">
+    <div className="h-full min-h-0 overflow-y-auto">
+      <div className="p-3 flex flex-col gap-2.5">
 
-        {/* Summary cards */}
         <div className="flex-shrink-0">
           <SummaryCards totals={globalTotals} />
         </div>
 
-        {/* Analytics panels — collapse on list hover */}
-        <AccountingAnalyticsPanels collapsed={panelsHidden} />
+        <AccountingAnalyticsPanels collapsed={false} />
 
-        {/* Search bar */}
-        <div ref={headerRef} className="flex-shrink-0 flex items-center gap-2">
+        <div className="flex-shrink-0 flex items-center gap-2">
           <div className="relative flex-1 min-w-0">
             <Search size={13} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-muted-foreground" />
             <Input
@@ -2950,7 +3351,6 @@ function ContractList({
           <Button variant="outline" size="sm" onClick={handleExport} className="h-8 rounded"><Download size={13} /></Button>
         </div>
 
-        {/* Status pills */}
         <div className="flex-shrink-0 flex items-center justify-between gap-3 flex-wrap">
           <StatusPills statusFilter={statusFilter} onStatusFilter={setStatusFilter} counts={counts} />
           <span className="text-[11px] text-muted-foreground tabular-nums">
@@ -2958,11 +3358,9 @@ function ContractList({
           </span>
         </div>
 
-        {/* List */}
-        <div className="flex-1 min-h-0 rounded border border-border overflow-hidden flex flex-col bg-card">
-          <div className="flex-1 overflow-y-auto" style={{ scrollbarGutter: 'stable' }}
-            onMouseMove={handleListMouseMove}
-            onMouseLeave={handleListMouseLeave}>
+        {/* Fixed-height, non-expanding table container */}
+        <div className="flex-shrink-0 rounded border border-border overflow-hidden flex flex-col bg-card h-[420px]">
+          <div className="flex-1 min-h-0 overflow-y-auto" style={{ scrollbarGutter: 'stable' }}>
             <div className={cn('sticky top-0 z-10 px-4 py-2 border-b border-border bg-card', ROW_GRID)}>
               <span className="text-[11px] font-bold text-foreground truncate">Unit</span>
               <span className="text-[11px] font-bold text-foreground truncate">Owner / Contract</span>
