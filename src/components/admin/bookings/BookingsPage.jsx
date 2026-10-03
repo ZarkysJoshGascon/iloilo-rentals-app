@@ -65,6 +65,100 @@ function isoAddDays(iso, n) {
   return d.toISOString().slice(0, 10)
 }
 
+// ============================================================
+// TIME HELPERS
+// ============================================================
+function timeAgo(iso) {
+  if (!iso) return null
+  const then = new Date(iso).getTime()
+  if (Number.isNaN(then)) return null
+  const diffMs = Date.now() - then
+  if (diffMs < 0) return 'just now'
+  const mins = Math.floor(diffMs / 60000)
+  if (mins < 1) return 'just now'
+  if (mins < 60) return `${mins}m ago`
+  const hours = Math.floor(mins / 60)
+  if (hours < 24) return `${hours}h ago`
+  const days = Math.floor(hours / 24)
+  if (days < 30) return `${days}d ago`
+  const months = Math.floor(days / 30)
+  if (months < 12) return `${months}mo ago`
+  const years = Math.floor(months / 12)
+  return `${years}y ago`
+}
+
+// ============================================================
+// CLEANING SYNC HELPER
+// ============================================================
+/**
+ * When a booking's check_out changes, move any linked cleanings that are
+ * still editable (status 'scheduled' or 'ready') to the new check-out date,
+ * and recompute the type (basic vs deep) based on the new stay length.
+ *
+ * Silently skips cleanings that are submitted, completed, or cancelled.
+ * Logs an audit entry per cleaning change.
+ */
+async function syncLinkedCleanings({ bookingId, newCheckIn, newCheckOut, bookingCode }) {
+  if (!bookingId || !newCheckOut) return { updated: 0, failed: 0 }
+
+  try {
+    const { data: linked, error } = await supabase
+      .from('cleanings')
+      .select('id, status, type, scheduled_date')
+      .eq('booking_id', bookingId)
+      .in('status', ['scheduled', 'ready'])
+
+    if (error) throw error
+    if (!linked || linked.length === 0) return { updated: 0, failed: 0 }
+
+    const newNights = newCheckIn
+      ? Math.max(0, Math.round((new Date(newCheckOut + 'T00:00:00Z') - new Date(newCheckIn + 'T00:00:00Z')) / 86400000))
+      : 0
+    const newType = newNights >= 7 ? 'deep' : 'basic'
+
+    let updated = 0
+    let failed = 0
+
+    for (const c of linked) {
+      const patch = {}
+      if (c.scheduled_date !== newCheckOut) patch.scheduled_date = newCheckOut
+      if (c.type !== newType) patch.type = newType
+
+      if (Object.keys(patch).length === 0) continue
+
+      const { error: updErr } = await supabase
+        .from('cleanings')
+        .update(patch)
+        .eq('id', c.id)
+
+      if (updErr) {
+        console.error('Failed to sync cleaning', c.id, updErr)
+        failed++
+        continue
+      }
+      updated++
+
+      logAudit('AUTO_UPDATE_CLEANING_ON_BOOKING_CHANGE', 'cleanings', c.id, {
+        booking_id: bookingId,
+        booking_code: bookingCode,
+        changes: patch,
+        previous: {
+          scheduled_date: c.scheduled_date,
+          type: c.type,
+        },
+      }).catch(() => {})
+    }
+
+    return { updated, failed }
+  } catch (err) {
+    console.error('syncLinkedCleanings failed:', err)
+    return { updated: 0, failed: 0, error: err?.message }
+  }
+}
+
+// ============================================================
+// CONTRACT HELPERS
+// ============================================================
 function findGoverningContract(unit, contracts) {
   if (!unit) return null
   const todayStr = todayISO()
@@ -738,6 +832,10 @@ function BookingDetailPanel({ booking, contracts, onBookingChange, onClose, onAd
     [booking, contracts],
   )
 
+  const bookedAgo = timeAgo(booking.created_at)
+  const editedAgo = timeAgo(booking.updated_at)
+  const wasEdited = booking.updated_at && booking.created_at && booking.updated_at !== booking.created_at
+
   return (
     <motion.div
       initial={{ width: 0, opacity: 0 }}
@@ -804,6 +902,27 @@ function BookingDetailPanel({ booking, contracts, onBookingChange, onClose, onAd
               <div className="flex justify-between"><span className="text-foreground">Paid</span><span className="font-semibold tabular-nums text-foreground">{formatMoney(booking.amount_paid)}</span></div>
               <div className="flex justify-between pt-1 border-t border-border"><span className="text-foreground font-semibold">Balance</span><span className="font-bold tabular-nums text-foreground">{formatMoney(booking.balance)}</span></div>
               <div className="pt-2"><PaymentStatusBadge status={booking.payment_status} /></div>
+            </div>
+          </DetailSection>
+
+          <DetailSection title="Timestamps">
+            <div className="p-3 space-y-0.5">
+              <div className="flex items-center gap-2 py-0.5">
+                <span className="text-[10px] uppercase tracking-wider text-foreground font-semibold min-w-[72px]">Booked</span>
+                <span className="text-xs tabular-nums text-foreground">
+                  {booking.created_at
+                    ? `${formatDate(booking.created_at)} · ${bookedAgo || ''}`
+                    : '—'}
+                </span>
+              </div>
+              <div className="flex items-center gap-2 py-0.5">
+                <span className="text-[10px] uppercase tracking-wider text-foreground font-semibold min-w-[72px]">Edited</span>
+                <span className="text-xs tabular-nums text-foreground">
+                  {wasEdited
+                    ? `${formatDate(booking.updated_at)} · ${editedAgo || ''}`
+                    : <span className="italic text-muted-foreground">Never edited</span>}
+                </span>
+              </div>
             </div>
           </DetailSection>
 
@@ -952,6 +1071,10 @@ function BookingListRow({ booking, contracts, selected, highlighted, onClick }) 
   const status = deriveBookingStatus(booking)
   const nights = computeNights(booking.check_in, booking.check_out)
   const governing = findContractForBooking(booking, contracts)
+  const bookedAgo = timeAgo(booking.created_at)
+  const editedAgo = timeAgo(booking.updated_at)
+  const wasEdited = booking.updated_at && booking.created_at && booking.updated_at !== booking.created_at
+
   return (
     <motion.button
       type="button"
@@ -977,6 +1100,17 @@ function BookingListRow({ booking, contracts, selected, highlighted, onClick }) 
           <p className="text-[10px] text-muted-foreground truncate">
             {booking.guest_email || booking.guest_contact || `${booking.guests || 1} guest${booking.guests > 1 ? 's' : ''}`}
           </p>
+          {bookedAgo && (
+            <p className="text-[10px] text-muted-foreground truncate">
+              Booked {bookedAgo}
+              {wasEdited && editedAgo && (
+                <>
+                  <span className="mx-1 text-muted-foreground/50">·</span>
+                  <span>Edited {editedAgo}</span>
+                </>
+              )}
+            </p>
+          )}
         </div>
       </div>
       <span className="font-mono text-xs text-foreground truncate">{booking.booking_code}</span>
@@ -1012,6 +1146,7 @@ function downloadCSV(bookings, filename) {
     'Payment Status', 'Booking Status',
     'Booker Code', 'Booker Name', 'Booker Commission', 'Booker Rate %',
     'Affiliate Code', 'Affiliate Name', 'Affiliate Commission', 'Affiliate Rate %',
+    'Booked At', 'Last Edited',
     'Notes',
   ]
   const rows = bookings.map((b) => {
@@ -1024,6 +1159,7 @@ function downloadCSV(bookings, filename) {
       b.payment_status || '', s,
       b.booker_code || '', b.booker_name || '', b.booker_commission || 0, b.booker_rate ?? '',
       b.affiliate_code || '', b.affiliate_name || '', b.affiliate_commission || 0, b.affiliate_rate ?? '',
+      b.created_at || '', b.updated_at || '',
       b.notes || '',
     ]
   })
@@ -1295,7 +1431,12 @@ function BookingFormModal({ open, onClose, onSaved, units, editing, specialists,
         transactions,
       }
 
+      let savedBookingId = editing?.id
+      let savedBookingCode = editing?.booking_code
+
       if (editing) {
+        const checkOutChanged = checkOut !== editing.check_out
+
         const { error } = await supabase.from('bookings').update(payload).eq('id', editing.id)
         if (error) throw error
         logAudit('UPDATE_BOOKING', 'bookings', editing.id, {
@@ -1303,14 +1444,33 @@ function BookingFormModal({ open, onClose, onSaved, units, editing, specialists,
           booker_commission: finalBookerComm,
           affiliate_commission: finalAffiliateComm,
         }).catch(() => {})
-        toast.success('Booking updated')
+
+        // Sync linked cleanings if the check-out date moved
+        if (checkOutChanged) {
+          const sync = await syncLinkedCleanings({
+            bookingId: editing.id,
+            newCheckIn: checkIn,
+            newCheckOut: checkOut,
+            bookingCode: editing.booking_code,
+          })
+          if (sync.updated > 0) {
+            toast.success(`Booking updated · ${sync.updated} cleaning${sync.updated === 1 ? '' : 's'} rescheduled`)
+          } else {
+            toast.success('Booking updated')
+          }
+        } else {
+          toast.success('Booking updated')
+        }
       } else {
         payload.booking_code = generateBookingCode()
-        const { error } = await supabase.from('bookings').insert(payload)
+        const { data: inserted, error } = await supabase.from('bookings').insert(payload).select('id, booking_code').single()
         if (error) throw error
-        logAudit('CREATE_BOOKING', 'bookings', null, { booking_code: payload.booking_code }).catch(() => {})
+        savedBookingId = inserted?.id
+        savedBookingCode = inserted?.booking_code
+        logAudit('CREATE_BOOKING', 'bookings', savedBookingId, { booking_code: savedBookingCode }).catch(() => {})
         toast.success('Booking created')
       }
+
       onSaved()
       onClose()
     } catch (err) {
@@ -1784,7 +1944,24 @@ function ExtendStayModal({ open, onClose, booking, onSaved, contracts }) {
         booker_rate_inferred: bookerRateWasInferred,
         affiliate_rate_inferred: affiliateRateWasInferred,
       }).catch(() => {})
-      toast.success('Booking extended')
+
+      // Sync linked cleanings to the new check-out date
+      const sync = await syncLinkedCleanings({
+        bookingId: booking.id,
+        newCheckIn: booking.check_in,
+        newCheckOut: newCheckOutClean,
+        bookingCode: booking.booking_code,
+      })
+
+      if (sync.updated > 0) {
+        toast.success(`Booking extended · ${sync.updated} cleaning${sync.updated === 1 ? '' : 's'} rescheduled`)
+      } else {
+        toast.success('Booking extended')
+      }
+      if (sync.failed > 0) {
+        toast.error(`${sync.failed} cleaning${sync.failed === 1 ? '' : 's'} failed to reschedule — check Housekeeping`)
+      }
+
       onSaved()
       onClose()
     } catch (err) {
@@ -1845,7 +2022,7 @@ function ExtendStayModal({ open, onClose, booking, onSaved, contracts }) {
               className="h-8 text-xs rounded"
             />
             <p className="text-[10px] text-muted-foreground mt-1">
-              Before {STAY_TIMES.checkOut.label}
+              Before {STAY_TIMES.checkOut.label} · linked cleanings will move to this date
             </p>
           </div>
           <div><label className={labelClass}>New Total Amount (₱) *</label><Input type="number" min={0} value={newTotal} onChange={(e) => setNewTotal(e.target.value)} className="h-8 text-xs rounded" /></div>
