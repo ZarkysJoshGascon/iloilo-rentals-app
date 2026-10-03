@@ -6,7 +6,7 @@ import {
   FileText, Calendar, Download, ExternalLink, User,
   Upload, Eye,
 } from 'lucide-react'
-import { createPortal } from 'react-dom'  
+import { createPortal } from 'react-dom'
 import toast from 'react-hot-toast'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -21,11 +21,8 @@ import { cn, sanitizeText, sanitizeDateOnly } from '@/lib/utils'
 
 const BRAND = '#2d568e'
 
-// ============================================================
-// PDF UPLOAD CONFIG
-// ============================================================
 const PDF_BUCKET = 'contract-pdfs'
-const PDF_MAX_BYTES = 15 * 1024 * 1024 // 15 MB
+const PDF_MAX_BYTES = 15 * 1024 * 1024
 const PDF_ALLOWED_MIMES = new Set([
   'application/pdf',
   'image/jpeg',
@@ -50,16 +47,13 @@ async function pdfSniffMime(file) {
   const head = new Uint8Array(await file.slice(0, 12).arrayBuffer())
   const hex = Array.from(head).map((b) => b.toString(16).padStart(2, '0')).join('')
 
-  if (hex.startsWith('25504446')) return 'application/pdf'          // %PDF
+  if (hex.startsWith('25504446')) return 'application/pdf'
   if (hex.startsWith('ffd8ff')) return 'image/jpeg'
   if (hex.startsWith('89504e470d0a1a0a')) return 'image/png'
   if (hex.startsWith('52494646') && hex.slice(16, 24) === '57454250') return 'image/webp'
   return null
 }
 
-// ============================================================
-// STATUS DERIVATION
-// ============================================================
 function deriveContractStatus(contract) {
   if (!contract) return 'incomplete'
   const eff = contract.effective_date ? new Date(contract.effective_date + 'T00:00:00Z') : null
@@ -100,9 +94,6 @@ function formatDate(d) {
 const ROW_GRID = 'grid grid-cols-[1.3fr_1.5fr_1fr_1fr_140px] gap-4 items-center'
 const PANEL_WIDTH = 480
 
-// ============================================================
-// DETAIL SECTION — title OUTSIDE the card (matches Bookings)
-// ============================================================
 function DetailSection({ title, action, className, children }) {
   return (
     <div className={className}>
@@ -110,23 +101,13 @@ function DetailSection({ title, action, className, children }) {
         <h4 className="text-[10px] font-bold uppercase tracking-wider text-foreground">{title}</h4>
         {action}
       </div>
-      <div className="rounded-md bg-card border border-border overflow-hidden">
+      <div className="rounded-md bg-card border border-border shadow-sm overflow-hidden">
         {children}
       </div>
     </div>
   )
 }
 
-// ============================================================
-// PDF LIGHTBOX
-//
-// Improvements over the previous version:
-//  - Escape key closes (via window keydown on mount)
-//  - Click on the backdrop/margin closes
-//  - Header bar with title + Open in new tab + explicit Close button
-//  - Footer hint: "Press Esc or click outside to close"
-//  - Body scroll is locked while open
-// ============================================================
 function PdfLightbox({ url, title = 'Contract document', onClose }) {
   const [iframeLoaded, setIframeLoaded] = useState(false)
 
@@ -158,7 +139,6 @@ function PdfLightbox({ url, title = 'Contract document', onClose }) {
       style={{ zIndex: 2147483647 }}
       onClick={handleBackdrop}
     >
-      {/* Header bar */}
       <div
         className="flex-shrink-0 h-14 px-4 flex items-center gap-3 border-b border-white/10 bg-black/60"
         onClick={(e) => e.stopPropagation()}
@@ -190,7 +170,6 @@ function PdfLightbox({ url, title = 'Contract document', onClose }) {
         </button>
       </div>
 
-      {/* Body */}
       <div
         className="flex-1 min-h-0 p-4 sm:p-6 flex items-center justify-center"
         onClick={handleBackdrop}
@@ -216,7 +195,6 @@ function PdfLightbox({ url, title = 'Contract document', onClose }) {
         </div>
       </div>
 
-      {/* Footer hint */}
       <div className="flex-shrink-0 h-10 px-4 flex items-center justify-center border-t border-white/10 bg-black/60">
         <p className="text-[11px] text-white/70">
           Press <kbd className="px-1.5 py-0.5 rounded bg-white/10 text-white/90 font-mono">Esc</kbd> or click outside the document to close
@@ -227,9 +205,6 @@ function PdfLightbox({ url, title = 'Contract document', onClose }) {
   )
 }
 
-// ============================================================
-// CONTRACT PDF UPLOADER (inline)
-// ============================================================
 function ContractPdfUploader({ contract, onSaved }) {
   const inputRef = useRef(null)
   const [uploading, setUploading] = useState(false)
@@ -241,7 +216,6 @@ function ContractPdfUploader({ contract, onSaved }) {
   const path = contract?.contract_pdf_path || null
   const existingUrl = contract?.contract_pdf_url || null
 
-  // Refresh signed URL whenever the stored path changes
   useEffect(() => {
     let cancelled = false
     if (!path) { setSignedUrl(null); return }
@@ -471,9 +445,6 @@ function ContractPdfUploader({ contract, onSaved }) {
   )
 }
 
-// ============================================================
-// SUMMARY CARDS
-// ============================================================
 function SummaryCards({ contracts }) {
   const stats = useMemo(() => {
     let active = 0, expiring = 0, expired = 0
@@ -501,7 +472,7 @@ function SummaryCards({ contracts }) {
           initial={{ opacity: 0, y: 8 }}
           animate={{ opacity: 1, y: 0 }}
           transition={{ delay: i * 0.05, duration: 0.25 }}
-          className="rounded-md bg-card border border-border p-4"
+          className="rounded-md bg-card border border-border shadow-sm p-4"
         >
           <div className="flex items-center gap-2 mb-2">
             <card.icon size={15} className="text-muted-foreground" />
@@ -516,9 +487,6 @@ function SummaryCards({ contracts }) {
   )
 }
 
-// ============================================================
-// STATUS PILLS (filter)
-// ============================================================
 const STATUS_PILLS = [
   { id: 'all', label: 'All' },
   { id: 'active', label: 'Active' },
@@ -576,9 +544,6 @@ function StatusPills({ statusFilter, onStatusFilter, counts }) {
   )
 }
 
-// ============================================================
-// FILTER PANEL
-// ============================================================
 function FilterPanel({
   open, onClose, building, setBuilding,
   ownerId, setOwnerId, buildings, owners, activeCount, onClear,
@@ -646,9 +611,6 @@ function FilterPanel({
   )
 }
 
-// ============================================================
-// CONTRACT ROW
-// ============================================================
 function ContractRow({ contract, selected, onClick }) {
   return (
     <motion.button
@@ -694,9 +656,6 @@ function ContractRow({ contract, selected, onClick }) {
   )
 }
 
-// ============================================================
-// EDITABLE FIELD
-// ============================================================
 function EditableField({ label, value, type = 'text', options, onSave, auditTag, maxLength = 500 }) {
   const [draft, setDraft] = useState(value ?? '')
   const [status, setStatus] = useState('idle')
@@ -776,9 +735,6 @@ function EditableField({ label, value, type = 'text', options, onSave, auditTag,
   )
 }
 
-// ============================================================
-// CONTRACT DETAIL PANEL — right side slide-in
-// ============================================================
 function ContractDetailPanel({ contract, onClose, onChanged, onDelete }) {
   const status = deriveContractStatus(contract)
   const statusConfig = STATUS_TEXT[status] || STATUS_TEXT.incomplete
@@ -802,9 +758,8 @@ function ContractDetailPanel({ contract, onClose, onChanged, onDelete }) {
       className="h-full flex-shrink-0 p-3"
       style={{ maxWidth: '100%', width: PANEL_WIDTH + 24 }}
     >
-      <div className="h-full rounded-md border border-border bg-card overflow-hidden flex flex-col">
+      <div className="h-full rounded-md border border-border bg-card shadow-lg overflow-hidden flex flex-col">
 
-        {/* Header */}
         <div className="flex-shrink-0 px-5 py-4 border-b border-border">
           <div className="flex items-start gap-3">
             <div className="w-12 h-12 rounded-md bg-muted flex items-center justify-center flex-shrink-0">
@@ -831,7 +786,6 @@ function ContractDetailPanel({ contract, onClose, onChanged, onDelete }) {
           </div>
         </div>
 
-        {/* Body */}
         <div className="flex-1 overflow-y-auto p-4 space-y-4">
           <DetailSection title="Owner">
             <div className="p-3">
@@ -933,9 +887,6 @@ function ContractDetailPanel({ contract, onClose, onChanged, onDelete }) {
   )
 }
 
-// ============================================================
-// MAIN PAGE
-// ============================================================
 export default function ContractsPage() {
   const [searchParams, setSearchParams] = useSearchParams()
   const filterUnitId = searchParams.get('unit')
@@ -1125,7 +1076,7 @@ export default function ContractsPage() {
     <div className="h-full flex min-h-0">
       <div className="flex-1 min-h-0 flex flex-col overflow-hidden">
         <div className="p-3 flex-1 min-h-0 flex flex-col gap-2.5">
-          <div className="flex-shrink-0">
+          <div className="flex-shrink-0 pt-1 pb-2">
             <SummaryCards contracts={contracts} />
           </div>
 
@@ -1198,7 +1149,7 @@ export default function ContractsPage() {
             <StatusPills statusFilter={statusFilter} onStatusFilter={setStatusFilter} counts={counts} />
           </div>
 
-          <div className="flex-1 min-h-0 rounded border border-border overflow-hidden bg-card">
+          <div className="flex-1 min-h-0 rounded border border-border shadow-sm overflow-hidden bg-card">
             <div className="h-full overflow-y-auto" style={{ scrollbarGutter: 'stable' }}>
               <div className={cn('sticky top-0 z-10 px-4 py-2 border-b border-border bg-card', ROW_GRID)}>
                 <span className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground truncate">Contract</span>

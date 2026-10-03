@@ -31,10 +31,15 @@ export function generateBookingCode(prefix = 'BK') {
  * Trim, collapse repeated whitespace, strip control chars, and cap length.
  * Safe for names, codes, references, etc.
  */
+/**
+ * Trim, collapse repeated whitespace, strip control chars, and cap length.
+ * Safe for names, codes, references, etc.
+ */
 export function sanitizeText(input, { max = 200, allowNewlines = false } = {}) {
   if (input == null) return null
   let s = String(input)
   // strip control chars except tab/newline if allowed
+  // eslint-disable-next-line no-control-regex
   s = s.replace(allowNewlines ? /[\u0000-\u0008\u000B\u000C\u000E-\u001F\u007F]/g : /[\u0000-\u001F\u007F]/g, '')
   s = allowNewlines ? s.replace(/[ \t]+/g, ' ').replace(/\n{3,}/g, '\n\n') : s.replace(/\s+/g, ' ')
   s = s.trim()

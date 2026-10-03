@@ -29,9 +29,6 @@ import {
 
 const BRAND = '#2d568e'
 
-// ============================================================
-// STATUS MODEL
-// ============================================================
 function getEffectiveStatus(cleaning) {
   if (cleaning.status === 'completed') return 'completed'
   if (cleaning.status === 'cancelled') return 'cancelled'
@@ -108,9 +105,6 @@ function initials(name) {
   return name.trim().split(/\s+/).slice(0, 2).map((p) => p[0]?.toUpperCase() || '').join('') || '?'
 }
 
-// ============================================================
-// TIME HELPERS
-// ============================================================
 function timeAgo(iso) {
   if (!iso) return null
   const then = new Date(iso).getTime()
@@ -130,10 +124,6 @@ function timeAgo(iso) {
   return `${years}y ago`
 }
 
-/**
- * Time since 11:00 AM on the booking's check-out date.
- * Returns { text, className } or null if no booking.
- */
 function guestLeftStatus(booking) {
   if (!booking?.check_out) return null
   const parts = String(booking.check_out).slice(0, 10).split('-').map(Number)
@@ -176,9 +166,6 @@ function guestLeftStatus(booking) {
   }
 }
 
-// ============================================================
-// AVATARS
-// ============================================================
 const AVATAR_COLORS = [
   ['bg-blue-100', 'text-blue-700', 'dark:bg-blue-900/40', 'dark:text-blue-300'],
   ['bg-emerald-100', 'text-emerald-700', 'dark:bg-emerald-900/40', 'dark:text-emerald-300'],
@@ -206,9 +193,6 @@ function WorkerAvatar({ name, photo_url, size = 'md' }) {
   )
 }
 
-// ============================================================
-// SIGNED-URL HOOKS
-// ============================================================
 function useSignedUrls(photos) {
   const paths = useMemo(
     () => (photos || []).map((p) => p?.path).filter(Boolean),
@@ -252,9 +236,6 @@ function useSignedUrl(photo) {
   return url
 }
 
-// ============================================================
-// PHOTO LIGHTBOX
-// ============================================================
 function PhotoLightbox({ photos, initialIndex, onClose }) {
   const [index, setIndex] = useState(initialIndex || 0)
   const [urls, setUrls] = useState({})
@@ -398,9 +379,6 @@ function PhotoLightbox({ photos, initialIndex, onClose }) {
   )
 }
 
-// ============================================================
-// TYPOGRAPHY
-// ============================================================
 function TypeText({ type }) {
   const config = TYPE_TEXT[type] || TYPE_TEXT.basic
   return <span className={cn('text-[11px] font-semibold capitalize', config.className)}>{config.label}</span>
@@ -412,9 +390,6 @@ function StatusText({ cleaning }) {
   return <span className={cn('text-[11px] font-semibold', config.className)}>{config.label}</span>
 }
 
-// ============================================================
-// SUMMARY CARDS
-// ============================================================
 function SummaryCards({ cleanings }) {
   const stats = useMemo(() => {
     let scheduled = 0, toBeEvaluated = 0, cancelled = 0
@@ -442,7 +417,7 @@ function SummaryCards({ cleanings }) {
           initial={{ opacity: 0, y: 8 }}
           animate={{ opacity: 1, y: 0 }}
           transition={{ delay: i * 0.05, duration: 0.25 }}
-          className="rounded-md bg-card border border-border p-4"
+          className="rounded-md bg-card border border-border shadow-sm p-4"
         >
           <div className="flex items-center gap-2 mb-2">
             <card.icon size={15} className="text-muted-foreground" />
@@ -457,16 +432,12 @@ function SummaryCards({ cleanings }) {
   )
 }
 
-// ============================================================
-// PANEL ROW
-// ============================================================
 function PanelRow({ cleaning, variant, onClick }) {
   const booking = cleaning.bookings
   const housekeeper = cleaning.housekeepers
   const unit = cleaning.units
   const nights = computeNightsFromBooking(booking)
 
-  // Determine timing slot text + accent based on variant
   let timingText = null
   let timingClass = 'text-muted-foreground'
   let accentClass = 'border-l-2 border-transparent'
@@ -498,14 +469,12 @@ function PanelRow({ cleaning, variant, onClick }) {
     if (ago) timingText = `Completed ${ago}`
   }
 
-  // Identity parts (after code)
   const identityParts = [
     (cleaning.type || 'basic').charAt(0).toUpperCase() + (cleaning.type || 'basic').slice(1),
     unit?.unit_code,
     unit?.building,
   ].filter(Boolean)
 
-  // Meta parts
   const metaParts = []
   if (housekeeper?.name) metaParts.push(housekeeper.name)
   if (booking?.guest_name) metaParts.push(booking.guest_name)
@@ -520,7 +489,6 @@ function PanelRow({ cleaning, variant, onClick }) {
         accentClass,
       )}
     >
-      {/* Line 1 */}
       <div className="flex items-center gap-2 min-w-0">
         <p className="text-[11px] text-foreground truncate flex-1 min-w-0">
           <span className="font-mono font-semibold">{cleaning.cleaning_code || '—'}</span>
@@ -536,7 +504,6 @@ function PanelRow({ cleaning, variant, onClick }) {
         </div>
       </div>
 
-      {/* Line 2 */}
       <div className="flex items-center gap-1.5 mt-0.5 min-w-0">
         {housekeeper?.name && (
           <WorkerAvatar name={housekeeper.name} photo_url={housekeeper.photo_url} size="sm" />
@@ -564,9 +531,6 @@ function PanelRow({ cleaning, variant, onClick }) {
   )
 }
 
-// ============================================================
-// TODAY PANEL
-// ============================================================
 function TodayPanel({ title, icon: Icon, rows, loading, empty, variant, onRowClick, emphasis = false }) {
   const countClass = emphasis && rows.length > 0
     ? 'text-red-600 dark:text-red-400'
@@ -586,7 +550,7 @@ function TodayPanel({ title, icon: Icon, rows, loading, empty, variant, onRowCli
         )}
       </div>
 
-      <div className="rounded-md bg-card border border-border overflow-hidden flex-1 min-h-0">
+      <div className="rounded-md bg-card border border-border shadow-sm overflow-hidden flex-1 min-h-0">
         <div className="max-h-[200px] overflow-y-auto">
           {loading ? (
             <div className="p-3 space-y-2">
@@ -614,9 +578,6 @@ function TodayPanel({ title, icon: Icon, rows, loading, empty, variant, onRowCli
   )
 }
 
-// ============================================================
-// DETAIL SECTION
-// ============================================================
 function DetailSection({ title, action, children }) {
   return (
     <div>
@@ -624,7 +585,7 @@ function DetailSection({ title, action, children }) {
         <h4 className="text-[10px] font-bold uppercase tracking-wider text-foreground">{title}</h4>
         {action}
       </div>
-      <div className="rounded-md bg-card border border-border overflow-hidden">
+      <div className="rounded-md bg-card border border-border shadow-sm overflow-hidden">
         {children}
       </div>
     </div>
@@ -663,9 +624,6 @@ function StatusPills({ active, onChange, counts }) {
   )
 }
 
-// ============================================================
-// PHOTO GRID
-// ============================================================
 function PhotoGrid({ cleaning, category, onChanged, onOpenPhoto }) {
   const [uploading, setUploading] = useState(false)
   const inputRef = useRef(null)
@@ -796,9 +754,6 @@ function PhotoSection({ cleaning, onChanged, onOpenPhoto }) {
   )
 }
 
-// ============================================================
-// SINGLE PHOTO
-// ============================================================
 function SinglePhotoCRM({ cleaning, field, category, label, onChanged, onOpenPhoto }) {
   const [uploading, setUploading] = useState(false)
   const inputRef = useRef(null)
@@ -896,9 +851,6 @@ function SinglePhotoCRM({ cleaning, field, category, label, onChanged, onOpenPho
   )
 }
 
-// ============================================================
-// ITEM LIST
-// ============================================================
 function ListEditorCRM({ items, onChange, placeholder = 'Item name' }) {
   const parsed = parseInventory(items)
   const [name, setName] = useState('')
@@ -1033,9 +985,6 @@ function CategoryPair({ title, Icon, cleaning, usedPhotoField, replacedPhotoFiel
   )
 }
 
-// ============================================================
-// HOUSEKEEPER PAYMENT
-// ============================================================
 function HousekeeperPaymentSection({ cleaning, onChanged }) {
   const [amount, setAmount] = useState(cleaning.payment_amount != null ? String(cleaning.payment_amount) : '')
   const [method, setMethod] = useState(cleaning.payment_method || '')
@@ -1098,7 +1047,7 @@ function HousekeeperPaymentSection({ cleaning, onChanged }) {
     if (!confirmed) return
     setRejecting(true)
     try {
-      await updateCleaning(cleaning.id, { status: 'ready' })
+      await updateCleaning(cleaning.id, { status: 'ready', submitted_at: null })
       logAudit('SEND_BACK_CLEANING', 'cleanings', cleaning.id, {}).catch(() => {})
       toast.success('Sent back to housekeeper')
       onChanged()
@@ -1177,9 +1126,6 @@ function HousekeeperPaymentSection({ cleaning, onChanged }) {
   )
 }
 
-// ============================================================
-// LAUNDRY PAYMENT
-// ============================================================
 function LaundryPaymentSection({ cleaning, onChanged }) {
   const [amount, setAmount] = useState(cleaning.laundry_payment_amount != null ? String(cleaning.laundry_payment_amount) : '')
   const [method, setMethod] = useState(cleaning.laundry_payment_method || '')
@@ -1278,9 +1224,6 @@ function LaundryPaymentSection({ cleaning, onChanged }) {
   )
 }
 
-// ============================================================
-// NEW CLEANING MODAL
-// ============================================================
 const emptyNewCleaning = () => ({
   unit_id: '',
   booking_id: '',
@@ -1345,6 +1288,22 @@ function NewCleaningModal({ open, onClose, onCreated, units, bookings, housekeep
     if (unitStatus === 'out_of_range') {
       toast.error('No contract covers this date. Extend a contract or pick a different date.')
       return
+    }
+
+    if (form.booking_id) {
+      const b = bookings.find((x) => x.id === form.booking_id)
+      if (b) {
+        const ci = b.check_in ? String(b.check_in).slice(0, 10) : null
+        const co = b.check_out ? String(b.check_out).slice(0, 10) : null
+        if (ci && scheduledDate < ci) {
+          toast.error(`Scheduled date is before the linked booking starts (${ci}).`)
+          return
+        }
+        if (co && scheduledDate > co) {
+          toast.error(`Scheduled date is after the linked booking ends (${co}).`)
+          return
+        }
+      }
     }
 
     setSaving(true)
@@ -1487,9 +1446,6 @@ function NewCleaningModal({ open, onClose, onCreated, units, bookings, housekeep
   )
 }
 
-// ============================================================
-// DETAIL PANEL
-// ============================================================
 function CleaningDetailPanel({ cleaning, onClose, onChanged, onDelete, housekeepers }) {
   const [saving, setSaving] = useState(false)
   const [lightbox, setLightbox] = useState(null)
@@ -1528,7 +1484,7 @@ function CleaningDetailPanel({ cleaning, onClose, onChanged, onDelete, housekeep
         className="h-full flex-shrink-0 p-3"
         style={{ maxWidth: '100%', width: PANEL_WIDTH + 24 }}
       >
-        <div className="h-full rounded-md border border-border bg-card overflow-hidden flex flex-col">
+        <div className="h-full rounded-md border border-border bg-card shadow-lg overflow-hidden flex flex-col">
           <div className="flex-shrink-0 px-5 py-4 border-b border-border">
             <div className="flex items-start gap-3">
               <div className="w-12 h-12 rounded-md bg-muted flex items-center justify-center flex-shrink-0">
@@ -1605,7 +1561,15 @@ function CleaningDetailPanel({ cleaning, onClose, onChanged, onDelete, housekeep
                   <div className="flex-1">
                     <Select value={effective} onValueChange={(v) => {
                       if (v === 'completed') updateField('status', 'completed')
-                      else if (v === 'ready') updateField('status', 'ready')
+                      else if (v === 'ready') {
+                        if (cleaning.status === 'submitted') {
+                          updateCleaning(cleaning.id, { status: 'ready', submitted_at: null })
+                            .then(() => { logAudit('UPDATE_CLEANING_FIELD:status', 'cleanings', cleaning.id, { field: 'status', to: 'ready' }).catch(() => {}); onChanged() })
+                            .catch((err) => toast.error(err?.message || 'Failed to update'))
+                        } else {
+                          updateField('status', 'ready')
+                        }
+                      }
                       else if (v === 'to-be-evaluated') updateField('status', 'submitted')
                       else if (v === 'cancelled') updateField('status', 'cancelled')
                       else updateField('status', 'scheduled')
@@ -1747,9 +1711,6 @@ function CleaningDetailPanel({ cleaning, onClose, onChanged, onDelete, housekeep
   )
 }
 
-// ============================================================
-// LIST ROW
-// ============================================================
 function CleaningListRow({ cleaning, selected, highlighted, onClick }) {
   return (
     <motion.button
@@ -1809,9 +1770,6 @@ function CleaningListRow({ cleaning, selected, highlighted, onClick }) {
   )
 }
 
-// ============================================================
-// MAIN PAGE
-// ============================================================
 export default function HousekeepingPage() {
   const [cleanings, setCleanings] = useState([])
   const [units, setUnits] = useState([])
@@ -2026,12 +1984,11 @@ export default function HousekeepingPage() {
     <div className="h-full flex min-h-0">
       <div className="flex-1 min-h-0 flex flex-col p-3 gap-3">
 
-        <div className={cn('flex-shrink-0 transition-all duration-300 ease-out overflow-hidden', cardsHidden ? 'max-h-0 opacity-0 -mb-3' : 'max-h-40 opacity-100')}>
+        <div className={cn('flex-shrink-0 pt-1 pb-2 transition-all duration-300 ease-out overflow-hidden', cardsHidden ? 'max-h-0 opacity-0 -mb-3' : 'max-h-40 opacity-100')}>
           <SummaryCards cleanings={cleanings} />
         </div>
 
-        {/* 2x2 panel grid */}
-        <div className={cn('flex-shrink-0 grid grid-cols-1 lg:grid-cols-2 gap-4 transition-all duration-300 ease-out overflow-hidden', cardsHidden ? 'max-h-0 opacity-0 -mb-3' : 'max-h-[480px] opacity-100')}>
+        <div className={cn('flex-shrink-0 grid grid-cols-1 lg:grid-cols-2 gap-4 pt-1 pb-2 transition-all duration-300 ease-out overflow-hidden', cardsHidden ? 'max-h-0 opacity-0 -mb-3' : 'max-h-[480px] opacity-100')}>
           <TodayPanel
             title="Due today"
             icon={Sparkles}
@@ -2092,7 +2049,7 @@ export default function HousekeepingPage() {
           <StatusPills active={statusFilter} onChange={setStatusFilter} counts={counts} />
         </div>
 
-        <div className="flex-1 min-h-0 rounded border border-border overflow-hidden bg-card">
+        <div className="flex-1 min-h-0 rounded border border-border shadow-sm overflow-hidden bg-card">
           <div
             className="h-full overflow-y-auto"
             style={{ scrollbarGutter: 'stable' }}

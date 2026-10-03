@@ -36,6 +36,7 @@ const DOW_SHORT = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat']
 const PAGE_SIZE = 25
 const REALTIME_DEBOUNCE_MS = 1500
 const PARENT_REFRESH_DEBOUNCE_MS = 1200
+const DETAIL_REFRESH_DEBOUNCE_MS = 800
 
 const SORT_OPTIONS = [
   { id: 'unit_asc', label: 'Unit (A→Z)' },
@@ -45,9 +46,42 @@ const SORT_OPTIONS = [
   { id: 'net_asc', label: 'Net (low→high)' },
 ]
 
-// ============================================================
-// HELPERS
-// ============================================================
+function LazyChart({ children, rootMargin = '200px', minHeight = 260 }) {
+  const ref = useRef(null)
+  const [visible, setVisible] = useState(false)
+
+  useEffect(() => {
+    if (visible) return
+    const node = ref.current
+    if (!node) return
+    if (typeof IntersectionObserver === 'undefined') {
+      setVisible(true)
+      return
+    }
+    const io = new IntersectionObserver(
+      (entries) => {
+        for (const e of entries) {
+          if (e.isIntersecting) {
+            setVisible(true)
+            io.disconnect()
+            return
+          }
+        }
+      },
+      { rootMargin }
+    )
+    io.observe(node)
+    const fallback = setTimeout(() => setVisible(true), 5000)
+    return () => { io.disconnect(); clearTimeout(fallback) }
+  }, [visible, rootMargin])
+
+  return (
+    <div ref={ref} style={!visible ? { minHeight } : undefined}>
+      {visible ? children : null}
+    </div>
+  )
+}
+
 function deriveContractStatus(contract) {
   if (!contract) return 'inactive'
   if (!contract.effective_date) return 'incomplete'
@@ -131,9 +165,6 @@ async function getSignedUrl(path, expiresIn = 3600) {
   return data?.signedUrl || null
 }
 
-// ============================================================
-// YEAR SECTIONS
-// ============================================================
 function buildYearSections(effectiveDate, expiryDate) {
   if (!effectiveDate) return []
   const eff = new Date(effectiveDate + 'T00:00:00Z')
@@ -176,9 +207,6 @@ function pickDefaultYear(yearSections) {
   return years[years.length - 1]
 }
 
-// ============================================================
-// OCCUPANCY HELPERS
-// ============================================================
 function nightsInMonthFromBookings(bookings, year, month1to12, contract) {
   const daysInMonth = new Date(Date.UTC(year, month1to12, 0)).getUTCDate()
   const monthStart = new Date(Date.UTC(year, month1to12 - 1, 1))
@@ -333,9 +361,6 @@ function SectionHeader({ icon: Icon, title }) {
   )
 }
 
-// ============================================================
-// SUMMARY CARDS
-// ============================================================
 function SummaryCards({ totals }) {
   return (
     <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-3">
@@ -349,7 +374,7 @@ function SummaryCards({ totals }) {
 
 function Card({ label, value, icon: Icon }) {
   return (
-    <div className="rounded-md bg-card border border-border p-4">
+    <div className="rounded-md bg-card border border-border shadow-sm p-4">
       <div className="flex items-center gap-2 mb-2">
         {Icon && <Icon size={14} className="text-muted-foreground" />}
         <span className="text-[11px] font-semibold text-foreground">{label}</span>
@@ -361,7 +386,7 @@ function Card({ label, value, icon: Icon }) {
 
 function SplitCard({ label, owner, company, icon: Icon }) {
   return (
-    <div className="rounded-md bg-card border border-border p-4">
+    <div className="rounded-md bg-card border border-border shadow-sm p-4">
       <div className="flex items-center gap-2 mb-2">
         {Icon && <Icon size={14} className="text-muted-foreground" />}
         <span className="text-[11px] font-semibold text-foreground">{label}</span>
@@ -375,9 +400,6 @@ function SplitCard({ label, owner, company, icon: Icon }) {
   )
 }
 
-// ============================================================
-// STATUS PILLS
-// ============================================================
 function StatusPills({ statusFilter, onStatusFilter, counts }) {
   const containerRef = useRef(null)
   const [indicator, setIndicator] = useState({ left: 0, width: 0 })
@@ -421,9 +443,6 @@ function StatusPills({ statusFilter, onStatusFilter, counts }) {
   )
 }
 
-// ============================================================
-// LIST ROW
-// ============================================================
 function ContractRow({ contract, lifetime, onClick }) {
   return (
     <motion.button
@@ -473,15 +492,12 @@ function ContractRow({ contract, lifetime, onClick }) {
 
 function CardBody({ children, className }) {
   return (
-    <div className={cn('rounded-md bg-card border border-border overflow-hidden', className)}>
+    <div className={cn('rounded-md bg-card border border-border shadow-sm overflow-hidden', className)}>
       {children}
     </div>
   )
 }
 
-// ============================================================
-// CURSOR TOOLTIP
-// ============================================================
 function CursorTooltip({ cursor, children }) {
   if (!cursor) return null
   const style = {
@@ -505,9 +521,6 @@ function useCursorTooltip() {
   return { cursor, onMove, onLeave }
 }
 
-// ============================================================
-// CHART TOOLTIPS
-// ============================================================
 function ChartTooltip({ active, payload, label }) {
   if (!active || !payload || payload.length === 0) return null
   const byKey = {}
@@ -559,9 +572,6 @@ function CumulativeTooltip({ active, payload, label }) {
   )
 }
 
-// ============================================================
-// HALF GAUGE
-// ============================================================
 function HalfGauge({ pct, sublabel, compact = false }) {
   const clampedPct = Math.max(0, Math.min(1, pct || 0))
   const total = compact ? 44 : 60
@@ -622,9 +632,6 @@ function HalfGauge({ pct, sublabel, compact = false }) {
   )
 }
 
-// ============================================================
-// YEAR NAV
-// ============================================================
 function YearNav({ yearSections, selectedYear, onSelectYear }) {
   const idx = yearSections.findIndex((s) => s.year === selectedYear)
   const canPrev = idx > 0
@@ -661,10 +668,7 @@ function YearNav({ yearSections, selectedYear, onSelectYear }) {
   )
 }
 
-// ============================================================
-// YEARLY REVENUE CHART
-// ============================================================
-function YearlyRevenueChart({ yearSections, statements, selectedYear, onSelectYear, title }) {
+const YearlyRevenueChart = memo(function YearlyRevenueChart({ yearSections, statements, selectedYear, onSelectYear, title }) {
   const section = yearSections.find((s) => s.year === selectedYear)
 
   const data = useMemo(() => {
@@ -732,39 +736,38 @@ function YearlyRevenueChart({ yearSections, statements, selectedYear, onSelectYe
                 No months to display
               </div>
             ) : (
-              <ResponsiveContainer width="100%" height="100%">
-                <ComposedChart data={data} margin={{ top: 8, right: 8, left: 0, bottom: 0 }} barGap={2} barCategoryGap="25%">
-                  <pattern id="expenses-hatch-main" width="6" height="6" patternUnits="userSpaceOnUse" patternTransform="rotate(45)">
-                    <line x1="0" y1="0" x2="0" y2="6" stroke={BRAND} strokeWidth="1.5" opacity="0.55" />
-                  </pattern>
-                  <CartesianGrid strokeDasharray="3 3" stroke="currentColor" strokeOpacity={0.1} />
-                  <XAxis dataKey="label" tick={{ fontSize: 12 }} stroke="currentColor" strokeOpacity={0.4} />
-                  <YAxis
-                    tick={{ fontSize: 12 }}
-                    tickFormatter={formatMoneyCompact}
-                    stroke="currentColor"
-                    strokeOpacity={0.4}
-                    width={60}
-                    domain={[minY, maxY]}
-                  />
-                  <Tooltip content={<ChartTooltip />} cursor={{ fill: 'rgba(45, 86, 142, 0.05)' }} />
-                  <Bar dataKey="gross" fill="transparent" stroke={BRAND} strokeWidth={1.5} name="Gross" maxBarSize={40} radius={[6, 6, 0, 0]} animationDuration={700} />
-                  <Bar dataKey="expenses" fill="url(#expenses-hatch-main)" name="Expenses" maxBarSize={40} radius={[6, 6, 0, 0]} animationDuration={700} animationBegin={100} />
-                  <Bar dataKey="net" fill={BRAND} name="Net" maxBarSize={40} radius={[6, 6, 0, 0]} animationDuration={700} animationBegin={200} />
-                </ComposedChart>
-              </ResponsiveContainer>
+              <LazyChart minHeight={320}>
+                <ResponsiveContainer width="100%" height={320} debounce={100}>
+                  <ComposedChart data={data} margin={{ top: 8, right: 8, left: 0, bottom: 0 }} barGap={2} barCategoryGap="25%">
+                    <pattern id="expenses-hatch-main" width="6" height="6" patternUnits="userSpaceOnUse" patternTransform="rotate(45)">
+                      <line x1="0" y1="0" x2="0" y2="6" stroke={BRAND} strokeWidth="1.5" opacity="0.55" />
+                    </pattern>
+                    <CartesianGrid strokeDasharray="3 3" stroke="currentColor" strokeOpacity={0.1} />
+                    <XAxis dataKey="label" tick={{ fontSize: 12 }} stroke="currentColor" strokeOpacity={0.4} />
+                    <YAxis
+                      tick={{ fontSize: 12 }}
+                      tickFormatter={formatMoneyCompact}
+                      stroke="currentColor"
+                      strokeOpacity={0.4}
+                      width={60}
+                      domain={[minY, maxY]}
+                    />
+                    <Tooltip content={<ChartTooltip />} animationDuration={0} cursor={{ fill: 'rgba(45, 86, 142, 0.05)' }} />
+                    <Bar dataKey="gross" fill="transparent" stroke={BRAND} strokeWidth={1.5} name="Gross" maxBarSize={40} radius={[6, 6, 0, 0]} isAnimationActive={false} />
+                    <Bar dataKey="expenses" fill="url(#expenses-hatch-main)" name="Expenses" maxBarSize={40} radius={[6, 6, 0, 0]} isAnimationActive={false} />
+                    <Bar dataKey="net" fill={BRAND} name="Net" maxBarSize={40} radius={[6, 6, 0, 0]} isAnimationActive={false} />
+                  </ComposedChart>
+                </ResponsiveContainer>
+              </LazyChart>
             )}
           </div>
         </div>
       </CardBody>
     </div>
   )
-}
+})
 
-// ============================================================
-// MONTHLY OCCUPANCY
-// ============================================================
-function MonthlyOccupancyChart({ statements, selectedYear, yearSections, onSelectYear, contract }) {
+const MonthlyOccupancyChart = memo(function MonthlyOccupancyChart({ statements, selectedYear, yearSections, onSelectYear, contract }) {
   const data = useMemo(() => {
     return statements
       .filter((s) => s.month.startsWith(String(selectedYear)))
@@ -796,35 +799,34 @@ function MonthlyOccupancyChart({ statements, selectedYear, yearSections, onSelec
             {data.length === 0 ? (
               <div className="h-full flex items-center justify-center text-xs text-muted-foreground italic">No months to display</div>
             ) : (
-              <ResponsiveContainer width="100%" height="100%">
-                <BarChart data={data} margin={{ top: 8, right: 8, left: 0, bottom: 0 }} barCategoryGap="25%">
-                  <CartesianGrid strokeDasharray="3 3" stroke="currentColor" strokeOpacity={0.1} />
-                  <XAxis dataKey="label" tick={{ fontSize: 11 }} stroke="currentColor" strokeOpacity={0.4} />
-                  <YAxis
-                    tick={{ fontSize: 11 }}
-                    tickFormatter={(v) => `${v}%`}
-                    stroke="currentColor"
-                    strokeOpacity={0.4}
-                    width={44}
-                    domain={[0, 100]}
-                    ticks={[0, 25, 50, 75, 100]}
-                  />
-                  <Tooltip content={<OccupancyTooltip />} cursor={{ fill: 'rgba(45, 86, 142, 0.05)' }} />
-                  <Bar dataKey="pct" fill={BRAND} radius={[6, 6, 0, 0]} maxBarSize={28} animationDuration={700} />
-                </BarChart>
-              </ResponsiveContainer>
+              <LazyChart minHeight={260}>
+                <ResponsiveContainer width="100%" height={260} debounce={100}>
+                  <BarChart data={data} margin={{ top: 8, right: 8, left: 0, bottom: 0 }} barCategoryGap="25%">
+                    <CartesianGrid strokeDasharray="3 3" stroke="currentColor" strokeOpacity={0.1} />
+                    <XAxis dataKey="label" tick={{ fontSize: 11 }} stroke="currentColor" strokeOpacity={0.4} />
+                    <YAxis
+                      tick={{ fontSize: 11 }}
+                      tickFormatter={(v) => `${v}%`}
+                      stroke="currentColor"
+                      strokeOpacity={0.4}
+                      width={44}
+                      domain={[0, 100]}
+                      ticks={[0, 25, 50, 75, 100]}
+                    />
+                    <Tooltip content={<OccupancyTooltip />} animationDuration={0} cursor={{ fill: 'rgba(45, 86, 142, 0.05)' }} />
+                    <Bar dataKey="pct" fill={BRAND} radius={[6, 6, 0, 0]} maxBarSize={28} isAnimationActive={false} />
+                  </BarChart>
+                </ResponsiveContainer>
+              </LazyChart>
             )}
           </div>
         </div>
       </CardBody>
     </div>
   )
-}
+})
 
-// ============================================================
-// WEEKLY OCCUPANCY
-// ============================================================
-function WeeklyOccupancyChart({ statement, contract }) {
+const WeeklyOccupancyChart = memo(function WeeklyOccupancyChart({ statement, contract }) {
   const [y, m] = statement.month.split('-').map(Number)
 
   const data = useMemo(
@@ -844,34 +846,33 @@ function WeeklyOccupancyChart({ statement, contract }) {
       <CardBody className="flex-1">
         <div className="p-3 h-full">
           <div className="h-[260px] w-full">
-            <ResponsiveContainer width="100%" height="100%">
-              <BarChart data={data} margin={{ top: 8, right: 8, left: 0, bottom: 0 }} barCategoryGap="25%">
-                <CartesianGrid strokeDasharray="3 3" stroke="currentColor" strokeOpacity={0.1} />
-                <XAxis dataKey="label" tick={{ fontSize: 11 }} stroke="currentColor" strokeOpacity={0.4} />
-                <YAxis
-                  tick={{ fontSize: 11 }}
-                  tickFormatter={(v) => `${v}%`}
-                  stroke="currentColor"
-                  strokeOpacity={0.4}
-                  width={44}
-                  domain={[0, 100]}
-                  ticks={[0, 25, 50, 75, 100]}
-                />
-                <Tooltip content={<OccupancyTooltip />} cursor={{ fill: 'rgba(45, 86, 142, 0.05)' }} />
-                <Bar dataKey="pct" fill={BRAND} radius={[6, 6, 0, 0]} maxBarSize={40} animationDuration={700} />
-              </BarChart>
-            </ResponsiveContainer>
+            <LazyChart minHeight={260}>
+              <ResponsiveContainer width="100%" height={260} debounce={100}>
+                <BarChart data={data} margin={{ top: 8, right: 8, left: 0, bottom: 0 }} barCategoryGap="25%">
+                  <CartesianGrid strokeDasharray="3 3" stroke="currentColor" strokeOpacity={0.1} />
+                  <XAxis dataKey="label" tick={{ fontSize: 11 }} stroke="currentColor" strokeOpacity={0.4} />
+                  <YAxis
+                    tick={{ fontSize: 11 }}
+                    tickFormatter={(v) => `${v}%`}
+                    stroke="currentColor"
+                    strokeOpacity={0.4}
+                    width={44}
+                    domain={[0, 100]}
+                    ticks={[0, 25, 50, 75, 100]}
+                  />
+                  <Tooltip content={<OccupancyTooltip />} animationDuration={0} cursor={{ fill: 'rgba(45, 86, 142, 0.05)' }} />
+                  <Bar dataKey="pct" fill={BRAND} radius={[6, 6, 0, 0]} maxBarSize={40} isAnimationActive={false} />
+                </BarChart>
+              </ResponsiveContainer>
+            </LazyChart>
           </div>
         </div>
       </CardBody>
     </div>
   )
-}
+})
 
-// ============================================================
-// WEEKLY CUMULATIVE
-// ============================================================
-function WeeklyCumulativeChart({ statement, monthlyExpenses, contract }) {
+const WeeklyCumulativeChart = memo(function WeeklyCumulativeChart({ statement, monthlyExpenses, contract }) {
   const [y, m] = statement.month.split('-').map(Number)
 
   const data = useMemo(
@@ -901,47 +902,46 @@ function WeeklyCumulativeChart({ statement, monthlyExpenses, contract }) {
       <CardBody className="flex-1">
         <div className="p-3 h-full">
           <div className="h-[260px] w-full">
-            <ResponsiveContainer width="100%" height="100%">
-              <AreaChart data={data} margin={{ top: 8, right: 8, left: 0, bottom: 0 }}>
-                <linearGradient id="weekly-cumulative-fill" x1="0" y1="0" x2="0" y2="1">
-                  <stop offset="0%" stopColor={BRAND} stopOpacity={0.45} />
-                  <stop offset="60%" stopColor={BRAND} stopOpacity={0.12} />
-                  <stop offset="100%" stopColor={BRAND} stopOpacity={0} />
-                </linearGradient>
-                <CartesianGrid strokeDasharray="3 3" stroke="currentColor" strokeOpacity={0.1} />
-                <XAxis dataKey="label" tick={{ fontSize: 11 }} stroke="currentColor" strokeOpacity={0.4} />
-                <YAxis
-                  tick={{ fontSize: 11 }}
-                  tickFormatter={formatMoneyCompact}
-                  stroke="currentColor"
-                  strokeOpacity={0.4}
-                  width={56}
-                  domain={[minValue, maxValue]}
-                />
-                <Tooltip content={<CumulativeTooltip />} cursor={{ stroke: BRAND, strokeOpacity: 0.2 }} />
-                <Area
-                  type="monotone"
-                  dataKey="cumulative"
-                  stroke={BRAND}
-                  strokeWidth={2.5}
-                  fill="url(#weekly-cumulative-fill)"
-                  dot={{ r: 3, fill: BRAND }}
-                  activeDot={{ r: 5, fill: BRAND }}
-                  animationDuration={900}
-                />
-              </AreaChart>
-            </ResponsiveContainer>
+            <LazyChart minHeight={260}>
+              <ResponsiveContainer width="100%" height={260} debounce={100}>
+                <AreaChart data={data} margin={{ top: 8, right: 8, left: 0, bottom: 0 }}>
+                  <linearGradient id="weekly-cumulative-fill" x1="0" y1="0" x2="0" y2="1">
+                    <stop offset="0%" stopColor={BRAND} stopOpacity={0.45} />
+                    <stop offset="60%" stopColor={BRAND} stopOpacity={0.12} />
+                    <stop offset="100%" stopColor={BRAND} stopOpacity={0} />
+                  </linearGradient>
+                  <CartesianGrid strokeDasharray="3 3" stroke="currentColor" strokeOpacity={0.1} />
+                  <XAxis dataKey="label" tick={{ fontSize: 11 }} stroke="currentColor" strokeOpacity={0.4} />
+                  <YAxis
+                    tick={{ fontSize: 11 }}
+                    tickFormatter={formatMoneyCompact}
+                    stroke="currentColor"
+                    strokeOpacity={0.4}
+                    width={56}
+                    domain={[minValue, maxValue]}
+                  />
+                  <Tooltip content={<CumulativeTooltip />} animationDuration={0} cursor={{ stroke: BRAND, strokeOpacity: 0.2 }} />
+                  <Area
+                    type="monotone"
+                    dataKey="cumulative"
+                    stroke={BRAND}
+                    strokeWidth={2.5}
+                    fill="url(#weekly-cumulative-fill)"
+                    dot={{ r: 3, fill: BRAND }}
+                    activeDot={{ r: 5, fill: BRAND }}
+                    isAnimationActive={false}
+                  />
+                </AreaChart>
+              </ResponsiveContainer>
+            </LazyChart>
           </div>
         </div>
       </CardBody>
     </div>
   )
-}
+})
 
-// ============================================================
-// GENERAL CUMULATIVE
-// ============================================================
-function CumulativeNetChart({ statements, selectedYear, yearSections, onSelectYear }) {
+const CumulativeNetChart = memo(function CumulativeNetChart({ statements, selectedYear, yearSections, onSelectYear }) {
   const data = useMemo(() => {
     const ordered = [...statements].sort((a, b) => a.month.localeCompare(b.month))
     const withCumulative = []
@@ -991,48 +991,47 @@ function CumulativeNetChart({ statements, selectedYear, yearSections, onSelectYe
             {data.length === 0 ? (
               <div className="h-full flex items-center justify-center text-xs text-muted-foreground italic">No months to display</div>
             ) : (
-              <ResponsiveContainer width="100%" height="100%">
-                <AreaChart data={data} margin={{ top: 8, right: 8, left: 0, bottom: 0 }}>
-                  <linearGradient id="cumulative-fill" x1="0" y1="0" x2="0" y2="1">
-                    <stop offset="0%" stopColor={BRAND} stopOpacity={0.45} />
-                    <stop offset="60%" stopColor={BRAND} stopOpacity={0.12} />
-                    <stop offset="100%" stopColor={BRAND} stopOpacity={0} />
-                  </linearGradient>
-                  <CartesianGrid strokeDasharray="3 3" stroke="currentColor" strokeOpacity={0.1} />
-                  <XAxis dataKey="label" tick={{ fontSize: 11 }} stroke="currentColor" strokeOpacity={0.4} />
-                  <YAxis
-                    tick={{ fontSize: 11 }}
-                    tickFormatter={formatMoneyCompact}
-                    stroke="currentColor"
-                    strokeOpacity={0.4}
-                    width={56}
-                    domain={[minValue, maxValue]}
-                    ticks={ticks}
-                  />
-                  <Tooltip content={<CumulativeTooltip />} cursor={{ stroke: BRAND, strokeOpacity: 0.2 }} />
-                  <Area
-                    type="monotone"
-                    dataKey="cumulative"
-                    stroke={BRAND}
-                    strokeWidth={2.5}
-                    fill="url(#cumulative-fill)"
-                    dot={false}
-                    activeDot={{ r: 4, fill: BRAND }}
-                    animationDuration={900}
-                  />
-                </AreaChart>
-              </ResponsiveContainer>
+              <LazyChart minHeight={260}>
+                <ResponsiveContainer width="100%" height={260} debounce={100}>
+                  <AreaChart data={data} margin={{ top: 8, right: 8, left: 0, bottom: 0 }}>
+                    <linearGradient id="cumulative-fill" x1="0" y1="0" x2="0" y2="1">
+                      <stop offset="0%" stopColor={BRAND} stopOpacity={0.45} />
+                      <stop offset="60%" stopColor={BRAND} stopOpacity={0.12} />
+                      <stop offset="100%" stopColor={BRAND} stopOpacity={0} />
+                    </linearGradient>
+                    <CartesianGrid strokeDasharray="3 3" stroke="currentColor" strokeOpacity={0.1} />
+                    <XAxis dataKey="label" tick={{ fontSize: 11 }} stroke="currentColor" strokeOpacity={0.4} />
+                    <YAxis
+                      tick={{ fontSize: 11 }}
+                      tickFormatter={formatMoneyCompact}
+                      stroke="currentColor"
+                      strokeOpacity={0.4}
+                      width={56}
+                      domain={[minValue, maxValue]}
+                      ticks={ticks}
+                    />
+                    <Tooltip content={<CumulativeTooltip />} animationDuration={0} cursor={{ stroke: BRAND, strokeOpacity: 0.2 }} />
+                    <Area
+                      type="monotone"
+                      dataKey="cumulative"
+                      stroke={BRAND}
+                      strokeWidth={2.5}
+                      fill="url(#cumulative-fill)"
+                      dot={false}
+                      activeDot={{ r: 4, fill: BRAND }}
+                      isAnimationActive={false}
+                    />
+                  </AreaChart>
+                </ResponsiveContainer>
+              </LazyChart>
             )}
           </div>
         </div>
       </CardBody>
     </div>
   )
-}
+})
 
-// ============================================================
-// BOOKING CALENDAR
-// ============================================================
 function BookingCalendar({ month, bookings, cleanings, selectedId, onSelect }) {
   const [y, m] = month.split('-').map(Number)
   const firstDay = new Date(Date.UTC(y, m - 1, 1))
@@ -1085,7 +1084,7 @@ function BookingCalendar({ month, bookings, cleanings, selectedId, onSelect }) {
   const todayDay = isCurrentMonth ? today.getUTCDate() : null
 
   return (
-    <div className="rounded-md border border-border overflow-hidden bg-card">
+    <div className="rounded-md border border-border shadow-sm overflow-hidden bg-card">
       <div className="grid grid-cols-7 border-b border-border bg-muted/30">
         {DOW_SHORT.map((d) => (
           <div key={d} className="text-[11px] font-semibold text-foreground text-center py-2">{d}</div>
@@ -1234,9 +1233,6 @@ function CalendarCleaningChip({ cleaning, selected, onSelect }) {
   )
 }
 
-// ============================================================
-// MONTH SELECTOR
-// ============================================================
 function MonthSelector({ options, selectedMonth, onSelectMonth }) {
   const idx = options.findIndex((s) => s.month === selectedMonth)
   const canPrev = idx >= 0 && idx < options.length - 1
@@ -1274,9 +1270,6 @@ function MonthSelector({ options, selectedMonth, onSelectMonth }) {
   )
 }
 
-// ============================================================
-// SIDEBAR — READ-ONLY
-// ============================================================
 function Field({ label, value, mono = false }) {
   return (
     <div className="flex items-baseline gap-2 py-0.5 min-w-0">
@@ -1357,9 +1350,6 @@ function ContractSidebar({ contract, onBack }) {
   )
 }
 
-// ============================================================
-// GENERAL STATISTICS
-// ============================================================
 function GeneralStatistics({
   lifetime, statements, yearSections, selectedYear, onSelectYear, contract, bookings,
 }) {
@@ -1381,7 +1371,7 @@ function GeneralStatistics({
         initial="hidden"
         animate="visible"
         variants={{ hidden: {}, visible: { transition: { staggerChildren: 0.05 } } }}
-        className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-3"
+        className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-3 pt-1 pb-2"
       >
         <StatCard label="Total Bookings" value={totalBookings} icon={Home} />
         <StatCard label="Total Cleanings" value={totalCleanings} icon={Sparkles} />
@@ -1434,7 +1424,7 @@ function StatCard({ label, value, icon: Icon }) {
   return (
     <motion.div
       variants={{ hidden: { opacity: 0, y: 8 }, visible: { opacity: 1, y: 0, transition: { duration: 0.3 } } }}
-      className="rounded-md bg-card border border-border p-4"
+      className="rounded-md bg-card border border-border shadow-sm p-4"
     >
       <div className="flex items-center gap-2 mb-2">
         {Icon && <Icon size={14} className="text-muted-foreground" />}
@@ -1445,9 +1435,6 @@ function StatCard({ label, value, icon: Icon }) {
   )
 }
 
-// ============================================================
-// MONTHLY LEDGER
-// ============================================================
 function MonthlyLedger({ statements, selectedMonth, onSelectMonth }) {
   const ordered = useMemo(
     () => [...statements].sort((a, b) => a.month.localeCompare(b.month)),
@@ -1548,9 +1535,6 @@ function MonthlyLedger({ statements, selectedMonth, onSelectMonth }) {
   )
 }
 
-// ============================================================
-// EXPENSE IMAGE CONTROL
-// ============================================================
 function ExpenseImageControl({ path, onUpload, onRemove, contractId, compact = false }) {
   const inputRef = useRef(null)
   const [uploading, setUploading] = useState(false)
@@ -1656,9 +1640,6 @@ function ExpenseImageControl({ path, onUpload, onRemove, contractId, compact = f
   )
 }
 
-// ============================================================
-// EXPENSES PANEL
-// ============================================================
 function ExpensesPanel({ statement, contract, onChanged }) {
   const [editingFixed, setEditingFixed] = useState(false)
   const [draftFixed, setDraftFixed] = useState({
@@ -2057,7 +2038,7 @@ function AddExpenseModal({ open, onClose, onSubmit, contractId }) {
           </div>
           <div>
             <label className="text-[11px] font-semibold text-foreground mb-1 block">Amount (₱)</label>
-            <Input type="number" min={0} value={amount} onChange={(e) => setAmount(e.target.value)} placeholder="0" className="h-8 text-xs rounded tabular-nums" />
+            <Input type="number" min={0} max={100000000} value={amount} onChange={(e) => setAmount(e.target.value)} placeholder="0" className="h-8 text-xs rounded tabular-nums" />
           </div>
           <div>
             <label className="text-[11px] font-semibold text-foreground mb-1 block">Proof (optional)</label>
@@ -2100,9 +2081,6 @@ function TotalLine({ label, value, bold = false }) {
   )
 }
 
-// ============================================================
-// MONTHLY SECTION
-// ============================================================
 function monthKeyFromDate(iso) {
   if (!iso) return null
   const s = String(iso).slice(0, 10)
@@ -2133,7 +2111,7 @@ function MonthlySection({
   useEffect(() => {
     setSelectedCalendarId(null)
     setListTab('bookings')
-  }, [contract.id])
+  }, [contract.id, selectedMonth])
 
   const monthOccupancy = useMemo(() => {
     if (!statement) return null
@@ -2251,7 +2229,7 @@ function MonthlySection({
             initial="hidden"
             animate="visible"
             variants={{ hidden: {}, visible: { transition: { staggerChildren: 0.05 } } }}
-            className="grid grid-cols-2 lg:grid-cols-4 gap-3"
+            className="grid grid-cols-2 lg:grid-cols-4 gap-3 pt-1 pb-2"
           >
             <MiniStat label="Gross Revenue" value={statement.grossRevenue} />
             <MiniStat label="Total Expenses" value={statement.totalExpenses} />
@@ -2284,7 +2262,7 @@ function MonthlySection({
                 initial={{ opacity: 0, y: 8 }}
                 animate={{ opacity: 1, y: 0 }}
                 transition={{ duration: 0.3 }}
-                className="rounded-md bg-card border border-border p-4 flex flex-col justify-between"
+                className="rounded-md bg-card border border-border shadow-sm p-4 flex flex-col justify-between"
               >
                 <div className="flex items-center gap-2 mb-2">
                   <Home size={14} className="text-muted-foreground" />
@@ -2304,7 +2282,7 @@ function MonthlySection({
                 initial={{ opacity: 0, y: 8 }}
                 animate={{ opacity: 1, y: 0 }}
                 transition={{ duration: 0.3, delay: 0.05 }}
-                className="rounded-md bg-card border border-border p-4 flex flex-col justify-between"
+                className="rounded-md bg-card border border-border shadow-sm p-4 flex flex-col justify-between"
               >
                 <div className="flex items-center gap-2 mb-2">
                   <Sparkles size={14} className="text-muted-foreground" />
@@ -2474,7 +2452,7 @@ function MonthlySection({
                 animate={{ opacity: 1, y: 0 }}
                 exit={{ opacity: 0, y: 8 }}
                 transition={{ duration: 0.2 }}
-                className="rounded-md bg-card border border-border p-3"
+                className="rounded-md bg-card border border-border shadow-sm p-3"
               >
                 <div className="flex items-center justify-between gap-2 mb-2">
                   <div className="min-w-0">
@@ -2533,7 +2511,7 @@ function MonthlySection({
                 animate={{ opacity: 1, y: 0 }}
                 exit={{ opacity: 0, y: 8 }}
                 transition={{ duration: 0.2 }}
-                className="rounded-md bg-card border border-border p-3"
+                className="rounded-md bg-card border border-border shadow-sm p-3"
               >
                 <div className="flex items-center justify-between gap-2 mb-2">
                   <div className="min-w-0">
@@ -2591,7 +2569,7 @@ function MiniStat({ label, value }) {
   return (
     <motion.div
       variants={{ hidden: { opacity: 0, y: 8 }, visible: { opacity: 1, y: 0, transition: { duration: 0.3 } } }}
-      className="rounded-md bg-card border border-border p-3"
+      className="rounded-md bg-card border border-border shadow-sm p-3"
     >
       <p className="text-[11px] font-semibold text-foreground mb-1 truncate">{label}</p>
       <p className="text-base font-bold tabular-nums text-foreground truncate">{formatMoney(value)}</p>
@@ -2603,7 +2581,7 @@ function MiniSplitStat({ label, owner, company }) {
   return (
     <motion.div
       variants={{ hidden: { opacity: 0, y: 8 }, visible: { opacity: 1, y: 0, transition: { duration: 0.3 } } }}
-      className="rounded-md bg-card border border-border p-3"
+      className="rounded-md bg-card border border-border shadow-sm p-3"
     >
       <p className="text-[11px] font-semibold text-foreground mb-1">{label}</p>
       <div className="space-y-0.5">
@@ -2620,9 +2598,6 @@ function MiniSplitStat({ label, owner, company }) {
   )
 }
 
-// ============================================================
-// CONTRACT DETAIL — MEMOIZED
-// ============================================================
 const ContractDetail = memo(function ContractDetail({ contract, onBack, onChanged }) {
   const [bookings, setBookings] = useState([])
   const [cleanings, setCleanings] = useState([])
@@ -2669,19 +2644,29 @@ const ContractDetail = memo(function ContractDetail({ contract, onBack, onChange
 
   useEffect(() => {
     if (!contractUnitId) return
+
+    let timer = null
+    const schedule = () => {
+      if (timer) clearTimeout(timer)
+      timer = setTimeout(() => fetchDetailData(), DETAIL_REFRESH_DEBOUNCE_MS)
+    }
+
     const ch = supabase
       .channel(`contract-detail-${contractId}-${Math.random().toString(36).slice(2, 8)}`)
       .on('postgres_changes',
         { event: '*', schema: 'public', table: 'bookings', filter: `unit_id=eq.${contractUnitId}` },
-        () => fetchDetailData())
+        schedule)
       .on('postgres_changes',
         { event: '*', schema: 'public', table: 'cleanings', filter: `unit_id=eq.${contractUnitId}` },
-        () => fetchDetailData())
+        schedule)
       .on('postgres_changes',
         { event: '*', schema: 'public', table: 'contract_monthly_expenses', filter: `contract_id=eq.${contractId}` },
-        () => fetchDetailData())
+        schedule)
       .subscribe()
-    return () => { supabase.removeChannel(ch) }
+    return () => {
+      if (timer) clearTimeout(timer)
+      supabase.removeChannel(ch)
+    }
   }, [contractId, contractUnitId, fetchDetailData])
 
   const effectiveDate = useMemo(() => contract.effective_date || null, [contract.effective_date])
@@ -2781,7 +2766,9 @@ const ContractDetail = memo(function ContractDetail({ contract, onBack, onChange
   }, [statements])
 
   const [selectedMonth, setSelectedMonth] = useState(defaultMonth)
-  useEffect(() => { setSelectedMonth(defaultMonth) }, [defaultMonth])
+  useEffect(() => {
+    if (!selectedMonth && defaultMonth) setSelectedMonth(defaultMonth)
+  }, [defaultMonth, selectedMonth])
 
   const monthSectionRef = useRef(null)
   const shouldScrollRef = useRef(false)
@@ -2808,12 +2795,16 @@ const ContractDetail = memo(function ContractDetail({ contract, onBack, onChange
   }, [fetchDetailData, onChanged])
 
   useEffect(() => () => {
-    if (parentRefreshTimer.current) clearTimeout(parentRefreshTimer.current)
-  }, [])
+    if (parentRefreshTimer.current) {
+      clearTimeout(parentRefreshTimer.current)
+      parentRefreshTimer.current = null
+      onChanged?.()
+    }
+  }, [onChanged])
 
   if ((loading || statementsLoading) && statements.length === 0) {
     return (
-      <div className="h-full flex flex-col lg:flex-row min-h-0 bg-card border border-border rounded-md overflow-hidden">
+      <div className="h-full flex flex-col lg:flex-row min-h-0 bg-card border border-border shadow-sm rounded-md overflow-hidden">
         <ContractSidebar contract={contract} onBack={onBack} />
         <div className="flex-1 min-h-0 flex items-center justify-center">
           <Loader2 size={28} className="animate-spin text-primary" />
@@ -2823,7 +2814,7 @@ const ContractDetail = memo(function ContractDetail({ contract, onBack, onChange
   }
 
   return (
-    <div className="h-full flex flex-col lg:flex-row min-h-0 bg-card border border-border rounded-md overflow-hidden">
+    <div className="h-full flex flex-col lg:flex-row min-h-0 bg-card border border-border shadow-sm rounded-md overflow-hidden">
       <ContractSidebar contract={contract} onBack={onBack} />
 
       <div className="flex-1 min-h-0 overflow-y-auto p-4 space-y-5">
@@ -2871,9 +2862,6 @@ const ContractDetail = memo(function ContractDetail({ contract, onBack, onChange
   )
 })
 
-// ============================================================
-// PAGINATION
-// ============================================================
 function Pagination({ page, totalPages, onPageChange }) {
   if (totalPages <= 1) return null
 
@@ -2957,10 +2945,7 @@ function Pagination({ page, totalPages, onPageChange }) {
   )
 }
 
-// ============================================================
-// ANALYTICS PANELS
-// ============================================================
-function MultiMetricChart({
+const MultiMetricChart = memo(function MultiMetricChart({
   title,
   icon: Icon,
   data,
@@ -2983,68 +2968,70 @@ function MultiMetricChart({
         {Icon && <Icon size={13} className="text-foreground flex-shrink-0" />}
         <h3 className="text-[11px] font-semibold uppercase tracking-wider text-foreground truncate">{title}</h3>
       </div>
-      <div className="rounded-md bg-card border border-border overflow-hidden flex-1 min-h-0">
+      <div className="rounded-md bg-card border border-border shadow-sm overflow-hidden flex-1 min-h-0">
         <div className="h-[260px] p-3">
           {loading ? (
             <div className="h-full w-full rounded bg-muted/50 animate-pulse" />
           ) : chartData.length === 0 ? (
             <div className="h-full flex items-center justify-center text-xs text-muted-foreground italic">No data</div>
           ) : (
-            <ResponsiveContainer width="100%" height="100%">
-              <AreaChart data={chartData} margin={{ top: 6, right: 6, left: -12, bottom: 0 }}>
-                <defs>
-                  <linearGradient id={gradientId} x1="0" y1="0" x2="0" y2="1">
-                    <stop offset="0%" stopColor={BRAND} stopOpacity={0.4} />
-                    <stop offset="60%" stopColor={BRAND} stopOpacity={0.12} />
-                    <stop offset="100%" stopColor={BRAND} stopOpacity={0} />
-                  </linearGradient>
-                </defs>
-                <CartesianGrid strokeDasharray="3 3" stroke="currentColor" strokeOpacity={0.1} vertical={false} />
-                <XAxis dataKey="label" tick={{ fontSize: 10 }} stroke="currentColor" strokeOpacity={0.4} tickLine={false} axisLine={false} />
-                <YAxis
-                  tick={{ fontSize: 10 }}
-                  tickFormatter={formatMoneyCompact}
-                  stroke="currentColor"
-                  strokeOpacity={0.4}
-                  tickLine={false}
-                  axisLine={false}
-                  width={56}
-                />
-                <Tooltip content={<ChartTooltip />} cursor={{ stroke: BRAND, strokeOpacity: 0.2 }} />
-                <Area
-                  type="monotone"
-                  dataKey={solidKey}
-                  stroke={BRAND}
-                  strokeWidth={2.5}
-                  fill={`url(#${gradientId})`}
-                  dot={false}
-                  activeDot={{ r: 4, fill: BRAND }}
-                  animationDuration={700}
-                />
-                {secondaryKeys.map((k) => (
-                  <Area
-                    key={k}
-                    type="monotone"
-                    dataKey={k}
-                    stroke={BRAND}
-                    strokeWidth={1.5}
-                    strokeDasharray="4 4"
-                    strokeOpacity={0.55}
-                    fill="transparent"
-                    fillOpacity={0}
-                    dot={false}
-                    activeDot={false}
-                    animationDuration={700}
+            <LazyChart minHeight={236}>
+              <ResponsiveContainer width="100%" height={236} debounce={100}>
+                <AreaChart data={chartData} margin={{ top: 6, right: 6, left: -12, bottom: 0 }}>
+                  <defs>
+                    <linearGradient id={gradientId} x1="0" y1="0" x2="0" y2="1">
+                      <stop offset="0%" stopColor={BRAND} stopOpacity={0.4} />
+                      <stop offset="60%" stopColor={BRAND} stopOpacity={0.12} />
+                      <stop offset="100%" stopColor={BRAND} stopOpacity={0} />
+                    </linearGradient>
+                  </defs>
+                  <CartesianGrid strokeDasharray="3 3" stroke="currentColor" strokeOpacity={0.1} vertical={false} />
+                  <XAxis dataKey="label" tick={{ fontSize: 10 }} stroke="currentColor" strokeOpacity={0.4} tickLine={false} axisLine={false} />
+                  <YAxis
+                    tick={{ fontSize: 10 }}
+                    tickFormatter={formatMoneyCompact}
+                    stroke="currentColor"
+                    strokeOpacity={0.4}
+                    tickLine={false}
+                    axisLine={false}
+                    width={56}
                   />
-                ))}
-              </AreaChart>
-            </ResponsiveContainer>
+                  <Tooltip content={<ChartTooltip />} animationDuration={0} cursor={{ stroke: BRAND, strokeOpacity: 0.2 }} />
+                  <Area
+                    type="monotone"
+                    dataKey={solidKey}
+                    stroke={BRAND}
+                    strokeWidth={2.5}
+                    fill={`url(#${gradientId})`}
+                    dot={false}
+                    activeDot={{ r: 4, fill: BRAND }}
+                    isAnimationActive={false}
+                  />
+                  {secondaryKeys.map((k) => (
+                    <Area
+                      key={k}
+                      type="monotone"
+                      dataKey={k}
+                      stroke={BRAND}
+                      strokeWidth={1.5}
+                      strokeDasharray="4 4"
+                      strokeOpacity={0.55}
+                      fill="transparent"
+                      fillOpacity={0}
+                      dot={false}
+                      activeDot={false}
+                      isAnimationActive={false}
+                    />
+                  ))}
+                </AreaChart>
+              </ResponsiveContainer>
+            </LazyChart>
           )}
         </div>
       </div>
     </section>
   )
-}
+})
 
 function AccountingAnalyticsPanels({ data, loading, collapsed, error, onRetry }) {
   return (
@@ -3063,7 +3050,7 @@ function AccountingAnalyticsPanels({ data, loading, collapsed, error, onRetry })
           </Button>
         </div>
       )}
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 pt-1 pb-2">
         <MultiMetricChart title="Gross"    icon={TrendingUp} data={data} loading={loading} solidKey="gross"    secondaryKeys={['expenses', 'net']} />
         <MultiMetricChart title="Expenses" icon={Wallet}     data={data} loading={loading} solidKey="expenses" secondaryKeys={['gross', 'net']} />
         <MultiMetricChart title="Net"      icon={TrendingUp} data={data} loading={loading} solidKey="net"      secondaryKeys={['gross', 'expenses']} />
@@ -3072,9 +3059,6 @@ function AccountingAnalyticsPanels({ data, loading, collapsed, error, onRetry })
   )
 }
 
-// ============================================================
-// LIST PAGE
-// ============================================================
 function ContractList({
   contracts,
   lifetimeMap,
@@ -3230,7 +3214,7 @@ function ContractList({
           </div>
         </div>
 
-        <div className="flex-shrink-0">
+        <div className="flex-shrink-0 pt-1 pb-2">
           <SummaryCards totals={yearTotals} />
         </div>
 
@@ -3277,7 +3261,7 @@ function ContractList({
           </span>
         </div>
 
-        <div className="flex-shrink-0 rounded border border-border overflow-hidden flex flex-col bg-card h-[420px]">
+        <div className="flex-shrink-0 rounded border border-border shadow-sm overflow-hidden flex flex-col bg-card h-[420px]">
           <div className="flex-1 min-h-0 overflow-y-auto" style={{ scrollbarGutter: 'stable' }}>
             <div className={cn('sticky top-0 z-10 px-4 py-2 border-b border-border bg-card', ROW_GRID)}>
               <span className="text-[11px] font-bold text-foreground truncate">Unit</span>
@@ -3317,9 +3301,6 @@ function ContractList({
   )
 }
 
-// ============================================================
-// MAIN PAGE
-// ============================================================
 export default function AccountingPage() {
   const [selectedContractId, setSelectedContractId] = useState(null)
 

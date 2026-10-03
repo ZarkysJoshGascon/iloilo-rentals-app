@@ -6,6 +6,7 @@ import {
   Plus, RefreshCw, Search, X, Trash2,
   Building2, CheckCircle2, Clock, AlertTriangle, Calendar as CalendarIcon, User, Wallet,
   Edit2, Lock, LogIn, LogOut, ChevronLeft, ChevronRight,
+  Mail,
 } from 'lucide-react'
 import toast from 'react-hot-toast'
 import { Button } from '@/components/ui/button'
@@ -32,6 +33,8 @@ import {
   computeCommissionAtRate,
   fetchAffiliateCounts, fetchAffiliateCompletedCount,
 } from '@/lib/commissions'
+import { sendBookingConfirmation } from '@/lib/email'
+import BookingConfirmationModal from './BookingConfirmationModal'
 
 const BRAND = '#2d568e'
 
@@ -65,9 +68,6 @@ function isoAddDays(iso, n) {
   return d.toISOString().slice(0, 10)
 }
 
-// ============================================================
-// TIME HELPERS
-// ============================================================
 function timeAgo(iso) {
   if (!iso) return null
   const then = new Date(iso).getTime()
@@ -87,17 +87,6 @@ function timeAgo(iso) {
   return `${years}y ago`
 }
 
-// ============================================================
-// CLEANING SYNC HELPER
-// ============================================================
-/**
- * When a booking's check_out changes, move any linked cleanings that are
- * still editable (status 'scheduled' or 'ready') to the new check-out date,
- * and recompute the type (basic vs deep) based on the new stay length.
- *
- * Silently skips cleanings that are submitted, completed, or cancelled.
- * Logs an audit entry per cleaning change.
- */
 async function syncLinkedCleanings({ bookingId, newCheckIn, newCheckOut, bookingCode }) {
   if (!bookingId || !newCheckOut) return { updated: 0, failed: 0 }
 
@@ -156,9 +145,6 @@ async function syncLinkedCleanings({ bookingId, newCheckIn, newCheckOut, booking
   }
 }
 
-// ============================================================
-// CONTRACT HELPERS
-// ============================================================
 function findGoverningContract(unit, contracts) {
   if (!unit) return null
   const todayStr = todayISO()
@@ -280,9 +266,6 @@ function PaymentStatusBadge({ status }) {
   return <span className={cn('text-[11px] font-semibold', config.className)}>{config.label}</span>
 }
 
-// ============================================================
-// INLINE DATE PICKER WITH OCCUPANCY MARKS
-// ============================================================
 function DateFieldPicker({
   value, onChange, placeholder,
   bookings = [],
@@ -408,19 +391,11 @@ function DateFieldPicker({
             className="absolute z-30 mt-1 w-[268px] rounded-lg border border-border bg-popover shadow-lg p-3"
           >
             <div className="flex items-center justify-between mb-2">
-              <button
-                type="button"
-                onClick={goPrevMonth}
-                className="p-1 rounded hover:bg-muted text-muted-foreground"
-              >
+              <button type="button" onClick={goPrevMonth} className="p-1 rounded hover:bg-muted text-muted-foreground">
                 <ChevronLeft size={13} />
               </button>
               <span className="text-xs font-bold text-foreground">{monthLabel}</span>
-              <button
-                type="button"
-                onClick={goNextMonth}
-                className="p-1 rounded hover:bg-muted text-muted-foreground"
-              >
+              <button type="button" onClick={goNextMonth} className="p-1 rounded hover:bg-muted text-muted-foreground">
                 <ChevronRight size={13} />
               </button>
             </div>
@@ -495,9 +470,6 @@ function DateFieldPicker({
   )
 }
 
-// ============================================================
-// SUMMARY CARDS
-// ============================================================
 function SummaryCards({ bookings }) {
   const stats = useMemo(() => {
     let upcoming = 0, active = 0, finished = 0
@@ -521,7 +493,7 @@ function SummaryCards({ bookings }) {
     <div className="grid grid-cols-2 md:grid-cols-2 lg:grid-cols-4 gap-3">
       {cards.map((card, i) => (
         <motion.div key={card.label} initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: i * 0.05, duration: 0.25 }}
-          className="rounded-md bg-card border border-border p-4">
+          className="rounded-md bg-card border border-border shadow-sm p-4">
           <div className="flex items-center gap-2 mb-2">
             <card.icon size={15} className="text-foreground" />
             <span className="text-[11px] font-semibold uppercase tracking-wider text-foreground">{card.label}</span>
@@ -586,7 +558,7 @@ function TodayPanel({ title, icon: Icon, rows, loading, empty, onRowClick }) {
         )}
       </div>
 
-      <div className="rounded-md bg-card border border-border overflow-hidden flex-1 min-h-0">
+      <div className="rounded-md bg-card border border-border shadow-sm overflow-hidden flex-1 min-h-0">
         <div className="max-h-[180px] overflow-y-auto">
           {loading ? (
             <div className="p-3 space-y-2">
@@ -802,14 +774,17 @@ function DetailSection({ title, children }) {
   return (
     <div>
       <h4 className="text-[10px] font-bold uppercase tracking-wider text-foreground mb-2 px-0.5">{title}</h4>
-      <div className="rounded-md bg-card border border-border overflow-hidden">
+      <div className="rounded-md bg-card border border-border shadow-sm overflow-hidden">
         {children}
       </div>
     </div>
   )
 }
 
-function BookingDetailPanel({ booking, contracts, onBookingChange, onClose, onAddPayment, onExtend, onComplete, onEdit, onDelete }) {
+function BookingDetailPanel({
+  booking, contracts, onBookingChange, onClose,
+  onAddPayment, onExtend, onComplete, onEdit, onDelete, onEmail,
+}) {
   const status = deriveBookingStatus(booking)
   const isCompleted = status === 'completed'
   const isPaid = booking.payment_status === 'paid'
@@ -845,7 +820,7 @@ function BookingDetailPanel({ booking, contracts, onBookingChange, onClose, onAd
       className="h-full flex-shrink-0 p-3"
       style={{ maxWidth: '100%', width: PANEL_WIDTH + 24 }}
     >
-      <div className="h-full rounded-md border border-border bg-card overflow-y-auto flex flex-col">
+      <div className="h-full rounded-md border border-border bg-card shadow-lg overflow-y-auto flex flex-col">
 
         <div className="px-5 py-4 border-b border-border flex-shrink-0">
           <div className="flex items-start gap-3">
@@ -861,11 +836,27 @@ function BookingDetailPanel({ booking, contracts, onBookingChange, onClose, onAd
             <button onClick={onClose} className="p-1 rounded hover:bg-muted text-foreground flex-shrink-0"><X size={16} /></button>
           </div>
 
-          <div className="flex items-center gap-2 mt-3">
+          <div className="flex items-center gap-2 mt-3 flex-wrap">
+            <Button
+              variant="outline"
+              size="sm"
+              className="h-7 rounded text-[11px] gap-1.5 text-white hover:opacity-90"
+              style={{ backgroundColor: BRAND }}
+              onClick={onEmail}
+              disabled={!booking.guest_email}
+              title={booking.guest_email ? 'Send booking confirmation' : 'No email on file'}
+            >
+              <Mail size={11} /> Email Confirmation
+            </Button>
             <Button variant="outline" size="sm" className="h-7 rounded text-[11px] gap-1.5" onClick={onEdit}>
               <Edit2 size={11} /> Edit
             </Button>
-            <Button variant="outline" size="sm" className="h-7 rounded text-[11px] gap-1.5 text-red-600 border-red-200 hover:bg-red-50 dark:text-red-400 dark:border-red-800 dark:hover:bg-red-900/20" onClick={onDelete}>
+            <Button
+              variant="outline"
+              size="sm"
+              className="h-7 rounded text-[11px] gap-1.5 text-red-600 border-red-200 hover:bg-red-50 dark:text-red-400 dark:border-red-800 dark:hover:bg-red-900/20"
+              onClick={onDelete}
+            >
               <Trash2 size={11} /> Delete
             </Button>
           </div>
@@ -910,9 +901,7 @@ function BookingDetailPanel({ booking, contracts, onBookingChange, onClose, onAd
               <div className="flex items-center gap-2 py-0.5">
                 <span className="text-[10px] uppercase tracking-wider text-foreground font-semibold min-w-[72px]">Booked</span>
                 <span className="text-xs tabular-nums text-foreground">
-                  {booking.created_at
-                    ? `${formatDate(booking.created_at)} · ${bookedAgo || ''}`
-                    : '—'}
+                  {booking.created_at ? `${formatDate(booking.created_at)} · ${bookedAgo || ''}` : '—'}
                 </span>
               </div>
               <div className="flex items-center gap-2 py-0.5">
@@ -1214,6 +1203,7 @@ function BookingFormModal({ open, onClose, onSaved, units, editing, specialists,
   const [form, setForm] = useState(emptyForm())
   const [saving, setSaving] = useState(false)
   const [liveAffiliateCount, setLiveAffiliateCount] = useState(null)
+  const [sendEmail, setSendEmail] = useState(true)
 
   useEffect(() => {
     if (!open) return
@@ -1240,6 +1230,7 @@ function BookingFormModal({ open, onClose, onSaved, units, editing, specialists,
       setForm(emptyForm())
     }
     setLiveAffiliateCount(null)
+    setSendEmail(true)
   }, [open, editing])
 
   const setField = (k, v) => setForm((p) => ({ ...p, [k]: v }))
@@ -1445,7 +1436,6 @@ function BookingFormModal({ open, onClose, onSaved, units, editing, specialists,
           affiliate_commission: finalAffiliateComm,
         }).catch(() => {})
 
-        // Sync linked cleanings if the check-out date moved
         if (checkOutChanged) {
           const sync = await syncLinkedCleanings({
             bookingId: editing.id,
@@ -1468,7 +1458,19 @@ function BookingFormModal({ open, onClose, onSaved, units, editing, specialists,
         savedBookingId = inserted?.id
         savedBookingCode = inserted?.booking_code
         logAudit('CREATE_BOOKING', 'bookings', savedBookingId, { booking_code: savedBookingCode }).catch(() => {})
-        toast.success('Booking created')
+
+        // Optionally send the confirmation email right after creating
+        if (sendEmail && guestEmail) {
+          try {
+            await sendBookingConfirmation(savedBookingId)
+            toast.success('Booking created · Confirmation email sent')
+          } catch (emailErr) {
+            console.error('Auto-send email failed:', emailErr)
+            toast.error(`Booking created, but email failed: ${emailErr?.message || 'unknown error'}`)
+          }
+        } else {
+          toast.success('Booking created')
+        }
       }
 
       onSaved()
@@ -1632,6 +1634,26 @@ function BookingFormModal({ open, onClose, onSaved, units, editing, specialists,
                   {willBePaid ? <span className="font-semibold text-emerald-600 dark:text-emerald-400">Fully Paid</span> : willBePartial ? <><span className="font-semibold text-amber-600 dark:text-amber-400">Partial</span><span className="text-foreground"> — remaining {formatMoney(remaining)}</span></> : null}
                 </p>
               )}
+            </section>
+          )}
+
+          {!editing && (
+            <section>
+              <label className="flex items-start gap-3 p-3 rounded-md border border-border bg-muted/30 cursor-pointer hover:bg-muted/40 transition-colors">
+                <input
+                  type="checkbox"
+                  checked={sendEmail}
+                  onChange={(e) => setSendEmail(e.target.checked)}
+                  className="mt-0.5 rounded border-border"
+                />
+                <div className="min-w-0">
+                  <p className="text-xs font-semibold text-foreground">Send booking confirmation email</p>
+                  <p className="text-[10px] text-muted-foreground mt-0.5">
+                    After the booking is created, the guest will receive a confirmation email with their stay details.
+                    You can also send it later from the booking panel.
+                  </p>
+                </div>
+              </label>
             </section>
           )}
 
@@ -1902,6 +1924,14 @@ function ExtendStayModal({ open, onClose, booking, onSaved, contracts }) {
     if (addPayment) {
       payAmt = sanitizeMoney(payAmount)
       if (!payAmt || payAmt <= 0) { toast.error('Enter a valid extension payment amount'); return }
+
+      const alreadyPaid = Number(booking.amount_paid || 0)
+      if (alreadyPaid + payAmt > total) {
+        const maxExtra = Math.max(0, total - alreadyPaid)
+        toast.error(`Payment would overpay. Max extra: ${formatMoney(maxExtra)}`)
+        return
+      }
+
       payMethodClean = sanitizeText(payMethod, { max: 60 })
       payRefClean = sanitizeText(payReference, { max: 100 })
       payDateClean = sanitizeDateOnly(payDate) || new Date().toISOString().slice(0, 10)
@@ -1945,7 +1975,6 @@ function ExtendStayModal({ open, onClose, booking, onSaved, contracts }) {
         affiliate_rate_inferred: affiliateRateWasInferred,
       }).catch(() => {})
 
-      // Sync linked cleanings to the new check-out date
       const sync = await syncLinkedCleanings({
         bookingId: booking.id,
         newCheckIn: booking.check_in,
@@ -2154,6 +2183,7 @@ export default function BookingsPage() {
   const [payForBooking, setPayForBooking] = useState(null)
   const [extendForBooking, setExtendForBooking] = useState(null)
   const [completeForBooking, setCompleteForBooking] = useState(null)
+  const [confirmForBooking, setConfirmForBooking] = useState(null)
 
   const headerRef = useRef(null)
   const hasLoadedOnce = useRef(false)
@@ -2175,7 +2205,7 @@ export default function BookingsPage() {
     else setIsRefreshing(true)
     try {
       const [bRes, uRes, sRes, aRes, cRes] = await Promise.all([
-        supabase.from('bookings').select('*, units:unit_id ( id, unit_code, building )').is('deleted_at', null).order('check_in', { ascending: false }),
+        supabase.from('bookings').select('*, units:unit_id ( id, unit_code, building )').is('deleted_at', null).order('check_in', { ascending: false }).limit(500),
         supabase.from('units').select('id, unit_code, building, status, current_contract_id').order('unit_code'),
         supabase.from('specialists').select('id, code, name').order('name'),
         supabase.from('affiliates').select('id, code, name').order('name'),
@@ -2260,6 +2290,22 @@ export default function BookingsPage() {
     [bookings, todayISOStr],
   )
 
+  const needsCompletion = useMemo(
+    () => bookings.filter((b) => deriveBookingStatus(b) === 'needs-action'),
+    [bookings],
+  )
+  const endingSoon = useMemo(
+    () => bookings.filter((b) => {
+      const t = today()
+      const twoDays = new Date(t); twoDays.setDate(twoDays.getDate() + 2)
+      if (b.completed_at) return false
+      if (b.payment_status === 'paid') return false
+      const co = parseDateOnly(b.check_out)
+      return co >= t && co <= twoDays
+    }),
+    [bookings],
+  )
+
   const filtered = useMemo(() => {
     const q = debouncedSearch.trim().toLowerCase()
     return bookings.filter((b) => {
@@ -2294,10 +2340,6 @@ export default function BookingsPage() {
     if (filtered.length === 0) { toast.error('Nothing to export'); return }
     downloadCSV(filtered, `bookings_${new Date().toISOString().slice(0, 10)}.csv`)
     toast.success('Exported')
-  }
-
-  const handleBookingChange = (updated) => {
-    setBookings((prev) => prev.map((b) => (b.id === updated.id ? { ...b, ...updated } : b)))
   }
 
   const handleSelect = (booking) => setSelectedId((prev) => (prev === booking.id ? null : booking.id))
@@ -2356,11 +2398,11 @@ export default function BookingsPage() {
     <div className="h-full flex min-h-0">
       <div className="flex-1 min-h-0 flex flex-col p-3 gap-3">
 
-        <div className={cn('flex-shrink-0 transition-all duration-300 ease-out overflow-hidden', cardsHidden ? 'max-h-0 opacity-0 -mb-3' : 'max-h-40 opacity-100')}>
+        <div className={cn('flex-shrink-0 pt-1 pb-2 transition-all duration-300 ease-out overflow-hidden', cardsHidden ? 'max-h-0 opacity-0 -mb-3' : 'max-h-40 opacity-100')}>
           <SummaryCards bookings={bookings} />
         </div>
 
-        <div className={cn('flex-shrink-0 grid grid-cols-1 lg:grid-cols-2 gap-4 transition-all duration-300 ease-out overflow-hidden', cardsHidden ? 'max-h-0 opacity-0 -mb-3' : 'max-h-60 opacity-100')}>
+        <div className={cn('flex-shrink-0 grid grid-cols-1 lg:grid-cols-2 gap-4 pt-1 pb-2 transition-all duration-300 ease-out overflow-hidden', cardsHidden ? 'max-h-0 opacity-0 -mb-3' : 'max-h-60 opacity-100')}>
           <TodayPanel
             title="Check-ins today"
             icon={LogIn}
@@ -2399,20 +2441,13 @@ export default function BookingsPage() {
         <div className="flex-shrink-0 flex items-center justify-between gap-3 flex-wrap">
           <StatusPills statusFilter={statusFilter} onStatusFilter={setStatusFilter} counts={counts} />
           <WarningsStrip
-            needsCompletion={bookings.filter((b) => deriveBookingStatus(b) === 'needs-action')}
-            endingSoon={bookings.filter((b) => {
-              const t = today()
-              const twoDays = new Date(t); twoDays.setDate(twoDays.getDate() + 2)
-              if (b.completed_at) return false
-              if (b.payment_status === 'paid') return false
-              const co = parseDateOnly(b.check_out)
-              return co >= t && co <= twoDays
-            })}
+            needsCompletion={needsCompletion}
+            endingSoon={endingSoon}
             onSelect={(b) => setSelectedId(b.id)}
           />
         </div>
 
-        <div className="flex-1 min-h-0 rounded border border-border overflow-hidden bg-card">
+        <div className="flex-1 min-h-0 rounded border border-border shadow-sm overflow-hidden bg-card">
           <div className="h-full overflow-y-auto" style={{ scrollbarGutter: 'stable' }}
             onMouseMove={handleListMouseMove} onMouseLeave={handleListMouseLeave}>
             <div className={cn('sticky top-0 z-10 px-4 py-2 border-b border-border bg-card', ROW_GRID)}>
@@ -2456,13 +2491,14 @@ export default function BookingsPage() {
             key={selected.id}
             booking={selected}
             contracts={contracts}
-            onBookingChange={handleBookingChange}
+            onBookingChange={() => {}}
             onClose={() => setSelectedId(null)}
             onAddPayment={() => setPayForBooking(selected)}
             onExtend={() => setExtendForBooking(selected)}
             onComplete={() => setCompleteForBooking(selected)}
             onEdit={() => openEdit(selected)}
             onDelete={() => handleDelete(selected)}
+            onEmail={() => setConfirmForBooking(selected)}
           />
         )}
       </AnimatePresence>
@@ -2483,6 +2519,12 @@ export default function BookingsPage() {
       <AddPaymentModal open={!!payForBooking} onClose={() => setPayForBooking(null)} booking={payForBooking} onSaved={fetchData} />
       <ExtendStayModal open={!!extendForBooking} onClose={() => setExtendForBooking(null)} booking={extendForBooking} onSaved={fetchData} contracts={contracts} />
       <CompleteConfirmModal open={!!completeForBooking} onClose={() => setCompleteForBooking(null)} booking={completeForBooking} onConfirmed={fetchData} />
+      <BookingConfirmationModal
+        open={!!confirmForBooking}
+        onClose={() => setConfirmForBooking(null)}
+        booking={confirmForBooking}
+        onSent={fetchData}
+      />
     </div>
   )
 }

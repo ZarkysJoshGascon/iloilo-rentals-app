@@ -27,9 +27,6 @@ import {
   sanitizeDateOnly,
 } from '@/lib/utils'
 
-// ============================================================
-// CONFIG
-// ============================================================
 const BRAND = '#2d568e'
 
 const DERIVED_STATUS_TEXT = {
@@ -82,9 +79,6 @@ const PANEL_WIDTH = 448
 
 const EXPIRING_SOON_DAYS = 60
 
-// ============================================================
-// HELPERS
-// ============================================================
 function normalizeOtaListings(raw) {
   if (!raw) return []
   if (Array.isArray(raw)) {
@@ -130,9 +124,6 @@ function getMissingFields(unit) {
   return { warnings, total: warnings.length }
 }
 
-// ============================================================
-// DERIVED STATUS
-// ============================================================
 function deriveUnitStatus(unit) {
   const contract = unit?.contract || null
 
@@ -193,9 +184,6 @@ function DerivedStatusText({ unit }) {
   return <span className={cn('text-[11px] font-semibold', config.className)}>{config.label}</span>
 }
 
-// ============================================================
-// AVATARS
-// ============================================================
 const AVATAR_COLORS = [
   ['bg-blue-100', 'text-blue-700', 'dark:bg-blue-900/40', 'dark:text-blue-300'],
   ['bg-emerald-100', 'text-emerald-700', 'dark:bg-emerald-900/40', 'dark:text-emerald-300'],
@@ -235,9 +223,6 @@ function UnitAvatar({ unit, size = 'md' }) {
   )
 }
 
-// ============================================================
-// SUMMARY CARDS
-// ============================================================
 function SummaryCards({ units }) {
   const stats = useMemo(() => {
     let active = 0, inactive = 0, forRenewal = 0
@@ -265,7 +250,7 @@ function SummaryCards({ units }) {
           initial={{ opacity: 0, y: 8 }}
           animate={{ opacity: 1, y: 0 }}
           transition={{ delay: i * 0.05, duration: 0.25 }}
-          className="rounded-md bg-card border border-border p-4"
+          className="rounded-md bg-card border border-border shadow-sm p-4"
         >
           <div className="flex items-center gap-2 mb-2">
             <card.icon size={15} className="text-muted-foreground" />
@@ -278,9 +263,6 @@ function SummaryCards({ units }) {
   )
 }
 
-// ============================================================
-// DETAIL SECTION
-// ============================================================
 function DetailSection({ title, action, className, children }) {
   return (
     <div className={className}>
@@ -288,16 +270,13 @@ function DetailSection({ title, action, className, children }) {
         <h4 className="text-[10px] font-bold uppercase tracking-wider text-foreground">{title}</h4>
         {action}
       </div>
-      <div className="rounded-md bg-card border border-border overflow-hidden">
+      <div className="rounded-md bg-card border border-border shadow-sm overflow-hidden">
         {children}
       </div>
     </div>
   )
 }
 
-// ============================================================
-// EDITABLE FIELD (used for non-contract unit fields)
-// ============================================================
 function EditableField({ label, value, type = 'text', options, onSave, actionHref, actionIcon: ActionIcon, actionTitle, auditTag }) {
   const [draft, setDraft] = useState(value ?? '')
   const [status, setStatus] = useState('idle')
@@ -366,9 +345,6 @@ function EditableField({ label, value, type = 'text', options, onSave, actionHre
   )
 }
 
-// ============================================================
-// UNIT PHOTO UPLOAD
-// ============================================================
 function UnitPhotoUpload({ unit, onSave }) {
   const [uploading, setUploading] = useState(false)
   const handleFile = async (e) => {
@@ -403,9 +379,6 @@ function UnitPhotoUpload({ unit, onSave }) {
   )
 }
 
-// ============================================================
-// OTA EDITOR
-// ============================================================
 function OtaEditor({ unit, onSave, channelOptions = [] }) {
   const listings = useMemo(() => normalizeOtaListings(unit.ota_listings), [unit.ota_listings])
   const [drafting, setDrafting] = useState(false)
@@ -520,9 +493,6 @@ function OtaEditor({ unit, onSave, channelOptions = [] }) {
   )
 }
 
-// ============================================================
-// WARNING CHIP + DROPDOWN
-// ============================================================
 function WarningChip({ icon: Icon, label, count, active, onClick, children }) {
   return (
     <div className="relative">
@@ -605,9 +575,6 @@ function WarningsStrip({ missingUnits, onSelectUnit }) {
   )
 }
 
-// ============================================================
-// LOG CALL MODAL
-// ============================================================
 function LogCallModal({ open, onClose, unit, onSaved }) {
   const [type, setType] = useState('call')
   const [outcome, setOutcome] = useState('positive')
@@ -678,9 +645,6 @@ function LogCallModal({ open, onClose, unit, onSaved }) {
   )
 }
 
-// ============================================================
-// INTERACTION ROW
-// ============================================================
 function InteractionRow({ record, onUpdated, onDeleted }) {
   const [editing, setEditing] = useState(false)
   const [saving, setSaving] = useState(false)
@@ -800,9 +764,6 @@ function InteractionRow({ record, onUpdated, onDeleted }) {
   )
 }
 
-// ============================================================
-// INTERACTIONS SECTION
-// ============================================================
 function InteractionsSection({ unit, onLogCall, refreshKey = 0 }) {
   const [items, setItems] = useState([])
   const [loading, setLoading] = useState(true)
@@ -847,9 +808,6 @@ function InteractionsSection({ unit, onLogCall, refreshKey = 0 }) {
   )
 }
 
-// ============================================================
-// CONTRACT SECTION — READ-ONLY VIEW (PDF opens only in Contracts page)
-// ============================================================
 function ContractSection({ unit, contract, loading, onNavigateToContracts }) {
   if (loading) {
     return (
@@ -930,9 +888,6 @@ function ContractSection({ unit, contract, loading, onNavigateToContracts }) {
   )
 }
 
-// ============================================================
-// REGISTRY DETAIL PANEL
-// ============================================================
 function RegistryDetailPanel({
   unit,
   contract,
@@ -976,7 +931,7 @@ function RegistryDetailPanel({
       className="h-full flex-shrink-0 p-3"
       style={{ maxWidth: '100%', width: PANEL_WIDTH + 24 }}
     >
-      <div className="h-full rounded-md border border-border bg-card overflow-hidden flex flex-col">
+      <div className="h-full rounded-md border border-border bg-card shadow-lg overflow-hidden flex flex-col">
         <div className="flex-shrink-0 px-5 py-4 border-b border-border">
           <div className="flex items-start gap-3">
             <UnitAvatar unit={unit} size="lg" />
@@ -1059,9 +1014,6 @@ function RegistryDetailPanel({
   )
 }
 
-// ============================================================
-// ADD UNIT MODAL
-// ============================================================
 function AddUnitModal({ open, onClose, onCreated, existingBuildings = [], channelOptions = [] }) {
   const [form, setForm] = useState({
     unit_code: '', building: '', unit_type: 'Studio',
@@ -1248,9 +1200,6 @@ function AddUnitModal({ open, onClose, onCreated, existingBuildings = [], channe
   )
 }
 
-// ============================================================
-// CSV EXPORT
-// ============================================================
 function downloadCSV(units, filename) {
   const headers = ['Building', 'Unit', 'Owner', 'Email', 'Phone', 'Type', 'Status', 'Contract Code', 'Missing Fields']
   const rows = units.map((u) => {
@@ -1269,9 +1218,6 @@ function downloadCSV(units, filename) {
   URL.revokeObjectURL(url)
 }
 
-// ============================================================
-// FILTER PANEL
-// ============================================================
 function FilterPanel({ open, onClose, building, setBuilding, dateFilter, setDateFilter, otaFilter, setOtaFilter, buildings, activeCount, onClear }) {
   const panelRef = useRef(null)
   useEffect(() => {
@@ -1328,9 +1274,6 @@ function FilterPanel({ open, onClose, building, setBuilding, dateFilter, setDate
   )
 }
 
-// ============================================================
-// STATUS PILLS
-// ============================================================
 function StatusPills({ statusFilter, onStatusFilter, counts }) {
   const containerRef = useRef(null)
   const [indicator, setIndicator] = useState({ left: 0, width: 0 })
@@ -1363,9 +1306,6 @@ function StatusPills({ statusFilter, onStatusFilter, counts }) {
   )
 }
 
-// ============================================================
-// UNIT LIST ROW
-// ============================================================
 function UnitListRow({ unit, selected, onClick }) {
   return (
     <motion.button
@@ -1397,9 +1337,6 @@ function UnitListRow({ unit, selected, onClick }) {
   )
 }
 
-// ============================================================
-// MAIN PAGE
-// ============================================================
 export default function RegistryPage() {
   const [allUnits, setAllUnits] = useState([])
   const [isFirstLoad, setIsFirstLoad] = useState(true)
@@ -1618,7 +1555,7 @@ export default function RegistryPage() {
       <div className="flex-1 min-h-0 flex flex-col overflow-hidden">
         <div className="p-3 flex-1 min-h-0 flex flex-col gap-2.5">
 
-          <div className={cn('flex-shrink-0 transition-all duration-300 ease-out overflow-hidden', cardsHidden ? 'max-h-0 opacity-0 -mb-3' : 'max-h-40 opacity-100')}>
+          <div className={cn('flex-shrink-0 pt-1 pb-2 transition-all duration-300 ease-out overflow-hidden', cardsHidden ? 'max-h-0 opacity-0 -mb-3' : 'max-h-40 opacity-100')}>
             <SummaryCards units={allUnits} />
           </div>
 
@@ -1656,7 +1593,7 @@ export default function RegistryPage() {
             <WarningsStrip missingUnits={missingUnitsList} onSelectUnit={handleSelectUnit} />
           </div>
 
-          <div className="flex-1 min-h-0 rounded border border-border overflow-hidden bg-card">
+          <div className="flex-1 min-h-0 rounded border border-border shadow-sm overflow-hidden bg-card">
             <div
               ref={listScrollRef}
               className="h-full overflow-y-auto"

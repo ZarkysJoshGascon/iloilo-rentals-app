@@ -1,44 +1,44 @@
 // src/components/admin/dashboard/DashboardPage.jsx
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { RefreshCw, ArrowRight, Inbox } from 'lucide-react'
 import {
-  RefreshCw, ArrowRight, Inbox,
-} from 'lucide-react'
-import {
-  ResponsiveContainer, BarChart, Bar, LineChart, Line,
+  ResponsiveContainer, BarChart, Bar, LineChart, Line, AreaChart, Area,
   XAxis, YAxis, Tooltip, CartesianGrid,
 } from 'recharts'
 import { supabase } from '@/lib/supabase'
 import { useDebouncedRealtime } from '@/hooks/useDebouncedRealtime'
+import { useAuth } from '@/context/AuthContext'
 import { cn } from '@/lib/utils'
 
 const NEARING_END_DAYS = 60
 const LIST_LIMIT = 8
 const ANALYTICS_MONTHS = 12
+const MY_LIST_LIMIT = 12
+
+const BRAND = '#2d568e'
 
 // ------------------------------------------------------------
-// Date helpers
+// Date / money helpers
 // ------------------------------------------------------------
 function toISODate(d) {
-  const y = d.getFullYear()
-  const m = String(d.getMonth() + 1).padStart(2, '0')
-  const day = String(d.getDate()).padStart(2, '0')
+  const y = d.getUTCFullYear()
+  const m = String(d.getUTCMonth() + 1).padStart(2, '0')
+  const day = String(d.getUTCDate()).padStart(2, '0')
   return `${y}-${m}-${day}`
 }
 function todayISO() {
-  const d = new Date(); d.setHours(0, 0, 0, 0); return toISODate(d)
+  return new Date().toISOString().slice(0, 10)
 }
 function isoDatePlusDays(days) {
-  const d = new Date(); d.setHours(0, 0, 0, 0); d.setDate(d.getDate() + days); return toISODate(d)
-}
-function formatDateShort(dateStr) {
-  if (!dateStr) return '—'
-  const dt = new Date(dateStr + 'T00:00:00Z')
-  if (Number.isNaN(dt.getTime())) return '—'
-  return dt.toLocaleDateString('en-PH', { month: 'short', day: 'numeric', timeZone: 'UTC' })
+  const d = new Date()
+  d.setUTCHours(0, 0, 0, 0)
+  d.setUTCDate(d.getUTCDate() + days)
+  return toISODate(d)
 }
 function daysUntil(dateStr) {
   if (!dateStr) return null
-  const today = new Date(); today.setHours(0, 0, 0, 0)
+  const today = new Date()
+  today.setUTCHours(0, 0, 0, 0)
   const target = new Date(dateStr + 'T00:00:00Z')
   if (Number.isNaN(target.getTime())) return null
   return Math.round((target - today) / 86400000)
@@ -53,14 +53,19 @@ function formatMoneyCompact(n) {
   if (Math.abs(v) >= 1_000) return `₱${Math.round(v / 1_000)}k`
   return `₱${Math.round(v)}`
 }
+function formatDateShort(d) {
+  if (!d) return '—'
+  const dt = new Date(d + 'T00:00:00Z')
+  if (Number.isNaN(dt.getTime())) return '—'
+  return dt.toLocaleDateString('en-PH', { month: 'short', day: 'numeric', year: '2-digit', timeZone: 'UTC' })
+}
 
 // ------------------------------------------------------------
-// Section — title OUTSIDE the card, content inside
+// Shared primitives
 // ------------------------------------------------------------
 function Section({ title, subtitle, action, children, className }) {
   return (
     <section className={cn('flex flex-col min-h-0', className)}>
-      {/* Title outside the card */}
       <div className="flex items-baseline justify-between gap-3 mb-2 px-0.5">
         <div className="min-w-0">
           <h3 className="text-[13px] font-semibold text-foreground truncate">{title}</h3>
@@ -70,9 +75,7 @@ function Section({ title, subtitle, action, children, className }) {
         </div>
         {action}
       </div>
-
-      {/* Plain card — no header strip inside */}
-      <div className="rounded-md bg-card border border-border overflow-hidden flex-1 flex flex-col min-h-0">
+      <div className="rounded-md bg-card border border-border overflow-hidden shadow-sm flex-1 flex flex-col min-h-0">
         {children}
       </div>
     </section>
@@ -132,9 +135,6 @@ function ListRow({ onClick, primary, secondary, trailing, trailingTone = 'muted'
   )
 }
 
-// ------------------------------------------------------------
-// KPI tiles — plain card, no icon, no bar
-// ------------------------------------------------------------
 function StatCard({ label, value, sub, onClick }) {
   return (
     <button
@@ -142,7 +142,7 @@ function StatCard({ label, value, sub, onClick }) {
       onClick={onClick}
       disabled={!onClick}
       className={cn(
-        'rounded-md bg-card border border-border p-4 text-left flex flex-col justify-between min-h-[104px] w-full',
+        'rounded-md bg-card border border-border shadow-sm p-4 text-left flex flex-col justify-between min-h-[104px] w-full',
         onClick ? 'cursor-pointer hover:bg-muted/40 transition-colors' : 'cursor-default',
       )}
     >
@@ -158,7 +158,7 @@ function StatCard({ label, value, sub, onClick }) {
 }
 
 // ------------------------------------------------------------
-// Charts — same idea: title outside, chart inside plain card
+// Charts
 // ------------------------------------------------------------
 function ChartTooltip({ active, payload, label }) {
   if (!active || !payload || payload.length === 0) return null
@@ -197,7 +197,7 @@ function BookingsChart({ data, loading }) {
           <XAxis dataKey="label" tick={{ fontSize: 10 }} stroke="currentColor" strokeOpacity={0.4} tickLine={false} axisLine={false} />
           <YAxis tick={{ fontSize: 10 }} stroke="currentColor" strokeOpacity={0.4} tickLine={false} axisLine={false} allowDecimals={false} />
           <Tooltip content={<ChartTooltip />} cursor={{ fill: 'rgba(45, 86, 142, 0.06)' }} />
-          <Bar dataKey="bookings" name="Bookings" fill="#2d568e" radius={[3, 3, 0, 0]} maxBarSize={26} />
+          <Bar dataKey="bookings" name="Bookings" fill={BRAND} radius={[3, 3, 0, 0]} maxBarSize={26} />
         </BarChart>
       </ResponsiveContainer>
     </div>
@@ -215,41 +215,450 @@ function OccupancyChart({ data, loading }) {
   return (
     <div className="h-[220px] w-full p-4 pt-5">
       <ResponsiveContainer width="100%" height="100%">
-        <LineChart data={chartData} margin={{ top: 4, right: 4, left: -8, bottom: 0 }}>
+        <AreaChart data={chartData} margin={{ top: 4, right: 4, left: -8, bottom: 0 }}>
+          <defs>
+            <linearGradient id="dash-occupancy-fill" x1="0" y1="0" x2="0" y2="1">
+              <stop offset="0%" stopColor={BRAND} stopOpacity={0.35} />
+              <stop offset="60%" stopColor={BRAND} stopOpacity={0.10} />
+              <stop offset="100%" stopColor={BRAND} stopOpacity={0} />
+            </linearGradient>
+          </defs>
           <CartesianGrid strokeDasharray="3 3" stroke="currentColor" strokeOpacity={0.08} vertical={false} />
           <XAxis dataKey="label" tick={{ fontSize: 10 }} stroke="currentColor" strokeOpacity={0.4} tickLine={false} axisLine={false} />
           <YAxis tick={{ fontSize: 10 }} stroke="currentColor" strokeOpacity={0.4} tickLine={false} axisLine={false}
             tickFormatter={(v) => `${v}%`} domain={[0, 100]} />
-          <Tooltip content={<ChartTooltip />} cursor={{ stroke: '#7c3aed', strokeOpacity: 0.15 }} />
-          <Line type="monotone" dataKey="occupancy_pct" name="Occupancy" stroke="#7c3aed" strokeWidth={2}
-            dot={{ r: 2.5, fill: '#7c3aed' }} activeDot={{ r: 4 }} />
-        </LineChart>
+          <Tooltip content={<ChartTooltip />} cursor={{ stroke: BRAND, strokeOpacity: 0.15 }} />
+          <Area
+            type="monotone"
+            dataKey="occupancy_pct"
+            name="Occupancy"
+            stroke={BRAND}
+            strokeWidth={2}
+            fill="url(#dash-occupancy-fill)"
+            dot={{ r: 2.5, fill: BRAND }}
+            activeDot={{ r: 4 }}
+          />
+        </AreaChart>
       </ResponsiveContainer>
     </div>
   )
 }
 
-function RevenueChart({ data, loading }) {
-  const chartData = useMemo(() => (data || []).map((r) => ({
-    label: new Date(r.month_start).toLocaleDateString('en-PH', { month: 'short', timeZone: 'UTC' }),
-    revenue: Number(r.revenue || 0),
-  })), [data])
+// Gross revenue — half gauge instead of bar chart
+function RevenueGauge({ data, loading }) {
+  const { totalRevenue, maxMonthRevenue } = useMemo(() => {
+    let total = 0
+    let max = 0
+    for (const r of (data || [])) {
+      const v = Number(r.revenue || 0)
+      total += v
+      if (v > max) max = v
+    }
+    return { totalRevenue: total, maxMonthRevenue: max }
+  }, [data])
 
-  if (loading) return <div className="h-[200px] m-4 rounded bg-muted/50 animate-pulse" />
+  const pct = maxMonthRevenue > 0 ? 1 : 0
+
+  const totalTicks = 44
+  const filledTicks = Math.round(pct * totalTicks)
+  const w = 180
+  const h = 100
+  const cx = w / 2
+  const cy = h - 2
+  const r = 66
+  const strokeW = 6
+
+  if (loading) return <div className="h-[220px] m-4 rounded bg-muted/50 animate-pulse" />
 
   return (
-    <div className="h-[220px] w-full p-4 pt-5">
-      <ResponsiveContainer width="100%" height="100%">
-        <BarChart data={chartData} margin={{ top: 4, right: 4, left: -8, bottom: 0 }}>
-          <CartesianGrid strokeDasharray="3 3" stroke="currentColor" strokeOpacity={0.08} vertical={false} />
-          <XAxis dataKey="label" tick={{ fontSize: 10 }} stroke="currentColor" strokeOpacity={0.4} tickLine={false} axisLine={false} />
-          <YAxis tick={{ fontSize: 10 }} tickFormatter={formatMoneyCompact}
-            stroke="currentColor" strokeOpacity={0.4} tickLine={false} axisLine={false} />
-          <Tooltip content={<ChartTooltip />} cursor={{ fill: 'rgba(5, 150, 105, 0.06)' }} />
-          <Bar dataKey="revenue" name="Revenue" fill="#059669" radius={[3, 3, 0, 0]} maxBarSize={26} />
-        </BarChart>
-      </ResponsiveContainer>
+    <div className="h-[220px] w-full flex flex-col items-center justify-center gap-1 p-4">
+      <div className="relative" style={{ width: w, height: h }}>
+        <svg viewBox={`0 0 ${w} ${h}`} className="w-full h-full">
+          {[...Array(totalTicks)].map((_, i) => {
+            const t = i / (totalTicks - 1)
+            const angle = 180 - t * 180
+            const rad = (angle * Math.PI) / 180
+            const x1 = cx + Math.cos(rad) * (r - strokeW / 2)
+            const y1 = cy - Math.sin(rad) * (r - strokeW / 2)
+            const x2 = cx + Math.cos(rad) * (r + strokeW / 2)
+            const y2 = cy - Math.sin(rad) * (r + strokeW / 2)
+            const active = i < filledTicks
+            return (
+              <line
+                key={i}
+                x1={x1} y1={y1} x2={x2} y2={y2}
+                stroke={active ? BRAND : '#d1d5db'}
+                strokeWidth="2"
+                strokeLinecap="round"
+              />
+            )
+          })}
+        </svg>
+        <div className="absolute inset-0 flex flex-col items-center justify-center" style={{ paddingTop: 22 }}>
+          <p className="text-xl font-bold tabular-nums text-foreground">
+            {formatMoneyCompact(totalRevenue)}
+          </p>
+          <p className="text-[10px] text-muted-foreground mt-0.5">12-month total</p>
+        </div>
+      </div>
+      <p className="text-[10px] text-muted-foreground tabular-nums mt-1">
+        Peak month: {maxMonthRevenue > 0 ? formatMoneyCompact(maxMonthRevenue) : '—'}
+      </p>
     </div>
+  )
+}
+
+// ------------------------------------------------------------
+// My Activity Panel — inline component, email-matched
+// ------------------------------------------------------------
+function MyActivityPanel() {
+  const { user } = useAuth()
+
+  const [loading, setLoading] = useState(true)
+  const [profile, setProfile] = useState({ name: null, email: null, photo_url: null })
+  const [matched, setMatched] = useState({
+    specialist: null,
+    affiliate: null,
+    housekeeper: null,
+  })
+  const [bookings, setBookings] = useState([])
+  const [cleanings, setCleanings] = useState([])
+  const [referrals, setReferrals] = useState([])
+
+  useEffect(() => {
+    if (!user?.email) {
+      setLoading(false)
+      return
+    }
+
+    let cancelled = false
+    setLoading(true)
+
+    const email = user.email.toLowerCase()
+
+    async function load() {
+      try {
+        const [specRes, affRes, hkRes] = await Promise.all([
+          supabase
+            .from('specialists')
+            .select('code, name, photo_url')
+            .ilike('email', email)
+            .maybeSingle(),
+          supabase
+            .from('affiliates')
+            .select('code, name, photo_url')
+            .ilike('email', email)
+            .maybeSingle(),
+          supabase
+            .from('housekeepers')
+            .select('id, name, photo_url')
+            .ilike('email', email)
+            .maybeSingle(),
+        ])
+
+        if (cancelled) return
+
+        const nextMatched = {
+          specialist: specRes.data || null,
+          affiliate: affRes.data || null,
+          housekeeper: hkRes.data || null,
+        }
+        setMatched(nextMatched)
+
+        setProfile({
+          name:
+            user.user_metadata?.full_name ||
+            specRes.data?.name ||
+            affRes.data?.name ||
+            hkRes.data?.name ||
+            user.email.split('@')[0],
+          email: user.email,
+          photo_url:
+            user.user_metadata?.avatar_url ||
+            specRes.data?.photo_url ||
+            affRes.data?.photo_url ||
+            hkRes.data?.photo_url ||
+            null,
+        })
+
+        const fetches = []
+
+        if (nextMatched.specialist?.code) {
+          fetches.push(
+            supabase
+              .from('bookings')
+              .select(`
+                id, booking_code, guest_name, check_in, check_out,
+                total_amount, booker_commission, payment_status, completed_at,
+                units:unit_id ( id, unit_code, building )
+              `)
+              .eq('booker_code', nextMatched.specialist.code)
+              .is('deleted_at', null)
+              .order('check_in', { ascending: false })
+              .limit(MY_LIST_LIMIT)
+              .then((r) => ({ kind: 'bookings', data: r.data || [] })),
+          )
+        }
+
+        if (nextMatched.housekeeper?.id) {
+          fetches.push(
+            supabase
+              .from('cleanings')
+              .select(`
+                id, cleaning_code, scheduled_date, status, type, payment_amount,
+                units:unit_id ( id, unit_code, building )
+              `)
+              .eq('housekeeper_id', nextMatched.housekeeper.id)
+              .order('scheduled_date', { ascending: false })
+              .limit(MY_LIST_LIMIT)
+              .then((r) => ({ kind: 'cleanings', data: r.data || [] })),
+          )
+        }
+
+        if (nextMatched.affiliate?.code) {
+          fetches.push(
+            supabase
+              .from('bookings')
+              .select(`
+                id, booking_code, guest_name, check_in, check_out,
+                total_amount, affiliate_commission, payment_status, completed_at,
+                units:unit_id ( id, unit_code, building )
+              `)
+              .eq('affiliate_code', nextMatched.affiliate.code)
+              .is('deleted_at', null)
+              .order('check_in', { ascending: false })
+              .limit(MY_LIST_LIMIT)
+              .then((r) => ({ kind: 'referrals', data: r.data || [] })),
+          )
+        }
+
+        const results = await Promise.all(fetches)
+        if (cancelled) return
+
+        for (const r of results) {
+          if (r.kind === 'bookings') setBookings(r.data)
+          else if (r.kind === 'cleanings') setCleanings(r.data)
+          else if (r.kind === 'referrals') setReferrals(r.data)
+        }
+      } catch (err) {
+        console.error('MyActivityPanel load failed:', err)
+      } finally {
+        if (!cancelled) setLoading(false)
+      }
+    }
+
+    load()
+    return () => { cancelled = true }
+  }, [user?.id, user?.email])
+
+  const rolePills = useMemo(() => {
+    const pills = []
+    if (matched.specialist) pills.push('Specialist')
+    if (matched.affiliate) pills.push('Affiliate')
+    if (matched.housekeeper) pills.push('Housekeeper')
+    return pills
+  }, [matched])
+
+  const hasAnyMatch = !!(matched.specialist || matched.affiliate || matched.housekeeper)
+
+  return (
+    <aside
+      className="flex-shrink-0 hidden lg:flex flex-col gap-3 w-[300px] xl:w-[320px] overflow-hidden"
+      style={{ maxHeight: '100%' }}
+    >
+      {/* Profile card — heavier shadow */}
+      <div className="rounded-md bg-card border border-border shadow-lg overflow-hidden flex-shrink-0">
+        <div className="p-4 flex flex-col items-center text-center">
+          {profile.photo_url ? (
+            <img
+              src={profile.photo_url}
+              alt={profile.name || ''}
+              className="w-16 h-16 rounded-full object-cover ring-2 ring-border"
+            />
+          ) : (
+            <div className="w-16 h-16 rounded-full bg-[#2d568e] flex items-center justify-center text-white text-xl font-bold">
+              {(profile.name || 'U').charAt(0).toUpperCase()}
+            </div>
+          )}
+          <p className="mt-3 text-sm font-semibold text-foreground truncate w-full">
+            {profile.name || 'User'}
+          </p>
+          <p className="text-[11px] text-muted-foreground truncate w-full">
+            {profile.email || ''}
+          </p>
+          <div className="mt-2 flex flex-wrap items-center justify-center gap-1.5">
+            <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-semibold bg-muted text-foreground">
+              Administrator
+            </span>
+            {rolePills.map((p) => (
+              <span key={p} className="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-semibold bg-muted text-foreground">
+                {p}
+              </span>
+            ))}
+          </div>
+        </div>
+      </div>
+
+      {/* Lists container — scrolls internally if too many */}
+      <div className="flex-1 min-h-0 overflow-y-auto space-y-3 pr-0.5">
+        {!hasAnyMatch && !loading && (
+          <div className="rounded-md bg-card border border-border shadow-sm px-3 py-8 flex flex-col items-center justify-center text-center">
+            <Inbox size={20} className="text-muted-foreground/40 mb-2" />
+            <p className="text-[11px] text-muted-foreground italic">No personal activity</p>
+            <p className="text-[10px] text-muted-foreground/70 mt-1 max-w-[200px]">
+              Your email isn't linked to a specialist, affiliate, or housekeeper row.
+            </p>
+          </div>
+        )}
+
+        {/* My Bookings — as booker */}
+        {matched.specialist && (
+          <div>
+            <div className="flex items-center gap-2 mb-2 px-0.5">
+              <h4 className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
+                My Bookings
+              </h4>
+              <span className="text-[11px] text-muted-foreground tabular-nums">
+                · {loading ? '…' : bookings.length}
+              </span>
+            </div>
+            <div className="rounded-md bg-card border border-border shadow-sm overflow-hidden">
+              {loading ? (
+                <div className="p-2 space-y-1.5">
+                  {[...Array(3)].map((_, i) => (
+                    <div key={i} className="h-10 rounded bg-muted animate-pulse" />
+                  ))}
+                </div>
+              ) : bookings.length === 0 ? (
+                <div className="px-3 py-6 text-center">
+                  <p className="text-[11px] text-muted-foreground italic">No bookings yet</p>
+                </div>
+              ) : (
+                bookings.map((b) => (
+                  <div key={b.id} className="px-3 py-2 border-b border-border last:border-0">
+                    <div className="flex items-center gap-2 min-w-0">
+                      <span className="text-[12px] font-semibold text-foreground truncate flex-1">
+                        {b.guest_name || '—'}
+                      </span>
+                      <span className="text-[10px] text-muted-foreground tabular-nums flex-shrink-0">
+                        {formatMoney(b.total_amount)}
+                      </span>
+                    </div>
+                    <div className="mt-0.5 flex items-center gap-2 text-[10px] text-muted-foreground min-w-0">
+                      <span className="font-mono truncate">{b.booking_code || '—'}</span>
+                      <span className="text-muted-foreground/50">·</span>
+                      <span className="truncate">{b.units?.unit_code || '—'}</span>
+                    </div>
+                    <div className="mt-0.5 text-[10px] text-muted-foreground tabular-nums">
+                      {formatDateShort(b.check_in)} → {formatDateShort(b.check_out)}
+                    </div>
+                  </div>
+                ))
+              )}
+            </div>
+          </div>
+        )}
+
+        {/* My Cleanings — as housekeeper */}
+        {matched.housekeeper && (
+          <div>
+            <div className="flex items-center gap-2 mb-2 px-0.5">
+              <h4 className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
+                My Cleanings
+              </h4>
+              <span className="text-[11px] text-muted-foreground tabular-nums">
+                · {loading ? '…' : cleanings.length}
+              </span>
+            </div>
+            <div className="rounded-md bg-card border border-border shadow-sm overflow-hidden">
+              {loading ? (
+                <div className="p-2 space-y-1.5">
+                  {[...Array(3)].map((_, i) => (
+                    <div key={i} className="h-10 rounded bg-muted animate-pulse" />
+                  ))}
+                </div>
+              ) : cleanings.length === 0 ? (
+                <div className="px-3 py-6 text-center">
+                  <p className="text-[11px] text-muted-foreground italic">No cleanings yet</p>
+                </div>
+              ) : (
+                cleanings.map((c) => (
+                  <div key={c.id} className="px-3 py-2 border-b border-border last:border-0">
+                    <div className="flex items-center gap-2 min-w-0">
+                      <span className="font-mono text-[11px] text-foreground truncate flex-1">
+                        {c.cleaning_code || '—'}
+                      </span>
+                      <span className="text-[10px] text-muted-foreground capitalize flex-shrink-0">
+                        {c.type || '—'}
+                      </span>
+                    </div>
+                    <div className="mt-0.5 flex items-center gap-2 text-[10px] text-muted-foreground min-w-0">
+                      <span className="truncate">{c.units?.unit_code || '—'}</span>
+                      <span className="text-muted-foreground/50">·</span>
+                      <span className="capitalize truncate">{c.status || '—'}</span>
+                    </div>
+                    <div className="mt-0.5 flex items-center justify-between text-[10px] text-muted-foreground">
+                      <span className="tabular-nums">{formatDateShort(c.scheduled_date)}</span>
+                      <span className="tabular-nums font-semibold text-foreground">
+                        {formatMoney(c.payment_amount || 0)}
+                      </span>
+                    </div>
+                  </div>
+                ))
+              )}
+            </div>
+          </div>
+        )}
+
+        {/* My Referrals — as affiliate */}
+        {matched.affiliate && (
+          <div>
+            <div className="flex items-center gap-2 mb-2 px-0.5">
+              <h4 className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
+                My Referrals
+              </h4>
+              <span className="text-[11px] text-muted-foreground tabular-nums">
+                · {loading ? '…' : referrals.length}
+              </span>
+            </div>
+            <div className="rounded-md bg-card border border-border shadow-sm overflow-hidden">
+              {loading ? (
+                <div className="p-2 space-y-1.5">
+                  {[...Array(3)].map((_, i) => (
+                    <div key={i} className="h-10 rounded bg-muted animate-pulse" />
+                  ))}
+                </div>
+              ) : referrals.length === 0 ? (
+                <div className="px-3 py-6 text-center">
+                  <p className="text-[11px] text-muted-foreground italic">No referrals yet</p>
+                </div>
+              ) : (
+                referrals.map((b) => (
+                  <div key={b.id} className="px-3 py-2 border-b border-border last:border-0">
+                    <div className="flex items-center gap-2 min-w-0">
+                      <span className="text-[12px] font-semibold text-foreground truncate flex-1">
+                        {b.guest_name || '—'}
+                      </span>
+                      <span className="text-[10px] text-muted-foreground tabular-nums flex-shrink-0">
+                        {formatMoney(b.affiliate_commission || 0)}
+                      </span>
+                    </div>
+                    <div className="mt-0.5 flex items-center gap-2 text-[10px] text-muted-foreground min-w-0">
+                      <span className="font-mono truncate">{b.booking_code || '—'}</span>
+                      <span className="text-muted-foreground/50">·</span>
+                      <span className="truncate">{b.units?.unit_code || '—'}</span>
+                    </div>
+                    <div className="mt-0.5 text-[10px] text-muted-foreground tabular-nums">
+                      {formatDateShort(b.check_in)} → {formatDateShort(b.check_out)}
+                    </div>
+                  </div>
+                ))
+              )}
+            </div>
+          </div>
+        )}
+      </div>
+    </aside>
   )
 }
 
@@ -430,161 +839,160 @@ export default function DashboardPage({ onNavigateTab }) {
   }
 
   return (
-    <div className="h-full overflow-y-auto">
-      <div className="max-w-[1400px] mx-auto space-y-6 pb-8">
+    <div className="h-full flex gap-4 min-h-0">
+      <MyActivityPanel />
 
-        {/* Header */}
-        <div className="flex items-start justify-between gap-3">
-          <div className="min-w-0">
-            <h1 className="text-lg font-semibold text-foreground">Operations Overview</h1>
-            <p className="text-[11px] text-muted-foreground mt-0.5">{nowLabel}</p>
-          </div>
-          <button
-            type="button"
-            onClick={() => { fetchAll(true); fetchAnalytics() }}
-            disabled={refreshing}
-            className="inline-flex items-center gap-1.5 h-8 px-3 rounded-md border border-border bg-card text-[11px] font-semibold text-foreground hover:bg-muted/40 transition-colors disabled:opacity-50 flex-shrink-0"
-          >
-            <RefreshCw size={11} className={cn(refreshing && 'animate-spin')} />
-            Refresh
-          </button>
-        </div>
+      <div className="flex-1 min-w-0 overflow-y-auto">
+        <div className="max-w-[1400px] space-y-6 pb-8">
 
-        {/* KPI tiles */}
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
-          <StatCard
-            label="Total Bookings"
-            value={stats.inHouseBookings}
-            sub="Guests currently in-house"
-            onClick={() => goto('bookings')}
-          />
-          <StatCard
-            label="Cleanings"
-            value={stats.cleaningsToday}
-            sub="Scheduled for today"
-            onClick={() => goto('housekeeping')}
-          />
-          <StatCard
-            label="Unpaid Bookings"
-            value={stats.unpaidBookingsCount}
-            sub={
-              stats.unpaidBookingsTotal > 0
-                ? `${formatMoney(stats.unpaidBookingsTotal)} outstanding`
-                : 'No outstanding balances'
-            }
-            onClick={() => goto('bookings')}
-          />
-          <StatCard
-            label="Cleanings to Evaluate"
-            value={stats.cleaningsToEvaluate}
-            sub="Waiting for review"
-            onClick={() => goto('housekeeping')}
-          />
-        </div>
-
-        {/* Charts */}
-        <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
-          <Section title="Bookings per month" subtitle="Last 12 months" className="min-h-[280px]">
-            <BookingsChart data={analytics} loading={analyticsLoading} />
-          </Section>
-          <Section title="Occupancy rate" subtitle="Last 12 months" className="min-h-[280px]">
-            <OccupancyChart data={analytics} loading={analyticsLoading} />
-          </Section>
-          <Section title="Gross revenue" subtitle="Last 12 months" className="min-h-[280px]">
-            <RevenueChart data={analytics} loading={analyticsLoading} />
-          </Section>
-        </div>
-
-        {/* Today */}
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-          <Section
-            title="Check-ins today"
-            action={<ViewAll onClick={() => goto('bookings')} />}
-            className="min-h-[260px]"
-          >
-            {loading ? (
-              <div className="p-3 space-y-2">
-                {[...Array(4)].map((_, i) => (
-                  <div key={i} className="h-9 rounded bg-muted animate-pulse" />
-                ))}
-              </div>
-            ) : todayLists.checkIns.length === 0 ? (
-              <EmptyState>No check-ins today</EmptyState>
-            ) : (
-              todayLists.checkIns.map((b) => (
-                <ListRow
-                  key={b.id}
-                  onClick={() => goto('bookings')}
-                  primary={b.guest_name || '—'}
-                  secondary={`${b.units?.unit_code || '—'} · ${b.units?.building || '—'}`}
-                  trailing={Number(b.balance) > 0 ? formatMoney(b.balance) : 'paid'}
-                  trailingTone={Number(b.balance) > 0 ? 'warn' : 'good'}
-                />
-              ))
-            )}
-          </Section>
-
-          <Section
-            title="Check-outs today"
-            action={<ViewAll onClick={() => goto('bookings')} />}
-            className="min-h-[260px]"
-          >
-            {loading ? (
-              <div className="p-3 space-y-2">
-                {[...Array(4)].map((_, i) => (
-                  <div key={i} className="h-9 rounded bg-muted animate-pulse" />
-                ))}
-              </div>
-            ) : todayLists.checkOuts.length === 0 ? (
-              <EmptyState>No check-outs today</EmptyState>
-            ) : (
-              todayLists.checkOuts.map((b) => (
-                <ListRow
-                  key={b.id}
-                  onClick={() => goto('bookings')}
-                  primary={b.guest_name || '—'}
-                  secondary={`${b.units?.unit_code || '—'} · ${b.units?.building || '—'}`}
-                  trailing={Number(b.balance) > 0 ? formatMoney(b.balance) : 'paid'}
-                  trailingTone={Number(b.balance) > 0 ? 'warn' : 'good'}
-                />
-              ))
-            )}
-          </Section>
-        </div>
-
-        {/* Contracts nearing end */}
-        <Section
-          title="Contracts nearing end"
-          subtitle={`Within ${NEARING_END_DAYS} days`}
-          action={<ViewAll onClick={() => goto('contracts')} />}
-          className="min-h-[260px]"
-        >
-          {loading ? (
-            <div className="p-3 space-y-2">
-              {[...Array(4)].map((_, i) => (
-                <div key={i} className="h-9 rounded bg-muted animate-pulse" />
-              ))}
+          <div className="flex items-start justify-between gap-3">
+            <div className="min-w-0">
+              <h1 className="text-lg font-semibold text-foreground">Operations Overview</h1>
+              <p className="text-[11px] text-muted-foreground mt-0.5">{nowLabel}</p>
             </div>
-          ) : contractsNearingEnd.length === 0 ? (
-            <EmptyState>Nothing expiring soon</EmptyState>
-          ) : (
-            contractsNearingEnd.map((c) => {
-              const days = daysUntil(c.expiry_date)
-              const label = days == null ? '—' : days === 0 ? 'today' : `${days}d left`
-              return (
-                <ListRow
-                  key={c.id}
-                  onClick={() => goto('contracts')}
-                  primary={c.units?.unit_code || '—'}
-                  secondary={`${c.owners?.name || 'No owner'} · ${c.units?.building || '—'}`}
-                  trailing={label}
-                  trailingTone={days != null && days <= 7 ? 'danger' : days != null && days <= 30 ? 'warn' : 'muted'}
-                />
-              )
-            })
-          )}
-        </Section>
+            <button
+              type="button"
+              onClick={() => { fetchAll(true); fetchAnalytics() }}
+              disabled={refreshing}
+              className="inline-flex items-center gap-1.5 h-8 px-3 rounded-md border border-border bg-card text-[11px] font-semibold text-foreground hover:bg-muted/40 transition-colors disabled:opacity-50 flex-shrink-0 shadow-sm"
+            >
+              <RefreshCw size={11} className={cn(refreshing && 'animate-spin')} />
+              Refresh
+            </button>
+          </div>
 
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
+            <StatCard
+              label="In-House Guests"
+              value={stats.inHouseBookings}
+              sub="Currently staying"
+              onClick={() => goto('bookings')}
+            />
+            <StatCard
+              label="Cleanings Today"
+              value={stats.cleaningsToday}
+              sub="Scheduled for today"
+              onClick={() => goto('housekeeping')}
+            />
+            <StatCard
+              label="Unpaid Bookings"
+              value={stats.unpaidBookingsCount}
+              sub={
+                stats.unpaidBookingsTotal > 0
+                  ? `${formatMoney(stats.unpaidBookingsTotal)} outstanding`
+                  : 'No outstanding balances'
+              }
+              onClick={() => goto('bookings')}
+            />
+            <StatCard
+              label="Cleanings to Evaluate"
+              value={stats.cleaningsToEvaluate}
+              sub="Waiting for review"
+              onClick={() => goto('housekeeping')}
+            />
+          </div>
+
+          <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
+            <Section title="Bookings per month" subtitle="Last 12 months" className="min-h-[280px]">
+              <BookingsChart data={analytics} loading={analyticsLoading} />
+            </Section>
+            <Section title="Occupancy rate" subtitle="Last 12 months" className="min-h-[280px]">
+              <OccupancyChart data={analytics} loading={analyticsLoading} />
+            </Section>
+            <Section title="Gross revenue" subtitle="Last 12 months" className="min-h-[280px]">
+              <RevenueGauge data={analytics} loading={analyticsLoading} />
+            </Section>
+          </div>
+
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+            <Section
+              title="Check-ins today"
+              action={<ViewAll onClick={() => goto('bookings')} />}
+              className="min-h-[260px]"
+            >
+              {loading ? (
+                <div className="p-3 space-y-2">
+                  {[...Array(4)].map((_, i) => (
+                    <div key={i} className="h-9 rounded bg-muted animate-pulse" />
+                  ))}
+                </div>
+              ) : todayLists.checkIns.length === 0 ? (
+                <EmptyState>No check-ins today</EmptyState>
+              ) : (
+                todayLists.checkIns.map((b) => (
+                  <ListRow
+                    key={b.id}
+                    onClick={() => goto('bookings')}
+                    primary={b.guest_name || '—'}
+                    secondary={`${b.units?.unit_code || '—'} · ${b.units?.building || '—'}`}
+                    trailing={Number(b.balance) > 0 ? formatMoney(b.balance) : 'paid'}
+                    trailingTone={Number(b.balance) > 0 ? 'warn' : 'good'}
+                  />
+                ))
+              )}
+            </Section>
+
+            <Section
+              title="Check-outs today"
+              action={<ViewAll onClick={() => goto('bookings')} />}
+              className="min-h-[260px]"
+            >
+              {loading ? (
+                <div className="p-3 space-y-2">
+                  {[...Array(4)].map((_, i) => (
+                    <div key={i} className="h-9 rounded bg-muted animate-pulse" />
+                  ))}
+                </div>
+              ) : todayLists.checkOuts.length === 0 ? (
+                <EmptyState>No check-outs today</EmptyState>
+              ) : (
+                todayLists.checkOuts.map((b) => (
+                  <ListRow
+                    key={b.id}
+                    onClick={() => goto('bookings')}
+                    primary={b.guest_name || '—'}
+                    secondary={`${b.units?.unit_code || '—'} · ${b.units?.building || '—'}`}
+                    trailing={Number(b.balance) > 0 ? formatMoney(b.balance) : 'paid'}
+                    trailingTone={Number(b.balance) > 0 ? 'warn' : 'good'}
+                  />
+                ))
+              )}
+            </Section>
+          </div>
+
+          <Section
+            title="Contracts nearing end"
+            subtitle={`Within ${NEARING_END_DAYS} days`}
+            action={<ViewAll onClick={() => goto('contracts')} />}
+            className="min-h-[260px]"
+          >
+            {loading ? (
+              <div className="p-3 space-y-2">
+                {[...Array(4)].map((_, i) => (
+                  <div key={i} className="h-9 rounded bg-muted animate-pulse" />
+                ))}
+              </div>
+            ) : contractsNearingEnd.length === 0 ? (
+              <EmptyState>Nothing expiring soon</EmptyState>
+            ) : (
+              contractsNearingEnd.map((c) => {
+                const days = daysUntil(c.expiry_date)
+                const label = days == null ? '—' : days === 0 ? 'today' : `${days}d left`
+                return (
+                  <ListRow
+                    key={c.id}
+                    onClick={() => goto('contracts')}
+                    primary={c.units?.unit_code || '—'}
+                    secondary={`${c.owners?.name || 'No owner'} · ${c.units?.building || '—'}`}
+                    trailing={label}
+                    trailingTone={days != null && days <= 7 ? 'danger' : days != null && days <= 30 ? 'warn' : 'muted'}
+                  />
+                )
+              })
+            )}
+          </Section>
+
+        </div>
       </div>
     </div>
   )

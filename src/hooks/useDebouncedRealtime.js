@@ -1,14 +1,14 @@
 // src/hooks/useDebouncedRealtime.js
-import { useEffect, useRef } from 'react'
+import { useEffect, useId, useRef } from 'react'
 import { supabase } from '@/lib/supabase'
 
 /**
  * Subscribe to Supabase postgres_changes with a debounce on the callback.
- * - Each hook instance uses a unique channel name to avoid the Supabase
- *   "same-name channel replaces previous" footgun (breaks multi-tab).
- * - The callback is debounced, so a burst of events (e.g. bulk import)
- *   collapses into a single refetch.
- * - Cleans up the timer and channel on unmount.
+ *
+ * - Channel name is derived from React's useId() so multiple mounts of
+ *   the same component don't collide (dev StrictMode, multiple tabs).
+ * - Burst events collapse into a single refetch via debounce.
+ * - Cleans up the timer + channel on unmount.
  *
  * Usage:
  *   useDebouncedRealtime({ table: 'bookings', onChange: fetchData, debounceMs: 1500 })
@@ -23,8 +23,8 @@ export function useDebouncedRealtime({
 }) {
   const timerRef = useRef(null)
   const onChangeRef = useRef(onChange)
+  const reactId = useId().replace(/:/g, '')
 
-  // Keep the latest onChange accessible without re-subscribing.
   useEffect(() => {
     onChangeRef.current = onChange
   }, [onChange])
@@ -32,8 +32,7 @@ export function useDebouncedRealtime({
   useEffect(() => {
     if (!enabled || !table) return
 
-    const suffix = Math.random().toString(36).slice(2, 8)
-    const channelName = `rt-${table}-${filter || 'all'}-${suffix}`
+    const channelName = `rt-${table}-${filter || 'all'}-${reactId}`
 
     const channel = supabase
       .channel(channelName)
@@ -53,5 +52,5 @@ export function useDebouncedRealtime({
       if (timerRef.current) clearTimeout(timerRef.current)
       supabase.removeChannel(channel)
     }
-  }, [table, filter, debounceMs, enabled])
+  }, [table, filter, debounceMs, enabled, reactId])
 }

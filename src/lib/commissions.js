@@ -81,40 +81,8 @@ export async function fetchSpecialistCompletedCount(code) {
   return Number(data) || 0
 }
 
-export async function fetchAffiliateCounts(codes) {
-  const map = {}
-  await Promise.all(
-    (codes || []).filter(Boolean).map(async (code) => {
-      map[code] = await fetchAffiliateCompletedCount(code)
-    })
-  )
-  return map
-}
-
-export async function fetchSpecialistCounts(codes) {
-  const map = {}
-  await Promise.all(
-    (codes || []).filter(Boolean).map(async (code) => {
-      map[code] = await fetchSpecialistCompletedCount(code)
-    })
-  )
-  return map
-}
-
-// ============================================================
-// FORMATTING
-// ============================================================
-export function formatMoney(n) {
-  const v = Number(n || 0)
-  return `₱${v.toLocaleString('en-PH', { minimumFractionDigits: 0, maximumFractionDigits: 2 })}`
-}
-
-export function formatRatePercent(rate) {
-  const r = Number(rate) || 0
-  return `${r}%`
-}
 // Bulk fetch — one RPC for all codes at once.
-// Replaces the per-code fan-out. Returns { specialists: {}, affiliates: {} }.
+// Returns { specialists: {}, affiliates: {} }.
 export async function fetchTeamCompletedCounts() {
   const { data, error } = await supabase.rpc('team_completed_counts')
 
@@ -130,4 +98,42 @@ export async function fetchTeamCompletedCounts() {
     bucket[row.code] = Number(row.cnt) || 0
   }
   return { specialists, affiliates }
+}
+
+/**
+ * Bulk affiliate counts for a given list of codes.
+ * Uses the single bulk RPC and filters locally — replaces the
+ * old N parallel RPC fan-out.
+ */
+export async function fetchAffiliateCounts(codes) {
+  const wanted = (codes || []).filter(Boolean)
+  if (wanted.length === 0) return {}
+
+  const { affiliates } = await fetchTeamCompletedCounts()
+  const out = {}
+  for (const code of wanted) out[code] = affiliates[code] || 0
+  return out
+}
+
+export async function fetchSpecialistCounts(codes) {
+  const wanted = (codes || []).filter(Boolean)
+  if (wanted.length === 0) return {}
+
+  const { specialists } = await fetchTeamCompletedCounts()
+  const out = {}
+  for (const code of wanted) out[code] = specialists[code] || 0
+  return out
+}
+
+// ============================================================
+// FORMATTING
+// ============================================================
+export function formatMoney(n) {
+  const v = Number(n || 0)
+  return `₱${v.toLocaleString('en-PH', { minimumFractionDigits: 0, maximumFractionDigits: 2 })}`
+}
+
+export function formatRatePercent(rate) {
+  const r = Number(rate) || 0
+  return `${r}%`
 }

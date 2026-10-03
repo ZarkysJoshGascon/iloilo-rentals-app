@@ -18,9 +18,6 @@ const BookingsPage = lazy(() => import('../../components/admin/bookings/Bookings
 const TeamPage = lazy(() => import('../../components/admin/team/TeamPage'))
 const HousekeepingPage = lazy(() => import('../../components/admin/housekeeping/HousekeepingPage'))
 
-// ============================================================
-// SESSION TIMEOUT CONFIG
-// ============================================================
 const IDLE_LIMIT_MS   = 30 * 60 * 1000
 const HIDDEN_LIMIT_MS = 60 * 60 * 1000
 const TICK_MS         = 15 * 1000
@@ -28,6 +25,14 @@ const ACTIVITY_KEY    = 'ir:admin:lastActivity'
 const HIDDEN_AT_KEY   = 'ir:admin:hiddenAt'
 
 const VALID_TABS = ['dashboard', 'registry', 'contracts', 'accounting', 'bookings', 'team', 'housekeeping']
+
+const SIDEBAR_LEFT_OFFSET    = 12
+const SIDEBAR_COLLAPSED_WIDTH = 56
+const SIDEBAR_EXPANDED_WIDTH  = 224
+const PAGE_OVERLAP            = 4
+
+const CONTENT_BASE_MARGIN = SIDEBAR_LEFT_OFFSET + SIDEBAR_COLLAPSED_WIDTH - PAGE_OVERLAP
+const CONTENT_SHIFT_RANGE = SIDEBAR_EXPANDED_WIDTH - SIDEBAR_COLLAPSED_WIDTH
 
 function readStorage(key, fallback = 0) {
   try {
@@ -74,6 +79,25 @@ function TabLoader() {
   )
 }
 
+function formatClockDate(d) {
+  return d.toLocaleDateString('en-PH', {
+    weekday: 'long',
+    month: 'long',
+    day: 'numeric',
+    year: 'numeric',
+    timeZone: 'Asia/Manila',
+  })
+}
+
+function formatClockTime(d) {
+  return d.toLocaleTimeString('en-PH', {
+    hour: 'numeric',
+    minute: '2-digit',
+    hour12: true,
+    timeZone: 'Asia/Manila',
+  })
+}
+
 export default function AdminDashboardPage() {
   const { user, signOut } = useAuth()
   const { isDark, toggleTheme } = useTheme()
@@ -87,6 +111,13 @@ export default function AdminDashboardPage() {
   const [sidebarCollapsed, setSidebarCollapsed] = useState(true)
   const [adminUser, setAdminUser] = useState(null)
   const [showProfileMenu, setShowProfileMenu] = useState(false)
+
+  // Live clock for the tab title bar
+  const [now, setNow] = useState(() => new Date())
+  useEffect(() => {
+    const t = setInterval(() => setNow(new Date()), 30000)
+    return () => clearInterval(t)
+  }, [])
 
   useEffect(() => {
     if (user) {
@@ -124,7 +155,6 @@ export default function AdminDashboardPage() {
     navigate('/', { replace: true })
   }, [signOut, navigate])
 
-  // ============ SESSION TIMEOUT ============
   const tickRef = useRef(null)
   const handleSignOutRef = useRef(handleSignOut)
 
@@ -233,18 +263,19 @@ export default function AdminDashboardPage() {
 
   const Icon = tabIcons[activeTab] || LayoutDashboard
 
-  const sidebarLeftOffset = 12
-  const sidebarCollapsedWidth = 56
-  const sidebarExpandedWidth = 224
-  const pageOverlap = 4
+  const sidebarContainerStyle = {
+    left: `${SIDEBAR_LEFT_OFFSET}px`,
+    width: `calc(100% - ${SIDEBAR_LEFT_OFFSET}px)`,
+  }
 
-  const sidebarWidth = sidebarCollapsed ? sidebarCollapsedWidth : sidebarExpandedWidth
-  const contentMarginLeft = sidebarLeftOffset + sidebarWidth - pageOverlap
-
-  const sidebarStyle = {
-    left: `${sidebarLeftOffset}px`,
-    width: `calc(100% - ${sidebarLeftOffset}px)`,
-    transition: 'all 0.3s ease',
+  const contentWrapperStyle = {
+    marginLeft: `${CONTENT_BASE_MARGIN}px`,
+    transform: sidebarCollapsed
+      ? 'translateX(0px)'
+      : `translateX(${CONTENT_SHIFT_RANGE}px)`,
+    transition: 'transform 300ms cubic-bezier(0.4, 0, 0.2, 1)',
+    willChange: 'transform',
+    contain: 'layout paint',
   }
 
   const isFullHeightTab =
@@ -258,7 +289,6 @@ export default function AdminDashboardPage() {
 
   return (
     <div className="h-screen flex flex-col bg-[#d4deec] dark:bg-gray-900 overflow-hidden transition-colors duration-300">
-      {/* Top bar */}
       <div className="flex-shrink-0 h-14 flex items-center justify-between px-6 bg-transparent z-40">
         <h1 className="text-xl font-bold text-[#2d568e] dark:text-blue-400 tracking-tight">
           Iloilo Rentals Management System
@@ -338,9 +368,8 @@ export default function AdminDashboardPage() {
         </div>
       </div>
 
-      {/* Main area */}
       <div className="flex-1 relative min-h-0">
-        <div className="absolute top-0 bottom-0 z-0" style={sidebarStyle}>
+        <div className="absolute top-0 bottom-0 z-0" style={sidebarContainerStyle}>
           <AdminSidebar
             activeTab={activeTab}
             setActiveTab={handleTabChange}
@@ -352,16 +381,23 @@ export default function AdminDashboardPage() {
         </div>
 
         <div
-          className="h-full flex flex-col transition-all duration-300"
-          style={{ marginLeft: `${contentMarginLeft}px` }}
+          className="h-full flex flex-col"
+          style={contentWrapperStyle}
           onMouseEnter={() => setSidebarCollapsed(true)}
         >
           <div className="bg-white dark:bg-gray-800 rounded-tl-xl shadow-2xl overflow-hidden flex flex-col flex-1 transition-colors duration-300 z-10 relative">
-            <div className="border-b border-gray-200 dark:border-gray-700 px-6 py-4 flex items-center gap-3 flex-shrink-0">
+
+            {/* Tab title bar — no border, live clock on the right */}
+            <div className="px-6 py-4 flex items-center gap-3 flex-shrink-0">
               <Icon size={22} className="text-[#2d568e] dark:text-blue-400" />
               <h2 className="text-lg font-semibold text-gray-800 dark:text-gray-100">
                 {tabTitles[activeTab] || 'Dashboard'}
               </h2>
+              <span className="ml-auto text-[12px] text-gray-500 dark:text-gray-400 tabular-nums whitespace-nowrap">
+                {formatClockDate(now)}
+                <span className="mx-1.5 text-gray-300 dark:text-gray-600">·</span>
+                {formatClockTime(now)}
+              </span>
             </div>
 
             <div
