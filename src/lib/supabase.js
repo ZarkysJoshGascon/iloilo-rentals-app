@@ -22,6 +22,7 @@ if (!/^https?:\/\//.test(supabaseUrl)) {
 
 // Fail fast if someone accidentally drops a service-role key in here.
 // Service role keys are JWTs; anon keys are too, but the payload has a "role" claim.
+// src/lib/supabase.js
 try {
   const payload = JSON.parse(atob(supabaseAnonKey.split('.')[1] || ''))
   if (payload?.role && payload.role !== 'anon') {
@@ -31,7 +32,7 @@ try {
   }
 } catch (err) {
   if (err?.message?.startsWith('[supabase]')) throw err
-  // If decoding fails, don't block — some setups use non-JWT keys.
+  // non-JWT key — skip validation
 }
 
 export const supabase = createClient(supabaseUrl, supabaseAnonKey, {

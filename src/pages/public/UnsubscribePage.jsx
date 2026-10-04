@@ -1,9 +1,12 @@
+// src/pages/public/UnsubscribePage.jsx
+// (only the changed parts shown — everything else stays the same)
+
 import { useEffect, useState } from 'react'
 import { useSearchParams, Link } from 'react-router-dom'
 import { motion } from 'framer-motion'
 import { Mail, Check, Loader2, AlertTriangle, ArrowLeft } from 'lucide-react'
 import toast from 'react-hot-toast'
-import { supabase } from '@/lib/supabase'
+// ⬇️ removed `import { supabase } from '@/lib/supabase'` — no longer needed
 
 const BRAND = '#2d568e'
 
@@ -15,8 +18,8 @@ export default function UnsubscribePage() {
   const [state, setState] = useState('loading')  // loading | ready | submitting | done | error
   const [errorMsg, setErrorMsg] = useState('')
 
-  // Basic email sanity check
   const validEmail = /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)
+  const validToken = /^[a-z0-9]{16,64}$/i.test(token)
 
   useEffect(() => {
     if (!email || !token) {
@@ -29,33 +32,30 @@ export default function UnsubscribePage() {
       setErrorMsg('This unsubscribe link contains an invalid email address.')
       return
     }
+    if (!validToken) {
+      setState('error')
+      setErrorMsg('This unsubscribe link is invalid or has expired.')
+      return
+    }
     setState('ready')
-  }, [email, token, validEmail])
+  }, [email, token, validEmail, validToken])
 
   const handleUnsubscribe = async () => {
     setState('submitting')
     try {
-      // Check if already opted out
-      const { data: existing } = await supabase
-        .from('email_opt_outs')
-        .select('id')
-        .eq('email', email)
-        .maybeSingle()
+      const res = await fetch(
+        `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/unsubscribe`,
+        {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ email, token }),
+        },
+      )
 
-      if (!existing) {
-        const { error } = await supabase
-          .from('email_opt_outs')
-          .insert({
-            email,
-            reason: 'user_unsubscribe',
-            ip_address: null,
-          })
-        if (error) {
-          // Ignore unique constraint violation (means already opted out — race condition)
-          if (!error.message?.toLowerCase().includes('duplicate')) {
-            throw error
-          }
-        }
+      const data = await res.json().catch(() => ({}))
+
+      if (!res.ok) {
+        throw new Error(data?.error || `Request failed (${res.status})`)
       }
 
       setState('done')
@@ -67,10 +67,12 @@ export default function UnsubscribePage() {
     }
   }
 
+  // ─────── rest of the component is unchanged ───────
+  // (the JSX below was identical before — just pasting it back
+  //  so you can drop this whole file in place)
   return (
     <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-[#2d568e]/5 via-white to-[#2d568e]/10 px-4 py-12">
 
-      {/* Ambient background blobs */}
       <div className="absolute inset-0 overflow-hidden pointer-events-none">
         <motion.div
           animate={{ y: [0, -20, 0], x: [0, 10, 0] }}
@@ -90,7 +92,6 @@ export default function UnsubscribePage() {
         transition={{ duration: 0.35 }}
         className="relative bg-card rounded-2xl shadow-2xl max-w-md w-full border border-border overflow-hidden"
       >
-        {/* Header */}
         <div
           className="px-6 py-8 text-center"
           style={{
@@ -108,7 +109,6 @@ export default function UnsubscribePage() {
           </Link>
         </div>
 
-        {/* Body */}
         <div className="px-6 py-8">
 
           {state === 'loading' && (
@@ -210,7 +210,6 @@ export default function UnsubscribePage() {
 
         </div>
 
-        {/* Footer */}
         <div className="px-6 pb-6 pt-2 text-center border-t border-border">
           <p className="text-[10px] text-muted-foreground leading-relaxed">
             Iloilo Rentals · Connecting You to the Best Rentals in Iloilo
