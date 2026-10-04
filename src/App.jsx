@@ -20,6 +20,7 @@ const ContactPage = lazy(() => import('./pages/public/ContactPage'))
 const ListPropertyPage = lazy(() => import('./pages/public/ListPropertyPage'))
 const PrivacyPolicyPage = lazy(() => import('./pages/public/PrivacyPolicyPage'))
 const TermsPage = lazy(() => import('./pages/public/TermsPage'))
+const UnsubscribePage = lazy(() => import('./pages/public/UnsubscribePage'))
 const AdminDashboardPage = lazy(() => import('./pages/admin/AdminDashboardPage'))
 const HousekeeperTasksPage = lazy(() => import('./pages/housekeeper/HousekeeperTasksPage'))
 
@@ -65,12 +66,14 @@ function FloatingButtons() {
 
   const inAdmin = location.pathname.startsWith('/admin')
   const inHk = location.pathname.startsWith('/hk')
+  const inUnsubscribe = location.pathname.startsWith('/unsubscribe')
 
   const isAdmin = role === 'admin' || role === 'both'
   const isHousekeeper = role === 'housekeeper' || role === 'both'
 
-  const showAdmin = !!user && isAdmin && !inAdmin && !inHk
-  const showHK = !!user && isHousekeeper && !inAdmin && !inHk
+  // Hide floating buttons on unsubscribe page and admin/hk routes
+  const showAdmin = !!user && isAdmin && !inAdmin && !inHk && !inUnsubscribe
+  const showHK = !!user && isHousekeeper && !inAdmin && !inHk && !inUnsubscribe
 
   return (
     <div className="fixed bottom-6 right-6 z-[9999] flex flex-col items-end gap-3">
@@ -121,6 +124,7 @@ function App() {
   const location = useLocation()
   const isAdminRoute = location.pathname.startsWith('/admin')
   const isHousekeeperRoute = location.pathname.startsWith('/hk')
+  const isUnsubscribeRoute = location.pathname.startsWith('/unsubscribe')
 
   useEffect(() => {
     window.scrollTo(0, 0)
@@ -129,7 +133,7 @@ function App() {
   return (
     <ThemeProvider>
       <div className="min-h-screen bg-gray-50 flex flex-col">
-        {!isAdminRoute && !isHousekeeperRoute && <Navbar />}
+        {!isAdminRoute && !isHousekeeperRoute && !isUnsubscribeRoute && <Navbar />}
         <main className="flex-grow">
           <Suspense fallback={<PageLoader />}>
             <Routes>
@@ -141,6 +145,7 @@ function App() {
               <Route path="/list-property" element={<ListPropertyPage />} />
               <Route path="/privacy" element={<PrivacyPolicyPage />} />
               <Route path="/terms" element={<TermsPage />} />
+              <Route path="/unsubscribe" element={<UnsubscribePage />} />
               <Route
                 path="/admin"
                 element={
@@ -160,7 +165,7 @@ function App() {
             </Routes>
           </Suspense>
         </main>
-        {!isAdminRoute && !isHousekeeperRoute && <Footer />}
+        {!isAdminRoute && !isHousekeeperRoute && !isUnsubscribeRoute && <Footer />}
         <FloatingButtons />
         <Toaster position="top-right" />
       </div>

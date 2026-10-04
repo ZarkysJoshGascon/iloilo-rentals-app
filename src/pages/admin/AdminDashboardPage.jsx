@@ -5,7 +5,7 @@ import { useTheme } from "../../context/ThemeContext";
 import { useAuth } from "../../context/AuthContext";
 import {
   Moon, Sun, LogOut, ScrollText, ArrowLeft, Calendar, Users, Sparkles,
-  FileText, TrendingUp, Loader2, LayoutDashboard,
+  FileText, TrendingUp, Loader2, LayoutDashboard, Megaphone,
 } from 'lucide-react'
 import AdminSidebar from '../../components/admin/AdminSidebar'
 
@@ -15,6 +15,7 @@ const RegistryPage = lazy(() => import('../../components/admin/registry/Registry
 const ContractsPage = lazy(() => import('../../components/admin/contracts/ContractsPage'))
 const AccountingPage = lazy(() => import('../../components/admin/accounting/AccountingPage'))
 const BookingsPage = lazy(() => import('../../components/admin/bookings/BookingsPage'))
+const CampaignsPage = lazy(() => import('../../components/admin/campaigns/CampaignsPage'))
 const TeamPage = lazy(() => import('../../components/admin/team/TeamPage'))
 const HousekeepingPage = lazy(() => import('../../components/admin/housekeeping/HousekeepingPage'))
 
@@ -24,7 +25,7 @@ const TICK_MS         = 15 * 1000
 const ACTIVITY_KEY    = 'ir:admin:lastActivity'
 const HIDDEN_AT_KEY   = 'ir:admin:hiddenAt'
 
-const VALID_TABS = ['dashboard', 'registry', 'contracts', 'accounting', 'bookings', 'team', 'housekeeping']
+const VALID_TABS = ['dashboard', 'registry', 'contracts', 'accounting', 'bookings', 'campaigns', 'team', 'housekeeping']
 
 const SIDEBAR_LEFT_OFFSET    = 12
 const SIDEBAR_COLLAPSED_WIDTH = 56
@@ -112,7 +113,6 @@ export default function AdminDashboardPage() {
   const [adminUser, setAdminUser] = useState(null)
   const [showProfileMenu, setShowProfileMenu] = useState(false)
 
-  // Live clock for the tab title bar
   const [now, setNow] = useState(() => new Date())
   useEffect(() => {
     const t = setInterval(() => setNow(new Date()), 30000)
@@ -163,14 +163,14 @@ export default function AdminDashboardPage() {
   useEffect(() => {
     if (!user) return
 
-    const now = Date.now()
+    const nowTs = Date.now()
     let lastActivity = readStorage(ACTIVITY_KEY, 0)
-    if (!lastActivity || lastActivity > now) {
-      lastActivity = now
+    if (!lastActivity || lastActivity > nowTs) {
+      lastActivity = nowTs
       writeStorage(ACTIVITY_KEY, lastActivity)
     }
 
-    if (now - lastActivity >= IDLE_LIMIT_MS) {
+    if (nowTs - lastActivity >= IDLE_LIMIT_MS) {
       handleSignOutRef.current()
       return
     }
@@ -247,6 +247,7 @@ export default function AdminDashboardPage() {
     contracts: FileText,
     accounting: TrendingUp,
     bookings: Calendar,
+    campaigns: Megaphone,
     team: Users,
     housekeeping: Sparkles,
   }
@@ -257,6 +258,7 @@ export default function AdminDashboardPage() {
     contracts: 'Contracts',
     accounting: 'Accounting',
     bookings: 'Bookings',
+    campaigns: 'Campaigns',
     team: 'Team',
     housekeeping: 'Housekeeping',
   }
@@ -277,15 +279,6 @@ export default function AdminDashboardPage() {
     willChange: 'transform',
     contain: 'layout paint',
   }
-
-  const isFullHeightTab =
-    activeTab === 'dashboard' ||
-    activeTab === 'registry' ||
-    activeTab === 'contracts' ||
-    activeTab === 'accounting' ||
-    activeTab === 'bookings' ||
-    activeTab === 'team' ||
-    activeTab === 'housekeeping'
 
   return (
     <div className="h-screen flex flex-col bg-[#d4deec] dark:bg-gray-900 overflow-hidden transition-colors duration-300">
@@ -387,7 +380,6 @@ export default function AdminDashboardPage() {
         >
           <div className="bg-white dark:bg-gray-800 rounded-tl-xl shadow-2xl overflow-hidden flex flex-col flex-1 transition-colors duration-300 z-10 relative">
 
-            {/* Tab title bar — no border, live clock on the right */}
             <div className="px-6 py-4 flex items-center gap-3 flex-shrink-0">
               <Icon size={22} className="text-[#2d568e] dark:text-blue-400" />
               <h2 className="text-lg font-semibold text-gray-800 dark:text-gray-100">
@@ -400,13 +392,7 @@ export default function AdminDashboardPage() {
               </span>
             </div>
 
-            <div
-              className={
-                isFullHeightTab
-                  ? 'flex-1 min-h-0 overflow-hidden p-6 relative'
-                  : 'flex-1 overflow-auto p-6'
-              }
-            >
+            <div className="flex-1 min-h-0 overflow-hidden p-6 relative">
               <AnimatePresence mode="wait">
                 <Suspense fallback={<TabLoader />}>
                   {activeTab === 'dashboard' && (
@@ -441,6 +427,13 @@ export default function AdminDashboardPage() {
                     <PageTransition tabKey="bookings">
                       <div className="absolute inset-6 min-h-0 flex flex-col">
                         <BookingsPage />
+                      </div>
+                    </PageTransition>
+                  )}
+                  {activeTab === 'campaigns' && (
+                    <PageTransition tabKey="campaigns">
+                      <div className="absolute inset-6 min-h-0 flex flex-col">
+                        <CampaignsPage />
                       </div>
                     </PageTransition>
                   )}

@@ -2,7 +2,7 @@ import { useNavigate } from 'react-router-dom'
 import { useAuth } from "../../context/AuthContext";
 import {
   LogOut, ScrollText, Calendar, Users, Sparkles, FileText, TrendingUp,
-  LayoutDashboard,
+  LayoutDashboard, Megaphone,
 } from 'lucide-react'
 import { motion, AnimatePresence } from 'framer-motion'
 import toast from 'react-hot-toast'
@@ -36,6 +36,7 @@ export default function AdminSidebar({ activeTab, setActiveTab, collapsed, onMou
     { id: 'contracts',    label: 'Contracts',    icon: FileText },
     { id: 'accounting',   label: 'Accounting',   icon: TrendingUp },
     { id: 'bookings',     label: 'Bookings',     icon: Calendar },
+    { id: 'campaigns',    label: 'Campaigns',    icon: Megaphone },
     { id: 'team',         label: 'Team',         icon: Users },
     { id: 'housekeeping', label: 'Housekeeping', icon: Sparkles },
   ]
@@ -62,9 +63,6 @@ export default function AdminSidebar({ activeTab, setActiveTab, collapsed, onMou
                   : 'text-gray-600 dark:text-gray-400 hover:text-[#2d568e] dark:hover:text-blue-300'
               }`}
             >
-              {/* Hover ring — brand color, drawn as an inset outline.
-                  Uses ::before via a pseudo-like span so the ring sits
-                  *inside* the rounded-xl shape and doesn't affect layout. */}
               {!isActive && (
                 <span
                   aria-hidden
@@ -75,7 +73,6 @@ export default function AdminSidebar({ activeTab, setActiveTab, collapsed, onMou
                 />
               )}
 
-              {/* Active pill — springs between rows */}
               {isActive && (
                 <motion.div
                   layoutId="activePill"
@@ -84,7 +81,6 @@ export default function AdminSidebar({ activeTab, setActiveTab, collapsed, onMou
                 />
               )}
 
-              {/* Icon — subtle scale on hover */}
               <motion.span
                 className="relative z-10 flex-shrink-0 flex items-center justify-center"
                 whileHover={{ scale: 1.08 }}
@@ -94,7 +90,6 @@ export default function AdminSidebar({ activeTab, setActiveTab, collapsed, onMou
                 <Icon size={20} />
               </motion.span>
 
-              {/* Label */}
               <AnimatePresence initial={false}>
                 {!collapsed && (
                   <motion.span
@@ -123,8 +118,6 @@ export default function AdminSidebar({ activeTab, setActiveTab, collapsed, onMou
           onClick={handleSignOut}
           className="group relative w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-gray-600 dark:text-gray-400 hover:text-red-500 dark:hover:text-red-400 text-sm font-medium"
         >
-          {/* Hover ring for sign-out — red instead of brand blue, since
-              it's a destructive-ish action */}
           <span
             aria-hidden
             className="absolute inset-0 rounded-xl pointer-events-none
