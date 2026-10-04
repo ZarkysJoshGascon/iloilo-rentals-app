@@ -5,19 +5,21 @@ import { useTheme } from "../../context/ThemeContext";
 import { useAuth } from "../../context/AuthContext";
 import {
   Moon, Sun, LogOut, ScrollText, ArrowLeft, Calendar, Users, Sparkles,
-  FileText, TrendingUp, Loader2, LayoutDashboard, Megaphone,
+  FileText, TrendingUp, Loader2, LayoutDashboard, Megaphone, Inbox, Palette,
 } from 'lucide-react'
 import AdminSidebar from '../../components/admin/AdminSidebar'
 
 // ---- Lazy-loaded tabs ----
-const DashboardPage = lazy(() => import('../../components/admin/dashboard/DashboardPage'))
-const RegistryPage = lazy(() => import('../../components/admin/registry/RegistryPage'))
-const ContractsPage = lazy(() => import('../../components/admin/contracts/ContractsPage'))
-const AccountingPage = lazy(() => import('../../components/admin/accounting/AccountingPage'))
-const BookingsPage = lazy(() => import('../../components/admin/bookings/BookingsPage'))
-const CampaignsPage = lazy(() => import('../../components/admin/campaigns/CampaignsPage'))
-const TeamPage = lazy(() => import('../../components/admin/team/TeamPage'))
-const HousekeepingPage = lazy(() => import('../../components/admin/housekeeping/HousekeepingPage'))
+const DashboardPage         = lazy(() => import('../../components/admin/dashboard/DashboardPage'))
+const RegistryPage          = lazy(() => import('../../components/admin/registry/RegistryPage'))
+const ContractsPage         = lazy(() => import('../../components/admin/contracts/ContractsPage'))
+const AccountingPage        = lazy(() => import('../../components/admin/accounting/AccountingPage'))
+const BookingsPage          = lazy(() => import('../../components/admin/bookings/BookingsPage'))
+const CampaignsPage         = lazy(() => import('../../components/admin/campaigns/CampaignsPage'))
+const InquiriesPage         = lazy(() => import('../../components/admin/inquiries/InquiriesPage'))
+const InteriorInquiriesPage = lazy(() => import('../../components/admin/interior/InteriorInquiriesPage'))
+const TeamPage              = lazy(() => import('../../components/admin/team/TeamPage'))
+const HousekeepingPage      = lazy(() => import('../../components/admin/housekeeping/HousekeepingPage'))
 
 const IDLE_LIMIT_MS   = 30 * 60 * 1000
 const HIDDEN_LIMIT_MS = 60 * 60 * 1000
@@ -25,9 +27,12 @@ const TICK_MS         = 15 * 1000
 const ACTIVITY_KEY    = 'ir:admin:lastActivity'
 const HIDDEN_AT_KEY   = 'ir:admin:hiddenAt'
 
-const VALID_TABS = ['dashboard', 'registry', 'contracts', 'accounting', 'bookings', 'campaigns', 'team', 'housekeeping']
+const VALID_TABS = [
+  'dashboard', 'registry', 'contracts', 'accounting', 'bookings',
+  'campaigns', 'inquiries', 'interior', 'team', 'housekeeping',
+]
 
-const SIDEBAR_LEFT_OFFSET    = 12
+const SIDEBAR_LEFT_OFFSET     = 12
 const SIDEBAR_COLLAPSED_WIDTH = 56
 const SIDEBAR_EXPANDED_WIDTH  = 224
 const PAGE_OVERLAP            = 4
@@ -242,24 +247,28 @@ export default function AdminDashboardPage() {
   }, [showProfileMenu])
 
   const tabIcons = {
-    dashboard: LayoutDashboard,
-    registry: ScrollText,
-    contracts: FileText,
-    accounting: TrendingUp,
-    bookings: Calendar,
-    campaigns: Megaphone,
-    team: Users,
+    dashboard:    LayoutDashboard,
+    registry:     ScrollText,
+    contracts:    FileText,
+    accounting:   TrendingUp,
+    bookings:     Calendar,
+    campaigns:    Megaphone,
+    inquiries:    Inbox,
+    interior:     Palette,
+    team:         Users,
     housekeeping: Sparkles,
   }
 
   const tabTitles = {
-    dashboard: 'Dashboard',
-    registry: 'Registry',
-    contracts: 'Contracts',
-    accounting: 'Accounting',
-    bookings: 'Bookings',
-    campaigns: 'Campaigns',
-    team: 'Team',
+    dashboard:    'Dashboard',
+    registry:     'Registry',
+    contracts:    'Contracts',
+    accounting:   'Accounting',
+    bookings:     'Bookings',
+    campaigns:    'Campaigns',
+    inquiries:    'Inquiries',
+    interior:     'Interior Design',
+    team:         'Team',
     housekeeping: 'Housekeeping',
   }
 
@@ -434,6 +443,20 @@ export default function AdminDashboardPage() {
                     <PageTransition tabKey="campaigns">
                       <div className="absolute inset-6 min-h-0 flex flex-col">
                         <CampaignsPage />
+                      </div>
+                    </PageTransition>
+                  )}
+                  {activeTab === 'inquiries' && (
+                    <PageTransition tabKey="inquiries">
+                      <div className="absolute inset-6 min-h-0 flex flex-col">
+                        <InquiriesPage />
+                      </div>
+                    </PageTransition>
+                  )}
+                  {activeTab === 'interior' && (
+                    <PageTransition tabKey="interior">
+                      <div className="absolute inset-6 min-h-0 flex flex-col">
+                        <InteriorInquiriesPage />
                       </div>
                     </PageTransition>
                   )}

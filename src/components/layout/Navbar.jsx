@@ -3,7 +3,9 @@ import { useState, useEffect, useRef } from 'react'
 import { Link, useNavigate, useLocation } from 'react-router-dom'
 import { motion, AnimatePresence } from 'framer-motion'
 import { useAuth } from "../../context/AuthContext";
-import { Menu, X, User, Home, Phone, Info, FileText, Shield, LogOut } from 'lucide-react'
+import {
+  Menu, X, User, Home, Phone, Info, FileText, Shield, LogOut, Building2, Palette,
+} from 'lucide-react'
 
 export default function Navbar() {
   const { user, signOut } = useAuth()
@@ -15,11 +17,13 @@ export default function Navbar() {
   const [userKey, setUserKey] = useState(0)
 
   const desktopLinks = [
-    { path: '/', label: 'Home', icon: Home },
-    { path: '/about', label: 'About', icon: Info },
-    { path: '/contact', label: 'Contact', icon: Phone },
-    { path: '/terms', label: 'Terms', icon: FileText },
-    { path: '/privacy', label: 'Privacy', icon: Shield },
+    { path: '/',                label: 'Home',            icon: Home },
+    { path: '/list-property',   label: 'List Property',   icon: Building2 },
+    { path: '/interior-design', label: 'Interior Design', icon: Palette },
+    { path: '/about',           label: 'About',           icon: Info },
+    { path: '/contact',         label: 'Contact',         icon: Phone },
+    { path: '/terms',           label: 'Terms',           icon: FileText },
+    { path: '/privacy',         label: 'Privacy',         icon: Shield },
   ]
 
   const isActive = (path) => {
@@ -131,6 +135,26 @@ export default function Navbar() {
               <div className={`w-8 h-8 rounded-full flex items-center justify-center transition-all ${isActive('/') ? 'bg-[#2d568e]/10' : ''}`}>
                 <img src="/Iloilo_rentals_img.png" alt="Home" className="w-5 h-5 object-contain" />
               </div>
+            </Link>
+
+            <Link
+              to="/list-property"
+              className={`flex items-center gap-1.5 px-3 py-2 text-xs font-medium rounded-full transition-all duration-300 ${
+                isActive('/list-property') ? 'bg-[#2d568e] text-white' : 'text-gray-600 hover:text-gray-900 hover:bg-gray-100'
+              }`}
+            >
+              <Building2 size={14} />
+              <span>List</span>
+            </Link>
+
+            <Link
+              to="/interior-design"
+              className={`flex items-center gap-1.5 px-3 py-2 text-xs font-medium rounded-full transition-all duration-300 ${
+                isActive('/interior-design') ? 'bg-[#2d568e] text-white' : 'text-gray-600 hover:text-gray-900 hover:bg-gray-100'
+              }`}
+            >
+              <Palette size={14} />
+              <span>Design</span>
             </Link>
 
             {user ? (

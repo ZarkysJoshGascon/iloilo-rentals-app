@@ -18,6 +18,7 @@ const PostLoginPage = lazy(() => import('./pages/public/PostLoginPage'))
 const AboutPage = lazy(() => import('./pages/public/AboutPage'))
 const ContactPage = lazy(() => import('./pages/public/ContactPage'))
 const ListPropertyPage = lazy(() => import('./pages/public/ListPropertyPage'))
+const InteriorDesignPage = lazy(() => import('./pages/public/InteriorDesignPage'))
 const PrivacyPolicyPage = lazy(() => import('./pages/public/PrivacyPolicyPage'))
 const TermsPage = lazy(() => import('./pages/public/TermsPage'))
 const UnsubscribePage = lazy(() => import('./pages/public/UnsubscribePage'))
@@ -32,9 +33,6 @@ function PageLoader() {
   )
 }
 
-// ------------------------------------------------------------
-// Housekeeper guard
-// ------------------------------------------------------------
 function HousekeeperRoute({ children }) {
   const { role, loading } = useUserRole()
 
@@ -53,11 +51,6 @@ function HousekeeperRoute({ children }) {
   return children
 }
 
-// ------------------------------------------------------------
-// Floating buttons
-//   - My Tasks (green) — visible on all screens for housekeepers
-//   - CRM (blue)      — visible on desktop ONLY for admins
-// ------------------------------------------------------------
 function FloatingButtons() {
   const { user } = useAuth()
   const { role } = useUserRole()
@@ -71,7 +64,6 @@ function FloatingButtons() {
   const isAdmin = role === 'admin' || role === 'both'
   const isHousekeeper = role === 'housekeeper' || role === 'both'
 
-  // Hide floating buttons on unsubscribe page and admin/hk routes
   const showAdmin = !!user && isAdmin && !inAdmin && !inHk && !inUnsubscribe
   const showHK = !!user && isHousekeeper && !inAdmin && !inHk && !inUnsubscribe
 
@@ -117,9 +109,6 @@ function FloatingButtons() {
   )
 }
 
-// ------------------------------------------------------------
-// Main app
-// ------------------------------------------------------------
 function App() {
   const location = useLocation()
   const isAdminRoute = location.pathname.startsWith('/admin')
@@ -143,6 +132,7 @@ function App() {
               <Route path="/about" element={<AboutPage />} />
               <Route path="/contact" element={<ContactPage />} />
               <Route path="/list-property" element={<ListPropertyPage />} />
+              <Route path="/interior-design" element={<InteriorDesignPage />} />
               <Route path="/privacy" element={<PrivacyPolicyPage />} />
               <Route path="/terms" element={<TermsPage />} />
               <Route path="/unsubscribe" element={<UnsubscribePage />} />

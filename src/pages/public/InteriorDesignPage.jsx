@@ -3,47 +3,64 @@ import { motion, AnimatePresence } from 'framer-motion'
 import { Link } from 'react-router-dom'
 import {
   Send, Loader2, Check, Plus, X, Image as ImageIcon,
-  ArrowLeft, MapPin, Home,
+  ArrowLeft, MapPin, Home, Palette,
 } from 'lucide-react'
 import toast from 'react-hot-toast'
 import { cn } from '@/lib/utils'
-import { uploadInquiryImage, submitPropertyInquiry } from '@/lib/inquiries'
+import { uploadInteriorImage, submitInteriorInquiry } from '@/lib/interiorDesign'
 
 const BRAND = '#2d568e'
 const MAX_IMAGES = 5
 
-const PROPERTY_TYPES = [
-  'Studio',
-  '1-Bedroom',
-  '2-Bedroom',
-  '3-Bedroom',
-  'Executive Studio',
-  'Penthouse',
-  'Commercial',
-  'Other',
+const PROPERTY_TYPES = ['Condo', 'House', 'Apartment', 'Office', 'Commercial', 'Other']
+
+const SERVICE_TYPES = [
+  { id: 'full_design',  label: 'Full interior design', desc: 'Concept, layout, sourcing, styling — everything' },
+  { id: 'consultation', label: 'Consultation only',    desc: 'An hour with a designer to plan it yourself' },
+  { id: 'renovation',   label: 'Renovation planning',  desc: 'Structural or major changes' },
+  { id: 'furnishing',   label: 'Furnishing & styling', desc: 'Just the furniture and decor' },
+  { id: 'not_sure',     label: "Not sure yet",         desc: "Let's talk it through" },
 ]
 
-const INQUIRY_TYPES = [
-  { id: 'manage', label: 'Manage my property',    desc: 'Rent it out, we handle guests & cleaning' },
-  { id: 'sell',   label: 'Help me sell it',       desc: 'Find buyers, handle the transaction' },
-  { id: 'both',   label: "Not sure — let's talk", desc: 'Discuss both options with our team' },
+const ROOM_SCOPES = [
+  { id: 'studio',         label: 'Studio' },
+  { id: '1br',            label: '1 Bedroom' },
+  { id: '2br',            label: '2 Bedrooms' },
+  { id: '3br_plus',       label: '3+ Bedrooms' },
+  { id: 'whole_house',    label: 'Whole house' },
+  { id: 'multiple_rooms', label: 'Multiple rooms' },
+]
+
+const BUDGET_RANGES = [
+  { id: '',            label: 'Prefer not to say' },
+  { id: 'under_50k',   label: 'Under ₱50,000' },
+  { id: '50k_150k',    label: '₱50,000 – ₱150,000' },
+  { id: '150k_300k',   label: '₱150,000 – ₱300,000' },
+  { id: '300k_500k',   label: '₱300,000 – ₱500,000' },
+  { id: 'over_500k',   label: 'Over ₱500,000' },
+  { id: 'not_sure',    label: 'Not sure yet' },
+]
+
+const TIMELINES = [
+  { id: 'asap',        label: 'As soon as possible' },
+  { id: '1_3_months',  label: 'Within 1–3 months' },
+  { id: '3_6_months',  label: '3–6 months' },
+  { id: 'exploring',   label: 'Just exploring' },
 ]
 
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
 
-export default function ListPropertyPage() {
+export default function InteriorDesignPage() {
   const [form, setForm] = useState({
-    owner_name: '',
-    owner_email: '',
-    owner_phone: '',
+    client_name: '',
+    client_email: '',
+    client_phone: '',
     property_type: '',
-    building: '',
-    location: '',
-    bedrooms: '',
-    bathrooms: '',
-    square_meters: '',
-    price_per_night: '',
-    inquiry_type: 'manage',
+    property_address: '',
+    service_type: '',
+    room_scope: '',
+    budget_range: '',
+    timeline: '',
     message: '',
   })
 
@@ -52,7 +69,6 @@ export default function ListPropertyPage() {
   const [submitting, setSubmitting] = useState(false)
   const [submitted, setSubmitted] = useState(false)
 
-  // Security: Turnstile + honeypot
   const [turnstileToken, setTurnstileToken] = useState('')
   const [honeypot, setHoneypot] = useState('')
   const turnstileRef = useRef(null)
@@ -60,19 +76,16 @@ export default function ListPropertyPage() {
 
   const setField = (k, v) => setForm((p) => ({ ...p, [k]: v }))
 
-  // ─── Load Turnstile widget on mount ────────────────────
   useEffect(() => {
     const SITE_KEY = import.meta.env.VITE_TURNSTILE_SITE_KEY
     if (!SITE_KEY) {
       console.warn('VITE_TURNSTILE_SITE_KEY not set — bot protection disabled')
       return
     }
-
     const renderWidget = () => {
       if (!turnstileRef.current) return
       if (widgetIdRef.current != null) return
       if (typeof window.turnstile === 'undefined') return
-
       widgetIdRef.current = window.turnstile.render(turnstileRef.current, {
         sitekey: SITE_KEY,
         theme: 'light',
@@ -81,7 +94,6 @@ export default function ListPropertyPage() {
         'error-callback': () => setTurnstileToken(''),
       })
     }
-
     if (typeof window.turnstile === 'undefined') {
       const iv = setInterval(() => {
         if (typeof window.turnstile !== 'undefined') {
@@ -95,30 +107,23 @@ export default function ListPropertyPage() {
     }
   }, [])
 
-  // ─── Image picker ──────────────────────────────────────
   const handleImagePick = async (e) => {
     const files = Array.from(e.target.files || [])
     if (files.length === 0) return
-
     const remaining = MAX_IMAGES - images.length
-    if (files.length > remaining) {
-      toast.error(`Max ${MAX_IMAGES} images. ${remaining} slot${remaining === 1 ? '' : 's'} left.`)
-    }
-
+    if (files.length > remaining) toast.error(`Max ${MAX_IMAGES} images.`)
     const toAdd = files.slice(0, remaining)
     setUploading(true)
-
     for (const file of toAdd) {
       try {
         const preview = URL.createObjectURL(file)
-        const { url, path } = await uploadInquiryImage(file)
+        const { url, path } = await uploadInteriorImage(file)
         setImages((prev) => [...prev, { file, preview, uploadedUrl: url, path }])
       } catch (err) {
         console.error(err)
         toast.error(err?.message || 'Upload failed')
       }
     }
-
     setUploading(false)
     if (e.target) e.target.value = ''
   }
@@ -132,32 +137,25 @@ export default function ListPropertyPage() {
     })
   }
 
-  // ─── Validate ──────────────────────────────────────────
   const validate = () => {
-    if (!form.owner_name.trim())  { toast.error('Your name is required'); return false }
-    if (!form.owner_email.trim()) { toast.error('Email is required'); return false }
-    if (!EMAIL_RE.test(form.owner_email.trim())) { toast.error('Please enter a valid email'); return false }
-    if (!form.inquiry_type)       { toast.error('Please pick an option'); return false }
-    if (form.message.trim().length < 10) { toast.error('Please add a short message (at least 10 characters)'); return false }
+    if (!form.client_name.trim())  { toast.error('Your name is required'); return false }
+    if (!form.client_email.trim()) { toast.error('Email is required'); return false }
+    if (!EMAIL_RE.test(form.client_email.trim())) { toast.error('Please enter a valid email'); return false }
+    if (!form.service_type) { toast.error('Please pick a service'); return false }
+    if (form.message.trim().length < 10) { toast.error('Please tell us a bit about your project'); return false }
     return true
   }
 
-  // ─── Submit ────────────────────────────────────────────
   const handleSubmit = async (e) => {
     e.preventDefault()
     if (!validate()) return
-
     setSubmitting(true)
     try {
-      await submitPropertyInquiry({
+      await submitInteriorInquiry({
         ...form,
-        bedrooms:       form.bedrooms ? Number(form.bedrooms) : null,
-        bathrooms:      form.bathrooms ? Number(form.bathrooms) : null,
-        square_meters:  form.square_meters ? Number(form.square_meters) : null,
-        price_per_night: form.price_per_night ? Number(form.price_per_night) : null,
         images: images.map((i) => ({ path: i.path, url: i.uploadedUrl })),
-        website_url:         honeypot,
-        cf_turnstile_token:  turnstileToken,
+        website_url: honeypot,
+        cf_turnstile_token: turnstileToken,
       })
       setSubmitted(true)
     } catch (err) {
@@ -172,14 +170,13 @@ export default function ListPropertyPage() {
     }
   }
 
-  // ─── Reset ─────────────────────────────────────────────
   const resetForm = () => {
     images.forEach((i) => URL.revokeObjectURL(i.preview))
     setForm({
-      owner_name: '', owner_email: '', owner_phone: '',
-      property_type: '', building: '', location: '',
-      bedrooms: '', bathrooms: '', square_meters: '', price_per_night: '',
-      inquiry_type: 'manage', message: '',
+      client_name: '', client_email: '', client_phone: '',
+      property_type: '', property_address: '',
+      service_type: '', room_scope: '', budget_range: '', timeline: '',
+      message: '',
     })
     setImages([])
     if (typeof window.turnstile !== 'undefined' && widgetIdRef.current != null) {
@@ -195,7 +192,6 @@ export default function ListPropertyPage() {
   return (
     <div className="min-h-screen bg-gradient-to-br from-[#2d568e]/5 via-white to-[#2d568e]/10 pb-24 md:pb-12 pt-20 md:pt-28">
 
-      {/* Ambient blobs */}
       <div className="absolute inset-0 overflow-hidden pointer-events-none">
         <motion.div
           animate={{ y: [0, -20, 0], x: [0, 10, 0] }}
@@ -211,7 +207,6 @@ export default function ListPropertyPage() {
 
       <div className="relative max-w-3xl mx-auto px-4">
 
-        {/* Header */}
         <motion.div
           initial={{ opacity: 0, y: 12 }}
           animate={{ opacity: 1, y: 0 }}
@@ -219,14 +214,13 @@ export default function ListPropertyPage() {
           className="text-center mb-10"
         >
           <h1 className="text-3xl md:text-4xl font-black text-gray-900 tracking-tight mb-3">
-            List your property with us
+            Design your space with us
           </h1>
           <p className="text-gray-500 text-sm md:text-base max-w-lg mx-auto leading-relaxed">
-            Own a condo in Iloilo? Tell us about it. We'll reach out within 24 hours to see if we're a fit.
+            Whether you're furnishing a studio or renovating a whole house, tell us about your project. We'll get back within 24 hours.
           </p>
         </motion.div>
 
-        {/* Form / Success */}
         <AnimatePresence mode="wait">
           {submitted ? (
             <SuccessState key="success" onReset={resetForm} />
@@ -240,15 +234,14 @@ export default function ListPropertyPage() {
               className="bg-white rounded-2xl shadow-xl border border-gray-100 overflow-hidden"
             >
 
-              {/* Contact */}
               <Section title="Your contact" subtitle="So we can reach you">
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                   <div>
                     <label className={labelClass}>Full name *</label>
                     <input
                       type="text"
-                      value={form.owner_name}
-                      onChange={(e) => setField('owner_name', e.target.value)}
+                      value={form.client_name}
+                      onChange={(e) => setField('client_name', e.target.value)}
                       placeholder="Juan Dela Cruz"
                       maxLength={120}
                       className={inputClass}
@@ -258,8 +251,8 @@ export default function ListPropertyPage() {
                     <label className={labelClass}>Email *</label>
                     <input
                       type="email"
-                      value={form.owner_email}
-                      onChange={(e) => setField('owner_email', e.target.value)}
+                      value={form.client_email}
+                      onChange={(e) => setField('client_email', e.target.value)}
                       placeholder="you@example.com"
                       maxLength={254}
                       className={inputClass}
@@ -269,8 +262,8 @@ export default function ListPropertyPage() {
                     <label className={labelClass}>Phone (optional)</label>
                     <input
                       type="tel"
-                      value={form.owner_phone}
-                      onChange={(e) => setField('owner_phone', e.target.value)}
+                      value={form.client_phone}
+                      onChange={(e) => setField('client_phone', e.target.value)}
                       placeholder="+63 917 123 4567"
                       maxLength={40}
                       className={inputClass}
@@ -279,28 +272,22 @@ export default function ListPropertyPage() {
                 </div>
               </Section>
 
-              {/* Intent */}
-              <Section title="What are you looking for?" subtitle="Pick the one that fits best">
-                <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
-                  {INQUIRY_TYPES.map((opt) => {
-                    const active = form.inquiry_type === opt.id
+              <Section title="What do you need?" subtitle="Pick the service that fits best">
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                  {SERVICE_TYPES.map((opt) => {
+                    const active = form.service_type === opt.id
                     return (
                       <button
                         key={opt.id}
                         type="button"
-                        onClick={() => setField('inquiry_type', opt.id)}
+                        onClick={() => setField('service_type', opt.id)}
                         className={cn(
                           'text-left p-4 rounded-xl border-2 transition-all',
-                          active
-                            ? 'border-[#2d568e] bg-[#2d568e]/5 shadow-sm'
-                            : 'border-gray-200 hover:border-gray-300',
+                          active ? 'border-[#2d568e] bg-[#2d568e]/5 shadow-sm' : 'border-gray-200 hover:border-gray-300',
                         )}
                       >
                         <div className="flex items-start justify-between gap-2 mb-1.5">
-                          <span className={cn(
-                            'text-sm font-bold',
-                            active ? 'text-[#2d568e]' : 'text-gray-800',
-                          )}>
+                          <span className={cn('text-sm font-bold', active ? 'text-[#2d568e]' : 'text-gray-800')}>
                             {opt.label}
                           </span>
                           {active && (
@@ -316,8 +303,7 @@ export default function ListPropertyPage() {
                 </div>
               </Section>
 
-              {/* Property */}
-              <Section title="About your property" subtitle="Optional — but it helps us prepare">
+              <Section title="About the space" subtitle="Optional — helps us quote accurately">
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                   <div>
                     <label className={labelClass}>Property type</label>
@@ -331,84 +317,62 @@ export default function ListPropertyPage() {
                     </select>
                   </div>
                   <div>
-                    <label className={labelClass}>Building</label>
-                    <input
-                      type="text"
-                      value={form.building}
-                      onChange={(e) => setField('building', e.target.value)}
-                      placeholder="e.g. One Madison"
-                      maxLength={120}
-                      className={inputClass}
-                    />
+                    <label className={labelClass}>Room scope</label>
+                    <select
+                      value={form.room_scope}
+                      onChange={(e) => setField('room_scope', e.target.value)}
+                      className={cn(inputClass, 'appearance-none cursor-pointer')}
+                    >
+                      <option value="">Select a scope…</option>
+                      {ROOM_SCOPES.map((r) => <option key={r.id} value={r.id}>{r.label}</option>)}
+                    </select>
                   </div>
                   <div className="md:col-span-2">
-                    <label className={labelClass}>Location / Address</label>
+                    <label className={labelClass}>Property address or area</label>
                     <div className="relative">
                       <MapPin size={14} className="absolute left-3.5 top-1/2 -translate-y-1/2 text-gray-400" />
                       <input
                         type="text"
-                        value={form.location}
-                        onChange={(e) => setField('location', e.target.value)}
+                        value={form.property_address}
+                        onChange={(e) => setField('property_address', e.target.value)}
                         placeholder="e.g. Mandurriao, Iloilo City"
-                        maxLength={200}
+                        maxLength={300}
                         className={cn(inputClass, 'pl-10')}
                       />
                     </div>
                   </div>
-                  <div className="grid grid-cols-2 gap-4 md:col-span-2">
-                    <div>
-                      <label className={labelClass}>Bedrooms</label>
-                      <input
-                        type="number" min={0} max={20}
-                        value={form.bedrooms}
-                        onChange={(e) => setField('bedrooms', e.target.value)}
-                        placeholder="1"
-                        className={inputClass}
-                      />
-                    </div>
-                    <div>
-                      <label className={labelClass}>Bathrooms</label>
-                      <input
-                        type="number" min={0} max={20}
-                        value={form.bathrooms}
-                        onChange={(e) => setField('bathrooms', e.target.value)}
-                        placeholder="1"
-                        className={inputClass}
-                      />
-                    </div>
-                    <div>
-                      <label className={labelClass}>Sqm</label>
-                      <input
-                        type="number" min={0} max={10000}
-                        value={form.square_meters}
-                        onChange={(e) => setField('square_meters', e.target.value)}
-                        placeholder="30"
-                        className={inputClass}
-                      />
-                    </div>
-                    <div>
-                      <label className={labelClass}>Nightly price (₱)</label>
-                      <input
-                        type="number" min={0} max={1000000}
-                        value={form.price_per_night}
-                        onChange={(e) => setField('price_per_night', e.target.value)}
-                        placeholder="2500"
-                        className={inputClass}
-                      />
-                    </div>
+                  <div>
+                    <label className={labelClass}>Budget range</label>
+                    <select
+                      value={form.budget_range}
+                      onChange={(e) => setField('budget_range', e.target.value)}
+                      className={cn(inputClass, 'appearance-none cursor-pointer')}
+                    >
+                      {BUDGET_RANGES.map((b) => <option key={b.id} value={b.id}>{b.label}</option>)}
+                    </select>
+                  </div>
+                  <div>
+                    <label className={labelClass}>Timeline</label>
+                    <select
+                      value={form.timeline}
+                      onChange={(e) => setField('timeline', e.target.value)}
+                      className={cn(inputClass, 'appearance-none cursor-pointer')}
+                    >
+                      <option value="">Select a timeline…</option>
+                      {TIMELINES.map((t) => <option key={t.id} value={t.id}>{t.label}</option>)}
+                    </select>
                   </div>
                 </div>
               </Section>
 
-              {/* Message */}
               <Section
-                title="Anything else?"
-                subtitle="Tell us about your goals, timeline, or anything we should know"
+                title="Tell us about your project *"
+                subtitle="What are you hoping to achieve? Any inspiration or constraints?"
               >
                 <textarea
                   value={form.message}
                   onChange={(e) => setField('message', e.target.value)}
-                  placeholder="e.g. I'm the owner of a 1-bedroom at Avida Towers. Looking for full management — guests, cleaning, everything. I'd like to discuss rates this week."
+                  placeholder="e.g. I just bought a 2BR condo at One Madison and want a warm, modern feel. I'd like a full design package including furniture sourcing."
                   rows={5}
                   maxLength={2000}
                   className={cn(inputClass, 'h-auto resize-none py-3 leading-relaxed')}
@@ -418,15 +382,14 @@ export default function ListPropertyPage() {
                 </p>
               </Section>
 
-              {/* Images */}
               <Section
-                title="Photos (optional)"
-                subtitle={`Up to ${MAX_IMAGES} images — helps us understand your space`}
+                title="Reference photos (optional)"
+                subtitle={`Up to ${MAX_IMAGES} images — your space, or inspiration you love`}
                 isLast
               >
                 <input
                   type="file"
-                  id="inquiry-images"
+                  id="interior-images"
                   accept="image/jpeg,image/png,image/webp"
                   multiple
                   className="hidden"
@@ -453,7 +416,7 @@ export default function ListPropertyPage() {
 
                 {images.length < MAX_IMAGES && (
                   <label
-                    htmlFor="inquiry-images"
+                    htmlFor="interior-images"
                     className={cn(
                       'flex flex-col items-center justify-center gap-1.5 py-6 rounded-xl border-2 border-dashed border-gray-200 hover:border-[#2d568e]/50 hover:bg-[#2d568e]/5 transition-colors cursor-pointer',
                       (uploading || images.length >= MAX_IMAGES) && 'opacity-50 pointer-events-none',
@@ -474,11 +437,7 @@ export default function ListPropertyPage() {
                 )}
               </Section>
 
-              {/* Honeypot */}
-              <div
-                style={{ position: 'absolute', left: '-9999px', width: 1, height: 1, overflow: 'hidden' }}
-                aria-hidden="true"
-              >
+              <div style={{ position: 'absolute', left: '-9999px', width: 1, height: 1, overflow: 'hidden' }} aria-hidden="true">
                 <label htmlFor="website_url">Website URL (leave empty)</label>
                 <input
                   type="text"
@@ -491,10 +450,8 @@ export default function ListPropertyPage() {
                 />
               </div>
 
-              {/* Turnstile widget */}
               <div ref={turnstileRef} className="flex justify-center px-6 pt-6" />
 
-              {/* Submit */}
               <div className="p-6 bg-gray-50 border-t border-gray-100">
                 <button
                   type="submit"
@@ -521,7 +478,6 @@ export default function ListPropertyPage() {
           )}
         </AnimatePresence>
 
-        {/* Back link */}
         {!submitted && (
           <div className="mt-6 text-center">
             <Link
@@ -538,9 +494,6 @@ export default function ListPropertyPage() {
   )
 }
 
-// ============================================================
-// Section wrapper — icons removed
-// ============================================================
 function Section({ title, subtitle, children, isLast = false }) {
   return (
     <div className={cn('p-6 md:p-8', !isLast && 'border-b border-gray-100')}>
@@ -553,9 +506,6 @@ function Section({ title, subtitle, children, isLast = false }) {
   )
 }
 
-// ============================================================
-// Success state
-// ============================================================
 function SuccessState({ onReset }) {
   return (
     <motion.div
@@ -578,7 +528,7 @@ function SuccessState({ onReset }) {
       </h2>
 
       <p className="text-gray-500 text-sm md:text-base leading-relaxed max-w-md mx-auto mb-8">
-        Your inquiry has been sent to our team. We'll review it and get back to you{' '}
+        Your design inquiry has been sent to our team. We'll review it and get back to you{' '}
         <strong className="text-gray-700">within 24 hours</strong> at the email you provided.
       </p>
 

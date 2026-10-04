@@ -2,7 +2,7 @@ import { useNavigate } from 'react-router-dom'
 import { useAuth } from "../../context/AuthContext";
 import {
   LogOut, ScrollText, Calendar, Users, Sparkles, FileText, TrendingUp,
-  LayoutDashboard, Megaphone,
+  LayoutDashboard, Megaphone, Inbox, Palette,
 } from 'lucide-react'
 import { motion, AnimatePresence } from 'framer-motion'
 import toast from 'react-hot-toast'
@@ -31,14 +31,16 @@ export default function AdminSidebar({ activeTab, setActiveTab, collapsed, onMou
   }
 
   const navItems = [
-    { id: 'dashboard',    label: 'Dashboard',    icon: LayoutDashboard },
-    { id: 'registry',     label: 'Registry',     icon: ScrollText },
-    { id: 'contracts',    label: 'Contracts',    icon: FileText },
-    { id: 'accounting',   label: 'Accounting',   icon: TrendingUp },
-    { id: 'bookings',     label: 'Bookings',     icon: Calendar },
-    { id: 'campaigns',    label: 'Campaigns',    icon: Megaphone },
-    { id: 'team',         label: 'Team',         icon: Users },
-    { id: 'housekeeping', label: 'Housekeeping', icon: Sparkles },
+    { id: 'dashboard',    label: 'Dashboard',       icon: LayoutDashboard },
+    { id: 'registry',     label: 'Registry',        icon: ScrollText },
+    { id: 'contracts',    label: 'Contracts',       icon: FileText },
+    { id: 'accounting',   label: 'Accounting',      icon: TrendingUp },
+    { id: 'bookings',     label: 'Bookings',        icon: Calendar },
+    { id: 'campaigns',    label: 'Campaigns',       icon: Megaphone },
+    { id: 'inquiries',    label: 'Inquiries',       icon: Inbox },
+    { id: 'interior',     label: 'Interior Design', icon: Palette },
+    { id: 'team',         label: 'Team',            icon: Users },
+    { id: 'housekeeping', label: 'Housekeeping',    icon: Sparkles },
   ]
 
   return (
@@ -48,7 +50,7 @@ export default function AdminSidebar({ activeTab, setActiveTab, collapsed, onMou
       style={style}
       className="h-full bg-blue-50/70 dark:bg-gray-800/70 backdrop-blur-sm shadow-md flex flex-col overflow-hidden rounded-tl-xl"
     >
-      <nav className="flex-1 py-4 px-2 space-y-1">
+      <nav className="flex-1 py-4 px-2 space-y-1 overflow-y-auto">
         {navItems.map((item) => {
           const Icon = item.icon
           const isActive = activeTab === item.id
