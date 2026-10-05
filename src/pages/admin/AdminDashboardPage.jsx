@@ -8,6 +8,7 @@ import {
   FileText, TrendingUp, Loader2, LayoutDashboard, Megaphone, Inbox, Palette,
 } from 'lucide-react'
 import AdminSidebar from '../../components/admin/AdminSidebar'
+import { InquiryNotifications } from '../../components/admin/InquiryNotifications'
 
 // ---- Lazy-loaded tabs ----
 const DashboardPage         = lazy(() => import('../../components/admin/dashboard/DashboardPage'))
@@ -147,6 +148,9 @@ export default function AdminDashboardPage() {
     next.set('tab', tab)
     if (tab !== 'contracts') next.delete('unit')
     if (tab !== 'contracts') next.delete('new')
+    next.delete('booking')
+    next.delete('cleaning')
+    next.delete('fromBooking')
     setSearchParams(next, { replace: true })
   }, [searchParams, setSearchParams])
 
@@ -291,6 +295,8 @@ export default function AdminDashboardPage() {
 
   return (
     <div className="h-screen flex flex-col bg-[#d4deec] dark:bg-gray-900 overflow-hidden transition-colors duration-300">
+      <InquiryNotifications onNavigateTab={handleTabChange} />
+
       <div className="flex-shrink-0 h-14 flex items-center justify-between px-6 bg-transparent z-40">
         <h1 className="text-xl font-bold text-[#2d568e] dark:text-blue-400 tracking-tight">
           Iloilo Rentals Management System
@@ -435,7 +441,7 @@ export default function AdminDashboardPage() {
                   {activeTab === 'bookings' && (
                     <PageTransition tabKey="bookings">
                       <div className="absolute inset-6 min-h-0 flex flex-col">
-                        <BookingsPage />
+                        <BookingsPage initialSelectedId={searchParams.get('booking')} />
                       </div>
                     </PageTransition>
                   )}
@@ -470,7 +476,7 @@ export default function AdminDashboardPage() {
                   {activeTab === 'housekeeping' && (
                     <PageTransition tabKey="housekeeping">
                       <div className="absolute inset-6 min-h-0 flex flex-col">
-                        <HousekeepingPage />
+                        <HousekeepingPage initialSelectedId={searchParams.get('cleaning')} />
                       </div>
                     </PageTransition>
                   )}

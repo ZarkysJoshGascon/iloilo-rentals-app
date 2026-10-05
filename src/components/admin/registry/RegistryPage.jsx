@@ -1365,11 +1365,19 @@ export default function RegistryPage() {
   const headerRef = useRef(null)
   const filterWrapRef = useRef(null)
   const hasLoadedOnce = useRef(false)
+  const refetchTimer = useRef(null)  // ← NEW: debounced refetch timer
 
   useEffect(() => {
     const t = setTimeout(() => setDebouncedSearch(search), 300)
     return () => clearTimeout(t)
   }, [search])
+
+  // Clean up debounce timer on unmount
+  useEffect(() => {
+    return () => {
+      if (refetchTimer.current) clearTimeout(refetchTimer.current)
+    }
+  }, [])
 
   const fetchChannelOptions = useCallback(async () => {
     const { data } = await supabase.from('ota_channel_names').select('name').order('name')
@@ -1514,11 +1522,16 @@ export default function RegistryPage() {
     toast.success('Exported')
   }
 
+  // ✅ FIX: debounced refetch — coalesces rapid edits into a single fetchUnits()
   const handleUnitUpdate = (updatedUnit) => {
     setAllUnits((prev) =>
       prev.map((u) => (u.id === updatedUnit.id ? { ...u, ...updatedUnit } : u))
     )
-    setTimeout(() => { fetchUnits() }, 300)
+    if (refetchTimer.current) clearTimeout(refetchTimer.current)
+    refetchTimer.current = setTimeout(() => {
+      refetchTimer.current = null
+      fetchUnits()
+    }, 400)
   }
 
   const handleDeleteUnit = async (unit) => {

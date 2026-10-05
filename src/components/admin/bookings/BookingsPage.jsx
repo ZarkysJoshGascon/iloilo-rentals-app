@@ -1,12 +1,13 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
+import { useNavigate } from 'react-router-dom'
 import { motion, AnimatePresence } from 'framer-motion'
 import {
   Check, Download, Loader2,
   Plus, RefreshCw, Search, X, Trash2,
   Building2, CheckCircle2, Clock, AlertTriangle, Calendar as CalendarIcon, User, Wallet,
   Edit2, Lock, LogIn, LogOut, ChevronLeft, ChevronRight,
-  Mail,
+  Mail, Copy, Sparkles,
 } from 'lucide-react'
 import toast from 'react-hot-toast'
 import { Button } from '@/components/ui/button'
@@ -35,6 +36,7 @@ import {
 } from '@/lib/commissions'
 import { sendBookingConfirmation } from '@/lib/email'
 import BookingConfirmationModal from './BookingConfirmationModal'
+import { ContextMenu } from '@/components/ui/ContextMenu'
 
 const BRAND = '#2d568e'
 
@@ -558,45 +560,58 @@ function TodayPanel({ title, icon: Icon, rows, loading, empty, onRowClick }) {
         )}
       </div>
 
-      <div className="rounded-md bg-card border border-border shadow-sm overflow-hidden flex-1 min-h-0">
-        <div className="max-h-[180px] overflow-y-auto">
+      <div className="flex-1 min-h-0">
+        <div className="max-h-[180px] overflow-y-auto pr-1 space-y-1.5">
           {loading ? (
-            <div className="p-3 space-y-2">
+            <div className="space-y-1.5">
               {[...Array(3)].map((_, i) => (
-                <div key={i} className="h-11 rounded bg-muted animate-pulse" />
+                <div key={i} className="h-14 rounded-md bg-muted animate-pulse" />
               ))}
             </div>
           ) : rows.length === 0 ? (
-            <div className="py-8 px-4 text-center">
+            <div className="rounded-md bg-card border border-border shadow-sm py-8 px-4 text-center">
               <p className="text-[11px] text-muted-foreground italic">{empty}</p>
             </div>
           ) : (
             rows.map((b) => {
               const status = deriveBookingStatus(b)
               const nights = computeNights(b.check_in, b.check_out)
+              const balance = Number(b.balance || 0)
               return (
                 <button
                   key={b.id}
                   type="button"
                   onClick={() => onRowClick(b)}
-                  className="w-full text-left px-3 py-2 border-b border-border last:border-0 hover:bg-muted/30 transition-colors grid grid-cols-[1fr_auto_1fr_auto] gap-3 items-center"
+                  className="relative w-full text-left rounded-md border border-border bg-background py-2 pl-4 pr-3 overflow-hidden transition-colors hover:bg-muted/40"
                 >
+                  <span
+                    aria-hidden
+                    className="absolute top-0 bottom-0 left-0 w-[4px]"
+                    style={{ backgroundColor: BRAND }}
+                  />
+
                   <div className="flex items-center gap-2 min-w-0">
                     <GuestAvatar name={b.guest_name} size="sm" />
                     <div className="min-w-0 flex-1">
-                      <p className="text-[12px] font-semibold text-foreground truncate">{b.guest_name || '—'}</p>
+                      <p className="text-xs font-semibold text-foreground truncate">{b.guest_name || '—'}</p>
                       <p className="text-[10px] text-muted-foreground truncate">
-                        {b.guests || 1} guest{b.guests > 1 ? 's' : ''} · {nights} night{nights === 1 ? '' : 's'}
+                        {b.booking_code || '—'} · {b.units?.unit_code || '—'}
                       </p>
                     </div>
-                  </div>
-                  <span className="font-mono text-[11px] font-semibold text-foreground truncate">{b.booking_code || '—'}</span>
-                  <div className="min-w-0">
-                    <span className="font-mono text-[11px] font-bold text-foreground truncate block">{b.units?.unit_code || '—'}</span>
-                    <span className="text-[10px] text-muted-foreground truncate block">{b.units?.building || '—'}</span>
-                  </div>
-                  <div className="flex items-center justify-end flex-shrink-0">
-                    <PaymentStatusBadge status={b.payment_status} />
+                    <div className="flex flex-col items-end flex-shrink-0">
+                      <span className="text-[10px] tabular-nums text-muted-foreground">
+                        {formatDateShort(b.check_in)} → {formatDateShort(b.check_out)}
+                      </span>
+                      {balance > 0 ? (
+                        <span className="text-[10px] font-semibold tabular-nums text-amber-600 dark:text-amber-400">
+                          {formatMoney(balance)} due
+                        </span>
+                      ) : (
+                        <span className="text-[10px] font-semibold tabular-nums text-emerald-600 dark:text-emerald-400">
+                          Paid
+                        </span>
+                      )}
+                    </div>
                   </div>
                 </button>
               )
@@ -820,7 +835,7 @@ function BookingDetailPanel({
       className="h-full flex-shrink-0 p-3"
       style={{ maxWidth: '100%', width: PANEL_WIDTH + 24 }}
     >
-      <div className="h-full rounded-md border border-border bg-card shadow-lg overflow-y-auto flex flex-col">
+      <div className="h-full rounded-md border border-border bg-card shadow-lg overflow-hidden flex flex-col">
 
         <div className="px-5 py-4 border-b border-border flex-shrink-0">
           <div className="flex items-start gap-3">
@@ -862,7 +877,7 @@ function BookingDetailPanel({
           </div>
         </div>
 
-        <div className="p-4 space-y-4">
+        <div className="flex-1 min-h-0 overflow-y-auto p-4 space-y-4">
           <div className="flex items-center justify-end gap-2 flex-wrap">
             {!isCompleted && (
               <Button variant="outline" size="sm" className="h-7 rounded text-[11px] gap-1.5" onClick={onAddPayment}>
@@ -1056,7 +1071,7 @@ function BookingDetailPanel({
   )
 }
 
-function BookingListRow({ booking, contracts, selected, highlighted, onClick }) {
+function BookingListRow({ booking, contracts, selected, highlighted, onClick, onViewCleaning }) {
   const status = deriveBookingStatus(booking)
   const nights = computeNights(booking.check_in, booking.check_out)
   const governing = findContractForBooking(booking, contracts)
@@ -1064,67 +1079,103 @@ function BookingListRow({ booking, contracts, selected, highlighted, onClick }) 
   const editedAgo = timeAgo(booking.updated_at)
   const wasEdited = booking.updated_at && booking.created_at && booking.updated_at !== booking.created_at
 
+  const contextItems = [
+    { label: 'See in Bookings', icon: CalendarIcon, onSelect: onClick },
+    { separator: true },
+    {
+      label: 'Copy booking code',
+      icon: Copy,
+      hint: booking.booking_code,
+      onSelect: () => {
+        navigator.clipboard.writeText(booking.booking_code || '').then(
+          () => toast.success('Booking code copied'),
+          () => toast.error('Failed to copy'),
+        )
+      },
+    },
+    {
+      label: 'Copy guest email',
+      icon: Mail,
+      disabled: !booking.guest_email,
+      onSelect: () => {
+        navigator.clipboard.writeText(booking.guest_email || '').then(
+          () => toast.success('Email copied'),
+          () => toast.error('Failed to copy'),
+        )
+      },
+    },
+    { separator: true },
+    {
+      label: 'See in Housekeeping',
+      icon: Sparkles,
+      disabled: !onViewCleaning,
+      onSelect: () => onViewCleaning?.(booking),
+    },
+  ]
+
   return (
-    <motion.button
-      type="button"
-      data-booking-id={booking.id}
-      onClick={onClick}
-      initial={false}
-      animate={{
-        backgroundColor: highlighted
-          ? 'rgba(45, 86, 142, 0.16)'
-          : selected
-            ? 'rgba(45, 86, 142, 0.10)'
-            : 'rgba(45, 86, 142, 0)',
-      }}
-      transition={{ duration: 0.4 }}
-      whileHover={{ backgroundColor: selected ? 'rgba(45, 86, 142, 0.14)' : 'rgba(45, 86, 142, 0.05)' }}
-      whileTap={{ scale: 0.998 }}
-      className={cn('group/row w-full text-left px-4 py-3 border-b border-border cursor-pointer select-none', ROW_GRID)}
-    >
-      <div className="flex items-center gap-2 min-w-0">
-        <GuestAvatar name={booking.guest_name} size="sm" />
-        <div className="min-w-0 flex-1">
-          <p className="text-sm font-semibold text-foreground truncate">{booking.guest_name}</p>
-          <p className="text-[10px] text-muted-foreground truncate">
-            {booking.guest_email || booking.guest_contact || `${booking.guests || 1} guest${booking.guests > 1 ? 's' : ''}`}
-          </p>
-          {bookedAgo && (
+    <ContextMenu items={contextItems}>
+      <motion.button
+        type="button"
+        data-booking-id={booking.id}
+        onClick={onClick}
+        initial={false}
+        animate={{
+          backgroundColor: highlighted
+            ? 'rgba(45, 86, 142, 0.16)'
+            : selected
+              ? 'rgba(45, 86, 142, 0.10)'
+              : 'rgba(45, 86, 142, 0)',
+        }}
+        transition={{ duration: 0.4 }}
+        whileHover={{ backgroundColor: selected ? 'rgba(45, 86, 142, 0.14)' : 'rgba(45, 86, 142, 0.05)' }}
+        whileTap={{ scale: 0.998 }}
+        className={cn('group/row w-full text-left px-4 py-3 border-b border-border cursor-pointer select-none', ROW_GRID)}
+      >
+        <div className="flex items-center gap-2 min-w-0">
+          <GuestAvatar name={booking.guest_name} size="sm" />
+          <div className="min-w-0 flex-1">
+            <p className="text-sm font-semibold text-foreground truncate">{booking.guest_name}</p>
             <p className="text-[10px] text-muted-foreground truncate">
-              Booked {bookedAgo}
-              {wasEdited && editedAgo && (
-                <>
-                  <span className="mx-1 text-muted-foreground/50">·</span>
-                  <span>Edited {editedAgo}</span>
-                </>
-              )}
+              {booking.guest_email || booking.guest_contact || `${booking.guests || 1} guest${booking.guests > 1 ? 's' : ''}`}
             </p>
-          )}
+            {bookedAgo && (
+              <p className="text-[10px] text-muted-foreground truncate">
+                Booked {bookedAgo}
+                {wasEdited && editedAgo && (
+                  <>
+                    <span className="mx-1 text-muted-foreground/50">·</span>
+                    <span>Edited {editedAgo}</span>
+                  </>
+                )}
+              </p>
+            )}
+          </div>
         </div>
-      </div>
-      <span className="font-mono text-xs text-foreground truncate">{booking.booking_code}</span>
-      <div className="min-w-0">
-        <span className="font-mono text-xs font-bold text-foreground truncate flex items-center gap-1">
-          {booking.units?.unit_code || '—'}
-          {!governing && (
-            <span className="text-[9px] font-semibold uppercase tracking-wider text-red-600 dark:text-red-400">
-              No contract
-            </span>
-          )}
-        </span>
-        <span className="text-[10px] text-muted-foreground truncate block">{booking.units?.building || '—'}</span>
-      </div>
-      <div className="text-[11px] tabular-nums text-foreground min-w-0">
-        <div className="truncate">{formatDateShort(booking.check_in)} → {formatDateShort(booking.check_out)}</div>
-        <div className="text-[10px] text-muted-foreground">{nights} night{nights === 1 ? '' : 's'}</div>
-      </div>
-      <div className="flex items-center min-w-0">
-        <PaymentStatusBadge status={booking.payment_status} />
-      </div>
-      <div className="flex items-center justify-end flex-shrink-0">
-        <BookingStatusBadge status={status} />
-      </div>
-    </motion.button>
+        <span className="font-mono text-xs text-foreground truncate">{booking.booking_code}</span>
+        <div className="min-w-0">
+          <span className="font-mono text-xs font-bold text-foreground truncate flex items-center gap-1">
+            {booking.units?.unit_code || '—'}
+            {!governing && (
+              <span className="text-[9px] font-semibold uppercase tracking-wider text-red-600 dark:text-red-400">
+                No contract
+              </span>
+            )}
+          </span>
+          <span className="text-[10px] text-muted-foreground truncate block">{booking.units?.building || '—'}</span>
+        </div>
+        <div className="text-[11px] tabular-nums text-foreground min-w-0">
+          <div className="truncate">{formatDateShort(booking.check_in)} → {formatDateShort(booking.check_out)}</div>
+          <div className="text-[10px] text-muted-foreground">{nights} night{nights === 1 ? '' : 's'}</div>
+        </div>
+        <div className="flex items-center min-w-0">
+          <PaymentStatusBadge status={booking.payment_status} />
+        </div>
+        <div className="flex items-center justify-end flex-shrink-0">
+          <BookingStatusBadge status={status} />
+        </div>
+      </motion.button>
+    </ContextMenu>
   )
 }
 
@@ -1459,7 +1510,6 @@ function BookingFormModal({ open, onClose, onSaved, units, editing, specialists,
         savedBookingCode = inserted?.booking_code
         logAudit('CREATE_BOOKING', 'bookings', savedBookingId, { booking_code: savedBookingCode }).catch(() => {})
 
-        // Optionally send the confirmation email right after creating
         if (sendEmail && guestEmail) {
           try {
             await sendBookingConfirmation(savedBookingId)
@@ -1917,6 +1967,15 @@ function ExtendStayModal({ open, onClose, booking, onSaved, contracts }) {
     const total = sanitizeMoney(newTotal)
     if (total <= 0) { toast.error('Total amount must be greater than 0'); return }
 
+    const alreadyPaidBase = Number(booking.amount_paid || 0)
+    if (total < alreadyPaidBase) {
+      toast.error(
+        `New total (${formatMoney(total)}) is less than already paid (${formatMoney(alreadyPaidBase)}). ` +
+        `Refund existing payments first, or raise the new total.`
+      )
+      return
+    }
+
     let payAmt = 0
     let payMethodClean = null
     let payRefClean = null
@@ -1925,9 +1984,8 @@ function ExtendStayModal({ open, onClose, booking, onSaved, contracts }) {
       payAmt = sanitizeMoney(payAmount)
       if (!payAmt || payAmt <= 0) { toast.error('Enter a valid extension payment amount'); return }
 
-      const alreadyPaid = Number(booking.amount_paid || 0)
-      if (alreadyPaid + payAmt > total) {
-        const maxExtra = Math.max(0, total - alreadyPaid)
+      if (alreadyPaidBase + payAmt > total) {
+        const maxExtra = Math.max(0, total - alreadyPaidBase)
         toast.error(`Payment would overpay. Max extra: ${formatMoney(maxExtra)}`)
         return
       }
@@ -2054,7 +2112,15 @@ function ExtendStayModal({ open, onClose, booking, onSaved, contracts }) {
               Before {STAY_TIMES.checkOut.label} · linked cleanings will move to this date
             </p>
           </div>
-          <div><label className={labelClass}>New Total Amount (₱) *</label><Input type="number" min={0} value={newTotal} onChange={(e) => setNewTotal(e.target.value)} className="h-8 text-xs rounded" /></div>
+          <div>
+            <label className={labelClass}>New Total Amount (₱) *</label>
+            <Input type="number" min={0} value={newTotal} onChange={(e) => setNewTotal(e.target.value)} className="h-8 text-xs rounded" />
+            {Number(newTotal) > 0 && Number(newTotal) < Number(booking.amount_paid || 0) && (
+              <p className="text-[10px] text-red-600 dark:text-red-400 mt-1">
+                ⚠ Total is below already-paid amount ({formatMoney(booking.amount_paid)}). Save will be blocked.
+              </p>
+            )}
+          </div>
           {newNights > oldNights && <p className="text-[10px] text-foreground">Extended by {newNights - oldNights} night{newNights - oldNights === 1 ? '' : 's'} · new total {newNights} night{newNights === 1 ? '' : 's'}</p>}
 
           {(booking.booker_code || booking.affiliate_code) && previewTotal > 0 && (
@@ -2159,7 +2225,8 @@ function CompleteConfirmModal({ open, onClose, booking, onConfirmed }) {
   )
 }
 
-export default function BookingsPage() {
+export default function BookingsPage({ initialSelectedId }) {
+  const navigate = useNavigate()
   const [bookings, setBookings] = useState([])
   const [units, setUnits] = useState([])
   const [specialists, setSpecialists] = useState([])
@@ -2174,9 +2241,8 @@ export default function BookingsPage() {
   const [search, setSearch] = useState('')
   const [debouncedSearch, setDebouncedSearch] = useState('')
 
-  const [selectedId, setSelectedId] = useState(null)
+  const [selectedId, setSelectedId] = useState(initialSelectedId || null)
   const [highlightedId, setHighlightedId] = useState(null)
-  const [cardsHidden, setCardsHidden] = useState(false)
 
   const [formOpen, setFormOpen] = useState(false)
   const [editing, setEditing] = useState(null)
@@ -2185,7 +2251,6 @@ export default function BookingsPage() {
   const [completeForBooking, setCompleteForBooking] = useState(null)
   const [confirmForBooking, setConfirmForBooking] = useState(null)
 
-  const headerRef = useRef(null)
   const hasLoadedOnce = useRef(false)
   const highlightTimeoutRef = useRef(null)
 
@@ -2199,6 +2264,22 @@ export default function BookingsPage() {
       if (highlightTimeoutRef.current) clearTimeout(highlightTimeoutRef.current)
     }
   }, [])
+
+  useEffect(() => {
+    if (initialSelectedId && initialSelectedId !== selectedId) {
+      setSelectedId(initialSelectedId)
+      setHighlightedId(initialSelectedId)
+      if (highlightTimeoutRef.current) clearTimeout(highlightTimeoutRef.current)
+      highlightTimeoutRef.current = setTimeout(() => setHighlightedId(null), 2000)
+      requestAnimationFrame(() => {
+        requestAnimationFrame(() => {
+          const el = document.querySelector(`[data-booking-id="${initialSelectedId}"]`)
+          if (el) el.scrollIntoView({ behavior: 'smooth', block: 'center' })
+        })
+      })
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [initialSelectedId])
 
   const fetchData = useCallback(async () => {
     if (!hasLoadedOnce.current) setIsFirstLoad(true)
@@ -2386,23 +2467,15 @@ export default function BookingsPage() {
     }
   }
 
-  const handleListMouseMove = useCallback((e) => {
-    const headerEl = headerRef.current
-    if (!headerEl) return
-    const headerRect = headerEl.getBoundingClientRect()
-    setCardsHidden(e.clientY > headerRect.bottom)
-  }, [])
-  const handleListMouseLeave = useCallback(() => setCardsHidden(false), [])
-
   return (
     <div className="h-full flex min-h-0">
-      <div className="flex-1 min-h-0 flex flex-col p-3 gap-3">
+      <div className="flex-1 min-h-0 flex flex-col p-3 gap-3 overflow-y-auto">
 
-        <div className={cn('flex-shrink-0 pt-1 pb-2 transition-all duration-300 ease-out overflow-hidden', cardsHidden ? 'max-h-0 opacity-0 -mb-3' : 'max-h-40 opacity-100')}>
+        <div className="flex-shrink-0 pt-1 pb-2">
           <SummaryCards bookings={bookings} />
         </div>
 
-        <div className={cn('flex-shrink-0 grid grid-cols-1 lg:grid-cols-2 gap-4 pt-1 pb-2 transition-all duration-300 ease-out overflow-hidden', cardsHidden ? 'max-h-0 opacity-0 -mb-3' : 'max-h-60 opacity-100')}>
+        <div className="flex-shrink-0 grid grid-cols-1 lg:grid-cols-2 gap-4 pt-1 pb-2">
           <TodayPanel
             title="Check-ins today"
             icon={LogIn}
@@ -2421,7 +2494,7 @@ export default function BookingsPage() {
           />
         </div>
 
-        <div ref={headerRef} className="flex-shrink-0 flex items-center gap-2">
+        <div className="flex-shrink-0 flex items-center gap-2">
           <div className="relative flex-1 min-w-0">
             <Search size={13} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-muted-foreground" />
             <Input placeholder="Search guest, booking code, unit, email, booker, notes..." value={search} onChange={(e) => setSearch(e.target.value)} className="pl-8 h-8 text-xs rounded" />
@@ -2447,22 +2520,21 @@ export default function BookingsPage() {
           />
         </div>
 
-        <div className="flex-1 min-h-0 rounded border border-border shadow-sm overflow-hidden bg-card">
-          <div className="h-full overflow-y-auto" style={{ scrollbarGutter: 'stable' }}
-            onMouseMove={handleListMouseMove} onMouseLeave={handleListMouseLeave}>
-            <div className={cn('sticky top-0 z-10 px-4 py-2 border-b border-border bg-card', ROW_GRID)}>
-              <span className="text-[10px] font-bold uppercase tracking-wider text-foreground truncate">Guest</span>
-              <span className="text-[10px] font-bold uppercase tracking-wider text-foreground truncate">Code</span>
-              <span className="text-[10px] font-bold uppercase tracking-wider text-foreground truncate">Unit</span>
-              <span className="text-[10px] font-bold uppercase tracking-wider text-foreground truncate">Check-in → Check-out</span>
-              <span className="text-[10px] font-bold uppercase tracking-wider text-foreground truncate">Payment</span>
-              <span className="text-[10px] font-bold uppercase tracking-wider text-foreground text-right truncate">Status</span>
-            </div>
+        <div className="flex-shrink-0 rounded border border-border shadow-sm overflow-hidden bg-card flex flex-col">
+          <div className={cn('flex-shrink-0 px-4 py-2 border-b border-border bg-card', ROW_GRID)}>
+            <span className="text-[10px] font-bold uppercase tracking-wider text-foreground truncate">Guest</span>
+            <span className="text-[10px] font-bold uppercase tracking-wider text-foreground truncate">Code</span>
+            <span className="text-[10px] font-bold uppercase tracking-wider text-foreground truncate">Unit</span>
+            <span className="text-[10px] font-bold uppercase tracking-wider text-foreground truncate">Check-in → Check-out</span>
+            <span className="text-[10px] font-bold uppercase tracking-wider text-foreground truncate">Payment</span>
+            <span className="text-[10px] font-bold uppercase tracking-wider text-foreground text-right truncate">Status</span>
+          </div>
 
+          <div className="h-[280px] overflow-y-auto" style={{ scrollbarGutter: 'stable' }}>
             {isFirstLoad ? (
-              <div className="space-y-2 p-3">{[...Array(8)].map((_, i) => <Skeleton key={i} className="h-14 w-full" />)}</div>
+              <div className="space-y-2 p-3">{[...Array(5)].map((_, i) => <Skeleton key={i} className="h-14 w-full" />)}</div>
             ) : sorted.length === 0 ? (
-              <div className="h-full flex items-center justify-center text-center py-12">
+              <div className="flex items-center justify-center text-center py-12">
                 <div>
                   <CalendarIcon size={36} className="text-muted-foreground/40 mx-auto mb-3" />
                   <p className="text-sm text-foreground font-semibold">No bookings match your filters</p>
@@ -2478,6 +2550,7 @@ export default function BookingsPage() {
                   selected={selectedId === booking.id}
                   highlighted={highlightedId === booking.id}
                   onClick={() => handleSelect(booking)}
+                  onViewCleaning={(b) => navigate(`/admin?tab=housekeeping&fromBooking=${b.id}`)}
                 />
               ))
             )}

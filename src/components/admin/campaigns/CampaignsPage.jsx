@@ -155,6 +155,7 @@ function RecipientRow({ guest, checked, onToggle, disabled }) {
   const staysAgo = useMemo(() => {
     if (!guest.last_check_out) return ''
     const then = new Date(guest.last_check_out + 'T00:00:00Z').getTime()
+    // eslint-disable-next-line react-hooks/purity
     const days = Math.floor((Date.now() - then) / 86400000)
     if (days < 30) return `${days}d ago`
     const months = Math.floor(days / 30)
@@ -403,6 +404,7 @@ export default function CampaignsPage() {
     setShowConfirm(true)
   }
 
+  // ✅ FIX: partial-failure handling
   const handleSendReal = async () => {
     setShowConfirm(false)
     setSending(true)
@@ -414,8 +416,35 @@ export default function CampaignsPage() {
         recipients: selectedGuests.map((g) => ({ email: g.email, name: g.name })),
       }
       const res = await sendPromoCampaign(payload)
-      setSendProgress({ current: res.sent, total: res.recipient_count })
-      toast.success(`Sent to ${res.sent} of ${res.recipient_count} guests`)
+
+      // res = { ok, campaign_id, recipient_count, sent, failed, failures[] }
+      const sentCount   = Number(res?.sent ?? 0)
+      const failedCount = Number(res?.failed ?? 0)
+      const totalCount  = Number(res?.recipient_count ?? selectedGuests.length)
+      const skipped     = Math.max(0, totalCount - sentCount - failedCount)
+
+      setSendProgress({ current: sentCount + failedCount, total: totalCount })
+
+      // ── Report accurately, not as all-or-nothing ─────────────
+      if (failedCount === 0 && skipped === 0) {
+        toast.success(`Sent to all ${sentCount} guest${sentCount === 1 ? '' : 's'}`)
+      } else if (sentCount === 0 && failedCount > 0) {
+        toast.error(`Send failed for all ${failedCount} recipient${failedCount === 1 ? '' : 's'}. Check history.`)
+      } else {
+        // Mixed result — surface counts plainly
+        const parts = [`Sent to ${sentCount}`]
+        if (failedCount > 0) parts.push(`${failedCount} failed`)
+        if (skipped > 0)     parts.push(`${skipped} skipped`)
+        toast(
+          parts.join(' · ') + ' — see history for details',
+          { icon: '⚠️', duration: 6000 },
+        )
+      }
+
+      // Log the first few failures for debugging
+      if (Array.isArray(res?.failures) && res.failures.length > 0) {
+        console.warn('Campaign send failures:', res.failures)
+      }
 
       resetForm()
       clearSelection()
@@ -986,6 +1015,7 @@ function HistoryView({ campaigns, totalCampaigns, loading, onDeleted }) {
           ) : (
             campaigns.map((c) => {
               const isDeleting = deletingId === c.id
+              const hasFailures = (c.failed_count || 0) > 0
               return (
                 <div
                   key={c.id}
@@ -1009,7 +1039,7 @@ function HistoryView({ campaigns, totalCampaigns, loading, onDeleted }) {
                       <span className="inline-flex items-center gap-1 text-emerald-600 dark:text-emerald-400">
                         <Check size={10} /> {c.sent_count} sent
                       </span>
-                      {c.failed_count > 0 && (
+                      {hasFailures && (
                         <span className="inline-flex items-center gap-1 text-red-600 dark:text-red-400">
                           <AlertTriangle size={10} /> {c.failed_count} failed
                         </span>
@@ -1047,7 +1077,7 @@ function HistoryView({ campaigns, totalCampaigns, loading, onDeleted }) {
 }
 
 // ============================================================
-// Confirm Send dialog — the safety net, no preview needed
+// Confirm Send dialog
 // ============================================================
 function ConfirmSendDialog({
   recipientCount, subject, greeting, body, heroImage,

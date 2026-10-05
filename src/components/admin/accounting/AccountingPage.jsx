@@ -1,10 +1,11 @@
 import { useCallback, useEffect, useMemo, useRef, useState, memo, useLayoutEffect } from 'react'
+import { useNavigate } from 'react-router-dom'
 import { motion, AnimatePresence } from 'framer-motion'
 import {
   Search, RefreshCw, X, Loader2, TrendingUp, ChevronDown, ChevronLeft, ChevronRight,
   Download, Wallet, Lock, Save, Home, Sparkles, Plus, Trash2,
   Zap, Wifi, Droplets, Megaphone,
-  Calendar, User, Pencil, BarChart3, Camera,
+  Calendar, User, Pencil, BarChart3, Camera, Copy,
 } from 'lucide-react'
 import {
   ComposedChart, Bar, BarChart, AreaChart, Area,
@@ -26,9 +27,10 @@ import {
   OWNER_SPLIT_PCT, COMPANY_SPLIT_PCT,
 } from '@/lib/accounting'
 import { fetchContractsLifetime, fetchContractMonthlyBreakdown } from '@/lib/accountingRpc'
+import { ContextMenu } from '@/components/ui/ContextMenu'
 
 const BRAND = '#2d568e'
-const CLEAN_COLOR = '#7c3aed'
+const CLEAN_COLOR = '#10b981'
 const EXPENSE_BUCKET = 'expense-proofs'
 const ROW_GRID = 'grid grid-cols-[1.2fr_1fr_1.2fr_1fr_140px] gap-4 items-center'
 const MONTHS_SHORT = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']
@@ -352,11 +354,12 @@ function computeContractOccupancy(effectiveDate, expiryDate, bookings) {
   return { pct: totalNights > 0 ? nights / totalNights : 0, nights, totalNights }
 }
 
-function SectionHeader({ icon: Icon, title }) {
+function SectionHeader({ icon: Icon, title, action }) {
   return (
     <div className="flex items-center gap-2 mb-3">
       {Icon ? <Icon size={16} className="text-foreground flex-shrink-0" /> : null}
       <h2 className="text-sm font-bold text-foreground uppercase tracking-wide">{title}</h2>
+      {action ? <div className="ml-auto">{action}</div> : null}
     </div>
   )
 }
@@ -668,7 +671,7 @@ function YearNav({ yearSections, selectedYear, onSelectYear }) {
   )
 }
 
-const YearlyRevenueChart = memo(function YearlyRevenueChart({ yearSections, statements, selectedYear, onSelectYear, title }) {
+const YearlyRevenueChart = memo(function YearlyRevenueChart({ yearSections, statements, selectedYear, title }) {
   const section = yearSections.find((s) => s.year === selectedYear)
 
   const data = useMemo(() => {
@@ -705,27 +708,24 @@ const YearlyRevenueChart = memo(function YearlyRevenueChart({ yearSections, stat
           <TrendingUp size={16} className="text-foreground flex-shrink-0" />
           <h3 className="text-base font-semibold text-foreground truncate">{title}</h3>
         </div>
-        <div className="flex items-center gap-3">
-          <div className="hidden md:flex items-center gap-3 text-[11px]">
-            <span className="inline-flex items-center gap-1.5">
-              <span className="w-3 h-3 rounded-sm border" style={{ borderColor: BRAND }} />
-              <span className="text-foreground">Gross</span>
-            </span>
-            <span className="inline-flex items-center gap-1.5">
-              <svg width="12" height="12" viewBox="0 0 12 12">
-                <pattern id="legend-hatch" width="4" height="4" patternUnits="userSpaceOnUse" patternTransform="rotate(45)">
-                  <line x1="0" y1="0" x2="0" y2="4" stroke={BRAND} strokeWidth="1.2" />
-                </pattern>
-                <rect width="12" height="12" fill="url(#legend-hatch)" />
-              </svg>
-              <span className="text-foreground">Expenses</span>
-            </span>
-            <span className="inline-flex items-center gap-1.5">
-              <span className="w-3 h-3 rounded-sm" style={{ backgroundColor: BRAND }} />
-              <span className="text-foreground">Net</span>
-            </span>
-          </div>
-          <YearNav yearSections={yearSections} selectedYear={selectedYear} onSelectYear={onSelectYear} />
+        <div className="hidden md:flex items-center gap-3 text-[11px]">
+          <span className="inline-flex items-center gap-1.5">
+            <span className="w-3 h-3 rounded-sm border" style={{ borderColor: BRAND }} />
+            <span className="text-foreground">Gross</span>
+          </span>
+          <span className="inline-flex items-center gap-1.5">
+            <svg width="12" height="12" viewBox="0 0 12 12">
+              <pattern id="legend-hatch" width="4" height="4" patternUnits="userSpaceOnUse" patternTransform="rotate(45)">
+                <line x1="0" y1="0" x2="0" y2="4" stroke={BRAND} strokeWidth="1.2" />
+              </pattern>
+              <rect width="12" height="12" fill="url(#legend-hatch)" />
+            </svg>
+            <span className="text-foreground">Expenses</span>
+          </span>
+          <span className="inline-flex items-center gap-1.5">
+            <span className="w-3 h-3 rounded-sm" style={{ backgroundColor: BRAND }} />
+            <span className="text-foreground">Net</span>
+          </span>
         </div>
       </div>
       <CardBody>
@@ -767,7 +767,7 @@ const YearlyRevenueChart = memo(function YearlyRevenueChart({ yearSections, stat
   )
 })
 
-const MonthlyOccupancyChart = memo(function MonthlyOccupancyChart({ statements, selectedYear, yearSections, onSelectYear, contract }) {
+const MonthlyOccupancyChart = memo(function MonthlyOccupancyChart({ statements, selectedYear, contract }) {
   const data = useMemo(() => {
     return statements
       .filter((s) => s.month.startsWith(String(selectedYear)))
@@ -791,7 +791,6 @@ const MonthlyOccupancyChart = memo(function MonthlyOccupancyChart({ statements, 
           <Home size={16} className="text-foreground flex-shrink-0" />
           <h3 className="text-base font-semibold text-foreground truncate">Monthly Occupancy</h3>
         </div>
-        <YearNav yearSections={yearSections} selectedYear={selectedYear} onSelectYear={onSelectYear} />
       </div>
       <CardBody className="flex-1">
         <div className="p-3 h-full">
@@ -941,7 +940,7 @@ const WeeklyCumulativeChart = memo(function WeeklyCumulativeChart({ statement, m
   )
 })
 
-const CumulativeNetChart = memo(function CumulativeNetChart({ statements, selectedYear, yearSections, onSelectYear }) {
+const CumulativeNetChart = memo(function CumulativeNetChart({ statements, selectedYear }) {
   const data = useMemo(() => {
     const ordered = [...statements].sort((a, b) => a.month.localeCompare(b.month))
     const withCumulative = []
@@ -983,7 +982,6 @@ const CumulativeNetChart = memo(function CumulativeNetChart({ statements, select
           <TrendingUp size={16} className="text-foreground flex-shrink-0" />
           <h3 className="text-base font-semibold text-foreground truncate">Cumulative Net</h3>
         </div>
-        <YearNav yearSections={yearSections} selectedYear={selectedYear} onSelectYear={onSelectYear} />
       </div>
       <CardBody className="flex-1">
         <div className="p-3 h-full">
@@ -1293,7 +1291,7 @@ function SidebarSection({ title, action, children }) {
 
 function ContractSidebar({ contract, onBack }) {
   return (
-    <aside className="w-full lg:w-[280px] flex-shrink-0 lg:overflow-y-auto bg-muted/20 lg:border-r border-border p-3 space-y-4">
+    <aside className="w-full lg:w-[280px] flex-shrink-0 lg:overflow-y-auto lg:border-r border-border p-3 space-y-4">
       <CardBody>
         <div className="p-3">
           <div className="flex items-start gap-2 mb-2">
@@ -1384,7 +1382,6 @@ function GeneralStatistics({
         yearSections={yearSections}
         statements={statements}
         selectedYear={selectedYear}
-        onSelectYear={onSelectYear}
         title={chartTitle}
       />
 
@@ -1392,8 +1389,6 @@ function GeneralStatistics({
         <MonthlyOccupancyChart
           statements={statements}
           selectedYear={selectedYear}
-          yearSections={yearSections}
-          onSelectYear={onSelectYear}
           contract={contract}
         />
 
@@ -1412,8 +1407,6 @@ function GeneralStatistics({
         <CumulativeNetChart
           statements={statements}
           selectedYear={selectedYear}
-          yearSections={yearSections}
-          onSelectYear={onSelectYear}
         />
       </div>
     </div>
@@ -1535,7 +1528,7 @@ function MonthlyLedger({ statements, selectedMonth, onSelectMonth }) {
   )
 }
 
-function ExpenseImageControl({ path, onUpload, onRemove, contractId, compact = false }) {
+function ExpenseImageControl({ path, onUpload, onRemove, contractId, size = 'md' }) {
   const inputRef = useRef(null)
   const [uploading, setUploading] = useState(false)
   const [thumbUrl, setThumbUrl] = useState(null)
@@ -1579,34 +1572,40 @@ function ExpenseImageControl({ path, onUpload, onRemove, contractId, compact = f
     }
   }
 
-  const size = compact ? 'w-7 h-7' : 'w-9 h-9'
+  const sizeClasses =
+    size === 'lg' ? 'w-14 h-14' :
+    size === 'sm' ? 'w-7 h-7' :
+    'w-9 h-9'
+
+  const iconSize = size === 'lg' ? 18 : size === 'sm' ? 11 : 12
 
   return (
     <>
       <input ref={inputRef} type="file" accept="image/jpeg,image/png,image/webp" className="hidden" onChange={handleFile} disabled={uploading} />
+
       {path ? (
         <div className="relative group/img flex-shrink-0">
           <button
             type="button"
             onClick={() => thumbUrl && setLightboxUrl(thumbUrl)}
-            className={cn('rounded-md overflow-hidden border border-border bg-muted', size)}
+            className={cn('rounded-md overflow-hidden border border-border bg-muted', sizeClasses)}
             title="View"
           >
             {thumbUrl ? (
               <img src={thumbUrl} alt="" className="w-full h-full object-cover" />
             ) : (
               <div className="w-full h-full flex items-center justify-center">
-                <Loader2 size={11} className="animate-spin text-muted-foreground" />
+                <Loader2 size={iconSize} className="animate-spin text-muted-foreground" />
               </div>
             )}
           </button>
           <button
             type="button"
             onClick={handleRemove}
-            className="absolute -top-1.5 -right-1.5 w-4 h-4 rounded-full bg-red-600 text-white flex items-center justify-center opacity-0 group-hover/img:opacity-100 transition-opacity"
+            className="absolute -top-1.5 -right-1.5 w-5 h-5 rounded-full bg-red-600 text-white flex items-center justify-center opacity-0 group-hover/img:opacity-100 transition-opacity"
             title="Remove"
           >
-            <X size={9} />
+            <X size={11} />
           </button>
         </div>
       ) : (
@@ -1614,10 +1613,10 @@ function ExpenseImageControl({ path, onUpload, onRemove, contractId, compact = f
           type="button"
           onClick={() => inputRef.current?.click()}
           disabled={uploading}
-          className={cn('rounded-md border border-dashed border-border flex items-center justify-center text-muted-foreground hover:bg-muted/50 disabled:opacity-50 flex-shrink-0', size)}
+          className={cn('rounded-md border border-dashed border-border flex items-center justify-center text-muted-foreground hover:bg-muted/50 disabled:opacity-50 flex-shrink-0', sizeClasses)}
           title="Attach proof"
         >
-          {uploading ? <Loader2 size={11} className="animate-spin" /> : <Camera size={12} />}
+          {uploading ? <Loader2 size={iconSize} className="animate-spin" /> : <Camera size={iconSize} />}
         </button>
       )}
 
@@ -1778,120 +1777,157 @@ function ExpensesPanel({ statement, contract, onChanged }) {
     { key: 'marketing',   label: 'Marketing',   icon: Megaphone, value: statement.marketing,   image: statement.manualRow?.marketing_image   },
   ]
 
+  const autoComputed =
+    statement.bookingCommission +
+    statement.affiliateCommission +
+    statement.housekeeping +
+    statement.laundry
+  const manualTotal =
+    statement.electricity +
+    statement.internet +
+    statement.water +
+    statement.marketing +
+    statement.customTotal
+
   return (
     <div>
       <div className="flex items-center gap-2 mb-2">
         <Wallet size={16} className="text-foreground" />
         <h3 className="text-base font-semibold text-foreground">Expenses</h3>
       </div>
+
       <CardBody>
-        <div className="p-3 space-y-4">
-          <div>
-            <p className="text-[11px] font-semibold text-foreground mb-1.5 flex items-center gap-1.5">
-              <Lock size={11} /> Auto-computed
-            </p>
-            <div className="space-y-0.5">
-              <ExpenseLine icon={Wallet}    label="Booking commission"   value={statement.bookingCommission} />
-              <ExpenseLine icon={Wallet}    label="Affiliate commission" value={statement.affiliateCommission} />
-              <ExpenseLine icon={Sparkles}  label="Housekeeping"         value={statement.housekeeping} />
-              <ExpenseLine icon={Sparkles}  label="Laundry"              value={statement.laundry} />
+        <div className="grid grid-cols-1 lg:grid-cols-[300px_1fr] divide-y lg:divide-y-0 lg:divide-x divide-border">
+
+          {/* ─────────── LEFT: Auto-computed + totals ─────────── */}
+          <div className="p-4 space-y-4 lg:sticky lg:top-0 self-start">
+            <div>
+              <p className="text-[11px] font-semibold text-foreground mb-2 flex items-center gap-1.5">
+                <Lock size={11} /> Auto-computed
+              </p>
+              <div className="space-y-0.5">
+                <ExpenseLine icon={Wallet}   label="Booking commission"   value={statement.bookingCommission} />
+                <ExpenseLine icon={Wallet}   label="Affiliate commission" value={statement.affiliateCommission} />
+                <ExpenseLine icon={Sparkles} label="Housekeeping"         value={statement.housekeeping} />
+                <ExpenseLine icon={Sparkles} label="Laundry"              value={statement.laundry} />
+              </div>
+            </div>
+
+            <div className="pt-3 border-t border-border space-y-1.5">
+              <TotalLine label="Auto-computed" value={autoComputed} />
+              <TotalLine label="Manual"        value={manualTotal} />
+              <div className="pt-2 mt-1 border-t border-border">
+                <TotalLine label="Total expenses" value={statement.totalExpenses} bold />
+              </div>
             </div>
           </div>
 
-          <div>
-            <div className="flex items-center justify-between mb-1.5">
-              <p className="text-[11px] font-semibold text-foreground">Manual (fixed)</p>
-              {!editingFixed && (
-                <div className="flex items-center gap-2">
-                  {statement.manualRow && (
-                    <button type="button" onClick={clearFixed} disabled={saving} className="text-[11px] font-semibold text-red-500 hover:underline disabled:opacity-50">
-                      Clear all
-                    </button>
+          {/* ─────────── RIGHT: Manual + Custom (scrollable) ─────────── */}
+          <div className="p-4">
+            <div className="max-h-[520px] overflow-y-auto pr-1 space-y-4">
+
+              {/* Manual (fixed) */}
+              <div>
+                <div className="flex items-center justify-between mb-2">
+                  <p className="text-[11px] font-semibold text-foreground">Manual (fixed)</p>
+                  {!editingFixed && (
+                    <div className="flex items-center gap-2">
+                      {statement.manualRow && (
+                        <button type="button" onClick={clearFixed} disabled={saving} className="text-[11px] font-semibold text-red-500 hover:underline disabled:opacity-50">
+                          Clear all
+                        </button>
+                      )}
+                      <button type="button" onClick={() => setEditingFixed(true)} className="text-[11px] font-semibold text-primary hover:underline">
+                        Edit
+                      </button>
+                    </div>
                   )}
-                  <button type="button" onClick={() => setEditingFixed(true)} className="text-[11px] font-semibold text-primary hover:underline">
-                    Edit
+                </div>
+
+                {editingFixed ? (
+                  <div className="space-y-2">
+                    {fixedExpenses.map((f) => (
+                      <div
+                        key={f.key}
+                        className="grid grid-cols-[auto_1fr_140px_auto] items-center gap-3 px-3 py-2 rounded-md border border-primary/40 bg-primary/5"
+                      >
+                        <f.icon size={16} className="text-muted-foreground flex-shrink-0" />
+                        <span className="text-xs text-foreground font-medium truncate">{f.label}</span>
+                        <Input
+                          type="number"
+                          min={0}
+                          value={draftFixed[f.key]}
+                          onChange={(e) => setDraftFixed((p) => ({ ...p, [f.key]: e.target.value }))}
+                          className="h-8 text-xs rounded tabular-nums"
+                        />
+                        <ExpenseImageControl
+                          path={f.image}
+                          contractId={contract.id}
+                          onUpload={(path) => setFixedImage(f.key, path)}
+                          onRemove={() => setFixedImage(f.key, null)}
+                          size="lg"
+                        />
+                      </div>
+                    ))}
+                    <div className="flex items-center justify-end gap-2 pt-1">
+                      <Button size="sm" variant="outline" className="h-8 rounded text-[11px]" onClick={() => setEditingFixed(false)} disabled={saving}>Cancel</Button>
+                      <Button size="sm" className="h-8 rounded text-[11px]" onClick={saveFixed} disabled={saving} style={{ backgroundColor: BRAND }}>
+                        {saving ? <Loader2 size={11} className="animate-spin mr-1" /> : <Save size={11} className="mr-1" />}
+                        {saving ? 'Saving…' : 'Save'}
+                      </Button>
+                    </div>
+                  </div>
+                ) : (
+                  <div className="space-y-2">
+                    {fixedExpenses.map((f) => (
+                      <div
+                        key={f.key}
+                        className="grid grid-cols-[auto_1fr_auto_auto] items-center gap-3 px-3 py-2 rounded-md border border-border bg-background"
+                      >
+                        <f.icon size={16} className="text-muted-foreground flex-shrink-0" />
+                        <span className="text-xs text-foreground font-medium truncate">{f.label}</span>
+                        <span className="tabular-nums font-semibold text-foreground text-base">
+                          {formatMoney(f.value)}
+                        </span>
+                        <ExpenseImageControl
+                          path={f.image}
+                          contractId={contract.id}
+                          onUpload={(path) => setFixedImage(f.key, path)}
+                          onRemove={() => setFixedImage(f.key, null)}
+                          size="lg"
+                        />
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+
+              {/* Custom items */}
+              <div className="pt-3 border-t border-border">
+                <div className="flex items-center justify-between mb-2">
+                  <p className="text-[11px] font-semibold text-foreground">Custom · {statement.customItems.length}</p>
+                  <button type="button" onClick={() => setAddOpen(true)} className="inline-flex items-center gap-1 text-[11px] font-semibold text-primary hover:underline">
+                    <Plus size={11} /> Add
                   </button>
                 </div>
-              )}
-            </div>
-            {editingFixed ? (
-              <div className="space-y-2">
-                {fixedExpenses.map((f) => (
-                  <div key={f.key} className="flex items-center gap-2 text-xs">
-                    <f.icon size={11} className="text-muted-foreground flex-shrink-0" />
-                    <span className="text-foreground min-w-[80px] truncate">{f.label}</span>
-                    <Input
-                      type="number"
-                      min={0}
-                      value={draftFixed[f.key]}
-                      onChange={(e) => setDraftFixed((p) => ({ ...p, [f.key]: e.target.value }))}
-                      className="h-7 text-xs rounded flex-1 tabular-nums"
-                    />
-                    <ExpenseImageControl
-                      path={f.image}
-                      contractId={contract.id}
-                      onUpload={(path) => setFixedImage(f.key, path)}
-                      onRemove={() => setFixedImage(f.key, null)}
-                      compact
-                    />
+                {statement.customItems.length === 0 ? (
+                  <p className="text-[11px] text-muted-foreground italic py-1">No custom expenses this month</p>
+                ) : (
+                  <div className="space-y-1.5">
+                    {statement.customItems.map((item) => (
+                      <CustomItemRow
+                        key={item.id}
+                        item={item}
+                        contractId={contract.id}
+                        onUpdate={updateCustomItem}
+                        onRemove={removeCustomItem}
+                      />
+                    ))}
                   </div>
-                ))}
-                <div className="flex items-center justify-end gap-2 pt-1">
-                  <Button size="sm" variant="outline" className="h-7 rounded text-[11px]" onClick={() => setEditingFixed(false)} disabled={saving}>Cancel</Button>
-                  <Button size="sm" className="h-7 rounded text-[11px]" onClick={saveFixed} disabled={saving} style={{ backgroundColor: BRAND }}>
-                    {saving ? <Loader2 size={11} className="animate-spin mr-1" /> : <Save size={11} className="mr-1" />}
-                    {saving ? 'Saving…' : 'Save'}
-                  </Button>
-                </div>
+                )}
               </div>
-            ) : (
-              <div className="space-y-1">
-                {fixedExpenses.map((f) => (
-                  <div key={f.key} className="flex items-center gap-2 text-xs py-0.5">
-                    <f.icon size={11} className="text-muted-foreground flex-shrink-0" />
-                    <span className="text-foreground flex-1 truncate">{f.label}</span>
-                    <span className="tabular-nums font-semibold text-foreground">{formatMoney(f.value)}</span>
-                    <ExpenseImageControl
-                      path={f.image}
-                      contractId={contract.id}
-                      onUpload={(path) => setFixedImage(f.key, path)}
-                      onRemove={() => setFixedImage(f.key, null)}
-                      compact
-                    />
-                  </div>
-                ))}
-              </div>
-            )}
-          </div>
 
-          <div>
-            <div className="flex items-center justify-between mb-1.5">
-              <p className="text-[11px] font-semibold text-foreground">Custom · {statement.customItems.length}</p>
-              <button type="button" onClick={() => setAddOpen(true)} className="inline-flex items-center gap-1 text-[11px] font-semibold text-primary hover:underline">
-                <Plus size={11} /> Add
-              </button>
             </div>
-            {statement.customItems.length === 0 ? (
-              <p className="text-[11px] text-muted-foreground italic py-0.5">No custom expenses this month</p>
-            ) : (
-              <div className="space-y-1">
-                {statement.customItems.map((item) => (
-                  <CustomItemRow
-                    key={item.id}
-                    item={item}
-                    contractId={contract.id}
-                    onUpdate={updateCustomItem}
-                    onRemove={removeCustomItem}
-                  />
-                ))}
-              </div>
-            )}
-          </div>
-
-          <div className="pt-2 border-t border-border space-y-1">
-            <TotalLine label="Auto-computed" value={statement.bookingCommission + statement.affiliateCommission + statement.housekeeping + statement.laundry} />
-            <TotalLine label="Manual" value={statement.electricity + statement.internet + statement.water + statement.marketing + statement.customTotal} />
-            <TotalLine label="Total expenses" value={statement.totalExpenses} bold />
           </div>
         </div>
 
@@ -1913,7 +1949,6 @@ function ExpensesPanel({ statement, contract, onChanged }) {
     </div>
   )
 }
-
 async function upsertRow({ contract, month, existingId, patch, auditLabel }) {
   const monthDate = monthKeyToDate(month).toISOString().slice(0, 10)
   const payload = { contract_id: contract.id, month: monthDate, ...patch }
@@ -2026,7 +2061,7 @@ function AddExpenseModal({ open, onClose, onSubmit, contractId }) {
     <div className="fixed inset-0 z-[10000] flex items-center justify-center p-4">
       <div className="absolute inset-0 bg-black/50" onClick={onClose} />
       <motion.div initial={{ opacity: 0, scale: 0.98 }} animate={{ opacity: 1, scale: 1 }} transition={{ duration: 0.15 }}
-        className="relative bg-card rounded-md shadow-2xl max-w-sm w-full border border-border overflow-hidden">
+        className="relative bg-card rounded-md shadow-2xl max-w-md w-full border border-border overflow-hidden">
         <div className="flex items-center justify-between px-5 py-3 border-b border-border">
           <h3 className="text-sm font-bold text-foreground">Add Expense</h3>
           <button onClick={onClose} className="p-1 rounded hover:bg-muted"><X size={14} /></button>
@@ -2042,12 +2077,18 @@ function AddExpenseModal({ open, onClose, onSubmit, contractId }) {
           </div>
           <div>
             <label className="text-[11px] font-semibold text-foreground mb-1 block">Proof (optional)</label>
-            <ExpenseImageControl
-              path={imagePath}
-              contractId={contractId}
-              onUpload={(path) => setImagePath(path)}
-              onRemove={() => setImagePath(null)}
-            />
+            <div className="flex items-center gap-3">
+              <ExpenseImageControl
+                path={imagePath}
+                contractId={contractId}
+                onUpload={(path) => setImagePath(path)}
+                onRemove={() => setImagePath(null)}
+                size="lg"
+              />
+              <span className="text-[10px] text-muted-foreground">
+                Click the box to attach a receipt or proof photo
+              </span>
+            </div>
           </div>
         </div>
         <div className="flex items-center justify-end gap-2 px-5 py-3 border-t border-border bg-muted/30">
@@ -2061,6 +2102,8 @@ function AddExpenseModal({ open, onClose, onSubmit, contractId }) {
     </div>
   )
 }
+
+
 
 function ExpenseLine({ icon: Icon, label, value }) {
   return (
@@ -2086,6 +2129,149 @@ function monthKeyFromDate(iso) {
   const s = String(iso).slice(0, 10)
   if (!/^\d{4}-\d{2}-\d{2}$/.test(s)) return null
   return s.slice(0, 7)
+}
+
+function AccountingBookingRow({ booking, isSelected, onClick }) {
+  const navigate = useNavigate()
+
+  const contextItems = [
+    {
+      label: 'See in Bookings',
+      icon: Calendar,
+      onSelect: () => navigate(`/admin?tab=bookings&booking=${booking.id}`),
+    },
+    { separator: true },
+    {
+      label: 'Copy booking code',
+      icon: Copy,
+      hint: booking.booking_code,
+      onSelect: () => {
+        navigator.clipboard.writeText(booking.booking_code || '').then(
+          () => toast.success('Booking code copied'),
+          () => toast.error('Failed to copy'),
+        )
+      },
+    },
+  ]
+
+  const bookerLabel = booking.booker_name || booking.booker_code || '—'
+  const affiliateLabel = booking.affiliate_name || booking.affiliate_code || '—'
+
+  return (
+    <ContextMenu items={contextItems}>
+      <button
+        type="button"
+        onClick={onClick}
+        className={cn(
+          'relative w-full text-left rounded-md border bg-background py-2.5 pl-5 pr-3 min-w-0 transition-colors overflow-hidden',
+          isSelected
+            ? 'border-primary ring-1 ring-primary/30'
+            : 'border-border hover:bg-muted/40',
+        )}
+      >
+        <span
+          aria-hidden
+          className="absolute top-0 bottom-0 left-0 w-[4px]"
+          style={{ backgroundColor: '#2d568e' }}
+        />
+
+        <div className="flex items-center gap-2 min-w-0">
+          <span className="font-mono text-[11px] text-foreground flex-shrink-0">{booking.booking_code}</span>
+          <span className="text-xs font-semibold tabular-nums text-foreground ml-auto flex-shrink-0">
+            {formatMoney(booking.total_amount)}
+          </span>
+        </div>
+
+        <div className="mt-1 text-[11px] text-muted-foreground tabular-nums truncate">
+          {booking.check_in ? formatDateShort(booking.check_in) : '—'} → {booking.check_out ? formatDateShort(booking.check_out) : '—'}
+        </div>
+
+        <div className="mt-1 flex items-center gap-2 text-[11px] text-muted-foreground min-w-0 flex-wrap">
+          <span className="truncate">
+            Booker <span className="text-foreground font-semibold">{bookerLabel}</span>
+          </span>
+          <span className="text-muted-foreground/50">·</span>
+          <span className="truncate">
+            Affiliate <span className="text-foreground font-semibold">{affiliateLabel}</span>
+          </span>
+        </div>
+
+        <div className="mt-1 flex items-center gap-2 text-[11px] text-muted-foreground min-w-0 flex-wrap">
+          <span className="tabular-nums">
+            Booker comm. <span className="text-foreground font-semibold">{formatMoney(booking.booker_commission || 0)}</span>
+          </span>
+          <span className="text-muted-foreground/50">·</span>
+          <span className="tabular-nums">
+            Affiliate comm. <span className="text-foreground font-semibold">{formatMoney(booking.affiliate_commission || 0)}</span>
+          </span>
+        </div>
+      </button>
+    </ContextMenu>
+  )
+}
+
+function AccountingCleaningRow({ cleaning, isSelected, onClick }) {
+  const navigate = useNavigate()
+  const hk = Number(cleaning.payment_amount || 0)
+  const laundry = Number(cleaning.laundry_payment_amount || 0)
+
+  const contextItems = [
+    {
+      label: 'See in Cleanings',
+      icon: Sparkles,
+      onSelect: () => navigate(`/admin?tab=housekeeping&cleaning=${cleaning.id}`),
+    },
+    { separator: true },
+    {
+      label: 'Copy cleaning code',
+      icon: Copy,
+      hint: cleaning.cleaning_code,
+      onSelect: () => {
+        navigator.clipboard.writeText(cleaning.cleaning_code || '').then(
+          () => toast.success('Cleaning code copied'),
+          () => toast.error('Failed to copy'),
+        )
+      },
+    },
+  ]
+
+  return (
+    <ContextMenu items={contextItems}>
+      <button
+        type="button"
+        onClick={onClick}
+        className={cn(
+          'relative w-full text-left rounded-md border bg-background py-2.5 pl-5 pr-3 min-w-0 transition-colors overflow-hidden',
+          isSelected
+            ? 'border-primary ring-1 ring-primary/30'
+            : 'border-border hover:bg-muted/40',
+        )}
+      >
+        <span
+          aria-hidden
+          className="absolute top-0 bottom-0 left-0 w-[4px]"
+          style={{ backgroundColor: '#10b981' }}
+        />
+
+        <div className="flex items-center gap-2 min-w-0">
+          <span className="font-mono text-[11px] text-foreground flex-shrink-0">{cleaning.cleaning_code || '—'}</span>
+          <span className="text-xs font-semibold capitalize text-foreground truncate flex-1">
+            {cleaning.type || '—'}
+          </span>
+        </div>
+
+        <div className="mt-1 flex items-center gap-2 text-[11px] text-muted-foreground min-w-0 flex-wrap">
+          <span className="tabular-nums">
+            Housekeeper <span className="text-foreground font-semibold">{formatMoney(hk)}</span>
+          </span>
+          <span className="text-muted-foreground/50">·</span>
+          <span className="tabular-nums">
+            Laundry <span className="text-foreground font-semibold">{formatMoney(laundry)}</span>
+          </span>
+        </div>
+      </button>
+    </ContextMenu>
+  )
 }
 
 function MonthlySection({
@@ -2362,33 +2548,13 @@ function MonthlySection({
                   <div className="space-y-1.5 max-h-[520px] overflow-y-auto overscroll-contain pr-1">
                     {allBookingsSorted.map((b) => {
                       const isSelected = selectedCalendarId?.type === 'booking' && selectedCalendarId.id === b.id
-                      const inCurrentMonth = monthKeyFromDate(b.check_in) === selectedMonth
                       return (
-                        <button
+                        <AccountingBookingRow
                           key={b.id}
-                          type="button"
+                          booking={b}
+                          isSelected={isSelected}
                           onClick={() => focusBooking(b)}
-                          className={cn(
-                            'w-full text-left rounded-md border bg-background px-3 py-2.5 min-w-0 transition-colors',
-                            isSelected ? 'border-primary ring-1 ring-primary/30' : 'border-border hover:bg-muted/40'
-                          )}
-                        >
-                          <div className="flex items-center gap-2 min-w-0">
-                            <span className="font-mono text-[11px] text-foreground flex-shrink-0">{b.booking_code}</span>
-                            <span className="text-xs font-semibold text-foreground truncate flex-1">{b.guest_name}</span>
-                            <span className="text-xs font-semibold tabular-nums text-foreground flex-shrink-0">{formatMoney(b.total_amount)}</span>
-                          </div>
-                          <div className="mt-1 flex items-center gap-2 text-[11px] text-foreground/80 min-w-0 flex-wrap">
-                            <span className="tabular-nums">{formatDateShort(b.check_in)} → {formatDateShort(b.check_out)}</span>
-                            <span className="text-muted-foreground">·</span>
-                            <span className="capitalize">{b.payment_status || '—'}</span>
-                            {!inCurrentMonth && (
-                              <span className="ml-auto text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
-                                {monthKeyFromDate(b.check_in)}
-                              </span>
-                            )}
-                          </div>
-                        </button>
+                        />
                       )
                     })}
                   </div>
@@ -2400,42 +2566,13 @@ function MonthlySection({
                   <div className="space-y-1.5 max-h-[520px] overflow-y-auto overscroll-contain pr-1">
                     {allCleaningsSorted.map((c) => {
                       const isSelected = selectedCalendarId?.type === 'cleaning' && selectedCalendarId.id === c.id
-                      const housekeeper = Number(c.payment_amount || 0)
-                      const laundry = Number(c.laundry_payment_amount || 0)
-                      const inCurrentMonth = monthKeyFromDate(c.scheduled_date) === selectedMonth
                       return (
-                        <button
+                        <AccountingCleaningRow
                           key={c.id}
-                          type="button"
+                          cleaning={c}
+                          isSelected={isSelected}
                           onClick={() => focusCleaning(c)}
-                          className={cn(
-                            'w-full text-left rounded-md border bg-background px-3 py-2.5 min-w-0 transition-colors',
-                            isSelected ? 'border-primary ring-1 ring-primary/30' : 'border-border hover:bg-muted/40'
-                          )}
-                        >
-                          <div className="flex items-center gap-2 min-w-0">
-                            <span className="font-mono text-[11px] text-foreground flex-shrink-0">{c.cleaning_code || '—'}</span>
-                            <span className="text-xs font-semibold capitalize text-foreground flex-shrink-0">{c.type}</span>
-                            <span className="flex-1 min-w-0" />
-                            <span className="text-xs font-semibold tabular-nums text-foreground flex-shrink-0">{formatMoney(housekeeper)}</span>
-                          </div>
-                          <div className="mt-1 flex items-center gap-2 text-[11px] text-foreground/80 flex-wrap">
-                            <span className="tabular-nums">{formatDateShort(c.scheduled_date)}</span>
-                            <span className="text-muted-foreground">·</span>
-                            <span className="capitalize">{c.status || '—'}</span>
-                            {laundry > 0 && (
-                              <>
-                                <span className="text-muted-foreground">·</span>
-                                <span>Laundry · <span className="tabular-nums font-semibold text-foreground">−{formatMoney(laundry)}</span></span>
-                              </>
-                            )}
-                            {!inCurrentMonth && (
-                              <span className="ml-auto text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
-                                {monthKeyFromDate(c.scheduled_date)}
-                              </span>
-                            )}
-                          </div>
-                        </button>
+                        />
                       )
                     })}
                   </div>
@@ -2614,7 +2751,7 @@ const ContractDetail = memo(function ContractDetail({ contract, onBack, onChange
       const [bRes, clRes, exRes] = await Promise.all([
         supabase
           .from('bookings')
-          .select('id, unit_id, booking_code, guest_name, check_in, check_out, guests, total_amount, booker_commission, affiliate_commission, payment_status, balance, deleted_at')
+          .select('id, unit_id, booking_code, guest_name, check_in, check_out, guests, total_amount, booker_commission, affiliate_commission, booker_name, booker_code, affiliate_name, affiliate_code, payment_status, balance, deleted_at')
           .eq('unit_id', contractUnitId)
           .is('deleted_at', null),
         supabase
@@ -2804,7 +2941,7 @@ const ContractDetail = memo(function ContractDetail({ contract, onBack, onChange
 
   if ((loading || statementsLoading) && statements.length === 0) {
     return (
-      <div className="h-full flex flex-col lg:flex-row min-h-0 bg-card border border-border shadow-sm rounded-md overflow-hidden">
+      <div className="h-full flex flex-col lg:flex-row min-h-0 overflow-hidden">
         <ContractSidebar contract={contract} onBack={onBack} />
         <div className="flex-1 min-h-0 flex items-center justify-center">
           <Loader2 size={28} className="animate-spin text-primary" />
@@ -2814,12 +2951,22 @@ const ContractDetail = memo(function ContractDetail({ contract, onBack, onChange
   }
 
   return (
-    <div className="h-full flex flex-col lg:flex-row min-h-0 bg-card border border-border shadow-sm rounded-md overflow-hidden">
+    <div className="h-full flex flex-col lg:flex-row min-h-0 overflow-hidden">
       <ContractSidebar contract={contract} onBack={onBack} />
 
       <div className="flex-1 min-h-0 overflow-y-auto p-4 space-y-5">
         <section>
-          <SectionHeader icon={BarChart3} title="General Statistics" />
+          <div className="flex items-center gap-2 mb-2">
+            <BarChart3 size={16} className="text-foreground flex-shrink-0" />
+            <h2 className="text-sm font-bold text-foreground uppercase tracking-wide">General Statistics</h2>
+          </div>
+          <div className="flex items-center justify-center mb-3">
+            <YearNav
+              yearSections={yearSections}
+              selectedYear={selectedYear}
+              onSelectYear={setSelectedYear}
+            />
+          </div>
           <GeneralStatistics
             lifetime={lifetime}
             statements={statements}

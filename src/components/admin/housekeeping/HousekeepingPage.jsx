@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { useNavigate } from 'react-router-dom'
 import { motion, AnimatePresence } from 'framer-motion'
 import {
   Plus, Search, RefreshCw, X, Check, Loader2, Trash2,
@@ -6,6 +7,7 @@ import {
   ChevronRight, ChevronLeft, Download, Building2, Clock,
   Image as ImageIcon, FileText, Shirt, Wallet, Send, Coffee,
   ZoomIn, RotateCcw, LogIn, CheckCircle2,
+  Calendar as CalendarIcon, Copy,
 } from 'lucide-react'
 import toast from 'react-hot-toast'
 import { Button } from '@/components/ui/button'
@@ -26,6 +28,7 @@ import {
   downloadCleaningsCSV,
   getSignedUrl, getSignedUrls,
 } from '@/lib/cleanings'
+import { ContextMenu } from '@/components/ui/ContextMenu'
 
 const BRAND = '#2d568e'
 
@@ -440,7 +443,6 @@ function PanelRow({ cleaning, variant, onClick }) {
 
   let timingText = null
   let timingClass = 'text-muted-foreground'
-  let accentClass = 'border-l-2 border-transparent'
 
   if (variant === 'overdue') {
     const gl = guestLeftStatus(booking)
@@ -451,7 +453,6 @@ function PanelRow({ cleaning, variant, onClick }) {
       timingText = 'No guest check-out'
       timingClass = 'text-red-600 dark:text-red-400 italic'
     }
-    accentClass = 'border-l-2 border-red-500'
   } else if (variant === 'scheduled') {
     const gl = guestLeftStatus(booking)
     if (gl) {
@@ -484,11 +485,14 @@ function PanelRow({ cleaning, variant, onClick }) {
     <button
       type="button"
       onClick={onClick}
-      className={cn(
-        'w-full text-left px-3 py-2 border-b border-border last:border-0 hover:bg-muted/30 transition-colors',
-        accentClass,
-      )}
+      className="relative w-full text-left rounded-md border border-border bg-background py-2 pl-4 pr-3 overflow-hidden transition-colors hover:bg-muted/40"
     >
+      <span
+        aria-hidden
+        className="absolute top-0 bottom-0 left-0 w-[4px]"
+        style={{ backgroundColor: '#10b981' }}
+      />
+
       <div className="flex items-center gap-2 min-w-0">
         <p className="text-[11px] text-foreground truncate flex-1 min-w-0">
           <span className="font-mono font-semibold">{cleaning.cleaning_code || '—'}</span>
@@ -550,16 +554,16 @@ function TodayPanel({ title, icon: Icon, rows, loading, empty, variant, onRowCli
         )}
       </div>
 
-      <div className="rounded-md bg-card border border-border shadow-sm overflow-hidden flex-1 min-h-0">
-        <div className="max-h-[200px] overflow-y-auto">
+      <div className="flex-1 min-h-0">
+        <div className="max-h-[200px] overflow-y-auto pr-1 space-y-1.5">
           {loading ? (
-            <div className="p-3 space-y-2">
+            <div className="space-y-1.5">
               {[...Array(3)].map((_, i) => (
-                <div key={i} className="h-10 rounded bg-muted animate-pulse" />
+                <div key={i} className="h-14 rounded-md bg-muted animate-pulse" />
               ))}
             </div>
           ) : rows.length === 0 ? (
-            <div className="py-8 px-4 text-center">
+            <div className="rounded-md bg-card border border-border shadow-sm py-8 px-4 text-center">
               <p className="text-[11px] text-muted-foreground italic">{empty}</p>
             </div>
           ) : (
@@ -1711,66 +1715,92 @@ function CleaningDetailPanel({ cleaning, onClose, onChanged, onDelete, housekeep
   )
 }
 
-function CleaningListRow({ cleaning, selected, highlighted, onClick }) {
+function CleaningListRow({ cleaning, selected, highlighted, onClick, onViewBooking }) {
+  const contextItems = [
+    { label: 'See in Housekeeping', icon: Sparkles, onSelect: onClick },
+    { separator: true },
+    {
+      label: 'Copy cleaning code',
+      icon: Copy,
+      hint: cleaning.cleaning_code,
+      onSelect: () => {
+        navigator.clipboard.writeText(cleaning.cleaning_code || '').then(
+          () => toast.success('Cleaning code copied'),
+          () => toast.error('Failed to copy'),
+        )
+      },
+    },
+    { separator: true },
+    {
+      label: 'See in Bookings',
+      icon: CalendarIcon,
+      disabled: !cleaning.bookings?.id,
+      onSelect: () => onViewBooking?.(cleaning),
+    },
+  ]
+
   return (
-    <motion.button
-      type="button"
-      data-cleaning-id={cleaning.id}
-      onClick={onClick}
-      initial={false}
-      animate={{
-        backgroundColor: highlighted
-          ? 'rgba(45, 86, 142, 0.16)'
-          : selected
-            ? 'rgba(45, 86, 142, 0.10)'
-            : 'rgba(45, 86, 142, 0)',
-      }}
-      transition={{ duration: 0.4 }}
-      whileHover={{ backgroundColor: selected ? 'rgba(45, 86, 142, 0.14)' : 'rgba(45, 86, 142, 0.05)' }}
-      whileTap={{ scale: 0.998 }}
-      className={cn('group/row w-full text-left px-4 py-3 border-b border-border cursor-pointer select-none', ROW_GRID)}
-    >
-      <div className="min-w-0">
-        <span className="font-mono text-xs font-bold text-foreground truncate block">
-          {cleaning.cleaning_code || '—'}
-        </span>
-        <span className="text-[10px] text-muted-foreground truncate block">
-          {cleaning.units?.unit_code || '—'}
-          {cleaning.units?.building ? ` · ${cleaning.units.building}` : ''}
-        </span>
-      </div>
-      <div className="min-w-0">
-        {cleaning.bookings ? (
-          <>
-            <span className="font-mono text-[11px] text-foreground truncate block">{cleaning.bookings.booking_code}</span>
-            <span className="text-[10px] text-muted-foreground truncate block">{cleaning.bookings.guest_name}</span>
-          </>
-        ) : (
-          <span className="text-[10px] italic text-muted-foreground">Standalone</span>
-        )}
-      </div>
-      <div className="min-w-0"><TypeText type={cleaning.type} /></div>
-      <div className="min-w-0 flex items-center gap-2">
-        {cleaning.housekeepers ? (
-          <>
-            <WorkerAvatar name={cleaning.housekeepers.name} photo_url={cleaning.housekeepers.photo_url} size="sm" />
-            <span className="text-xs text-foreground truncate">{cleaning.housekeepers.name}</span>
-          </>
-        ) : (
-          <span className="text-[11px] italic text-muted-foreground">Unassigned</span>
-        )}
-      </div>
-      <div className="text-[11px] tabular-nums text-muted-foreground min-w-0">
-        <div className="truncate">{formatDate(cleaning.scheduled_date)}</div>
-      </div>
-      <div className="flex items-center gap-2 justify-end flex-shrink-0">
-        <StatusText cleaning={cleaning} />
-      </div>
-    </motion.button>
+    <ContextMenu items={contextItems}>
+      <motion.button
+        type="button"
+        data-cleaning-id={cleaning.id}
+        onClick={onClick}
+        initial={false}
+        animate={{
+          backgroundColor: highlighted
+            ? 'rgba(45, 86, 142, 0.16)'
+            : selected
+              ? 'rgba(45, 86, 142, 0.10)'
+              : 'rgba(45, 86, 142, 0)',
+        }}
+        transition={{ duration: 0.4 }}
+        whileHover={{ backgroundColor: selected ? 'rgba(45, 86, 142, 0.14)' : 'rgba(45, 86, 142, 0.05)' }}
+        whileTap={{ scale: 0.998 }}
+        className={cn('group/row w-full text-left px-4 py-3 border-b border-border cursor-pointer select-none', ROW_GRID)}
+      >
+        <div className="min-w-0">
+          <span className="font-mono text-xs font-bold text-foreground truncate block">
+            {cleaning.cleaning_code || '—'}
+          </span>
+          <span className="text-[10px] text-muted-foreground truncate block">
+            {cleaning.units?.unit_code || '—'}
+            {cleaning.units?.building ? ` · ${cleaning.units.building}` : ''}
+          </span>
+        </div>
+        <div className="min-w-0">
+          {cleaning.bookings ? (
+            <>
+              <span className="font-mono text-[11px] text-foreground truncate block">{cleaning.bookings.booking_code}</span>
+              <span className="text-[10px] text-muted-foreground truncate block">{cleaning.bookings.guest_name}</span>
+            </>
+          ) : (
+            <span className="text-[10px] italic text-muted-foreground">Standalone</span>
+          )}
+        </div>
+        <div className="min-w-0"><TypeText type={cleaning.type} /></div>
+        <div className="min-w-0 flex items-center gap-2">
+          {cleaning.housekeepers ? (
+            <>
+              <WorkerAvatar name={cleaning.housekeepers.name} photo_url={cleaning.housekeepers.photo_url} size="sm" />
+              <span className="text-xs text-foreground truncate">{cleaning.housekeepers.name}</span>
+            </>
+          ) : (
+            <span className="text-[11px] italic text-muted-foreground">Unassigned</span>
+          )}
+        </div>
+        <div className="text-[11px] tabular-nums text-muted-foreground min-w-0">
+          <div className="truncate">{formatDate(cleaning.scheduled_date)}</div>
+        </div>
+        <div className="flex items-center gap-2 justify-end flex-shrink-0">
+          <StatusText cleaning={cleaning} />
+        </div>
+      </motion.button>
+    </ContextMenu>
   )
 }
 
-export default function HousekeepingPage() {
+export default function HousekeepingPage({ initialSelectedId }) {
+  const navigate = useNavigate()
   const [cleanings, setCleanings] = useState([])
   const [units, setUnits] = useState([])
   const [bookings, setBookings] = useState([])
@@ -1783,12 +1813,10 @@ export default function HousekeepingPage() {
   const [debouncedSearch, setDebouncedSearch] = useState('')
   const [statusFilter, setStatusFilter] = useState('all')
 
-  const [selectedId, setSelectedId] = useState(null)
+  const [selectedId, setSelectedId] = useState(initialSelectedId || null)
   const [highlightedId, setHighlightedId] = useState(null)
-  const [cardsHidden, setCardsHidden] = useState(false)
   const [newModalOpen, setNewModalOpen] = useState(false)
 
-  const headerRef = useRef(null)
   const hasLoadedOnce = useRef(false)
   const highlightTimeoutRef = useRef(null)
 
@@ -1802,6 +1830,22 @@ export default function HousekeepingPage() {
       if (highlightTimeoutRef.current) clearTimeout(highlightTimeoutRef.current)
     }
   }, [])
+
+  useEffect(() => {
+    if (initialSelectedId && initialSelectedId !== selectedId) {
+      setSelectedId(initialSelectedId)
+      setHighlightedId(initialSelectedId)
+      if (highlightTimeoutRef.current) clearTimeout(highlightTimeoutRef.current)
+      highlightTimeoutRef.current = setTimeout(() => setHighlightedId(null), 2000)
+      requestAnimationFrame(() => {
+        requestAnimationFrame(() => {
+          const el = document.querySelector(`[data-cleaning-id="${initialSelectedId}"]`)
+          if (el) el.scrollIntoView({ behavior: 'smooth', block: 'center' })
+        })
+      })
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [initialSelectedId])
 
   const fetchData = useCallback(async () => {
     if (!hasLoadedOnce.current) setIsFirstLoad(true)
@@ -1972,23 +2016,15 @@ export default function HousekeepingPage() {
     toast.success('Exported')
   }
 
-  const handleListMouseMove = useCallback((e) => {
-    const headerEl = headerRef.current
-    if (!headerEl) return
-    const headerRect = headerEl.getBoundingClientRect()
-    setCardsHidden(e.clientY > headerRect.bottom)
-  }, [])
-  const handleListMouseLeave = useCallback(() => setCardsHidden(false), [])
-
   return (
     <div className="h-full flex min-h-0">
-      <div className="flex-1 min-h-0 flex flex-col p-3 gap-3">
+      <div className="flex-1 min-h-0 flex flex-col p-3 gap-3 overflow-y-auto">
 
-        <div className={cn('flex-shrink-0 pt-1 pb-2 transition-all duration-300 ease-out overflow-hidden', cardsHidden ? 'max-h-0 opacity-0 -mb-3' : 'max-h-40 opacity-100')}>
+        <div className="flex-shrink-0 pt-1 pb-2">
           <SummaryCards cleanings={cleanings} />
         </div>
 
-        <div className={cn('flex-shrink-0 grid grid-cols-1 lg:grid-cols-2 gap-4 pt-1 pb-2 transition-all duration-300 ease-out overflow-hidden', cardsHidden ? 'max-h-0 opacity-0 -mb-3' : 'max-h-[480px] opacity-100')}>
+        <div className="flex-shrink-0 grid grid-cols-1 lg:grid-cols-2 gap-4 pt-1 pb-2">
           <TodayPanel
             title="Due today"
             icon={Sparkles}
@@ -2028,7 +2064,7 @@ export default function HousekeepingPage() {
           />
         </div>
 
-        <div ref={headerRef} className="flex-shrink-0 flex items-center gap-2">
+        <div className="flex-shrink-0 flex items-center gap-2">
           <div className="relative flex-1 min-w-0">
             <Search size={13} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-muted-foreground" />
             <Input placeholder="Search code, unit, booking, housekeeper, notes..." value={search} onChange={(e) => setSearch(e.target.value)} className="pl-8 h-8 text-xs rounded" />
@@ -2049,26 +2085,21 @@ export default function HousekeepingPage() {
           <StatusPills active={statusFilter} onChange={setStatusFilter} counts={counts} />
         </div>
 
-        <div className="flex-1 min-h-0 rounded border border-border shadow-sm overflow-hidden bg-card">
-          <div
-            className="h-full overflow-y-auto"
-            style={{ scrollbarGutter: 'stable' }}
-            onMouseMove={handleListMouseMove}
-            onMouseLeave={handleListMouseLeave}
-          >
-            <div className={cn('sticky top-0 z-10 px-4 py-2 border-b border-border bg-card', ROW_GRID)}>
-              <span className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground truncate">Code · Unit</span>
-              <span className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground truncate">Booking</span>
-              <span className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground truncate">Type</span>
-              <span className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground truncate">Housekeeper</span>
-              <span className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground truncate">Scheduled</span>
-              <span className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground text-right truncate">Status</span>
-            </div>
+        <div className="flex-shrink-0 rounded border border-border shadow-sm overflow-hidden bg-card flex flex-col">
+          <div className={cn('flex-shrink-0 px-4 py-2 border-b border-border bg-card', ROW_GRID)}>
+            <span className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground truncate">Code · Unit</span>
+            <span className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground truncate">Booking</span>
+            <span className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground truncate">Type</span>
+            <span className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground truncate">Housekeeper</span>
+            <span className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground truncate">Scheduled</span>
+            <span className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground text-right truncate">Status</span>
+          </div>
 
+          <div className="h-[280px] overflow-y-auto" style={{ scrollbarGutter: 'stable' }}>
             {isFirstLoad ? (
-              <div className="space-y-2 p-3">{[...Array(8)].map((_, i) => <Skeleton key={i} className="h-14 w-full" />)}</div>
+              <div className="space-y-2 p-3">{[...Array(5)].map((_, i) => <Skeleton key={i} className="h-14 w-full" />)}</div>
             ) : filtered.length === 0 ? (
-              <div className="h-full flex items-center justify-center text-center py-12">
+              <div className="flex items-center justify-center text-center py-12">
                 <div>
                   <Sparkles size={36} className="text-muted-foreground/40 mx-auto mb-3" />
                   <p className="text-sm text-muted-foreground font-semibold">No cleanings match your filters</p>
@@ -2083,6 +2114,7 @@ export default function HousekeepingPage() {
                   selected={selectedId === c.id}
                   highlighted={highlightedId === c.id}
                   onClick={() => handleSelect(c)}
+                  onViewBooking={(cl) => cl.bookings?.id && navigate(`/admin?tab=bookings&booking=${cl.bookings.id}`)}
                 />
               ))
             )}
