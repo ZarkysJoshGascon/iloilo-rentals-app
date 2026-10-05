@@ -1,6 +1,7 @@
 // supabase/functions/submit-interior-inquiry/index.ts
 // Public endpoint for interior design inquiries.
-// Validates, checks Turnstile, rate-limits by IP, writes via service role.
+// Validates, rate-limits by IP, writes via service role.
+// Turnstile has been removed. Honeypot + rate-limiting remain.
 
 import { serve } from 'https://deno.land/std@0.168.0/http/server.ts'
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2'
@@ -8,7 +9,6 @@ import { corsHeaders } from '../_shared/cors.ts'
 
 const SUPABASE_URL          = Deno.env.get('SUPABASE_URL')
 const SUPABASE_SERVICE_ROLE = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')
-const TURNSTILE_SECRET_KEY  = Deno.env.get('TURNSTILE_SECRET_KEY')
 
 if (!SUPABASE_URL)          throw new Error('SUPABASE_URL is required')
 if (!SUPABASE_SERVICE_ROLE) throw new Error('SUPABASE_SERVICE_ROLE_KEY is required')
@@ -58,36 +58,6 @@ async function sniffMime(url: string): Promise<string | null> {
 }
 
 // ------------------------------------------------------------
-// Turnstile
-// ------------------------------------------------------------
-async function verifyTurnstile(token: string, remoteIp: string | null): Promise<boolean> {
-  if (!TURNSTILE_SECRET_KEY) {
-    console.warn('TURNSTILE_SECRET_KEY not set — skipping')
-    return true
-  }
-  if (!token) return false
-
-  const body = new URLSearchParams({
-    secret: TURNSTILE_SECRET_KEY,
-    response: token,
-  })
-  if (remoteIp) body.set('remoteip', remoteIp)
-
-  try {
-    const res = await fetch('https://challenges.cloudflare.com/turnstile/v0/siteverify', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-      body: body.toString(),
-    })
-    const data = await res.json().catch(() => ({}))
-    return data?.success === true
-  } catch (err) {
-    console.error('Turnstile verify failed:', err)
-    return false
-  }
-}
-
-// ------------------------------------------------------------
 // IP hashing
 // ------------------------------------------------------------
 async function hashIp(ip: string): Promise<string> {
@@ -121,17 +91,10 @@ serve(async (req) => {
       return json({ ok: true, id: 'ignored' })
     }
 
-    // Turnstile
-    const cfToken = sanitizeText(p.cf_turnstile_token, 4000)
+    // Rate limit
     const xForwardedFor = req.headers.get('x-forwarded-for') || ''
     const remoteIp = xForwardedFor.split(',')[0].trim() || null
 
-    const turnstileOk = await verifyTurnstile(cfToken, remoteIp)
-    if (!turnstileOk) {
-      return json({ error: 'Bot verification failed. Please try again.' }, 403)
-    }
-
-    // Rate limit
     if (remoteIp) {
       const ipHash = await hashIp(remoteIp)
       const { data: allowed } = await supabase.rpc('check_inquiry_rate_limit', {

@@ -1,6 +1,7 @@
 // supabase/functions/submit-property-inquiry/index.ts
-// Public endpoint. Validates input server-side, checks Turnstile,
-// rate-limits by IP, then writes to property_inquiries via service role.
+// Public endpoint. Validates input server-side, rate-limits by IP,
+// then writes to property_inquiries via service role.
+// Turnstile has been removed. Honeypot + rate-limiting remain.
 
 import { serve } from 'https://deno.land/std@0.168.0/http/server.ts'
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2'
@@ -8,7 +9,6 @@ import { corsHeaders } from '../_shared/cors.ts'
 
 const SUPABASE_URL          = Deno.env.get('SUPABASE_URL')
 const SUPABASE_SERVICE_ROLE = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')
-const TURNSTILE_SECRET_KEY  = Deno.env.get('TURNSTILE_SECRET_KEY')
 
 if (!SUPABASE_URL)          throw new Error('SUPABASE_URL is required')
 if (!SUPABASE_SERVICE_ROLE) throw new Error('SUPABASE_SERVICE_ROLE_KEY is required')
@@ -73,36 +73,6 @@ async function sniffMime(url: string): Promise<string | null> {
 }
 
 // ------------------------------------------------------------
-// Turnstile verification
-// ------------------------------------------------------------
-async function verifyTurnstile(token: string, remoteIp: string | null): Promise<boolean> {
-  if (!TURNSTILE_SECRET_KEY) {
-    console.warn('TURNSTILE_SECRET_KEY not set — skipping verification')
-    return true
-  }
-  if (!token) return false
-
-  const body = new URLSearchParams({
-    secret: TURNSTILE_SECRET_KEY,
-    response: token,
-  })
-  if (remoteIp) body.set('remoteip', remoteIp)
-
-  try {
-    const res = await fetch('https://challenges.cloudflare.com/turnstile/v0/siteverify', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-      body: body.toString(),
-    })
-    const data = await res.json().catch(() => ({}))
-    return data?.success === true
-  } catch (err) {
-    console.error('Turnstile verify failed:', err)
-    return false
-  }
-}
-
-// ------------------------------------------------------------
 // IP hashing (never store raw IPs)
 // ------------------------------------------------------------
 async function hashIp(ip: string): Promise<string> {
@@ -136,17 +106,10 @@ serve(async (req) => {
       return json({ ok: true, id: 'ignored' })
     }
 
-    // ─── 2. Turnstile verification ────────────────────────────
-    const cfToken = sanitizeText(p.cf_turnstile_token, 4000)
+    // ─── 2. IP rate limiting ──────────────────────────────────
     const xForwardedFor = req.headers.get('x-forwarded-for') || ''
     const remoteIp = xForwardedFor.split(',')[0].trim() || null
 
-    const turnstileOk = await verifyTurnstile(cfToken, remoteIp)
-    if (!turnstileOk) {
-      return json({ error: 'Bot verification failed. Please try again.' }, 403)
-    }
-
-    // ─── 3. IP rate limiting ──────────────────────────────────
     if (remoteIp) {
       const ipHash = await hashIp(remoteIp)
       const { data: allowed } = await supabase.rpc('check_inquiry_rate_limit', {
@@ -161,7 +124,7 @@ serve(async (req) => {
       }
     }
 
-    // ─── 4. Validate and sanitize every field ─────────────────
+    // ─── 3. Validate and sanitize every field ─────────────────
     const ownerName  = sanitizeText(p.owner_name, 120)
     const ownerEmail = sanitizeText(p.owner_email, 254).toLowerCase()
     const ownerPhone = sanitizeText(p.owner_phone, 40)
@@ -185,7 +148,7 @@ serve(async (req) => {
     const sqm        = sanitizeInt(p.square_meters, 0, 10000)
     const nightly    = sanitizeMoney(p.price_per_night, 0, 1_000_000)
 
-    // ─── 5. Validate uploaded images ──────────────────────────
+    // ─── 4. Validate uploaded images ──────────────────────────
     const rawImages = Array.isArray(p.images) ? p.images : []
     if (rawImages.length > 5) return json({ error: 'Too many images' }, 400)
 
@@ -207,7 +170,7 @@ serve(async (req) => {
       validImages.push({ path, url })
     }
 
-    // ─── 6. Insert ─────────────────────────────────────────────
+    // ─── 5. Insert ─────────────────────────────────────────────
     const { data: inserted, error } = await supabase
       .from('property_inquiries')
       .insert({
@@ -234,7 +197,7 @@ serve(async (req) => {
       return json({ error: 'Failed to save your inquiry' }, 500)
     }
 
-    // ─── 7. Log the IP hash for rate limiting ─────────────────
+    // ─── 6. Log the IP hash for rate limiting ─────────────────
     if (remoteIp) {
       const ipHash = await hashIp(remoteIp)
       await supabase.from('inquiry_rate_limit').insert({ ip_hash: ipHash })

@@ -52,50 +52,11 @@ export default function ListPropertyPage() {
   const [submitting, setSubmitting] = useState(false)
   const [submitted, setSubmitted] = useState(false)
 
-  // Security: Turnstile + honeypot
-  const [turnstileToken, setTurnstileToken] = useState('')
+  // Honeypot only — Turnstile removed
   const [honeypot, setHoneypot] = useState('')
-  const turnstileRef = useRef(null)
-  const widgetIdRef = useRef(null)
 
   const setField = (k, v) => setForm((p) => ({ ...p, [k]: v }))
 
-  // ─── Load Turnstile widget on mount ────────────────────
-  useEffect(() => {
-    const SITE_KEY = import.meta.env.VITE_TURNSTILE_SITE_KEY
-    if (!SITE_KEY) {
-      console.warn('VITE_TURNSTILE_SITE_KEY not set — bot protection disabled')
-      return
-    }
-
-    const renderWidget = () => {
-      if (!turnstileRef.current) return
-      if (widgetIdRef.current != null) return
-      if (typeof window.turnstile === 'undefined') return
-
-      widgetIdRef.current = window.turnstile.render(turnstileRef.current, {
-        sitekey: SITE_KEY,
-        theme: 'light',
-        callback: (token) => setTurnstileToken(token),
-        'expired-callback': () => setTurnstileToken(''),
-        'error-callback': () => setTurnstileToken(''),
-      })
-    }
-
-    if (typeof window.turnstile === 'undefined') {
-      const iv = setInterval(() => {
-        if (typeof window.turnstile !== 'undefined') {
-          clearInterval(iv)
-          renderWidget()
-        }
-      }, 200)
-      return () => clearInterval(iv)
-    } else {
-      renderWidget()
-    }
-  }, [])
-
-  // ─── Image picker ──────────────────────────────────────
   const handleImagePick = async (e) => {
     const files = Array.from(e.target.files || [])
     if (files.length === 0) return
@@ -132,7 +93,6 @@ export default function ListPropertyPage() {
     })
   }
 
-  // ─── Validate ──────────────────────────────────────────
   const validate = () => {
     if (!form.owner_name.trim())  { toast.error('Your name is required'); return false }
     if (!form.owner_email.trim()) { toast.error('Email is required'); return false }
@@ -142,7 +102,6 @@ export default function ListPropertyPage() {
     return true
   }
 
-  // ─── Submit ────────────────────────────────────────────
   const handleSubmit = async (e) => {
     e.preventDefault()
     if (!validate()) return
@@ -156,23 +115,18 @@ export default function ListPropertyPage() {
         square_meters:  form.square_meters ? Number(form.square_meters) : null,
         price_per_night: form.price_per_night ? Number(form.price_per_night) : null,
         images: images.map((i) => ({ path: i.path, url: i.uploadedUrl })),
-        website_url:         honeypot,
-        cf_turnstile_token:  turnstileToken,
+        website_url: honeypot,
+        cf_turnstile_token: '',
       })
       setSubmitted(true)
     } catch (err) {
       console.error(err)
       toast.error(err?.message || 'Failed to submit. Please try again.')
-      if (typeof window.turnstile !== 'undefined' && widgetIdRef.current != null) {
-        window.turnstile.reset(widgetIdRef.current)
-        setTurnstileToken('')
-      }
     } finally {
       setSubmitting(false)
     }
   }
 
-  // ─── Reset ─────────────────────────────────────────────
   const resetForm = () => {
     images.forEach((i) => URL.revokeObjectURL(i.preview))
     setForm({
@@ -182,10 +136,6 @@ export default function ListPropertyPage() {
       inquiry_type: 'manage', message: '',
     })
     setImages([])
-    if (typeof window.turnstile !== 'undefined' && widgetIdRef.current != null) {
-      window.turnstile.reset(widgetIdRef.current)
-      setTurnstileToken('')
-    }
     setSubmitted(false)
   }
 
@@ -195,7 +145,6 @@ export default function ListPropertyPage() {
   return (
     <div className="min-h-screen bg-gradient-to-br from-[#2d568e]/5 via-white to-[#2d568e]/10 pb-24 md:pb-12 pt-20 md:pt-28">
 
-      {/* Ambient blobs */}
       <div className="absolute inset-0 overflow-hidden pointer-events-none">
         <motion.div
           animate={{ y: [0, -20, 0], x: [0, 10, 0] }}
@@ -211,7 +160,6 @@ export default function ListPropertyPage() {
 
       <div className="relative max-w-3xl mx-auto px-4">
 
-        {/* Header */}
         <motion.div
           initial={{ opacity: 0, y: 12 }}
           animate={{ opacity: 1, y: 0 }}
@@ -226,7 +174,6 @@ export default function ListPropertyPage() {
           </p>
         </motion.div>
 
-        {/* Form / Success */}
         <AnimatePresence mode="wait">
           {submitted ? (
             <SuccessState key="success" onReset={resetForm} />
@@ -240,7 +187,6 @@ export default function ListPropertyPage() {
               className="bg-white rounded-2xl shadow-xl border border-gray-100 overflow-hidden"
             >
 
-              {/* Contact */}
               <Section title="Your contact" subtitle="So we can reach you">
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                   <div>
@@ -279,7 +225,6 @@ export default function ListPropertyPage() {
                 </div>
               </Section>
 
-              {/* Intent */}
               <Section title="What are you looking for?" subtitle="Pick the one that fits best">
                 <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
                   {INQUIRY_TYPES.map((opt) => {
@@ -316,7 +261,6 @@ export default function ListPropertyPage() {
                 </div>
               </Section>
 
-              {/* Property */}
               <Section title="About your property" subtitle="Optional — but it helps us prepare">
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                   <div>
@@ -400,7 +344,6 @@ export default function ListPropertyPage() {
                 </div>
               </Section>
 
-              {/* Message */}
               <Section
                 title="Anything else?"
                 subtitle="Tell us about your goals, timeline, or anything we should know"
@@ -418,7 +361,6 @@ export default function ListPropertyPage() {
                 </p>
               </Section>
 
-              {/* Images */}
               <Section
                 title="Photos (optional)"
                 subtitle={`Up to ${MAX_IMAGES} images — helps us understand your space`}
@@ -474,7 +416,6 @@ export default function ListPropertyPage() {
                 )}
               </Section>
 
-              {/* Honeypot */}
               <div
                 style={{ position: 'absolute', left: '-9999px', width: 1, height: 1, overflow: 'hidden' }}
                 aria-hidden="true"
@@ -491,10 +432,6 @@ export default function ListPropertyPage() {
                 />
               </div>
 
-              {/* Turnstile widget */}
-              <div ref={turnstileRef} className="flex justify-center px-6 pt-6" />
-
-              {/* Submit */}
               <div className="p-6 bg-gray-50 border-t border-gray-100">
                 <button
                   type="submit"
@@ -521,7 +458,6 @@ export default function ListPropertyPage() {
           )}
         </AnimatePresence>
 
-        {/* Back link */}
         {!submitted && (
           <div className="mt-6 text-center">
             <Link
@@ -538,9 +474,6 @@ export default function ListPropertyPage() {
   )
 }
 
-// ============================================================
-// Section wrapper — icons removed
-// ============================================================
 function Section({ title, subtitle, children, isLast = false }) {
   return (
     <div className={cn('p-6 md:p-8', !isLast && 'border-b border-gray-100')}>
@@ -553,9 +486,6 @@ function Section({ title, subtitle, children, isLast = false }) {
   )
 }
 
-// ============================================================
-// Success state
-// ============================================================
 function SuccessState({ onReset }) {
   return (
     <motion.div
