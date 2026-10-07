@@ -3,12 +3,16 @@
 // Contract accounting computations
 // ============================================================
 // Split model: every contract is 75/25 (owner/company).
+// When a Property Manager is active for a month, they take 35%
+// of the company's 25% (= 8.75% of net), and the company keeps
+// the remaining 65% (= 16.25% of net). Owner stays at 75%.
 // Bookings and cleanings are only counted if their date falls
 // within [contract.effective_date, contract.expiry_date].
 // ============================================================
 
 export const OWNER_SPLIT_PCT = 75
 export const COMPANY_SPLIT_PCT = 25
+export const PM_SHARE_OF_COMPANY_PCT = 35
 
 // ------------------------------------------------------------
 // Date helpers
@@ -64,10 +68,7 @@ export function monthRangeFromDates(startDate, endDate) {
 
 // ------------------------------------------------------------
 // Contract range check
-// Returns true when the given date is within the contract's
-// [effective_date, expiry_date] inclusive bounds.
-// Open-ended contract (no expiry) → treated as "any date >= effective"
-// ============================================================
+// ------------------------------------------------------------
 function withinContractRange(contract, dateStr) {
   if (!dateStr) return false
   if (contract?.effective_date && dateStr < contract.effective_date) return false
@@ -94,7 +95,6 @@ export function computeMonthlyStatement({
     return d >= start && d < end
   }
 
-  // Clamp by contract range AND month membership
   const monthBookings = (bookings || []).filter(
     (b) => inMonth(b.check_in) && withinContractRange(contract, b.check_in)
   )
@@ -154,6 +154,9 @@ export function computeMonthlyStatement({
     netProfit,
     ownerShare,
     companyShare,
+    pmShare: 0,
+    pmId: null,
+    pmName: null,
     bookingsList: monthBookings,
     cleaningsList: monthCleanings,
     manualRow: manual,
@@ -170,8 +173,9 @@ export function computeLifetime(statements) {
     acc.net += s.netProfit
     acc.owner += s.ownerShare
     acc.company += s.companyShare
+    acc.pm += Number(s.pmShare || 0)
     return acc
-  }, { gross: 0, expenses: 0, net: 0, owner: 0, company: 0 })
+  }, { gross: 0, expenses: 0, net: 0, owner: 0, company: 0, pm: 0 })
 
   const monthsWithActivity = statements.filter((s) => s.grossRevenue > 0 || s.totalExpenses > 0).length
   const activeMonths = statements.length

@@ -3,7 +3,7 @@ import { supabase } from './supabase'
 
 /**
  * Bulk lifetime figures for many contracts in one RPC call.
- * Returns Map<contract_id, { gross, expenses, net, owner, company, monthsCount }>
+ * Returns Map<contract_id, { gross, expenses, net, owner, company, pm, monthsCount }>
  */
 export async function fetchContractsLifetime(contractIds) {
   const ids = (contractIds || []).filter(Boolean)
@@ -26,6 +26,7 @@ export async function fetchContractsLifetime(contractIds) {
       net:         Number(row.net) || 0,
       owner:       Number(row.owner_share) || 0,
       company:     Number(row.company_share) || 0,
+      pm:          Number(row.pm_share) || 0,
       monthsCount: Number(row.months_count) || 0,
     })
   }
@@ -35,8 +36,8 @@ export async function fetchContractsLifetime(contractIds) {
 /**
  * Per-month breakdown for a single contract.
  * Single source of truth for the graph, the calendar, and the monthly panel.
- * Returns an array of statements shaped like the old computeMonthlyStatement output,
- * minus the bookingsList/cleaningsList/manualRow fields (the caller merges those in).
+ * Returns an array of statements shaped like computeMonthlyStatement output,
+ * minus bookingsList/cleaningsList/manualRow (the caller merges those in).
  */
 export async function fetchContractMonthlyBreakdown(contractId) {
   if (!contractId) return []
@@ -70,6 +71,7 @@ export async function fetchContractMonthlyBreakdown(contractId) {
     const netProfit      = Number(r.net) || 0
     const ownerShare     = Number(r.owner_share) || 0
     const companyShare   = Number(r.company_share) || 0
+    const pmShare        = Number(r.pm_share) || 0
 
     return {
       month:               monthKey,
@@ -87,6 +89,9 @@ export async function fetchContractMonthlyBreakdown(contractId) {
       netProfit,
       ownerShare,
       companyShare,
+      pmShare,
+      pmId:                r.pm_id || null,
+      pmName:              r.pm_name || null,
       // Filled in by the caller from its local bookings / cleanings / monthlyExpenses
       bookingsList:  [],
       cleaningsList: [],
