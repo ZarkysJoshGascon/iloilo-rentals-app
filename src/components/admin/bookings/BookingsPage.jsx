@@ -1,3 +1,4 @@
+// src/components/admin/bookings/BookingsPage.jsx
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { useNavigate } from 'react-router-dom'
@@ -42,10 +43,12 @@ const BRAND = '#2d568e'
 
 const STATUS_PILLS = [
   { id: 'all', label: 'All' },
+  { id: 'in-house', label: 'In-House' },
   { id: 'upcoming', label: 'Upcoming' },
   { id: 'active', label: 'Active' },
   { id: 'needs-action', label: 'Needs Action' },
   { id: 'completed', label: 'Done' },
+  { id: 'unpaid', label: 'Unpaid' },
 ]
 
 const ROW_GRID = 'grid grid-cols-[1.4fr_1fr_1.2fr_1.1fr_1fr_160px] gap-4 items-center'
@@ -836,6 +839,15 @@ function BookingDetailPanel({
       style={{ maxWidth: '100%', width: PANEL_WIDTH + 24 }}
     >
       <div className="h-full rounded-md border border-border bg-card shadow-lg overflow-hidden flex flex-col">
+        <AnimatePresence mode="wait" initial={false}>
+          <motion.div
+            key={booking.id}
+            initial={{ opacity: 0, y: 6 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: -4 }}
+            transition={{ duration: 0.18, ease: [0.4, 0, 0.2, 1] }}
+            className="h-full flex flex-col min-h-0"
+          >
 
         <div className="px-5 py-4 border-b border-border flex-shrink-0">
           <div className="flex items-start gap-3">
@@ -1066,6 +1078,9 @@ function BookingDetailPanel({
             </div>
           </DetailSection>
         </div>
+
+          </motion.div>
+        </AnimatePresence>
       </div>
     </motion.div>
   )
@@ -1439,16 +1454,35 @@ function BookingFormModal({ open, onClose, onSaved, units, editing, specialists,
         const bookerChanged = newBookerCodeClean !== (editing.booker_code || null)
         const affiliateChanged = newAffiliateCodeClean !== (editing.affiliate_code || null)
 
-        if (!bookerChanged && editing.booker_rate != null) {
+        if (!newBookerCodeClean) {
+          finalBookerRate = null
+          finalBookerComm = 0
+        } else if (
+          bookerChanged ||
+          editing.booker_rate == null ||
+          Number(editing.booker_commission || 0) === 0
+        ) {
+          finalBookerRate = bookerRate
+          finalBookerComm = computeCommissionAtRate(totalAmt, bookerRate)
+        } else {
           finalBookerRate = Number(editing.booker_rate)
           finalBookerComm = computeCommissionAtRate(totalAmt, finalBookerRate)
         }
-        if (!affiliateChanged && editing.affiliate_rate != null) {
+
+        if (!newAffiliateCodeClean) {
+          finalAffiliateRate = null
+          finalAffiliateComm = 0
+        } else if (
+          affiliateChanged ||
+          editing.affiliate_rate == null ||
+          Number(editing.affiliate_commission || 0) === 0
+        ) {
+          finalAffiliateRate = affiliateRate
+          finalAffiliateComm = computeCommissionAtRate(totalAmt, affiliateRate)
+        } else {
           finalAffiliateRate = Number(editing.affiliate_rate)
           finalAffiliateComm = computeCommissionAtRate(totalAmt, finalAffiliateRate)
         }
-        if (!newBookerCodeClean) { finalBookerRate = null; finalBookerComm = 0 }
-        if (!newAffiliateCodeClean) { finalAffiliateRate = null; finalAffiliateComm = 0 }
       }
 
       const payload = {
@@ -2237,7 +2271,12 @@ export default function BookingsPage({ initialSelectedId }) {
   const [isFirstLoad, setIsFirstLoad] = useState(true)
   const [isRefreshing, setIsRefreshing] = useState(false)
 
-  const [statusFilter, setStatusFilter] = useState('all')
+  const [statusFilter, setStatusFilter] = useState(() => {
+  if (typeof window === 'undefined') return 'all'
+  const f = new URLSearchParams(window.location.search).get('filter')
+  if (f && ['in-house', 'upcoming', 'unpaid', 'active', 'needs-action', 'completed'].includes(f)) return f
+  return 'all'
+  })
   const [search, setSearch] = useState('')
   const [debouncedSearch, setDebouncedSearch] = useState('')
 
@@ -2352,10 +2391,25 @@ export default function BookingsPage({ initialSelectedId }) {
   }, [units, contracts])
 
   const counts = useMemo(() => {
-    const c = { all: bookings.length, upcoming: 0, active: 0, 'needs-action': 0, completed: 0 }
+    const today = todayISO()
+    const c = {
+      all: bookings.length,
+      'in-house': 0,
+      upcoming: 0,
+      active: 0,
+      'needs-action': 0,
+      completed: 0,
+      unpaid: 0,
+    }
     for (const b of bookings) {
       const s = deriveBookingStatus(b)
       if (c[s] !== undefined) c[s]++
+      if (!b.completed_at && b.check_in && b.check_out && b.check_in <= today && b.check_out >= today) {
+        c['in-house']++
+      }
+      if (!b.completed_at && Number(b.balance || 0) > 0) {
+        c['unpaid']++
+      }
     }
     return c
   }, [bookings])
@@ -2389,9 +2443,26 @@ export default function BookingsPage({ initialSelectedId }) {
 
   const filtered = useMemo(() => {
     const q = debouncedSearch.trim().toLowerCase()
+    const today = todayISO()
     return bookings.filter((b) => {
       const derived = deriveBookingStatus(b)
-      if (statusFilter !== 'all' && derived !== statusFilter) return false
+
+      if (statusFilter !== 'all') {
+        if (statusFilter === 'in-house') {
+          if (b.completed_at) return false
+          if (!b.check_in || !b.check_out) return false
+          if (b.check_in > today || b.check_out < today) return false
+        } else if (statusFilter === 'upcoming') {
+          if (b.completed_at) return false
+          if (!b.check_in) return false
+          if (b.check_in <= today) return false
+        } else if (statusFilter === 'unpaid') {
+          if (b.completed_at) return false
+          if (Number(b.balance || 0) <= 0) return false
+        } else {
+          if (derived !== statusFilter) return false
+        }
+      }
       if (q) {
         const haystack = [
           b.booking_code, b.guest_name, b.guest_email, b.guest_contact,
@@ -2404,6 +2475,14 @@ export default function BookingsPage({ initialSelectedId }) {
     })
   }, [bookings, statusFilter, debouncedSearch])
 
+    useEffect(() => {
+    if (typeof window === 'undefined') return
+    const url = new URL(window.location.href)
+    if (statusFilter === 'all') url.searchParams.delete('filter')
+    else url.searchParams.set('filter', statusFilter)
+    window.history.replaceState({}, '', url.toString())
+  }, [statusFilter])
+  
   const sorted = useMemo(() => {
     const copy = [...filtered]
     copy.sort((a, b) => {
@@ -2561,7 +2640,6 @@ export default function BookingsPage({ initialSelectedId }) {
       <AnimatePresence initial={false}>
         {selected && (
           <BookingDetailPanel
-            key={selected.id}
             booking={selected}
             contracts={contracts}
             onBookingChange={() => {}}

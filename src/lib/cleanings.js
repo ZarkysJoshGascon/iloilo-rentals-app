@@ -1,5 +1,6 @@
 // src/lib/cleanings.js
 import { supabase } from './supabase'
+import { generateCleaningCode } from './utils'
 
 const BUCKET = 'cleaning-photos'
 const MAX_FILE_BYTES = 15 * 1024 * 1024  // 15 MB
@@ -90,8 +91,6 @@ export async function getCleaning(id) {
   if (error) throw error
   return data
 }
-
-import { generateCleaningCode } from './utils'
 
 export async function createCleaning(payload) {
   const code = payload.cleaning_code || generateCleaningCode()
@@ -265,33 +264,49 @@ export async function deleteCleaningPhoto(path) {
 // ============================================================
 // HIGH-LEVEL PHOTO OPS (CRM admin panels — live edit)
 // ============================================================
-export async function addPhotoToCleaning(cleaning, category, file) {
-  const photo = await uploadCleaningPhoto({
-    cleaningId: cleaning.id,
-    file,
-    category,
-  })
+const PHOTO_COLUMN_MAP = {
+  before: 'photos_before',
+  after: 'photos_after',
+  report: 'photos_report',
+}
 
-  const columnMap = {
-    before: 'photos_before',
-    after: 'photos_after',
-    report: 'photos_report',
+/**
+ * Upload N photos in one shot and write them to the cleaning row.
+ * This is the SAFE way to add multiple photos — it does not loop
+ * `addPhotoToCleaning`, which would overwrite each previous upload.
+ */
+export async function addPhotosToCleaning(cleaning, category, files) {
+  const column = PHOTO_COLUMN_MAP[category]
+  if (!column) throw new Error('Invalid photo category')
+
+  const uploaded = []
+  for (const file of files) {
+    const photo = await uploadCleaningPhoto({
+      cleaningId: cleaning.id,
+      file,
+      category,
+    })
+    uploaded.push(photo)
   }
-  const column = columnMap[category]
+
   const current = Array.isArray(cleaning[column]) ? cleaning[column] : []
-  const next = [...current, photo]
+  const next = [...current, ...uploaded]
 
   await updateCleaning(cleaning.id, { [column]: next })
-  return photo
+  return { uploaded, next }
+}
+
+/**
+ * Single-photo add. Uses the same safe path as addPhotosToCleaning.
+ */
+export async function addPhotoToCleaning(cleaning, category, file) {
+  const { uploaded } = await addPhotosToCleaning(cleaning, category, [file])
+  return uploaded[0]
 }
 
 export async function removePhotoFromCleaning(cleaning, category, path) {
-  const columnMap = {
-    before: 'photos_before',
-    after: 'photos_after',
-    report: 'photos_report',
-  }
-  const column = columnMap[category]
+  const column = PHOTO_COLUMN_MAP[category]
+  if (!column) throw new Error('Invalid photo category')
   const current = Array.isArray(cleaning[column]) ? cleaning[column] : []
   const next = current.filter((p) => p.path !== path)
 

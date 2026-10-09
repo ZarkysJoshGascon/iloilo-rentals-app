@@ -89,7 +89,6 @@ function computeNights(checkIn, checkOut) {
   return Math.max(0, Math.round((b - a) / 86400000))
 }
 
-// Month-boundary snapping (mirrors the DB trigger)
 function snapEffectiveToMonthStart(iso) {
   if (!iso) return null
   const d = new Date(iso + 'T00:00:00Z')
@@ -145,16 +144,6 @@ function pmPdfRandomId() {
   const bytes = new Uint8Array(8)
   crypto.getRandomValues(bytes)
   return Array.from(bytes).map((b) => b.toString(36).padStart(2, '0')).join('').slice(0, 12)
-}
-
-async function pmPdfSniffMime(file) {
-  const head = new Uint8Array(await file.slice(0, 12).arrayBuffer())
-  const hex = Array.from(head).map((b) => b.toString(16).padStart(2, '0')).join('')
-  if (hex.startsWith('25504446')) return 'application/pdf'
-  if (hex.startsWith('ffd8ff')) return 'image/jpeg'
-  if (hex.startsWith('89504e470d0a1a0a')) return 'image/png'
-  if (hex.startsWith('52494646') && hex.slice(16, 24) === '57454250') return 'image/webp'
-  return null
 }
 
 // ============================================================
@@ -222,26 +211,62 @@ function RoleBadge({ role, size = 'sm' }) {
 // ============================================================
 // SUMMARY CARDS
 // ============================================================
-function SummaryCards({ data, totalCommission }) {
+function SummaryCards({ data, teamTotals, activeTab }) {
   const stats = useMemo(() => ({
     totalSpecialists: (data.specialists || []).length,
     totalAffiliates: (data.affiliates || []).length,
     totalHousekeepers: (data.housekeepers || []).length,
-    totalCommission: Number(totalCommission || 0),
-  }), [data, totalCommission])
+  }), [data])
+
+  const fourthCard = useMemo(() => {
+    switch (activeTab) {
+      case 'specialists':
+        return {
+          label: 'Specialist Commissions',
+          value: formatMoney(teamTotals?.specialistCommission || 0),
+          isMoney: true,
+        }
+      case 'affiliates':
+        return {
+          label: 'Affiliate Commissions',
+          value: formatMoney(teamTotals?.affiliateCommission || 0),
+          isMoney: true,
+        }
+      case 'housekeepers':
+        return {
+          label: 'Housekeeper Payouts',
+          value: formatMoney(teamTotals?.housekeeperPayout || 0),
+          isMoney: true,
+        }
+      case 'property_managers':
+        return {
+          label: 'PM Earnings',
+          value: formatMoney(teamTotals?.pmEarnings || 0),
+          isMoney: true,
+        }
+      default:
+        return {
+          label: 'Commissions Paid',
+          value: formatMoney(
+            (teamTotals?.specialistCommission || 0) + (teamTotals?.affiliateCommission || 0)
+          ),
+          isMoney: true,
+        }
+    }
+  }, [activeTab, teamTotals])
 
   const cards = [
     { label: 'Booking Specialists', value: stats.totalSpecialists, icon: UserPlus },
     { label: 'Affiliates',          value: stats.totalAffiliates,  icon: Award },
     { label: 'Housekeepers',        value: stats.totalHousekeepers, icon: Users },
-    { label: 'Commission Income',   value: formatMoney(stats.totalCommission), icon: TrendingUp, isMoney: true },
+    { label: fourthCard.label,      value: fourthCard.value,       icon: TrendingUp, isMoney: true },
   ]
 
   return (
     <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
       {cards.map((card, i) => (
         <motion.div
-          key={card.label}
+          key={`${card.label}-${i}`}
           initial={{ opacity: 0, y: 8 }}
           animate={{ opacity: 1, y: 0 }}
           transition={{ delay: i * 0.04, duration: 0.22 }}
@@ -249,7 +274,7 @@ function SummaryCards({ data, totalCommission }) {
         >
           <div className="flex items-center gap-2 mb-2">
             <card.icon size={14} className="text-muted-foreground" />
-            <span className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
+            <span className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground truncate">
               {card.label}
             </span>
           </div>
@@ -1279,8 +1304,6 @@ function PMPdfUploader({ pmContract, onSaved }) {
       return
     }
 
-    // Read once into a buffer — avoids File handle being revoked
-    // between the MIME sniff and the actual upload.
     let buffer
     try {
       buffer = await file.arrayBuffer()
@@ -1291,7 +1314,6 @@ function PMPdfUploader({ pmContract, onSaved }) {
       return
     }
 
-    // Sniff from the buffer, not the File
     const head = new Uint8Array(buffer.slice(0, 12))
     const hex = Array.from(head).map((b) => b.toString(16).padStart(2, '0')).join('')
     let mime = null
@@ -1315,7 +1337,6 @@ function PMPdfUploader({ pmContract, onSaved }) {
 
       const newPath = `pm_contracts/${pmContract.id}/${pmPdfRandomId()}.${ext}`
 
-      // Upload from the buffer, not the File
       const { error: upErr } = await supabase
         .storage
         .from(PM_PDF_BUCKET)
@@ -1562,7 +1583,6 @@ function AssignUnitModal({ open, onClose, onSaved, pm, editingContract, units })
 
     setSaving(true)
     try {
-      // Auto-resolve covering owner contract for this unit + effective date
       let resolvedContractId = editingContract?.contract_id || null
       if (!resolvedContractId) {
         const { data: candidates } = await supabase
@@ -1767,103 +1787,6 @@ function TerminateModal({ open, onClose, onTerminated, pmContract }) {
 }
 
 // ============================================================
-// PM EARNINGS HOOK
-// Resolves owner contracts from the PM's units (does not rely on
-// pm_contracts.contract_id, which may be null on legacy rows).
-// ============================================================
-function usePMEarnings(contracts, range) {
-  const [loading, setLoading] = useState(true)
-  const [total, setTotal] = useState(0)
-  const [error, setError] = useState(null)
-
-  useEffect(() => {
-    let cancelled = false
-
-    async function load() {
-      setLoading(true)
-      setError(null)
-      try {
-        if (contracts.length === 0) {
-          if (!cancelled) { setTotal(0); setLoading(false) }
-          return
-        }
-
-        // Collect unit_ids from assignments — we resolve the covering
-        // owner contract for each unit rather than trusting
-        // pm_contracts.contract_id (which may be null on older rows).
-        const unitIds = [...new Set(contracts.map((c) => c.unit_id).filter(Boolean))]
-        if (unitIds.length === 0) {
-          if (!cancelled) { setTotal(0); setLoading(false) }
-          return
-        }
-
-        const { data: ownerContracts, error: ocErr } = await supabase
-          .from('contracts')
-          .select('id, unit_id, effective_date, expiry_date')
-          .in('unit_id', unitIds)
-        if (ocErr) throw ocErr
-
-        const contractIds = [...new Set((ownerContracts || []).map((c) => c.id))]
-
-        // Restrict to contracts whose owner window overlaps the PM window,
-        // so we don't hit the RPC for obviously irrelevant contracts.
-        const relevantContractIds = []
-        for (const oc of ownerContracts || []) {
-          const overlapping = contracts.some((pc) => {
-            if (pc.unit_id !== oc.unit_id) return false
-            if (oc.effective_date && pc.expiry_date && oc.effective_date > pc.expiry_date) return false
-            if (oc.expiry_date && pc.effective_date && oc.expiry_date < pc.effective_date) return false
-            return true
-          })
-          if (overlapping) relevantContractIds.push(oc.id)
-        }
-
-        let sum = 0
-        for (const cid of relevantContractIds) {
-          const { data, error: rpcErr } = await supabase.rpc('contract_monthly_breakdown', {
-            p_contract_id: cid,
-          })
-          if (rpcErr) {
-            console.warn('monthly breakdown failed for', cid, rpcErr)
-            continue
-          }
-          for (const r of data || []) {
-            if (!r.pm_id) continue
-
-            // Verify this row's PM is one we care about
-            const isOurPM = contracts.some((pc) => pc.pm_id === r.pm_id && pc.unit_id === ocUnitIdMap.get(cid))
-            // If no direct match, still count if the pm_id belongs to this PM
-            const pmIds = new Set(contracts.map((pc) => pc.pm_id))
-            if (!pmIds.has(r.pm_id)) continue
-
-            const monthKey = typeof r.month === 'string' ? r.month.slice(0, 7) : ''
-            if (range.from && monthKey < range.from.slice(0, 7)) continue
-            if (range.to && monthKey > range.to.slice(0, 7)) continue
-
-            sum += Number(r.pm_share || 0)
-          }
-        }
-
-        if (!cancelled) setTotal(sum)
-      } catch (err) {
-        console.error('PM earnings load failed:', err)
-        if (!cancelled) { setTotal(0); setError(err?.message || 'Failed to load') }
-      } finally {
-        if (!cancelled) setLoading(false)
-      }
-    }
-
-    const ocUnitIdMap = new Map()
-    // (declared here so the closure above can use it — populated inside load)
-
-    load()
-    return () => { cancelled = true }
-  }, [contracts, range.from, range.to])
-
-  return { loading, total, error }
-}
-
-// ============================================================
 // PM DETAIL MODAL
 // ============================================================
 function PMDetailModal({ pm, onClose, onChanged, units }) {
@@ -1909,7 +1832,6 @@ function PMDetailModal({ pm, onClose, onChanged, units }) {
     [contracts]
   )
 
-  // Inline earnings computation (avoids hook closure bug)
   const [earningsLoading, setEarningsLoading] = useState(true)
   const [earningsTotal, setEarningsTotal] = useState(0)
 
@@ -2210,7 +2132,12 @@ export default function TeamPage() {
   const [activeTab, setActiveTab] = useState('specialists')
   const [data, setData] = useState({ specialists: [], affiliates: [], housekeepers: [] })
   const [counts, setCounts] = useState({ specialists: {}, affiliates: {} })
-  const [totalCommission, setTotalCommission] = useState(0)
+  const [teamTotals, setTeamTotals] = useState({
+    specialistCommission: 0,
+    affiliateCommission: 0,
+    housekeeperPayout: 0,
+    pmEarnings: 0,
+  })
   const [loading, setLoading] = useState(true)
   const [refreshing, setRefreshing] = useState(false)
   const [search, setSearch] = useState('')
@@ -2241,19 +2168,18 @@ export default function TeamPage() {
     if (!hasLoadedOnce.current) setLoading(true)
     else setRefreshing(true)
     try {
-      const [s, a, h, countResult, bookingRes, pmList, unitList] = await Promise.all([
+      const [s, a, h, countResult, pmList, unitList, totalsRes] = await Promise.all([
         supabase.from('specialists').select('*').order('name'),
         supabase.from('affiliates').select('*').order('name'),
         supabase.from('housekeepers').select('*').order('name'),
         fetchTeamCompletedCounts(),
-        supabase.from('bookings').select('booker_commission, affiliate_commission').is('deleted_at', null).not('completed_at', 'is', null),
         fetchPMs(),
         fetchUnitsForSelect(),
+        supabase.rpc('team_totals_bulk'),
       ])
       if (s.error) throw s.error
       if (a.error) throw a.error
       if (h.error) throw h.error
-      if (bookingRes.error) throw bookingRes.error
 
       setData({ specialists: s.data || [], affiliates: a.data || [], housekeepers: h.data || [] })
       setCounts({
@@ -2261,11 +2187,24 @@ export default function TeamPage() {
         affiliates: countResult.affiliates || {},
       })
 
-      const commissionSum = (bookingRes.data || []).reduce(
-        (sum, b) => sum + Number(b.booker_commission || 0) + Number(b.affiliate_commission || 0),
-        0
-      )
-      setTotalCommission(commissionSum)
+      // Team totals come from the RPC — one row with four numbers
+      if (totalsRes.error) {
+        console.error('team_totals_bulk failed:', totalsRes.error)
+        setTeamTotals({
+          specialistCommission: 0,
+          affiliateCommission: 0,
+          housekeeperPayout: 0,
+          pmEarnings: 0,
+        })
+      } else {
+        const row = (totalsRes.data || [])[0] || {}
+        setTeamTotals({
+          specialistCommission: Number(row.specialist_commission) || 0,
+          affiliateCommission: Number(row.affiliate_commission) || 0,
+          housekeeperPayout: Number(row.housekeeper_payout) || 0,
+          pmEarnings: Number(row.pm_earnings) || 0,
+        })
+      }
 
       const { data: activeContracts } = await supabase
         .from('pm_contracts')
@@ -2276,35 +2215,25 @@ export default function TeamPage() {
         activeCounts.set(c.pm_id, (activeCounts.get(c.pm_id) || 0) + 1)
       }
 
-      // Simple lifetime earnings per PM (all-time). Detail modal has range-aware version.
-      const enrichedPMs = await Promise.all(pmList.map(async (p) => {
-        const { data: pcs } = await supabase
-          .from('pm_contracts')
-          .select('id, unit_id, pm_id')
-          .eq('pm_id', p.id)
-
-        const unitIds = [...new Set((pcs || []).map((pc) => pc.unit_id).filter(Boolean))]
-        let total = 0
-
-        if (unitIds.length > 0) {
-          const { data: ownerContracts } = await supabase
-            .from('contracts')
-            .select('id, unit_id')
-            .in('unit_id', unitIds)
-          const contractIds = [...new Set((ownerContracts || []).map((c) => c.id))]
-          for (const cid of contractIds) {
-            const { data: rows } = await supabase.rpc('contract_monthly_breakdown', { p_contract_id: cid })
-            for (const r of rows || []) {
-              if (r.pm_id === p.id) total += Number(r.pm_share || 0)
-            }
+      const pmIds = pmList.map((p) => p.id)
+      let earningsMap = new Map()
+      if (pmIds.length > 0) {
+        const { data: earningsRows, error: earnErr } = await supabase.rpc('pm_earnings_bulk', {
+          p_pm_ids: pmIds,
+        })
+        if (earnErr) {
+          console.error('pm_earnings_bulk failed:', earnErr)
+        } else {
+          for (const row of earningsRows || []) {
+            earningsMap.set(row.pm_id, Number(row.total_earnings) || 0)
           }
         }
+      }
 
-        return {
-          ...p,
-          _activeCount: activeCounts.get(p.id) || 0,
-          _totalEarnings: total,
-        }
+      const enrichedPMs = pmList.map((p) => ({
+        ...p,
+        _activeCount: activeCounts.get(p.id) || 0,
+        _totalEarnings: earningsMap.get(p.id) || 0,
       }))
 
       setPMs(enrichedPMs)
@@ -2320,15 +2249,24 @@ export default function TeamPage() {
   useEffect(() => { fetchAll() }, [fetchAll])
 
   useEffect(() => {
+    let timer = null
+    const schedule = () => {
+      if (timer) clearTimeout(timer)
+      timer = setTimeout(() => { fetchAll() }, 1500)
+    }
+
     const chs = [
-      supabase.channel('team-specialists').on('postgres_changes', { event: '*', schema: 'public', table: 'specialists' }, () => fetchAll()).subscribe(),
-      supabase.channel('team-affiliates').on('postgres_changes', { event: '*', schema: 'public', table: 'affiliates' }, () => fetchAll()).subscribe(),
-      supabase.channel('team-housekeepers').on('postgres_changes', { event: '*', schema: 'public', table: 'housekeepers' }, () => fetchAll()).subscribe(),
-      supabase.channel('team-bookings').on('postgres_changes', { event: '*', schema: 'public', table: 'bookings' }, () => fetchAll()).subscribe(),
-      supabase.channel('team-pms').on('postgres_changes', { event: '*', schema: 'public', table: 'property_managers' }, () => fetchAll()).subscribe(),
-      supabase.channel('team-pm-contracts').on('postgres_changes', { event: '*', schema: 'public', table: 'pm_contracts' }, () => fetchAll()).subscribe(),
+      supabase.channel('team-specialists').on('postgres_changes', { event: '*', schema: 'public', table: 'specialists' }, schedule).subscribe(),
+      supabase.channel('team-affiliates').on('postgres_changes', { event: '*', schema: 'public', table: 'affiliates' }, schedule).subscribe(),
+      supabase.channel('team-housekeepers').on('postgres_changes', { event: '*', schema: 'public', table: 'housekeepers' }, schedule).subscribe(),
+      supabase.channel('team-bookings').on('postgres_changes', { event: '*', schema: 'public', table: 'bookings' }, schedule).subscribe(),
+      supabase.channel('team-pms').on('postgres_changes', { event: '*', schema: 'public', table: 'property_managers' }, schedule).subscribe(),
+      supabase.channel('team-pm-contracts').on('postgres_changes', { event: '*', schema: 'public', table: 'pm_contracts' }, schedule).subscribe(),
     ]
-    return () => { chs.forEach((c) => supabase.removeChannel(c)) }
+    return () => {
+      if (timer) clearTimeout(timer)
+      chs.forEach((c) => supabase.removeChannel(c))
+    }
   }, [fetchAll])
 
   const activeList = data[activeTab] || []
@@ -2443,7 +2381,7 @@ export default function TeamPage() {
           'flex-shrink-0 pt-1 pb-2 transition-all duration-300 ease-out overflow-hidden',
           cardsHidden ? 'max-h-0 opacity-0 -mb-3' : 'max-h-52 opacity-100',
         )}>
-          <SummaryCards data={data} totalCommission={totalCommission} />
+          <SummaryCards data={data} teamTotals={teamTotals} activeTab={activeTab} />
         </div>
 
         <div className={cn(

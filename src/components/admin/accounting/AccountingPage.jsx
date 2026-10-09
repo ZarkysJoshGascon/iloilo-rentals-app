@@ -653,32 +653,34 @@ function YearNav({ yearSections, selectedYear, onSelectYear }) {
   const canNext = idx >= 0 && idx < yearSections.length - 1
 
   return (
-    <div className="flex items-center gap-2">
-      <button
-        type="button"
-        onClick={() => canPrev && onSelectYear(yearSections[idx - 1].year)}
-        disabled={!canPrev}
-        className={cn(
-          'p-2 rounded-lg border border-border transition-colors',
-          canPrev ? 'hover:bg-muted text-foreground' : 'opacity-40 cursor-not-allowed'
-        )}
-      >
-        <ChevronLeft size={18} />
-      </button>
-      <span className="text-lg font-bold tabular-nums text-foreground px-4 min-w-[90px] text-center">
-        {selectedYear}
-      </span>
-      <button
-        type="button"
-        onClick={() => canNext && onSelectYear(yearSections[idx + 1].year)}
-        disabled={!canNext}
-        className={cn(
-          'p-2 rounded-lg border border-border transition-colors',
-          canNext ? 'hover:bg-muted text-foreground' : 'opacity-40 cursor-not-allowed'
-        )}
-      >
-        <ChevronRight size={18} />
-      </button>
+    <div className="flex items-center justify-center">
+      <div className="inline-flex items-center gap-1 bg-muted/50 rounded-full p-1">
+        <button
+          type="button"
+          onClick={() => canPrev && onSelectYear(yearSections[idx - 1].year)}
+          disabled={!canPrev}
+          className={cn(
+            'p-1.5 rounded-full transition-colors',
+            canPrev ? 'hover:bg-muted text-foreground' : 'opacity-30 cursor-not-allowed'
+          )}
+        >
+          <ChevronLeft size={14} />
+        </button>
+        <span className="text-[12px] font-bold tabular-nums text-foreground px-3 min-w-[60px] text-center">
+          {selectedYear}
+        </span>
+        <button
+          type="button"
+          onClick={() => canNext && onSelectYear(yearSections[idx + 1].year)}
+          disabled={!canNext}
+          className={cn(
+            'p-1.5 rounded-full transition-colors',
+            canNext ? 'hover:bg-muted text-foreground' : 'opacity-30 cursor-not-allowed'
+          )}
+        >
+          <ChevronRight size={14} />
+        </button>
+      </div>
     </div>
   )
 }
@@ -1250,32 +1252,34 @@ function MonthSelector({ options, selectedMonth, onSelectMonth }) {
   const currentLabel = selectedMonth ? monthLabel(selectedMonth) : 'No month'
 
   return (
-    <div className="flex items-center justify-center gap-1">
-      <button
-        type="button"
-        onClick={() => canPrev && onSelectMonth(options[idx + 1].month)}
-        disabled={!canPrev}
-        className={cn(
-          'p-1.5 rounded border border-border',
-          canPrev ? 'hover:bg-muted text-foreground' : 'opacity-40 cursor-not-allowed'
-        )}
-      >
-        <ChevronLeft size={13} />
-      </button>
-      <span className="text-sm font-bold tabular-nums text-foreground px-3 min-w-[140px] text-center">
-        {currentLabel}
-      </span>
-      <button
-        type="button"
-        onClick={() => canNext && onSelectMonth(options[idx - 1].month)}
-        disabled={!canNext}
-        className={cn(
-          'p-1.5 rounded border border-border',
-          canNext ? 'hover:bg-muted text-foreground' : 'opacity-40 cursor-not-allowed'
-        )}
-      >
-        <ChevronRight size={13} />
-      </button>
+    <div className="flex items-center justify-center">
+      <div className="inline-flex items-center gap-1 bg-muted/50 rounded-full p-1">
+        <button
+          type="button"
+          onClick={() => canPrev && onSelectMonth(options[idx + 1].month)}
+          disabled={!canPrev}
+          className={cn(
+            'p-1.5 rounded-full transition-colors',
+            canPrev ? 'hover:bg-muted text-foreground' : 'opacity-30 cursor-not-allowed'
+          )}
+        >
+          <ChevronLeft size={14} />
+        </button>
+        <span className="text-[12px] font-bold tabular-nums text-foreground px-3 min-w-[120px] text-center">
+          {currentLabel}
+        </span>
+        <button
+          type="button"
+          onClick={() => canNext && onSelectMonth(options[idx - 1].month)}
+          disabled={!canNext}
+          className={cn(
+            'p-1.5 rounded-full transition-colors',
+            canNext ? 'hover:bg-muted text-foreground' : 'opacity-30 cursor-not-allowed'
+          )}
+        >
+          <ChevronRight size={14} />
+        </button>
+      </div>
     </div>
   )
 }

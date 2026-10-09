@@ -1,3 +1,4 @@
+// src/components/admin/interior/InteriorInquiriesPage.jsx
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import {
@@ -20,9 +21,6 @@ import {
 const BRAND = '#2d568e'
 const PAGE_SIZE = 25
 
-// ------------------------------------------------------------
-// Helpers
-// ------------------------------------------------------------
 function fmtDate(iso) {
   if (!iso) return '—'
   const d = new Date(iso)
@@ -96,9 +94,6 @@ function ClientAvatar({ name, size = 'md' }) {
   )
 }
 
-// ------------------------------------------------------------
-// Status / service labels
-// ------------------------------------------------------------
 const STATUS_META = {
   new:       { label: 'New',       pill: 'bg-blue-500/10 text-blue-600 dark:text-blue-400 border-blue-500/20' },
   contacted: { label: 'Contacted', pill: 'bg-amber-500/10 text-amber-600 dark:text-amber-400 border-amber-500/20' },
@@ -147,22 +142,6 @@ function StatusBadge({ status }) {
   )
 }
 
-function SectionHeader({ icon: Icon, title, subtitle, action }) {
-  return (
-    <div className="flex items-center gap-2 mb-2 px-0.5">
-      {Icon ? <Icon size={14} className="text-foreground flex-shrink-0" /> : null}
-      <h3 className="text-[11px] font-semibold uppercase tracking-wider text-foreground truncate">
-        {title}
-      </h3>
-      {subtitle && <span className="text-[11px] text-muted-foreground tabular-nums truncate">{subtitle}</span>}
-      {action && <div className="ml-auto flex items-center gap-1">{action}</div>}
-    </div>
-  )
-}
-
-// ------------------------------------------------------------
-// Summary cards
-// ------------------------------------------------------------
 function SummaryCards({ inquiries }) {
   const stats = useMemo(() => ({
     total:     inquiries.length,
@@ -199,9 +178,6 @@ function SummaryCards({ inquiries }) {
   )
 }
 
-// ------------------------------------------------------------
-// Row
-// ------------------------------------------------------------
 function InquiryRow({ inquiry, selected, onClick }) {
   const ago = timeAgo(inquiry.created_at)
   const serviceLabel = SERVICE_LABEL[inquiry.service_type] || 'Design inquiry'
@@ -263,9 +239,6 @@ function InquiryRow({ inquiry, selected, onClick }) {
   )
 }
 
-// ============================================================
-// Main page
-// ============================================================
 export default function InteriorInquiriesPage() {
   const [inquiries, setInquiries] = useState([])
   const [loading, setLoading] = useState(true)
@@ -303,7 +276,6 @@ export default function InteriorInquiriesPage() {
 
   useEffect(() => { fetchData() }, [fetchData])
 
-  // Realtime
   useEffect(() => {
     const ch = supabase
       .channel(`interior-inquiries-realtime-${Math.random().toString(36).slice(2, 8)}`)
@@ -514,7 +486,6 @@ export default function InteriorInquiriesPage() {
       <AnimatePresence initial={false}>
         {selected && (
           <InquiryDetailPanel
-            key={selected.id}
             inquiry={selected}
             onClose={() => setSelectedId(null)}
             onUpdate={handleUpdate}
@@ -526,9 +497,6 @@ export default function InteriorInquiriesPage() {
   )
 }
 
-// ============================================================
-// Detail panel
-// ============================================================
 function InquiryDetailPanel({ inquiry, onClose, onUpdate, onDelete }) {
   const [saving, setSaving] = useState(false)
   const [notesDraft, setNotesDraft] = useState(inquiry.admin_notes || '')
@@ -582,164 +550,174 @@ function InquiryDetailPanel({ inquiry, onClose, onUpdate, onDelete }) {
       style={{ maxWidth: '100%', width: 448 + 24 }}
     >
       <div className="h-full rounded-md border border-border bg-card shadow-lg overflow-y-auto flex flex-col">
-
-        <div className="px-5 py-4 border-b border-border flex-shrink-0">
-          <div className="flex items-start gap-3">
-            <ClientAvatar name={inquiry.client_name} size="lg" />
-            <div className="min-w-0 flex-1">
-              <p className="text-base font-bold text-foreground truncate">{inquiry.client_name}</p>
-              <p className="text-[11px] text-muted-foreground truncate">{inquiry.client_email}</p>
-              <div className="mt-2 flex items-center gap-2 flex-wrap">
-                <StatusBadge status={inquiry.status} />
-              </div>
-            </div>
-            <button onClick={onClose} className="p-1 rounded hover:bg-muted text-foreground flex-shrink-0">
-              <X size={16} />
-            </button>
-          </div>
-
-          <div className="flex items-center gap-2 mt-3 flex-wrap">
-            {inquiry.status !== 'contacted' && (
-              <Button
-                variant="outline" size="sm"
-                className="h-7 rounded text-[11px] gap-1.5"
-                onClick={() => setStatus('contacted')}
-                disabled={saving}
-              >
-                <Phone size={11} /> Mark contacted
-              </Button>
-            )}
-            {inquiry.status !== 'closed' && (
-              <Button
-                variant="outline" size="sm"
-                className="h-7 rounded text-[11px] gap-1.5 text-emerald-600 border-emerald-200 hover:bg-emerald-50 dark:text-emerald-400 dark:border-emerald-800 dark:hover:bg-emerald-900/20"
-                onClick={() => setStatus('closed')}
-                disabled={saving}
-              >
-                <Check size={11} /> Mark closed
-              </Button>
-            )}
-            {inquiry.status !== 'new' && (
-              <Button
-                variant="outline" size="sm"
-                className="h-7 rounded text-[11px] gap-1.5"
-                onClick={() => setStatus('new')}
-                disabled={saving}
-              >
-                Reopen
-              </Button>
-            )}
-            <Button
-              variant="outline" size="sm"
-              className="h-7 rounded text-[11px] gap-1.5 text-red-600 border-red-200 hover:bg-red-50 dark:text-red-400 dark:border-red-800 dark:hover:bg-red-900/20 ml-auto"
-              onClick={confirmDelete}
-            >
-              <Trash2 size={11} /> Delete
-            </Button>
-          </div>
-        </div>
-
-        <div className="p-4 space-y-4">
-
-          <DetailSection title="Contact">
-            <div className="p-3 space-y-2">
-              <ContactRow
-                icon={Mail}
-                label="Email"
-                value={inquiry.client_email}
-                href={`mailto:${inquiry.client_email}`}
-              />
-              {inquiry.client_phone && (
-                <ContactRow
-                  icon={Phone}
-                  label="Phone"
-                  value={inquiry.client_phone}
-                  href={`tel:${inquiry.client_phone}`}
-                />
-              )}
-            </div>
-          </DetailSection>
-
-          <DetailSection title="Project">
-            <div className="p-3 space-y-0.5">
-              <FieldRow label="Service"   value={SERVICE_LABEL[inquiry.service_type] || '—'} />
-              <FieldRow label="Room scope" value={ROOM_SCOPE_LABEL[inquiry.room_scope] || '—'} />
-              <FieldRow label="Budget"    value={BUDGET_LABEL[inquiry.budget_range] || '—'} />
-              <FieldRow label="Timeline"  value={TIMELINE_LABEL[inquiry.timeline] || '—'} />
-              <FieldRow label="Received"  value={fmtDateTime(inquiry.created_at)} />
-              {inquiry.contacted_at && <FieldRow label="Contacted" value={fmtDateTime(inquiry.contacted_at)} />}
-              {inquiry.closed_at    && <FieldRow label="Closed"    value={fmtDateTime(inquiry.closed_at)} />}
-            </div>
-          </DetailSection>
-
-          {(inquiry.property_type || inquiry.property_address) && (
-            <DetailSection title="Property">
-              <div className="p-3 space-y-0.5">
-                {inquiry.property_type    && <FieldRow label="Type"    value={inquiry.property_type} />}
-                {inquiry.property_address && <FieldRow label="Address" value={inquiry.property_address} />}
-              </div>
-            </DetailSection>
-          )}
-
-          {inquiry.message && (
-            <DetailSection title="Client message">
-              <div className="p-3">
-                <p className="text-xs text-foreground whitespace-pre-wrap break-words leading-relaxed">
-                  {inquiry.message}
-                </p>
-              </div>
-            </DetailSection>
-          )}
-
-          {images.length > 0 && (
-            <DetailSection title={`Reference photos · ${images.length}`}>
-              <div className="p-3">
-                <div className="grid grid-cols-3 gap-2">
-                  {images.map((img, idx) => (
-                    <a
-                      key={idx}
-                      href={img.url}
-                      target="_blank"
-                      rel="noreferrer noopener"
-                      className="relative aspect-square rounded-md overflow-hidden border border-border bg-muted hover:opacity-90 transition-opacity group"
-                    >
-                      <img
-                        src={img.url}
-                        alt=""
-                        className="w-full h-full object-cover"
-                        loading="lazy"
-                      />
-                      <div className="absolute inset-0 bg-black/0 group-hover:bg-black/20 transition-colors flex items-center justify-center">
-                        <ExternalLink
-                          size={14}
-                          className="text-white opacity-0 group-hover:opacity-100 transition-opacity drop-shadow-lg"
-                        />
-                      </div>
-                    </a>
-                  ))}
+        <AnimatePresence mode="wait" initial={false}>
+          <motion.div
+            key={inquiry.id}
+            initial={{ opacity: 0, y: 6 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: -4 }}
+            transition={{ duration: 0.18, ease: [0.4, 0, 0.2, 1] }}
+            className="flex-1 flex flex-col min-h-0"
+          >
+            <div className="px-5 py-4 border-b border-border flex-shrink-0">
+              <div className="flex items-start gap-3">
+                <ClientAvatar name={inquiry.client_name} size="lg" />
+                <div className="min-w-0 flex-1">
+                  <p className="text-base font-bold text-foreground truncate">{inquiry.client_name}</p>
+                  <p className="text-[11px] text-muted-foreground truncate">{inquiry.client_email}</p>
+                  <div className="mt-2 flex items-center gap-2 flex-wrap">
+                    <StatusBadge status={inquiry.status} />
+                  </div>
                 </div>
+                <button onClick={onClose} className="p-1 rounded hover:bg-muted text-foreground flex-shrink-0">
+                  <X size={16} />
+                </button>
               </div>
-            </DetailSection>
-          )}
 
-          <DetailSection title="Your notes">
-            <div className="p-3">
-              <textarea
-                value={notesDraft}
-                onChange={(e) => setNotesDraft(e.target.value)}
-                onBlur={saveNotes}
-                rows={4}
-                maxLength={2000}
-                placeholder="Internal notes — only you see these"
-                className="w-full text-xs rounded resize-none bg-background border border-border px-3 py-2 focus:outline-none focus:ring-2 focus:ring-ring/30"
-              />
-              <p className="text-[10px] text-muted-foreground mt-1 text-right tabular-nums">
-                {notesSaving ? 'Saving…' : 'Auto-saves on blur'}
-              </p>
+              <div className="flex items-center gap-2 mt-3 flex-wrap">
+                {inquiry.status !== 'contacted' && (
+                  <Button
+                    variant="outline" size="sm"
+                    className="h-7 rounded text-[11px] gap-1.5"
+                    onClick={() => setStatus('contacted')}
+                    disabled={saving}
+                  >
+                    <Phone size={11} /> Mark contacted
+                  </Button>
+                )}
+                {inquiry.status !== 'closed' && (
+                  <Button
+                    variant="outline" size="sm"
+                    className="h-7 rounded text-[11px] gap-1.5 text-emerald-600 border-emerald-200 hover:bg-emerald-50 dark:text-emerald-400 dark:border-emerald-800 dark:hover:bg-emerald-900/20"
+                    onClick={() => setStatus('closed')}
+                    disabled={saving}
+                  >
+                    <Check size={11} /> Mark closed
+                  </Button>
+                )}
+                {inquiry.status !== 'new' && (
+                  <Button
+                    variant="outline" size="sm"
+                    className="h-7 rounded text-[11px] gap-1.5"
+                    onClick={() => setStatus('new')}
+                    disabled={saving}
+                  >
+                    Reopen
+                  </Button>
+                )}
+                <Button
+                  variant="outline" size="sm"
+                  className="h-7 rounded text-[11px] gap-1.5 text-red-600 border-red-200 hover:bg-red-50 dark:text-red-400 dark:border-red-800 dark:hover:bg-red-900/20 ml-auto"
+                  onClick={confirmDelete}
+                >
+                  <Trash2 size={11} /> Delete
+                </Button>
+              </div>
             </div>
-          </DetailSection>
 
-        </div>
+            <div className="p-4 space-y-4">
+
+              <DetailSection title="Contact">
+                <div className="p-3 space-y-2">
+                  <ContactRow
+                    icon={Mail}
+                    label="Email"
+                    value={inquiry.client_email}
+                    href={`mailto:${inquiry.client_email}`}
+                  />
+                  {inquiry.client_phone && (
+                    <ContactRow
+                      icon={Phone}
+                      label="Phone"
+                      value={inquiry.client_phone}
+                      href={`tel:${inquiry.client_phone}`}
+                    />
+                  )}
+                </div>
+              </DetailSection>
+
+              <DetailSection title="Project">
+                <div className="p-3 space-y-0.5">
+                  <FieldRow label="Service"   value={SERVICE_LABEL[inquiry.service_type] || '—'} />
+                  <FieldRow label="Room scope" value={ROOM_SCOPE_LABEL[inquiry.room_scope] || '—'} />
+                  <FieldRow label="Budget"    value={BUDGET_LABEL[inquiry.budget_range] || '—'} />
+                  <FieldRow label="Timeline"  value={TIMELINE_LABEL[inquiry.timeline] || '—'} />
+                  <FieldRow label="Received"  value={fmtDateTime(inquiry.created_at)} />
+                  {inquiry.contacted_at && <FieldRow label="Contacted" value={fmtDateTime(inquiry.contacted_at)} />}
+                  {inquiry.closed_at    && <FieldRow label="Closed"    value={fmtDateTime(inquiry.closed_at)} />}
+                </div>
+              </DetailSection>
+
+              {(inquiry.property_type || inquiry.property_address) && (
+                <DetailSection title="Property">
+                  <div className="p-3 space-y-0.5">
+                    {inquiry.property_type    && <FieldRow label="Type"    value={inquiry.property_type} />}
+                    {inquiry.property_address && <FieldRow label="Address" value={inquiry.property_address} />}
+                  </div>
+                </DetailSection>
+              )}
+
+              {inquiry.message && (
+                <DetailSection title="Client message">
+                  <div className="p-3">
+                    <p className="text-xs text-foreground whitespace-pre-wrap break-words leading-relaxed">
+                      {inquiry.message}
+                    </p>
+                  </div>
+                </DetailSection>
+              )}
+
+              {images.length > 0 && (
+                <DetailSection title={`Reference photos · ${images.length}`}>
+                  <div className="p-3">
+                    <div className="grid grid-cols-3 gap-2">
+                      {images.map((img, idx) => (
+                        <a
+                          key={idx}
+                          href={img.url}
+                          target="_blank"
+                          rel="noreferrer noopener"
+                          className="relative aspect-square rounded-md overflow-hidden border border-border bg-muted hover:opacity-90 transition-opacity group"
+                        >
+                          <img
+                            src={img.url}
+                            alt=""
+                            className="w-full h-full object-cover"
+                            loading="lazy"
+                          />
+                          <div className="absolute inset-0 bg-black/0 group-hover:bg-black/20 transition-colors flex items-center justify-center">
+                            <ExternalLink
+                              size={14}
+                              className="text-white opacity-0 group-hover:opacity-100 transition-opacity drop-shadow-lg"
+                            />
+                          </div>
+                        </a>
+                      ))}
+                    </div>
+                  </div>
+                </DetailSection>
+              )}
+
+              <DetailSection title="Your notes">
+                <div className="p-3">
+                  <textarea
+                    value={notesDraft}
+                    onChange={(e) => setNotesDraft(e.target.value)}
+                    onBlur={saveNotes}
+                    rows={4}
+                    maxLength={2000}
+                    placeholder="Internal notes — only you see these"
+                    className="w-full text-xs rounded resize-none bg-background border border-border px-3 py-2 focus:outline-none focus:ring-2 focus:ring-ring/30"
+                  />
+                  <p className="text-[10px] text-muted-foreground mt-1 text-right tabular-nums">
+                    {notesSaving ? 'Saving…' : 'Auto-saves on blur'}
+                  </p>
+                </div>
+              </DetailSection>
+
+            </div>
+          </motion.div>
+        </AnimatePresence>
       </div>
     </motion.div>
   )

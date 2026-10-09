@@ -1,3 +1,4 @@
+// src/components/admin/registry/RegistryPage.jsx
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import {
@@ -78,6 +79,17 @@ const ROW_GRID = 'grid grid-cols-[1.4fr_1fr_1.6fr_220px] gap-4 items-center'
 const PANEL_WIDTH = 448
 
 const EXPIRING_SOON_DAYS = 60
+
+// ── URL builder ─────────────────────────────────────────────
+// Cache-busting: appends a `?v=` param so the browser never
+// serves a stale 404 that was cached on an earlier failed load.
+function buildPhotoUrl(rawUrl) {
+  if (!rawUrl || typeof rawUrl !== 'string') return null
+  const trimmed = rawUrl.trim()
+  if (!/^https?:\/\//i.test(trimmed)) return null
+  const sep = trimmed.includes('?') ? '&' : '?'
+  return `${trimmed}${sep}v=${Date.now()}`
+}
 
 function normalizeOtaListings(raw) {
   if (!raw) return []
@@ -213,12 +225,38 @@ function OwnerAvatar({ name, email, size = 'md' }) {
     </div>
   )
 }
+
+// ── UnitAvatar with fallback ────────────────────────────────
+// If the img fails to load (404, CORS, blocked), swaps to the icon.
+// Also cache-busts via buildPhotoUrl.
 function UnitAvatar({ unit, size = 'md' }) {
+  const [imgFailed, setImgFailed] = useState(false)
   const sizeClasses = size === 'lg' ? 'w-12 h-12' : size === 'sm' ? 'w-8 h-8' : 'w-10 h-10'
+
+  // Reset the failure flag whenever the URL changes (new upload)
+  useEffect(() => {
+    setImgFailed(false)
+  }, [unit?.photo_url])
+
+  const url = buildPhotoUrl(unit?.photo_url)
+  const showImg = !!url && !imgFailed
+
   return (
     <div className={cn('rounded-md flex items-center justify-center flex-shrink-0 overflow-hidden border border-border bg-muted', sizeClasses)}>
-      {unit.photo_url ? <img src={unit.photo_url} alt="" className="w-full h-full object-cover" />
-        : <Building2 size={size === 'lg' ? 18 : 14} className="text-muted-foreground" />}
+      {showImg ? (
+        <img
+          src={url}
+          alt=""
+          className="w-full h-full object-cover"
+          onError={(e) => {
+            console.warn('Unit photo failed to load:', url)
+            setImgFailed(true)
+          }}
+          loading="lazy"
+        />
+      ) : (
+        <Building2 size={size === 'lg' ? 18 : 14} className="text-muted-foreground" />
+      )}
     </div>
   )
 }
@@ -345,32 +383,87 @@ function EditableField({ label, value, type = 'text', options, onSave, actionHre
   )
 }
 
+// ── UnitPhotoUpload ─────────────────────────────────────────
+// Hardened. After a successful upload, calls onSave with the raw
+// public URL (un-cache-busted). UnitAvatar appends the cache-buster.
 function UnitPhotoUpload({ unit, onSave }) {
   const [uploading, setUploading] = useState(false)
+  const inputRef = useRef(null)
+
   const handleFile = async (e) => {
-    const file = e.target.files?.[0]; if (!file) return
+    const file = e.target.files?.[0]
+    if (!file) return
+
     setUploading(true)
     try {
-      const ext = file.name.split('.').pop() || 'jpg'
+      const mimeToExt = {
+        'image/jpeg': 'jpg',
+        'image/png': 'png',
+        'image/webp': 'webp',
+        'image/gif': 'gif',
+        'image/avif': 'avif',
+      }
+      const ext = mimeToExt[file.type] || 'jpg'
       const path = `${unit.id}_${Date.now()}.${ext}`
-      const { error: uploadErr } = await supabase.storage.from('unit-photos').upload(path, file, { cacheControl: '3600', upsert: true })
+
+      const { error: uploadErr } = await supabase
+        .storage
+        .from('unit-photos')
+        .upload(path, file, {
+          cacheControl: '3600',
+          upsert: true,
+          contentType: file.type || 'image/jpeg',
+        })
       if (uploadErr) throw uploadErr
+
       const { data } = supabase.storage.from('unit-photos').getPublicUrl(path)
-      await onSave(data.publicUrl)
-      logAudit('UPDATE_UNIT_PHOTO', 'units', unit.id, { url: data.publicUrl }).catch(() => {})
+      const publicUrl = data?.publicUrl
+      if (!publicUrl) throw new Error('Failed to get public URL')
+
+      await onSave(publicUrl)
+      logAudit('UPDATE_UNIT_PHOTO', 'units', unit.id, { url: publicUrl }).catch(() => {})
       toast.success('Photo updated')
-    } catch { toast.error('Upload failed') }
-    finally { setUploading(false); e.target.value = '' }
+    } catch (err) {
+      console.error('Unit photo upload failed:', err)
+      toast.error(err?.message || 'Upload failed')
+    } finally {
+      setUploading(false)
+      if (inputRef.current) inputRef.current.value = ''
+    }
   }
+
+  const previewUrl = buildPhotoUrl(unit.photo_url)
+
   return (
     <div className="flex items-center gap-3 py-1">
       <div className="w-16 h-16 rounded-md overflow-hidden bg-muted border border-border flex-shrink-0 flex items-center justify-center">
-        {unit.photo_url ? <img src={unit.photo_url} alt="" className="w-full h-full object-cover" /> : <Building2 size={22} className="text-muted-foreground" />}
+        {previewUrl ? (
+          <img
+            src={previewUrl}
+            alt=""
+            className="w-full h-full object-cover"
+            onError={() => console.warn('Preview image failed:', previewUrl)}
+          />
+        ) : (
+          <Building2 size={22} className="text-muted-foreground" />
+        )}
       </div>
       <label className="cursor-pointer">
-        <input type="file" accept="image/*" className="hidden" onChange={handleFile} disabled={uploading} />
-        <span className={cn('inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded text-xs font-semibold', 'text-white cursor-pointer transition-colors duration-150', uploading && 'opacity-50 pointer-events-none')}
-          style={{ backgroundColor: BRAND }}>
+        <input
+          ref={inputRef}
+          type="file"
+          accept="image/jpeg,image/png,image/webp"
+          className="hidden"
+          onChange={handleFile}
+          disabled={uploading}
+        />
+        <span
+          className={cn(
+            'inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded text-xs font-semibold text-white cursor-pointer transition-colors duration-150',
+            uploading && 'opacity-50 pointer-events-none',
+          )}
+          style={{ backgroundColor: BRAND }}
+        >
           {uploading ? <Loader2 size={11} className="animate-spin" /> : <Camera size={11} />}
           {unit.photo_url ? 'Replace' : 'Upload'}
         </span>
@@ -932,6 +1025,15 @@ function RegistryDetailPanel({
       style={{ maxWidth: '100%', width: PANEL_WIDTH + 24 }}
     >
       <div className="h-full rounded-md border border-border bg-card shadow-lg overflow-hidden flex flex-col">
+        <AnimatePresence mode="wait" initial={false}>
+          <motion.div
+            key={unit.id}
+            initial={{ opacity: 0, y: 6 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: -4 }}
+            transition={{ duration: 0.18, ease: [0.4, 0, 0.2, 1] }}
+            className="h-full flex flex-col min-h-0"
+          >
         <div className="flex-shrink-0 px-5 py-4 border-b border-border">
           <div className="flex items-start gap-3">
             <UnitAvatar unit={unit} size="lg" />
@@ -1009,6 +1111,9 @@ function RegistryDetailPanel({
 
           <InteractionsSection unit={unit} onLogCall={onLogCall} refreshKey={interactionsRefreshKey} />
         </div>
+
+          </motion.div>
+        </AnimatePresence>
       </div>
     </motion.div>
   )
@@ -1218,7 +1323,16 @@ function downloadCSV(units, filename) {
   URL.revokeObjectURL(url)
 }
 
-function FilterPanel({ open, onClose, building, setBuilding, dateFilter, setDateFilter, otaFilter, setOtaFilter, buildings, activeCount, onClear }) {
+function FilterPanel({
+  open, onClose,
+  building, setBuilding,
+  dateFilter, setDateFilter,
+  otaFilter, setOtaFilter,
+  unitId, setUnitId,
+  ownerId, setOwnerId,
+  buildings, units, owners,
+  activeCount, onClear,
+}) {
   const panelRef = useRef(null)
   useEffect(() => {
     if (!open) return
@@ -1233,12 +1347,12 @@ function FilterPanel({ open, onClose, building, setBuilding, dateFilter, setDate
     <AnimatePresence>
       {open && (
         <motion.div ref={panelRef} initial={{ opacity: 0, y: -4 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -4 }} transition={{ duration: 0.12 }}
-          className="absolute right-0 top-full mt-2 w-[360px] max-w-[90vw] bg-popover border border-border rounded-md shadow-lg z-50 overflow-hidden">
+          className="absolute right-0 top-full mt-2 w-[380px] max-w-[90vw] bg-popover border border-border rounded-md shadow-lg z-50 overflow-hidden">
           <div className="flex items-center justify-between px-4 py-2.5 border-b border-border">
             <h3 className="text-xs font-bold text-foreground">Filters</h3>
             <button onClick={onClose} className="p-1 rounded hover:bg-muted"><X size={13} /></button>
           </div>
-          <div className="p-4 space-y-3">
+          <div className="p-4 space-y-3 max-h-[420px] overflow-y-auto">
             <div>
               <p className="text-[10px] uppercase tracking-wider text-muted-foreground font-semibold mb-1.5">Building</p>
               <Select value={building} onValueChange={setBuilding}>
@@ -1246,6 +1360,30 @@ function FilterPanel({ open, onClose, building, setBuilding, dateFilter, setDate
                 <SelectContent>
                   <SelectItem value="all" className="text-xs">All buildings</SelectItem>
                   {buildings.map((b) => <SelectItem key={b} value={b} className="text-xs">{b}</SelectItem>)}
+                </SelectContent>
+              </Select>
+            </div>
+            <div>
+              <p className="text-[10px] uppercase tracking-wider text-muted-foreground font-semibold mb-1.5">Unit</p>
+              <Select value={unitId} onValueChange={setUnitId}>
+                <SelectTrigger className="h-8 text-xs rounded"><SelectValue placeholder="All units" /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all" className="text-xs">All units</SelectItem>
+                  {units.map((u) => (
+                    <SelectItem key={u.id} value={u.id} className="text-xs">
+                      {u.building ? `${u.building} — ` : ''}{u.unit_code}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            <div>
+              <p className="text-[10px] uppercase tracking-wider text-muted-foreground font-semibold mb-1.5">Owner</p>
+              <Select value={ownerId} onValueChange={setOwnerId}>
+                <SelectTrigger className="h-8 text-xs rounded"><SelectValue placeholder="All owners" /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all" className="text-xs">All owners</SelectItem>
+                  {owners.map((o) => <SelectItem key={o.id} value={o.id} className="text-xs">{o.name}</SelectItem>)}
                 </SelectContent>
               </Select>
             </div>
@@ -1318,9 +1456,12 @@ function UnitListRow({ unit, selected, onClick }) {
       whileTap={{ scale: 0.998 }}
       className={cn('group/row w-full text-left px-4 py-3 border-b border-border cursor-pointer select-none', ROW_GRID)}
     >
-      <span className="text-sm font-semibold text-foreground truncate">
-        {unit.building || '—'}
-      </span>
+      <div className="flex items-center gap-3 min-w-0">
+        <UnitAvatar unit={unit} size="sm" />
+        <span className="text-sm font-semibold text-foreground truncate">
+          {unit.building || '—'}
+        </span>
+      </div>
 
       <span className="font-mono text-sm font-bold text-foreground truncate">
         {unit.unit_code || '—'}
@@ -1339,6 +1480,7 @@ function UnitListRow({ unit, selected, onClick }) {
 
 export default function RegistryPage() {
   const [allUnits, setAllUnits] = useState([])
+  const [owners, setOwners] = useState([])
   const [isFirstLoad, setIsFirstLoad] = useState(true)
   const [isRefreshing, setIsRefreshing] = useState(false)
 
@@ -1346,6 +1488,8 @@ export default function RegistryPage() {
   const [building, setBuilding] = useState('all')
   const [dateFilter, setDateFilter] = useState('all')
   const [otaFilter, setOtaFilter] = useState('all')
+  const [unitId, setUnitId] = useState('all')
+  const [ownerId, setOwnerId] = useState('all')
   const [search, setSearch] = useState('')
   const [debouncedSearch, setDebouncedSearch] = useState('')
   const [filterOpen, setFilterOpen] = useState(false)
@@ -1365,19 +1509,11 @@ export default function RegistryPage() {
   const headerRef = useRef(null)
   const filterWrapRef = useRef(null)
   const hasLoadedOnce = useRef(false)
-  const refetchTimer = useRef(null)  // ← NEW: debounced refetch timer
 
   useEffect(() => {
     const t = setTimeout(() => setDebouncedSearch(search), 300)
     return () => clearTimeout(t)
   }, [search])
-
-  // Clean up debounce timer on unmount
-  useEffect(() => {
-    return () => {
-      if (refetchTimer.current) clearTimeout(refetchTimer.current)
-    }
-  }, [])
 
   const fetchChannelOptions = useCallback(async () => {
     const { data } = await supabase.from('ota_channel_names').select('name').order('name')
@@ -1388,17 +1524,20 @@ export default function RegistryPage() {
     if (!hasLoadedOnce.current) setIsFirstLoad(true)
     else setIsRefreshing(true)
     try {
-      const [unitsData, contractsRes] = await Promise.all([
+      const [unitsData, contractsRes, ownersRes] = await Promise.all([
         listUnits({}),
         supabase.from('contracts').select('*'),
+        supabase.from('owners').select('id, name').order('name'),
       ])
       if (contractsRes.error) throw contractsRes.error
+      if (ownersRes.error) throw ownersRes.error
 
       const byUnit = new Map()
       for (const c of (contractsRes.data || [])) byUnit.set(c.unit_id, c)
 
       const enriched = unitsData.map((u) => ({ ...u, contract: byUnit.get(u.id) || null }))
       setAllUnits(enriched)
+      setOwners(ownersRes.data || [])
     } catch (err) {
       console.error('Failed to load units:', err)
       toast.error('Failed to load units')
@@ -1422,6 +1561,16 @@ export default function RegistryPage() {
     const set = new Set()
     allUnits.forEach((u) => { if (u.building) set.add(u.building) })
     return [...set].sort()
+  }, [allUnits])
+
+  const unitsForFilter = useMemo(() => {
+    const copy = [...allUnits]
+    copy.sort((a, b) => {
+      const av = `${a.building || ''} ${a.unit_code || ''}`.trim()
+      const bv = `${b.building || ''} ${b.unit_code || ''}`.trim()
+      return av.localeCompare(bv)
+    })
+    return copy
   }, [allUnits])
 
   const missingMap = useMemo(() => {
@@ -1454,10 +1603,18 @@ export default function RegistryPage() {
     if (building !== 'all') n++
     if (dateFilter !== 'all') n++
     if (otaFilter !== 'all') n++
+    if (unitId !== 'all') n++
+    if (ownerId !== 'all') n++
     return n
-  }, [building, dateFilter, otaFilter])
+  }, [building, dateFilter, otaFilter, unitId, ownerId])
 
-  const clearFilters = () => { setBuilding('all'); setDateFilter('all'); setOtaFilter('all') }
+  const clearFilters = () => {
+    setBuilding('all')
+    setDateFilter('all')
+    setOtaFilter('all')
+    setUnitId('all')
+    setOwnerId('all')
+  }
 
   const filteredUnits = useMemo(() => {
     const q = debouncedSearch.trim().toLowerCase()
@@ -1465,6 +1622,8 @@ export default function RegistryPage() {
       const derived = deriveUnitStatus(u)
       if (statusFilter !== 'all' && derived.status !== statusFilter) return false
       if (building !== 'all' && u.building !== building) return false
+      if (unitId !== 'all' && u.id !== unitId) return false
+      if (ownerId !== 'all' && u.owner_id !== ownerId) return false
       if (dateFilter !== 'all') {
         const exp = u.contract?.expiry_date ? new Date(u.contract.expiry_date + 'T00:00:00Z') : null
         const today = new Date(); today.setUTCHours(0, 0, 0, 0)
@@ -1490,7 +1649,7 @@ export default function RegistryPage() {
       }
       return true
     })
-  }, [allUnits, statusFilter, building, dateFilter, otaFilter, debouncedSearch])
+  }, [allUnits, statusFilter, building, dateFilter, otaFilter, unitId, ownerId, debouncedSearch])
 
   const sorted = useMemo(() => {
     const copy = [...filteredUnits]
@@ -1522,16 +1681,18 @@ export default function RegistryPage() {
     toast.success('Exported')
   }
 
-  // ✅ FIX: debounced refetch — coalesces rapid edits into a single fetchUnits()
+  // Merge updated unit fields into state. Preserves the joined `contract`
+  // field (which lives on the contracts table, not on the unit write).
+  // No refetch timer — the realtime subscription on `units` will fetch
+  // fresh data automatically when the DB write commits.
   const handleUnitUpdate = (updatedUnit) => {
     setAllUnits((prev) =>
-      prev.map((u) => (u.id === updatedUnit.id ? { ...u, ...updatedUnit } : u))
+      prev.map((u) =>
+        u.id === updatedUnit.id
+          ? { ...updatedUnit, contract: u.contract }
+          : u
+      )
     )
-    if (refetchTimer.current) clearTimeout(refetchTimer.current)
-    refetchTimer.current = setTimeout(() => {
-      refetchTimer.current = null
-      fetchUnits()
-    }, 400)
   }
 
   const handleDeleteUnit = async (unit) => {
@@ -1587,11 +1748,25 @@ export default function RegistryPage() {
                 <span className="hidden sm:inline ml-1">Filter</span>
                 {activeFilterCount > 0 && <span className="ml-1 px-1.5 py-0.5 rounded-full bg-white/20 text-[10px] font-bold">{activeFilterCount}</span>}
               </Button>
-              <FilterPanel open={filterOpen} onClose={() => setFilterOpen(false)}
-                building={building} setBuilding={setBuilding}
-                dateFilter={dateFilter} setDateFilter={setDateFilter}
-                otaFilter={otaFilter} setOtaFilter={setOtaFilter}
-                buildings={buildings} activeCount={activeFilterCount} onClear={clearFilters} />
+              <FilterPanel
+                open={filterOpen}
+                onClose={() => setFilterOpen(false)}
+                building={building}
+                setBuilding={setBuilding}
+                dateFilter={dateFilter}
+                setDateFilter={setDateFilter}
+                otaFilter={otaFilter}
+                setOtaFilter={setOtaFilter}
+                unitId={unitId}
+                setUnitId={setUnitId}
+                ownerId={ownerId}
+                setOwnerId={setOwnerId}
+                buildings={buildings}
+                units={unitsForFilter}
+                owners={owners}
+                activeCount={activeFilterCount}
+                onClear={clearFilters}
+              />
             </div>
             <Button variant="outline" size="sm" onClick={fetchUnits} disabled={isRefreshing} className="h-8 rounded transition-all duration-150">
               <RefreshCw size={13} className={cn(isRefreshing && 'animate-spin')} />
@@ -1649,7 +1824,6 @@ export default function RegistryPage() {
       <AnimatePresence initial={false}>
         {selected && (
           <RegistryDetailPanel
-            key={selected.id}
             unit={selected}
             contract={selectedContract}
             contractLoading={selectedContractLoading}

@@ -1,3 +1,4 @@
+// src/pages/admin/AdminDashboardPage.jsx
 import { useEffect, useState, useCallback, useRef, lazy, Suspense } from 'react'
 import { useNavigate, useSearchParams } from 'react-router-dom'
 import { motion, AnimatePresence } from 'framer-motion'
@@ -142,15 +143,18 @@ export default function AdminDashboardPage() {
     }
   }, [searchParams, activeTab])
 
+  // Clear stale URL params when leaving a tab, so a selection from one page
+  // doesn't bleed into another.
   const handleTabChange = useCallback((tab) => {
     setActiveTab(tab)
     const next = new URLSearchParams(searchParams)
     next.set('tab', tab)
     if (tab !== 'contracts') next.delete('unit')
     if (tab !== 'contracts') next.delete('new')
-    next.delete('booking')
-    next.delete('cleaning')
-    next.delete('fromBooking')
+    if (tab !== 'contracts' && tab !== 'accounting') next.delete('contract')
+    if (tab !== 'bookings') next.delete('booking')
+    if (tab !== 'housekeeping') next.delete('cleaning')
+    if (tab !== 'housekeeping') next.delete('fromBooking')
     setSearchParams(next, { replace: true })
   }, [searchParams, setSearchParams])
 
@@ -434,7 +438,7 @@ export default function AdminDashboardPage() {
                   {activeTab === 'accounting' && (
                     <PageTransition tabKey="accounting">
                       <div className="absolute inset-6 min-h-0 flex flex-col">
-                        <AccountingPage />
+                        <AccountingPage initialSelectedId={searchParams.get('contract')} />
                       </div>
                     </PageTransition>
                   )}
@@ -476,7 +480,10 @@ export default function AdminDashboardPage() {
                   {activeTab === 'housekeeping' && (
                     <PageTransition tabKey="housekeeping">
                       <div className="absolute inset-6 min-h-0 flex flex-col">
-                        <HousekeepingPage initialSelectedId={searchParams.get('cleaning')} />
+                        <HousekeepingPage
+                          initialSelectedId={searchParams.get('cleaning')}
+                          fromBookingId={searchParams.get('fromBooking')}
+                        />
                       </div>
                     </PageTransition>
                   )}

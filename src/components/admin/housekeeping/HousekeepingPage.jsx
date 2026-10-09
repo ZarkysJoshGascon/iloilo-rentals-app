@@ -1,3 +1,4 @@
+// src/components/admin/housekeeping/HousekeepingPage.jsx
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { motion, AnimatePresence } from 'framer-motion'
@@ -22,7 +23,7 @@ import { logAudit } from '@/lib/auditLog'
 import { cn, sanitizeText, sanitizeMoney, sanitizeDateOnly, CLEANING_WINDOW, STAY_TIMES } from '@/lib/utils'
 import {
   listCleanings, createCleaning, updateCleaning, deleteCleaning,
-  addPhotoToCleaning, removePhotoFromCleaning,
+  addPhotosToCleaning, removePhotoFromCleaning,
   uploadCleaningPhoto, deleteCleaningPhoto,
   parseInventory, approveAndPayCleaning, updateLaundryPayment,
   downloadCleaningsCSV,
@@ -650,10 +651,9 @@ function PhotoGrid({ cleaning, category, onChanged, onOpenPhoto }) {
     setUploading(true)
     try {
       const toUpload = files.slice(0, remaining)
-      let current = cleaning
-      for (const f of toUpload) {
-        await addPhotoToCleaning(current, category, f)
-      }
+      // Multi-upload via the safe path — this batches all uploads into a
+      // single DB write, so N photos don't overwrite each other.
+      await addPhotosToCleaning(cleaning, category, toUpload)
       toast.success(`Uploaded ${toUpload.length} photo${toUpload.length === 1 ? '' : 's'}`)
       onChanged?.()
     } catch (err) {
@@ -1480,7 +1480,6 @@ function CleaningDetailPanel({ cleaning, onClose, onChanged, onDelete, housekeep
   return (
     <>
       <motion.div
-        key={cleaning.id}
         initial={{ width: 0, opacity: 0 }}
         animate={{ width: PANEL_WIDTH, opacity: 1 }}
         exit={{ width: 0, opacity: 0 }}
@@ -1489,6 +1488,15 @@ function CleaningDetailPanel({ cleaning, onClose, onChanged, onDelete, housekeep
         style={{ maxWidth: '100%', width: PANEL_WIDTH + 24 }}
       >
         <div className="h-full rounded-md border border-border bg-card shadow-lg overflow-hidden flex flex-col">
+          <AnimatePresence mode="wait" initial={false}>
+            <motion.div
+              key={cleaning.id}
+              initial={{ opacity: 0, y: 6 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, y: -4 }}
+              transition={{ duration: 0.18, ease: [0.4, 0, 0.2, 1] }}
+              className="h-full flex flex-col min-h-0"
+            >
           <div className="flex-shrink-0 px-5 py-4 border-b border-border">
             <div className="flex items-start gap-3">
               <div className="w-12 h-12 rounded-md bg-muted flex items-center justify-center flex-shrink-0">
@@ -1699,6 +1707,9 @@ function CleaningDetailPanel({ cleaning, onClose, onChanged, onDelete, housekeep
               </Button>
             </div>
           </div>
+
+            </motion.div>
+          </AnimatePresence>
         </div>
       </motion.div>
 
@@ -2125,7 +2136,6 @@ export default function HousekeepingPage({ initialSelectedId }) {
       <AnimatePresence initial={false}>
         {selected && (
           <CleaningDetailPanel
-            key={selected.id}
             cleaning={selected}
             onClose={() => setSelectedId(null)}
             onChanged={fetchData}
