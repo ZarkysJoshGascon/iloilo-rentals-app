@@ -8,6 +8,7 @@ import {
 import toast from 'react-hot-toast'
 import { cn } from '@/lib/utils'
 import { uploadInquiryImage, submitPropertyInquiry } from '@/lib/inquiries'
+import InteriorWalkthrough from '@/components/public/InteriorWalkthrough'
 
 const BRAND = '#2d568e'
 const MAX_IMAGES = 5
@@ -164,7 +165,7 @@ export default function ListPropertyPage() {
           initial={{ opacity: 0, y: 12 }}
           animate={{ opacity: 1, y: 0 }}
           transition={{ duration: 0.4 }}
-          className="text-center mb-10"
+          className="text-center"
         >
           <h1 className="text-3xl md:text-4xl font-black text-gray-900 tracking-tight mb-3">
             List your property with us
@@ -172,7 +173,25 @@ export default function ListPropertyPage() {
           <p className="text-gray-500 text-sm md:text-base max-w-lg mx-auto leading-relaxed">
             Own a condo in Iloilo? Tell us about it. We'll reach out within 24 hours to see if we're a fit.
           </p>
+          <p className="mt-4 text-[13px] text-gray-500">
+            Scroll to walk through units we've designed, or{' '}
+            <a href="#list-form" className="font-semibold text-[#2d568e] hover:underline">skip to the form</a>.
+          </p>
         </motion.div>
+      </div>
+
+      {/* Past interior work — a scroll-driven walk through designed units */}
+      <div className="relative mt-10 md:mt-14">
+        <InteriorWalkthrough />
+      </div>
+
+      <div id="list-form" className="relative max-w-3xl mx-auto px-4 pt-16 md:pt-24 scroll-mt-20">
+        <div className="text-center mb-8">
+          <h2 className="text-2xl md:text-3xl font-black text-gray-900 tracking-tight">Tell us about your unit</h2>
+          <p className="text-gray-500 text-sm md:text-base mt-2">
+            A few details are enough to get started.
+          </p>
+        </div>
 
         <AnimatePresence mode="wait">
           {submitted ? (

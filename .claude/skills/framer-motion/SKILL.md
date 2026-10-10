@@ -150,6 +150,11 @@ Split the headline into words; each word is a small component with `opacity = us
 - Any `useScroll({ target })` inside the component needs a `container` prop when used on the homepage.
 - Existing ports: `hero-parallax.jsx` (tilted rows under a header, takes `children` as header; used by the homepage hero) and `tilted-grid-hero.jsx` (curved CSS-3D image band; currently unused — the user preferred a static photo per service over a moving band).
 
+### Scroll walkthrough (`src/components/public/InteriorWalkthrough.jsx`, List Property page)
+A pinned section (`VH_PER_SHOT` × stops tall) where scroll drives a camera through photos of a unit. Each stop has a camera move (`enter` = dolly forward, `lookRight`/`lookLeft` = pan + small `rotateY` under `perspective`, `lookUp` = tilt, `closer` = push in). Photos are scaled so a move never shows an edge: keep |x|,|y| under (scale − 1) / 2 in %. The next stop fades in **on top** while the previous one keeps moving underneath; there's no fade-out, which would dip to black.
+
+**Gotcha: window-scroll `useScroll({ target, offset })` + array-form `useTransform`.** Framer hands opacity to the browser's native ScrollTimeline, which mapped the offsets wrong: a hint meant to fade by 4% was still 48% visible halfway down. The inline style said 1 while the computed opacity was wrong. Use the **function form** (`useTransform(p, v => mapRange(v, …))`), which always runs in JS. Check with `getComputedStyle(el).opacity` vs `el.style.opacity` if values look off.
+
 ## Accessibility & performance
 
 - Wrap the page in `<MotionConfig reducedMotion="user">` and zero out `useTransform` distances when `useReducedMotion()` is true (MotionConfig does not affect scroll-linked transforms).
