@@ -1414,7 +1414,6 @@ function PMCard({ pm, onClick }) {
 
 // ============================================================
 // PM FORM MODAL
-// Photo comes from the picked profile — no file upload.
 // ============================================================
 function PMFormModal({ open, onClose, onSaved, editing }) {
   const [form, setForm] = useState({ name: '', email: '', phone: '', notes: '', status: 'active', photoUrl: null })

@@ -1,6 +1,7 @@
 // src/components/admin/AdminSidebar.jsx
 import { useNavigate } from 'react-router-dom'
 import { useAuth } from "../../context/AuthContext";
+import { useTheme } from "../../context/ThemeContext";
 import {
   LogOut, ScrollText, Calendar, Users, Sparkles, FileText, TrendingUp,
   LayoutDashboard, Megaphone, Inbox, Palette,
@@ -46,6 +47,7 @@ export default function AdminSidebar({
 }) {
   const navigate = useNavigate()
   const { signOut } = useAuth()
+  const { isDark } = useTheme()
 
   const handleSignOut = async () => {
     await signOut()
@@ -74,13 +76,17 @@ export default function AdminSidebar({
     },
   }
 
+  // Neutral dark in dark mode — no blue tint.
+  const sidebarBg = isDark ? '#0a0a0a' : '#2d568e'
+
   return (
     <aside
       onMouseEnter={onMouseEnter}
       onMouseLeave={onMouseLeave}
-      className="fixed top-0 left-0 h-full z-30 overflow-hidden bg-[#2d568e] dark:bg-[#1e3f6a]"
+      className="fixed top-0 left-0 h-full z-30 overflow-hidden"
       style={{
         width,
+        backgroundColor: sidebarBg,
         transition: `width ${SIDEBAR_SLIDE_MS}ms ${SIDEBAR_SLIDE_EASE}, background-color 300ms ease`,
         willChange: 'width',
       }}
@@ -105,7 +111,7 @@ export default function AdminSidebar({
                   'group relative flex items-center h-10 w-full text-left gap-3 pr-3',
                   'transition-colors duration-150',
                   isActive
-                    ? 'text-[#2d568e] dark:text-[#1e3f6a]'
+                    ? 'text-[#2d568e] dark:text-[#0a0a0a]'
                     : 'text-white/85 dark:text-white/70 hover:text-white',
                 ].join(' ')}
                 style={{ paddingLeft: ROW_PADDING_LEFT }}
@@ -113,7 +119,7 @@ export default function AdminSidebar({
                 {!isActive && (
                   <span
                     aria-hidden
-                    className="absolute top-1 bottom-1 left-1 right-1 rounded-lg pointer-events-none opacity-0 group-hover:opacity-100 transition-opacity duration-150 ring-1 ring-inset ring-white/70 dark:ring-white/45"
+                    className="absolute top-1 bottom-1 left-1 right-1 rounded-lg pointer-events-none opacity-0 group-hover:opacity-100 transition-opacity duration-150 ring-1 ring-inset ring-white/70 dark:ring-white/25"
                   />
                 )}
 
@@ -148,7 +154,7 @@ export default function AdminSidebar({
           })}
         </nav>
 
-        <div className="flex-shrink-0 py-2 border-t border-white/15 dark:border-white/[0.08]">
+        <div className="flex-shrink-0 py-2 border-t border-white/15 dark:border-white/[0.10]">
           <button
             type="button"
             onClick={handleSignOut}
@@ -158,7 +164,7 @@ export default function AdminSidebar({
           >
             <span
               aria-hidden
-              className="absolute top-1 bottom-1 left-1 right-1 rounded-lg pointer-events-none opacity-0 group-hover:opacity-100 transition-opacity duration-150 ring-1 ring-inset ring-white/70 dark:ring-white/45"
+              className="absolute top-1 bottom-1 left-1 right-1 rounded-lg pointer-events-none opacity-0 group-hover:opacity-100 transition-opacity duration-150 ring-1 ring-inset ring-white/70 dark:ring-white/25"
             />
             <span className="relative flex-shrink-0 flex items-center justify-center w-5 h-5">
               <LogOut size={16} strokeWidth={1.9} />

@@ -144,9 +144,6 @@ function SummaryCards({ inquiries }) {
   )
 }
 
-// ─────────────────────────────────────────────────────────────
-// PillBar — inline, matches Inquiries/Campaigns shape exactly
-// ─────────────────────────────────────────────────────────────
 function PillBar({ tabs, active, onChange, counts }) {
   const containerRef = useRef(null)
   const [indicator, setIndicator] = useState({ left: 0, width: 0 })
@@ -203,9 +200,6 @@ function PillBar({ tabs, active, onChange, counts }) {
   )
 }
 
-// ─────────────────────────────────────────────────────────────
-// DateRangeFilter — single button popover, matches BookingsPage
-// ─────────────────────────────────────────────────────────────
 function DateRangeFilter({ from, to, onFromChange, onToChange, onClear }) {
   const [open, setOpen] = useState(false)
   const wrapRef = useRef(null)
@@ -706,10 +700,9 @@ function InquiryDetailPanel({ inquiry, onClose, onUpdate, onDelete }) {
       style={{ maxWidth: '100%', width: 448 + 24 }}
     >
       <div
-        className="h-full rounded-lg border border-border overflow-hidden flex flex-col"
+        className="h-full rounded-lg border border-border overflow-hidden flex flex-col bg-card"
         style={{
-          backgroundColor: 'hsl(var(--card))',
-          boxShadow: SOFT_SHADOW,
+          boxShadow: '0 12px 32px -12px rgba(15,23,42,0.18), 0 4px 12px -4px rgba(15,23,42,0.08)',
         }}
       >
         <AnimatePresence mode="wait" initial={false}>

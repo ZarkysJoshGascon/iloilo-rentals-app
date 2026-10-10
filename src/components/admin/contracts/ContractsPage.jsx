@@ -10,7 +10,7 @@ import { useSearchParams, useNavigate } from 'react-router-dom'
 import { motion, AnimatePresence } from 'framer-motion'
 import {
   Plus, Search, RefreshCw, X, Check, Loader2, Trash2,
-  FileText, Calendar, Download, ExternalLink, User,
+  FileText, Calendar, ExternalLink, User,
   Upload, Eye, ChevronLeft, ChevronRight,
 } from 'lucide-react'
 import { createPortal } from 'react-dom'
@@ -269,7 +269,6 @@ function NewContractModal({ open, onClose, onCreated, units, owners, contracts }
 
   const setField = (k, v) => setForm((p) => ({ ...p, [k]: v }))
 
-  // Eligible = no existing contract AND has an owner attached.
   const eligibleUnits = useMemo(() => {
     const unitsWithContracts = new Set(
       contracts.map((c) => c.unit_id).filter(Boolean),
@@ -1172,7 +1171,6 @@ function ContractDetailPanel({ contract, onClose, onChanged, onDelete }) {
   const status = deriveContractStatus(contract)
   const statusConfig = STATUS_TEXT[status] || STATUS_TEXT.incomplete
 
-  // ✅ FIX: warn before committing a date change that would orphan bookings.
   const updateField = async (field, value) => {
     if (field === 'effective_date' || field === 'expiry_date') {
       const newEffective = field === 'effective_date' ? value : contract.effective_date
@@ -1494,10 +1492,6 @@ export default function ContractsPage() {
       if (ownerId !== 'all' && c.owner_id !== ownerId) return false
       if (unitId !== 'all' && c.unit_id !== unitId) return false
 
-      // Overlap test:
-      //   contract range: [cStart, cEnd]
-      //   filter range:   [rangeFrom, rangeTo]
-      // Include if they overlap at all (treat open-ended as ±infinity).
       if (rangeFrom || rangeTo) {
         const cStart = c.effective_date || '0001-01-01'
         const cEnd   = c.expiry_date    || '9999-12-31'
@@ -1559,31 +1553,6 @@ export default function ContractsPage() {
       console.error(err)
       toast.error(err?.message || 'Failed to delete')
     }
-  }
-
-  const handleExport = () => {
-    if (filtered.length === 0) { toast.error('Nothing to export'); return }
-    const headers = ['Code', 'Unit', 'Building', 'Owner', 'Owner Email', 'Effective', 'Expiry', 'Status', 'Has PDF']
-    const rows = filtered.map((c) => [
-      c.contract_code || '',
-      c.units?.unit_code || '',
-      c.units?.building || '',
-      c.owners?.name || '',
-      c.owners?.email || '',
-      c.effective_date || '',
-      c.expiry_date || '',
-      STATUS_TEXT[deriveContractStatus(c)]?.label || '',
-      c.contract_pdf_path ? 'Yes' : 'No',
-    ])
-    const csv = [headers, ...rows].map((row) => row.map((v) => `"${String(v).replace(/"/g, '""')}"`).join(',')).join('\n')
-    const blob = new Blob(['\uFEFF' + csv], { type: 'text/csv;charset=utf-8;' })
-    const url = URL.createObjectURL(blob)
-    const a = document.createElement('a')
-    a.href = url
-    a.download = `contracts_${new Date().toISOString().slice(0, 10)}.csv`
-    a.click()
-    URL.revokeObjectURL(url)
-    toast.success('Exported')
   }
 
   return (
@@ -1648,9 +1617,6 @@ export default function ContractsPage() {
             </div>
             <Button variant="outline" size="sm" onClick={fetchData} disabled={isRefreshing} className="h-8 rounded transition-all duration-150">
               <RefreshCw size={13} className={cn(isRefreshing && 'animate-spin')} />
-            </Button>
-            <Button variant="outline" size="sm" onClick={handleExport} className="h-8 rounded transition-all duration-150">
-              <Download size={13} />
             </Button>
           </div>
 

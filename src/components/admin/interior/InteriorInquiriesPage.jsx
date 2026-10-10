@@ -630,8 +630,12 @@ function InquiryDetailPanel({ inquiry, onClose, onUpdate, onDelete }) {
       transition={{ width: { duration: 0.32, ease: [0.4, 0, 0.2, 1] }, opacity: { duration: 0.2 } }}
       className="h-full flex-shrink-0 p-3" style={{ maxWidth: '100%', width: 448 + 24 }}
     >
-      <div className="h-full rounded-xl border border-border overflow-hidden flex flex-col"
-        style={{ backgroundColor: 'hsl(var(--card))', boxShadow: SOFT_SHADOW }}>
+      <div
+        className="h-full rounded-xl border border-border overflow-hidden flex flex-col bg-card"
+        style={{
+          boxShadow: '0 12px 32px -12px rgba(15,23,42,0.18), 0 4px 12px -4px rgba(15,23,42,0.08)',
+        }}
+      >
         <AnimatePresence mode="wait" initial={false}>
           <motion.div key={inquiry.id}
             initial={{ opacity: 0, y: 6 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -4 }}

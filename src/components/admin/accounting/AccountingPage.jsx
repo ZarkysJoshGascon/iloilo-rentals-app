@@ -1151,8 +1151,8 @@ function BookingCalendar({ month, bookings, cleanings, selectedId, onSelect }) {
         const ci = new Date(`${b.check_in}T00:00:00Z`)
         const co = new Date(`${b.check_out}T00:00:00Z`)
         if (Number.isNaN(ci.getTime()) || Number.isNaN(co.getTime())) continue
-        if (co < dayStart || ci > dayEnd) continue
-
+        if (co < dayStart || ci >= dayEnd) continue
+        
         const isCheckinDay = b.check_in === dayISO
         const isCheckoutDay = b.check_out === dayISO
         const isDepartureOnly = isCheckoutDay && !isCheckinDay

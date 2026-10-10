@@ -1,5 +1,6 @@
 // supabase/functions/backup-to-sheets/index.ts
 // Force-capitalizes tab names, deletes orphans, styles every tab.
+// Contracts tab now includes a "Contract PDF" column with a signed URL.
 
 import { serve } from 'https://deno.land/std@0.168.0/http/server.ts'
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2'
@@ -14,6 +15,9 @@ const OWNER_SPLIT   = 0.75
 const COMPANY_SPLIT = 0.25
 const PM_OF_COMPANY = 0.35
 const NO_CONTRACT = '(no contract)'
+
+const CONTRACT_PDF_BUCKET = 'contract-pdfs'
+const CONTRACT_PDF_SIGNED_TTL = 60 * 60 * 24 * 7 // 7 days
 
 // Tabs the function owns. Everything else in the sheet gets deleted on each run.
 const OWNED_TABS = [
@@ -311,12 +315,34 @@ async function writeRange(
 }
 
 // ════════════════════════════════════════════════════════════════
+// Signed URL for contract PDFs
+// ════════════════════════════════════════════════════════════════
+async function createSignedPdfUrl(
+  supabase: any,
+  path: string | null,
+): Promise<string> {
+  if (!path) return ''
+  try {
+    const { data, error } = await supabase.storage
+      .from(CONTRACT_PDF_BUCKET)
+      .createSignedUrl(path, CONTRACT_PDF_SIGNED_TTL)
+    if (error) {
+      console.warn(`Failed to sign ${path}:`, error.message)
+      return ''
+    }
+    return data?.signedUrl || ''
+  } catch (err) {
+    console.warn(`Signed URL exception for ${path}:`, (err as Error).message)
+    return ''
+  }
+}
+
+// ════════════════════════════════════════════════════════════════
 // Tab maintenance — rename lowercase, delete orphans
 // ════════════════════════════════════════════════════════════════
 async function reconcileTabs(token: string): Promise<TabInfo[]> {
   const tabs = await listTabsDetailed(token)
 
-  // 1. Rename any lowercase tab to its canonical Capitalized form
   for (const wanted of OWNED_TABS) {
     const lower = wanted.toLowerCase()
     const existing = tabs.find((t) => t.title.toLowerCase() === lower && t.title !== wanted)
@@ -330,15 +356,12 @@ async function reconcileTabs(token: string): Promise<TabInfo[]> {
     }
   }
 
-  // 2. Delete any tab that isn't in our owned list + isn't _meta
   const fresh = await listTabsDetailed(token)
   for (const tab of fresh) {
     const lower = tab.title.toLowerCase()
     const isMeta = lower === META_TAB
     const isOwned = OWNED_LOOKUP.has(lower)
     if (isMeta || isOwned) continue
-
-    // Extra safety: don't delete tabs that start with "_" (system tabs)
     if (tab.title.startsWith('_')) continue
 
     try {
@@ -355,7 +378,7 @@ async function reconcileTabs(token: string): Promise<TabInfo[]> {
 // ════════════════════════════════════════════════════════════════
 // Formatting
 // ════════════════════════════════════════════════════════════════
-type ColumnType = 'text' | 'currency' | 'date' | 'integer' | 'percent'
+type ColumnType = 'text' | 'currency' | 'date' | 'integer' | 'percent' | 'url'
 type ConditionalRule = {
   equals?: string
   contains?: string
@@ -493,6 +516,7 @@ async function applyFormatting(
       ?? (col.type === 'currency' ? 130
         : col.type === 'date' ? 110
         : col.type === 'integer' ? 80
+        : col.type === 'url' ? 140
         : col.key === 'notes' ? 240
         : 140)
 
@@ -504,7 +528,7 @@ async function applyFormatting(
       },
     })
 
-    if (col.type && col.type !== 'text') {
+    if (col.type && col.type !== 'text' && col.type !== 'url') {
       let pattern = '#,##0'
       if (col.type === 'currency') pattern = '₱#,##0.00'
       else if (col.type === 'date') pattern = 'mmm d, yyyy'
@@ -537,6 +561,30 @@ async function applyFormatting(
           },
           cell: { userEnteredFormat: { horizontalAlignment: 'RIGHT' } },
           fields: 'userEnteredFormat.horizontalAlignment',
+        },
+      })
+    }
+
+    // Style URL columns: blue text + underline + hyperlink.
+    if (col.type === 'url') {
+      requests.push({
+        repeatCell: {
+          range: {
+            sheetId,
+            startRowIndex: 1,
+            endRowIndex: rowCount + 1,
+            startColumnIndex: i,
+            endColumnIndex: i + 1,
+          },
+          cell: {
+            userEnteredFormat: {
+              textFormat: {
+                foregroundColor: { red: 0.06, green: 0.29, blue: 0.71 },
+                underline: true,
+              },
+            },
+          },
+          fields: 'userEnteredFormat.textFormat',
         },
       })
     }
@@ -833,6 +881,9 @@ async function buildCleaningsView(supabase: any) {
   return { rows, columns }
 }
 
+// ────────────────────────────────────────────────────────────────
+// CONTRACTS — now includes a signed PDF URL column
+// ────────────────────────────────────────────────────────────────
 async function buildContractsView(supabase: any) {
   const { data } = await supabase
     .from('contracts')
@@ -842,6 +893,19 @@ async function buildContractsView(supabase: any) {
       owners:owner_id ( name, email, phone )
     `)
     .order('effective_date', { ascending: false })
+
+  const contracts = data || []
+
+  // Sign every PDF in parallel.
+  const pdfUrlById = new Map<string, string>()
+  await Promise.all(
+    contracts
+      .filter((c: any) => c.contract_pdf_path)
+      .map(async (c: any) => {
+        const url = await createSignedPdfUrl(supabase, c.contract_pdf_path)
+        if (url) pdfUrlById.set(c.id, url)
+      }),
+  )
 
   const columns: ColumnSpec[] = [
     { key: 'contract_code', label: 'Contract Code', type: 'text', width: 140 },
@@ -862,19 +926,27 @@ async function buildContractsView(supabase: any) {
     { key: 'effective_date', label: 'Effective', type: 'date' },
     { key: 'expiry_date', label: 'Expiry', type: 'date' },
     { key: '__has_pdf', label: 'Has PDF', type: 'text', width: 90 },
+    { key: '__pdf_link', label: 'Contract PDF', type: 'url', width: 140 },
     { key: 'notes', label: 'Notes', type: 'text', width: 240 },
   ]
 
-  const rows = (data || []).map((c: any) => ({
-    contract_code: c.contract_code,
-    units: c.units,
-    owners: c.owners,
-    __status: deriveContractStatus(c),
-    effective_date: c.effective_date,
-    expiry_date: c.expiry_date,
-    __has_pdf: c.contract_pdf_path ? 'Yes' : 'No',
-    notes: c.notes,
-  }))
+  const rows = contracts.map((c: any) => {
+    const url = pdfUrlById.get(c.id) || ''
+    return {
+      contract_code: c.contract_code,
+      units: c.units,
+      owners: c.owners,
+      __status: deriveContractStatus(c),
+      effective_date: c.effective_date,
+      expiry_date: c.expiry_date,
+      __has_pdf: c.contract_pdf_path ? 'Yes' : 'No',
+      // Sheets interprets values starting with "=" as formulas.
+      // Using HYPERLINK makes the cell clickable and lets us put a
+      // friendly label ("Open PDF") instead of a long signed URL.
+      __pdf_link: url ? `=HYPERLINK("${url.replace(/"/g, '""')}", "Open PDF")` : '',
+      notes: c.notes,
+    }
+  })
 
   return { rows, columns }
 }
@@ -1472,7 +1544,6 @@ serve(async (req) => {
 
     const accessToken = await getAccessToken()
 
-    // Rename lowercase tabs to capitalized, delete orphans
     let tabs = await reconcileTabs(accessToken)
 
     const rowCounts: Record<string, number> = {}
@@ -1483,7 +1554,6 @@ serve(async (req) => {
         const { rows, columns } = await view.build(supabase)
         rowCounts[view.tab] = rows.length
 
-        // Always re-fetch after reconciling in case renames happened
         tabs = await listTabsDetailed(accessToken)
         let tabInfo = findTab(tabs, view.tab)
 
