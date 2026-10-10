@@ -3,10 +3,11 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import { createPortal } from 'react-dom'
 import {
-  Plus, Search, RefreshCw, X, Check, Loader2, Trash2, Camera,
+  Plus, Search, RefreshCw, X, Check, Loader2, Trash2,
   UserPlus, Users, Award, TrendingUp, Mail, Phone, Edit2, User,
-  Calendar, Download, ChevronLeft, ChevronRight, Building2,
+  Calendar, ChevronLeft, ChevronRight, Building2,
   AlertTriangle, Pencil, Wallet, FileText, Eye, Upload, ExternalLink,
+  Lock,
 } from 'lucide-react'
 import toast from 'react-hot-toast'
 import { Button } from '@/components/ui/button'
@@ -20,8 +21,13 @@ import {
   getTierInfo, SPECIALIST_FLAT_RATE,
   fetchTeamCompletedCounts,
 } from '@/lib/commissions'
+import {
+  STAFF_ROLES, roleMeta, searchProfiles, isEmailRegistered,
+  validateStaffEmail, createStaffMember, updateStaffMember,
+} from '@/lib/staff'
 
 const BRAND = '#2d568e'
+const SOFT_SHADOW = '0 20px 40px -16px rgba(15,23,42,0.24), 0 6px 16px -6px rgba(15,23,42,0.10)'
 const PAGE_SIZE = 9
 const PM_SHARE_OF_COMPANY_PCT = 35
 const PM_PDF_BUCKET = 'contract-pdfs'
@@ -111,15 +117,16 @@ function deriveBookingStatus(b) {
   if (co) co.setHours(0, 0, 0, 0)
   if (!ci || !co) return 'upcoming'
   if (ci > t) return 'upcoming'
-  if (ci <= t && co >= t) return 'active'
-  return 'needs-action'
+  if (ci <= t && co >= t) return 'in-house'
+  return b.payment_status === 'paid' ? 'checked-out' : 'needs-attention'
 }
 
 const BOOKING_STATUS_TEXT = {
-  upcoming: { label: 'Upcoming', className: 'text-blue-600 dark:text-blue-400' },
-  active: { label: 'Active', className: 'text-emerald-600 dark:text-emerald-400' },
-  'needs-action': { label: 'Needs Action', className: 'text-amber-600 dark:text-amber-400' },
-  completed: { label: 'Done', className: 'text-gray-500 dark:text-gray-400' },
+  upcoming:          { label: 'Upcoming',        className: 'text-blue-600 dark:text-blue-400' },
+  'in-house':        { label: 'In-House',        className: 'text-emerald-600 dark:text-emerald-400' },
+  'checked-out':     { label: 'Checked Out',     className: 'text-gray-500 dark:text-gray-400' },
+  'needs-attention': { label: 'Needs Attention', className: 'text-amber-600 dark:text-amber-400' },
+  completed:         { label: 'Done',            className: 'text-gray-500 dark:text-gray-400' },
 }
 
 const CLEANING_STATUS_TEXT = {
@@ -194,17 +201,209 @@ function CommissionBadge({ role, completedCount, size = 'sm' }) {
 }
 
 function RoleBadge({ role, size = 'sm' }) {
-  const labels = {
-    specialists: 'Booking Specialist',
-    affiliates: 'Affiliate',
-    housekeepers: 'Housekeeper',
-    property_managers: 'Property Manager',
-  }
+  const meta = roleMeta(role)
+  const label = meta?.label || '—'
   const sizeClass = size === 'lg' ? 'px-3 py-1 text-xs' : 'px-2.5 py-0.5 text-[10px]'
   return (
     <span className={cn('inline-flex items-center rounded-md font-bold uppercase tracking-wide', sizeClass, 'bg-muted text-muted-foreground')}>
-      {labels[role] || '—'}
+      {label}
     </span>
+  )
+}
+
+// ============================================================
+// StaffEmailCombobox
+// ============================================================
+function StaffEmailCombobox({ value, onChange, disabled, placeholder = 'user@example.com', autoFocus = false, verifiedProfile, onVerifiedChange }) {
+  const wrapRef = useRef(null)
+  const [open, setOpen] = useState(false)
+  const [query, setQuery] = useState(value || '')
+  const [results, setResults] = useState([])
+  const [loading, setLoading] = useState(false)
+  const [highlight, setHighlight] = useState(0)
+  const [verifying, setVerifying] = useState(false)
+
+  useEffect(() => { setQuery(value || '') }, [value])
+
+  useEffect(() => {
+    if (!open) return
+    const q = query.trim()
+    if (q.length < 2) { setResults([]); return }
+    const ac = new AbortController()
+    const t = setTimeout(async () => {
+      setLoading(true)
+      const rows = await searchProfiles(q, { signal: ac.signal, limit: 10 })
+      if (ac.signal.aborted) return
+      setResults(rows)
+      setHighlight(0)
+      setLoading(false)
+    }, 200)
+    return () => { ac.abort(); clearTimeout(t); setLoading(false) }
+  }, [query, open])
+
+  useEffect(() => {
+    if (!open) return
+    const onDown = (e) => { if (wrapRef.current && !wrapRef.current.contains(e.target)) setOpen(false) }
+    const onKey = (e) => { if (e.key === 'Escape') setOpen(false) }
+    document.addEventListener('mousedown', onDown)
+    window.addEventListener('keydown', onKey)
+    return () => {
+      document.removeEventListener('mousedown', onDown)
+      window.removeEventListener('keydown', onKey)
+    }
+  }, [open])
+
+  const choose = (row) => {
+    setQuery(row.email)
+    onChange(row.email)
+    onVerifiedChange?.(row)
+    setOpen(false)
+  }
+
+  const handleBlur = async () => {
+    const typed = query.trim().toLowerCase()
+    if (!typed) { onVerifiedChange?.(null); return }
+    if (verifiedProfile && verifiedProfile.email.toLowerCase() === typed) return
+    setVerifying(true)
+    const { registered, profile } = await isEmailRegistered(typed)
+    setVerifying(false)
+    if (registered) onVerifiedChange?.(profile)
+    else onVerifiedChange?.(null)
+  }
+
+  const onKeyDown = (e) => {
+    if (!open) {
+      if (e.key === 'ArrowDown') { setOpen(true); e.preventDefault() }
+      return
+    }
+    if (e.key === 'ArrowDown') { e.preventDefault(); setHighlight((h) => Math.min(h + 1, results.length - 1)) }
+    else if (e.key === 'ArrowUp') { e.preventDefault(); setHighlight((h) => Math.max(h - 1, 0)) }
+    else if (e.key === 'Enter') {
+      if (results[highlight]) { e.preventDefault(); choose(results[highlight]) }
+    }
+  }
+
+  const showDropdown = open && (loading || results.length > 0 || query.trim().length >= 2)
+
+  return (
+    <div className="relative" ref={wrapRef}>
+      <div className="relative">
+        <Input
+          type="email"
+          value={query}
+          onChange={(e) => {
+            const v = e.target.value
+            setQuery(v)
+            onChange(v)
+            onVerifiedChange?.(null)
+            if (!open) setOpen(true)
+          }}
+          onFocus={() => setOpen(true)}
+          onBlur={() => setTimeout(handleBlur, 120)}
+          onKeyDown={onKeyDown}
+          placeholder={placeholder}
+          disabled={disabled}
+          autoFocus={autoFocus}
+          maxLength={254}
+          className={cn(
+            'h-9 text-xs rounded-lg pr-8',
+            verifiedProfile && 'border-emerald-400/60 focus-visible:ring-emerald-400/30',
+          )}
+        />
+        {verifying && (
+          <Loader2 size={12} className="absolute right-2.5 top-1/2 -translate-y-1/2 text-muted-foreground animate-spin" />
+        )}
+        {!verifying && verifiedProfile && (
+          <Check size={12} className="absolute right-2.5 top-1/2 -translate-y-1/2 text-emerald-500" />
+        )}
+      </div>
+
+      {verifiedProfile && (
+        <div className="mt-1 flex items-center gap-2 text-[10px] text-emerald-700 dark:text-emerald-400">
+          {verifiedProfile.avatar_url ? (
+            <img src={verifiedProfile.avatar_url} alt="" className="w-4 h-4 rounded-full object-cover flex-shrink-0" />
+          ) : (
+            <div className="w-4 h-4 rounded-full bg-emerald-500/20 flex items-center justify-center text-[8px] font-bold flex-shrink-0">
+              {initials(verifiedProfile.full_name || verifiedProfile.email)}
+            </div>
+          )}
+          <span className="truncate">
+            {verifiedProfile.full_name || verifiedProfile.email} · registered
+          </span>
+        </div>
+      )}
+
+      <AnimatePresence>
+        {showDropdown && (
+          <motion.div
+            initial={{ opacity: 0, y: -4 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: -4 }}
+            transition={{ duration: 0.1 }}
+            className="absolute z-30 left-0 right-0 mt-1 bg-popover border border-border rounded-lg shadow-lg max-h-[280px] overflow-y-auto"
+          >
+            {loading && results.length === 0 ? (
+              <div className="px-3 py-2 text-[11px] text-muted-foreground italic">Searching…</div>
+            ) : results.length === 0 && query.trim().length >= 2 ? (
+              <div className="px-3 py-3 text-[11px] text-muted-foreground italic">
+                No registered user matches.
+                <div className="mt-1 text-[10px]">
+                  Ask them to log in at Iloilo Rentals first, then come back.
+                </div>
+              </div>
+            ) : (
+              results.map((r, i) => (
+                <button
+                  key={r.id}
+                  type="button"
+                  onMouseDown={(e) => { e.preventDefault(); choose(r) }}
+                  onMouseEnter={() => setHighlight(i)}
+                  className={cn(
+                    'w-full text-left px-3 py-2 flex items-center gap-2 transition-colors',
+                    i === highlight ? 'bg-muted' : 'hover:bg-muted/60',
+                  )}
+                >
+                  {r.avatar_url ? (
+                    <img src={r.avatar_url} alt="" className="w-6 h-6 rounded-full object-cover flex-shrink-0" />
+                  ) : (
+                    <div className="w-6 h-6 rounded-full bg-muted flex items-center justify-center text-[9px] font-bold flex-shrink-0">
+                      {initials(r.full_name || r.email)}
+                    </div>
+                  )}
+                  <div className="min-w-0 flex-1">
+                    {r.full_name && (
+                      <p className="text-[11px] font-semibold text-foreground truncate">{r.full_name}</p>
+                    )}
+                    <p className="text-[10px] text-muted-foreground truncate font-mono">{r.email}</p>
+                  </div>
+                </button>
+              ))
+            )}
+          </motion.div>
+        )}
+      </AnimatePresence>
+    </div>
+  )
+}
+
+// ============================================================
+// ReadOnlyCodeField
+// ============================================================
+function ReadOnlyCodeField({ code, isEditing }) {
+  if (isEditing && code) {
+    return (
+      <div className="flex items-center gap-2 h-9 px-3 rounded-lg border border-border bg-muted/50">
+        <Lock size={11} className="text-muted-foreground flex-shrink-0" />
+        <span className="font-mono text-xs font-semibold text-foreground truncate">{code}</span>
+        <span className="ml-auto text-[10px] text-muted-foreground whitespace-nowrap">Locked</span>
+      </div>
+    )
+  }
+  return (
+    <div className="flex items-center gap-2 h-9 px-3 rounded-lg border border-dashed border-border bg-muted/30">
+      <Lock size={11} className="text-muted-foreground flex-shrink-0" />
+      <span className="text-xs text-muted-foreground italic">Auto-generated on save</span>
+    </div>
   )
 }
 
@@ -221,35 +420,17 @@ function SummaryCards({ data, teamTotals, activeTab }) {
   const fourthCard = useMemo(() => {
     switch (activeTab) {
       case 'specialists':
-        return {
-          label: 'Specialist Commissions',
-          value: formatMoney(teamTotals?.specialistCommission || 0),
-          isMoney: true,
-        }
+        return { label: 'Specialist Commissions', value: formatMoney(teamTotals?.specialistCommission || 0), isMoney: true }
       case 'affiliates':
-        return {
-          label: 'Affiliate Commissions',
-          value: formatMoney(teamTotals?.affiliateCommission || 0),
-          isMoney: true,
-        }
+        return { label: 'Affiliate Commissions', value: formatMoney(teamTotals?.affiliateCommission || 0), isMoney: true }
       case 'housekeepers':
-        return {
-          label: 'Housekeeper Payouts',
-          value: formatMoney(teamTotals?.housekeeperPayout || 0),
-          isMoney: true,
-        }
+        return { label: 'Housekeeper Payouts', value: formatMoney(teamTotals?.housekeeperPayout || 0), isMoney: true }
       case 'property_managers':
-        return {
-          label: 'PM Earnings',
-          value: formatMoney(teamTotals?.pmEarnings || 0),
-          isMoney: true,
-        }
+        return { label: 'PM Earnings', value: formatMoney(teamTotals?.pmEarnings || 0), isMoney: true }
       default:
         return {
           label: 'Commissions Paid',
-          value: formatMoney(
-            (teamTotals?.specialistCommission || 0) + (teamTotals?.affiliateCommission || 0)
-          ),
+          value: formatMoney((teamTotals?.specialistCommission || 0) + (teamTotals?.affiliateCommission || 0)),
           isMoney: true,
         }
     }
@@ -273,8 +454,8 @@ function SummaryCards({ data, teamTotals, activeTab }) {
           className="rounded-lg bg-card border border-border shadow-sm p-4"
         >
           <div className="flex items-center gap-2 mb-2">
-            <card.icon size={14} className="text-muted-foreground" />
-            <span className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground truncate">
+            <card.icon size={14} className="text-foreground" />
+            <span className="text-[11px] font-bold uppercase tracking-wider text-foreground truncate">
               {card.label}
             </span>
           </div>
@@ -295,42 +476,55 @@ function TeamTabs({ tabs, activeTab, onChange, counts }) {
   const [indicator, setIndicator] = useState({ left: 0, width: 0 })
 
   useEffect(() => {
-    if (!containerRef.current) return
-    const active = containerRef.current.querySelector('[data-active="true"]')
-    if (!active) return
-    const cRect = containerRef.current.getBoundingClientRect()
-    const aRect = active.getBoundingClientRect()
-    setIndicator({ left: aRect.left - cRect.left, width: aRect.width })
-  }, [activeTab, counts])
+    const node = containerRef.current
+    if (!node) return
+    const measure = () => {
+      const activeEl = node.querySelector('[data-active="true"]')
+      if (!activeEl) { setIndicator({ left: 0, width: 0 }); return }
+      const cRect = node.getBoundingClientRect()
+      const aRect = activeEl.getBoundingClientRect()
+      setIndicator({ left: aRect.left - cRect.left, width: aRect.width })
+    }
+    measure()
+    const ro = typeof ResizeObserver !== 'undefined' ? new ResizeObserver(measure) : null
+    if (ro) ro.observe(node)
+    window.addEventListener('resize', measure)
+    return () => {
+      if (ro) ro.disconnect()
+      window.removeEventListener('resize', measure)
+    }
+  }, [activeTab, counts, tabs])
 
   return (
     <div className="flex justify-center">
-      <div ref={containerRef} className="relative inline-flex items-center gap-1 bg-muted/60 rounded-full p-1">
-        <motion.div
-          className="absolute top-1 bottom-1 rounded-full bg-card border border-border shadow-sm z-0"
-          animate={{ left: indicator.left, width: indicator.width }}
-          transition={{ type: 'spring', stiffness: 350, damping: 28 }}
-        />
-        {tabs.map((tab) => {
-          const isActive = activeTab === tab.id
-          const count = counts[tab.id] ?? 0
-          return (
-            <button
-              key={tab.id}
-              type="button"
-              data-active={isActive}
-              onClick={() => onChange(tab.id)}
-              className={cn(
-                'relative z-10 flex items-center gap-2 px-4 py-1.5 rounded-full text-[12px] font-semibold transition-colors duration-200 whitespace-nowrap',
-                isActive ? 'text-foreground' : 'text-muted-foreground hover:text-foreground',
-              )}
-            >
-              <tab.icon size={13} />
-              {tab.label}
-              <span className={cn('tabular-nums', isActive ? 'opacity-90' : 'opacity-60')}>{count}</span>
-            </button>
-          )
-        })}
+      <div className="inline-flex items-center p-1 rounded-full bg-muted/60 border border-border/60">
+        <div ref={containerRef} className="relative inline-flex items-center gap-1">
+          <motion.div
+            className="absolute top-0 bottom-0 rounded-full bg-card shadow-sm border border-border z-0"
+            animate={{ left: indicator.left, width: indicator.width }}
+            transition={{ type: 'spring', stiffness: 350, damping: 28 }}
+          />
+          {tabs.map((tab) => {
+            const isActive = activeTab === tab.id
+            const count = counts[tab.id] ?? 0
+            return (
+              <button
+                key={tab.id}
+                type="button"
+                data-active={isActive}
+                onClick={() => onChange(tab.id)}
+                className={cn(
+                  'relative z-10 flex items-center gap-2 px-4 py-1.5 rounded-full text-[12px] font-semibold transition-colors duration-200 whitespace-nowrap',
+                  isActive ? 'text-foreground' : 'text-muted-foreground hover:text-foreground',
+                )}
+              >
+                <tab.icon size={13} />
+                {tab.label}
+                <span className={cn('tabular-nums', isActive ? 'opacity-90' : 'opacity-60')}>{count}</span>
+              </button>
+            )
+          })}
+        </div>
       </div>
     </div>
   )
@@ -557,7 +751,7 @@ function WorkerActivitySection({ worker, role }) {
         } else {
           let q = supabase
             .from('bookings')
-            .select('id, booking_code, guest_name, check_in, check_out, completed_at, unit_id, booker_commission, affiliate_commission, units:unit_id ( unit_code, building )')
+            .select('id, booking_code, guest_name, check_in, check_out, completed_at, payment_status, unit_id, booker_commission, affiliate_commission, units:unit_id ( unit_code, building )')
             .is('deleted_at', null)
             .not('completed_at', 'is', null)
             .order('check_in', { ascending: false })
@@ -751,10 +945,12 @@ function WorkerDetailModal({ worker, role, counts, onClose, onChanged, onEdit, o
 
   return (
     <div className="fixed inset-0 z-[10000] flex items-center justify-center p-4">
-      <motion.div
+      <motion.button
+        type="button"
+        aria-label="Close"
         initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
         transition={{ duration: 0.2 }}
-        className="absolute inset-0 bg-black/50"
+        className="absolute inset-0 bg-black/50 cursor-default"
         onClick={onClose}
       />
       <motion.div
@@ -762,7 +958,11 @@ function WorkerDetailModal({ worker, role, counts, onClose, onChanged, onEdit, o
         animate={{ opacity: 1, scale: 1, y: 0 }}
         exit={{ opacity: 0, scale: 0.96, y: 8 }}
         transition={{ type: 'spring', stiffness: 320, damping: 28 }}
-        className="relative w-full max-w-5xl h-[85vh] bg-card rounded-2xl shadow-2xl border border-border overflow-hidden flex flex-col"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="worker-detail-title"
+        className="relative w-full max-w-5xl h-[85vh] bg-card rounded-lg border border-border overflow-hidden flex flex-col"
+        style={{ boxShadow: SOFT_SHADOW }}
         onClick={(e) => e.stopPropagation()}
       >
         <button
@@ -776,7 +976,7 @@ function WorkerDetailModal({ worker, role, counts, onClose, onChanged, onEdit, o
           <div className="flex-shrink-0 md:w-[300px] border-b md:border-b-0 md:border-r border-border bg-muted/20 flex flex-col overflow-y-auto">
             <div className="p-6 flex flex-col items-center text-center">
               <WorkerAvatar name={worker.name} photo_url={worker.photo_url} size="xl" />
-              <p className="mt-4 text-lg font-bold text-foreground truncate w-full leading-tight">{worker.name}</p>
+              <p id="worker-detail-title" className="mt-4 text-lg font-bold text-foreground truncate w-full leading-tight">{worker.name}</p>
               <p className="text-[11px] font-mono text-muted-foreground mt-1 uppercase tracking-wide">{worker.code}</p>
               <div className="mt-4 flex flex-col items-center gap-2">
                 <RoleBadge role={role} size="lg" />
@@ -835,76 +1035,99 @@ function WorkerDetailModal({ worker, role, counts, onClose, onChanged, onEdit, o
 
 // ============================================================
 // WORKER FORM MODAL
+// Photo comes from the picked profile — no file upload.
 // ============================================================
 function WorkerFormModal({ open, onClose, onSaved, role, editing }) {
-  const [form, setForm] = useState({ code: '', name: '', email: '', phone: '', notes: '' })
-  const [photoFile, setPhotoFile] = useState(null)
-  const [photoPreview, setPhotoPreview] = useState(null)
+  const [form, setForm] = useState({ name: '', email: '', phone: '', notes: '', photoUrl: null })
+  const [verifiedProfile, setVerifiedProfile] = useState(null)
   const [saving, setSaving] = useState(false)
 
-  const isSpecialist = role === 'specialists'
-  const isAffiliate = role === 'affiliates'
+  const meta = roleMeta(role)
 
   useEffect(() => {
     if (!open) return
     if (editing) {
       setForm({
-        code: editing.code || '', name: editing.name || '',
-        email: editing.email || '', phone: editing.phone || '',
+        name: editing.name || '',
+        email: editing.email || '',
+        phone: editing.phone || '',
         notes: editing.notes || '',
+        photoUrl: editing.photo_url || null,
       })
-      setPhotoPreview(editing.photo_url || null)
+      setVerifiedProfile(editing.email ? { email: editing.email, full_name: editing.name, avatar_url: editing.photo_url } : null)
     } else {
-      setForm({ code: '', name: '', email: '', phone: '', notes: '' })
-      setPhotoPreview(null)
+      setForm({ name: '', email: '', phone: '', notes: '', photoUrl: null })
+      setVerifiedProfile(null)
     }
-    setPhotoFile(null)
   }, [open, editing])
+
+  useEffect(() => {
+    if (!open) return
+    const prevOverflow = document.body.style.overflow
+    document.body.style.overflow = 'hidden'
+    const onKey = (e) => { if (e.key === 'Escape') onClose?.() }
+    window.addEventListener('keydown', onKey)
+    return () => {
+      document.body.style.overflow = prevOverflow
+      window.removeEventListener('keydown', onKey)
+    }
+  }, [open, onClose])
 
   if (!open) return null
 
   const setField = (k, v) => setForm((p) => ({ ...p, [k]: v }))
 
-  const handlePhoto = (e) => {
-    const f = e.target.files?.[0]
-    if (!f) return
-    setPhotoFile(f)
-    setPhotoPreview(URL.createObjectURL(f))
+  const handleVerifiedProfileChange = (profile) => {
+    setVerifiedProfile(profile)
+    // Sync name and photo from the verified profile when picking a user
+    if (profile) {
+      setForm((p) => ({
+        ...p,
+        photoUrl: profile.avatar_url || null,
+        name: p.name?.trim() ? p.name : (profile.full_name || ''),
+      }))
+    } else {
+      setForm((p) => ({ ...p, photoUrl: null }))
+    }
   }
 
   const handleSubmit = async () => {
     if (saving) return
-    if (!form.code.trim()) { toast.error('Code is required'); return }
     if (!form.name.trim()) { toast.error('Name is required'); return }
+    if (!form.email.trim()) { toast.error('Email is required'); return }
+
     setSaving(true)
     try {
-      let photoUrl = editing?.photo_url || null
-      if (photoFile) {
-        const ext = photoFile.name.split('.').pop() || 'jpg'
-        const path = `${role}/${form.code.toUpperCase()}_${Date.now()}.${ext}`
-        const { error: upErr } = await supabase.storage.from('team-photos').upload(path, photoFile, { cacheControl: '3600', upsert: true })
-        if (upErr) throw upErr
-        const { data } = supabase.storage.from('team-photos').getPublicUrl(path)
-        photoUrl = data.publicUrl
+      const check = await validateStaffEmail(role, form.email, editing?.id)
+      if (!check.ok) {
+        toast.error(check.message)
+        setSaving(false)
+        return
       }
-      const payload = {
-        code: form.code.trim().toUpperCase(),
-        name: form.name.trim(),
-        email: form.email.trim() || null,
-        phone: form.phone.trim() || null,
-        notes: form.notes.trim() || null,
-        photo_url: photoUrl,
-      }
+
+      // Photo always comes from the verified profile (or existing photo on edit)
+      const photoUrl = verifiedProfile?.avatar_url || form.photoUrl || null
+
       if (editing) {
-        const { error } = await supabase.from(role).update(payload).eq('id', editing.id)
-        if (error) throw error
-        logAudit(`UPDATE_${role.toUpperCase()}`, role, editing.id, { code: payload.code }).catch(() => {})
+        const updated = await updateStaffMember(role, editing.id, {
+          name: form.name,
+          email: form.email,
+          phone: form.phone,
+          notes: form.notes,
+          photo_url: photoUrl,
+        })
+        logAudit(`UPDATE_${role.toUpperCase()}`, role, editing.id, { code: updated?.code }).catch(() => {})
         toast.success('Updated')
       } else {
-        const { error } = await supabase.from(role).insert(payload)
-        if (error) throw error
-        logAudit(`CREATE_${role.toUpperCase()}`, role, null, { code: payload.code }).catch(() => {})
-        toast.success('Created')
+        const created = await createStaffMember(role, {
+          name: form.name,
+          email: form.email,
+          phone: form.phone,
+          notes: form.notes,
+          photo_url: photoUrl,
+        })
+        logAudit(`CREATE_${role.toUpperCase()}`, role, created?.id, { code: created?.code }).catch(() => {})
+        toast.success(`Created · ${created?.code || ''}`)
       }
       onSaved()
       onClose()
@@ -919,37 +1142,104 @@ function WorkerFormModal({ open, onClose, onSaved, role, editing }) {
   const labelClass = 'text-[10px] uppercase tracking-wider text-muted-foreground font-semibold mb-1 block'
   const inputClass = 'h-9 text-xs rounded-lg'
   const title = editing
-    ? `Edit ${isSpecialist ? 'Booking Specialist' : isAffiliate ? 'Affiliate' : 'Housekeeper'}`
-    : `New ${isSpecialist ? 'Booking Specialist' : isAffiliate ? 'Affiliate' : 'Housekeeper'}`
+    ? `Edit ${meta?.label || 'Staff'}`
+    : `New ${meta?.label || 'Staff'}`
 
   return (
     <div className="fixed inset-0 z-[10001] flex items-center justify-center p-4">
-      <div className="absolute inset-0 bg-black/50" onClick={onClose} />
+      <button
+        type="button"
+        aria-label="Close"
+        onClick={onClose}
+        className="absolute inset-0 bg-black/50 cursor-default"
+      />
       <motion.div initial={{ opacity: 0, scale: 0.98 }} animate={{ opacity: 1, scale: 1 }} transition={{ duration: 0.15 }}
-        className="relative bg-card rounded-xl shadow-2xl max-w-lg w-full max-h-[90vh] flex flex-col overflow-hidden border border-border">
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="worker-form-title"
+        className="relative bg-card rounded-lg max-w-lg w-full max-h-[92vh] flex flex-col overflow-hidden border border-border"
+        style={{ boxShadow: SOFT_SHADOW }}>
         <div className="flex items-center justify-between px-5 py-3 border-b border-border">
-          <h2 className="text-sm font-bold text-foreground">{title}</h2>
+          <h2 id="worker-form-title" className="text-sm font-bold text-foreground">{title}</h2>
           <button onClick={onClose} className="p-1 rounded hover:bg-muted transition-colors"><X size={16} /></button>
         </div>
         <div className="flex-1 overflow-y-auto px-5 py-4 space-y-4">
+
           <div className="flex items-center gap-4">
-            <div className="relative">
-              {photoPreview ? <img src={photoPreview} alt="" className="w-16 h-16 rounded-full object-cover" /> :
-                <div className="w-16 h-16 rounded-full bg-muted flex items-center justify-center"><User size={24} className="text-muted-foreground" /></div>}
-              <label className="absolute -bottom-1 -right-1 w-7 h-7 bg-[#2d568e] text-white rounded-full flex items-center justify-center cursor-pointer hover:bg-[#1e3a5f]">
-                <Camera size={12} />
-                <input type="file" accept="image/*" className="hidden" onChange={handlePhoto} />
-              </label>
+            {form.photoUrl ? (
+              <img src={form.photoUrl} alt="" className="w-16 h-16 rounded-full object-cover" />
+            ) : (
+              <div className="w-16 h-16 rounded-full bg-muted flex items-center justify-center">
+                <User size={24} className="text-muted-foreground" />
+              </div>
+            )}
+            <div className="min-w-0">
+              <p className="text-xs font-semibold text-foreground">Photo from Google account</p>
+              <p className="text-[10px] text-muted-foreground mt-0.5">
+                {form.photoUrl
+                  ? 'Shown here. Update it in their Google account to change.'
+                  : 'They have no Google avatar, or none was picked yet.'}
+              </p>
             </div>
-            <p className="text-xs text-muted-foreground">Upload a profile photo</p>
           </div>
+
+          <div>
+            <label className={labelClass}>Code</label>
+            <ReadOnlyCodeField code={editing?.code || null} isEditing={!!editing} />
+            <p className="text-[10px] text-muted-foreground mt-1">
+              {editing
+                ? 'Codes are permanent and cannot be changed.'
+                : `A ${meta?.codePrefix || 'XX'}-XXXXXX code will be generated on save.`}
+            </p>
+          </div>
+
+          <div>
+            <label className={labelClass}>Email *</label>
+            <StaffEmailCombobox
+              value={form.email}
+              onChange={(v) => setField('email', v)}
+              verifiedProfile={verifiedProfile}
+              onVerifiedChange={handleVerifiedProfileChange}
+              disabled={saving}
+              autoFocus={!editing}
+            />
+            <p className="text-[10px] text-muted-foreground mt-1">
+              Must be a registered Iloilo Rentals user. They log in with Google first.
+            </p>
+          </div>
+
           <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-            <div><label className={labelClass}>Code *</label><Input value={form.code} onChange={(e) => setField('code', e.target.value)} className={cn(inputClass, 'font-mono uppercase')} /></div>
-            <div><label className={labelClass}>Name *</label><Input value={form.name} onChange={(e) => setField('name', e.target.value)} className={inputClass} autoFocus /></div>
-            <div><label className={labelClass}>Email</label><Input type="email" value={form.email} onChange={(e) => setField('email', e.target.value)} className={inputClass} /></div>
-            <div><label className={labelClass}>Phone</label><Input type="tel" value={form.phone} onChange={(e) => setField('phone', e.target.value)} className={inputClass} /></div>
+            <div>
+              <label className={labelClass}>Name *</label>
+              <Input
+                value={form.name}
+                onChange={(e) => setField('name', e.target.value)}
+                className={inputClass}
+                maxLength={120}
+              />
+            </div>
+            <div>
+              <label className={labelClass}>Phone</label>
+              <Input
+                type="tel"
+                value={form.phone}
+                onChange={(e) => setField('phone', e.target.value)}
+                className={inputClass}
+                maxLength={40}
+              />
+            </div>
           </div>
-          <div><label className={labelClass}>Notes</label><Textarea value={form.notes} onChange={(e) => setField('notes', e.target.value)} rows={2} className="text-xs rounded-lg resize-none" /></div>
+
+          <div>
+            <label className={labelClass}>Notes</label>
+            <Textarea
+              value={form.notes}
+              onChange={(e) => setField('notes', e.target.value)}
+              rows={2}
+              maxLength={2000}
+              className="text-xs rounded-lg resize-none"
+            />
+          </div>
         </div>
         <div className="flex items-center justify-end gap-2 px-5 py-3 border-t border-border bg-muted/30">
           <Button variant="outline" size="sm" className="h-9 rounded-lg text-xs" onClick={onClose} disabled={saving}>Cancel</Button>
@@ -989,16 +1279,6 @@ async function fetchUnitsForSelect() {
   const { data, error } = await supabase.from('units').select('id, unit_code, building').order('unit_code')
   if (error) throw error
   return data || []
-}
-async function createPMRow(payload) {
-  const { data, error } = await supabase.from('property_managers').insert(payload).select().single()
-  if (error) throw error
-  return data
-}
-async function updatePMRow(id, patch) {
-  const { data, error } = await supabase.from('property_managers').update(patch).eq('id', id).select().single()
-  if (error) throw error
-  return data
 }
 async function deletePMRow(id) {
   const { error } = await supabase.from('property_managers').delete().eq('id', id)
@@ -1134,72 +1414,98 @@ function PMCard({ pm, onClick }) {
 
 // ============================================================
 // PM FORM MODAL
+// Photo comes from the picked profile — no file upload.
 // ============================================================
 function PMFormModal({ open, onClose, onSaved, editing }) {
-  const [form, setForm] = useState({ code: '', name: '', email: '', phone: '', notes: '', status: 'active' })
-  const [photoFile, setPhotoFile] = useState(null)
-  const [photoPreview, setPhotoPreview] = useState(null)
+  const [form, setForm] = useState({ name: '', email: '', phone: '', notes: '', status: 'active', photoUrl: null })
+  const [verifiedProfile, setVerifiedProfile] = useState(null)
   const [saving, setSaving] = useState(false)
 
   useEffect(() => {
     if (!open) return
     if (editing) {
       setForm({
-        code: editing.code || '', name: editing.name || '',
-        email: editing.email || '', phone: editing.phone || '',
-        notes: editing.notes || '', status: editing.status || 'active',
+        name: editing.name || '',
+        email: editing.email || '',
+        phone: editing.phone || '',
+        notes: editing.notes || '',
+        status: editing.status || 'active',
+        photoUrl: editing.photo_url || null,
       })
-      setPhotoPreview(editing.photo_url || null)
+      setVerifiedProfile(editing.email ? { email: editing.email, full_name: editing.name, avatar_url: editing.photo_url } : null)
     } else {
-      setForm({ code: '', name: '', email: '', phone: '', notes: '', status: 'active' })
-      setPhotoPreview(null)
+      setForm({ name: '', email: '', phone: '', notes: '', status: 'active', photoUrl: null })
+      setVerifiedProfile(null)
     }
-    setPhotoFile(null)
   }, [open, editing])
+
+  useEffect(() => {
+    if (!open) return
+    const prevOverflow = document.body.style.overflow
+    document.body.style.overflow = 'hidden'
+    const onKey = (e) => { if (e.key === 'Escape') onClose?.() }
+    window.addEventListener('keydown', onKey)
+    return () => {
+      document.body.style.overflow = prevOverflow
+      window.removeEventListener('keydown', onKey)
+    }
+  }, [open, onClose])
 
   if (!open) return null
 
   const setField = (k, v) => setForm((p) => ({ ...p, [k]: v }))
 
-  const handlePhoto = (e) => {
-    const f = e.target.files?.[0]
-    if (!f) return
-    setPhotoFile(f)
-    setPhotoPreview(URL.createObjectURL(f))
+  const handleVerifiedProfileChange = (profile) => {
+    setVerifiedProfile(profile)
+    if (profile) {
+      setForm((p) => ({
+        ...p,
+        photoUrl: profile.avatar_url || null,
+        name: p.name?.trim() ? p.name : (profile.full_name || ''),
+      }))
+    } else {
+      setForm((p) => ({ ...p, photoUrl: null }))
+    }
   }
 
   const handleSubmit = async () => {
     if (saving) return
-    if (!form.code.trim()) { toast.error('Code is required'); return }
     if (!form.name.trim()) { toast.error('Name is required'); return }
+    if (!form.email.trim()) { toast.error('Email is required'); return }
+
     setSaving(true)
     try {
-      let photoUrl = editing?.photo_url || null
-      if (photoFile) {
-        const ext = photoFile.name.split('.').pop() || 'jpg'
-        const path = `property_managers/${form.code.toUpperCase()}_${Date.now()}.${ext}`
-        const { error: upErr } = await supabase.storage.from('team-photos').upload(path, photoFile, { cacheControl: '3600', upsert: true })
-        if (upErr) throw upErr
-        const { data } = supabase.storage.from('team-photos').getPublicUrl(path)
-        photoUrl = data.publicUrl
+      const check = await validateStaffEmail('property_managers', form.email, editing?.id)
+      if (!check.ok) {
+        toast.error(check.message)
+        setSaving(false)
+        return
       }
-      const payload = {
-        code: form.code.trim().toUpperCase(),
-        name: form.name.trim(),
-        email: form.email.trim() || null,
-        phone: form.phone.trim() || null,
-        notes: form.notes.trim() || null,
-        status: form.status,
-        photo_url: photoUrl,
-      }
+
+      const photoUrl = verifiedProfile?.avatar_url || form.photoUrl || null
+
       if (editing) {
-        await updatePMRow(editing.id, payload)
-        logAudit('UPDATE_PROPERTY_MANAGER', 'property_managers', editing.id, { code: payload.code }).catch(() => {})
+        const updated = await updateStaffMember('property_managers', editing.id, {
+          name: form.name,
+          email: form.email,
+          phone: form.phone,
+          notes: form.notes,
+          status: form.status,
+          photo_url: photoUrl,
+        })
+        logAudit('UPDATE_PROPERTY_MANAGER', 'property_managers', editing.id, { code: updated?.code }).catch(() => {})
         toast.success('Updated')
       } else {
-        const created = await createPMRow(payload)
-        logAudit('CREATE_PROPERTY_MANAGER', 'property_managers', created?.id, { code: payload.code }).catch(() => {})
-        toast.success('Created')
+        const created = await createStaffMember('property_managers', {
+          name: form.name,
+          email: form.email,
+          phone: form.phone,
+          notes: form.notes,
+          status: form.status,
+          photo_url: photoUrl,
+        })
+        logAudit('CREATE_PROPERTY_MANAGER', 'property_managers', created?.id, { code: created?.code }).catch(() => {})
+        toast.success(`Created · ${created?.code || ''}`)
       }
       onSaved()
       onClose()
@@ -1216,31 +1522,78 @@ function PMFormModal({ open, onClose, onSaved, editing }) {
 
   return (
     <div className="fixed inset-0 z-[10001] flex items-center justify-center p-4">
-      <div className="absolute inset-0 bg-black/50" onClick={onClose} />
+      <button
+        type="button"
+        aria-label="Close"
+        onClick={onClose}
+        className="absolute inset-0 bg-black/50 cursor-default"
+      />
       <motion.div initial={{ opacity: 0, scale: 0.98 }} animate={{ opacity: 1, scale: 1 }} transition={{ duration: 0.15 }}
-        className="relative bg-card rounded-xl shadow-2xl max-w-lg w-full max-h-[90vh] flex flex-col overflow-hidden border border-border">
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="pm-form-title"
+        className="relative bg-card rounded-lg max-w-lg w-full max-h-[92vh] flex flex-col overflow-hidden border border-border"
+        style={{ boxShadow: SOFT_SHADOW }}>
         <div className="flex items-center justify-between px-5 py-3 border-b border-border">
-          <h2 className="text-sm font-bold text-foreground">{editing ? 'Edit Property Manager' : 'New Property Manager'}</h2>
+          <h2 id="pm-form-title" className="text-sm font-bold text-foreground">{editing ? 'Edit Property Manager' : 'New Property Manager'}</h2>
           <button onClick={onClose} className="p-1 rounded hover:bg-muted transition-colors"><X size={16} /></button>
         </div>
         <div className="flex-1 overflow-y-auto px-5 py-4 space-y-4">
+
           <div className="flex items-center gap-4">
-            <div className="relative">
-              {photoPreview ? <img src={photoPreview} alt="" className="w-16 h-16 rounded-full object-cover" /> :
-                <div className="w-16 h-16 rounded-full bg-muted flex items-center justify-center"><User size={24} className="text-muted-foreground" /></div>}
-              <label className="absolute -bottom-1 -right-1 w-7 h-7 bg-[#2d568e] text-white rounded-full flex items-center justify-center cursor-pointer hover:bg-[#1e3a5f]">
-                <Camera size={12} />
-                <input type="file" accept="image/*" className="hidden" onChange={handlePhoto} />
-              </label>
+            {form.photoUrl ? (
+              <img src={form.photoUrl} alt="" className="w-16 h-16 rounded-full object-cover" />
+            ) : (
+              <div className="w-16 h-16 rounded-full bg-muted flex items-center justify-center">
+                <User size={24} className="text-muted-foreground" />
+              </div>
+            )}
+            <div className="min-w-0">
+              <p className="text-xs font-semibold text-foreground">Photo from Google account</p>
+              <p className="text-[10px] text-muted-foreground mt-0.5">
+                {form.photoUrl
+                  ? 'Shown here. Update it in their Google account to change.'
+                  : 'They have no Google avatar, or none was picked yet.'}
+              </p>
             </div>
-            <p className="text-xs text-muted-foreground">Upload a profile photo</p>
           </div>
+
+          <div>
+            <label className={labelClass}>Code</label>
+            <ReadOnlyCodeField code={editing?.code || null} isEditing={!!editing} />
+            <p className="text-[10px] text-muted-foreground mt-1">
+              {editing
+                ? 'Codes are permanent and cannot be changed.'
+                : 'A PM-XXXXXX code will be generated on save.'}
+            </p>
+          </div>
+
+          <div>
+            <label className={labelClass}>Email *</label>
+            <StaffEmailCombobox
+              value={form.email}
+              onChange={(v) => setField('email', v)}
+              verifiedProfile={verifiedProfile}
+              onVerifiedChange={handleVerifiedProfileChange}
+              disabled={saving}
+              autoFocus={!editing}
+            />
+            <p className="text-[10px] text-muted-foreground mt-1">
+              Must be a registered Iloilo Rentals user.
+            </p>
+          </div>
+
           <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-            <div><label className={labelClass}>Code *</label><Input value={form.code} onChange={(e) => setField('code', e.target.value)} className={cn(inputClass, 'font-mono uppercase')} placeholder="PM-XXXX" /></div>
-            <div><label className={labelClass}>Name *</label><Input value={form.name} onChange={(e) => setField('name', e.target.value)} className={inputClass} autoFocus /></div>
-            <div><label className={labelClass}>Email</label><Input type="email" value={form.email} onChange={(e) => setField('email', e.target.value)} className={inputClass} /></div>
-            <div><label className={labelClass}>Phone</label><Input type="tel" value={form.phone} onChange={(e) => setField('phone', e.target.value)} className={inputClass} /></div>
+            <div>
+              <label className={labelClass}>Name *</label>
+              <Input value={form.name} onChange={(e) => setField('name', e.target.value)} className={inputClass} maxLength={120} />
+            </div>
+            <div>
+              <label className={labelClass}>Phone</label>
+              <Input type="tel" value={form.phone} onChange={(e) => setField('phone', e.target.value)} className={inputClass} maxLength={40} />
+            </div>
           </div>
+
           <div>
             <label className={labelClass}>Status</label>
             <div className="inline-flex items-center gap-1 bg-muted/60 rounded-full p-1">
@@ -1253,7 +1606,11 @@ function PMFormModal({ open, onClose, onSaved, editing }) {
               ))}
             </div>
           </div>
-          <div><label className={labelClass}>Notes</label><Textarea value={form.notes} onChange={(e) => setField('notes', e.target.value)} rows={2} className="text-xs rounded-lg resize-none" /></div>
+
+          <div>
+            <label className={labelClass}>Notes</label>
+            <Textarea value={form.notes} onChange={(e) => setField('notes', e.target.value)} rows={2} maxLength={2000} className="text-xs rounded-lg resize-none" />
+          </div>
         </div>
         <div className="flex items-center justify-end gap-2 px-5 py-3 border-t border-border bg-muted/30">
           <Button variant="outline" size="sm" className="h-9 rounded-lg text-xs" onClick={onClose} disabled={saving}>Cancel</Button>
@@ -1433,7 +1790,7 @@ function PMPdfUploader({ pmContract, onSaved }) {
             className="p-1.5 rounded hover:bg-muted text-muted-foreground hover:text-foreground transition-colors"
             title="Download"
           >
-            <Download size={12} />
+            <Upload size={12} style={{ transform: 'rotate(180deg)' }} />
           </a>
           <button
             type="button"
@@ -1542,6 +1899,18 @@ function AssignUnitModal({ open, onClose, onSaved, pm, editingContract, units })
     }
   }, [open, editingContract])
 
+  useEffect(() => {
+    if (!open) return
+    const prevOverflow = document.body.style.overflow
+    document.body.style.overflow = 'hidden'
+    const onKey = (e) => { if (e.key === 'Escape') onClose?.() }
+    window.addEventListener('keydown', onKey)
+    return () => {
+      document.body.style.overflow = prevOverflow
+      window.removeEventListener('keydown', onKey)
+    }
+  }, [open, onClose])
+
   const sortedUnits = useMemo(() => {
     return [...units].sort((a, b) => {
       const av = `${a.building || ''} ${a.unit_code || ''}`.trim()
@@ -1635,11 +2004,20 @@ function AssignUnitModal({ open, onClose, onSaved, pm, editingContract, units })
 
   return (
     <div className="fixed inset-0 z-[10002] flex items-center justify-center p-4">
-      <div className="absolute inset-0 bg-black/60" onClick={onClose} />
+      <button
+        type="button"
+        aria-label="Close"
+        onClick={onClose}
+        className="absolute inset-0 bg-black/60 cursor-default"
+      />
       <motion.div initial={{ opacity: 0, scale: 0.98 }} animate={{ opacity: 1, scale: 1 }} transition={{ duration: 0.15 }}
-        className="relative bg-card rounded-lg shadow-2xl max-w-md w-full border border-border overflow-hidden max-h-[90vh] flex flex-col">
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="assign-unit-title"
+        className="relative bg-card rounded-lg max-w-md w-full border border-border overflow-hidden max-h-[90vh] flex flex-col"
+        style={{ boxShadow: SOFT_SHADOW }}>
         <div className="flex items-center justify-between px-5 py-3 border-b border-border flex-shrink-0">
-          <h3 className="text-sm font-bold text-foreground">{editingContract ? 'Edit Assignment' : 'Assign PM to Unit'}</h3>
+          <h3 id="assign-unit-title" className="text-sm font-bold text-foreground">{editingContract ? 'Edit Assignment' : 'Assign PM to Unit'}</h3>
           <button onClick={onClose} className="p-1 rounded hover:bg-muted"><X size={14} /></button>
         </div>
         <div className="p-5 space-y-3 overflow-y-auto flex-1">
@@ -1707,6 +2085,18 @@ function TerminateModal({ open, onClose, onTerminated, pmContract }) {
     setConfirmed(false)
   }, [open])
 
+  useEffect(() => {
+    if (!open) return
+    const prevOverflow = document.body.style.overflow
+    document.body.style.overflow = 'hidden'
+    const onKey = (e) => { if (e.key === 'Escape') onClose?.() }
+    window.addEventListener('keydown', onKey)
+    return () => {
+      document.body.style.overflow = prevOverflow
+      window.removeEventListener('keydown', onKey)
+    }
+  }, [open, onClose])
+
   const effDate = useMemo(() => lastDayOfMonth(decisionDate), [decisionDate])
 
   if (!open || !pmContract) return null
@@ -1738,11 +2128,20 @@ function TerminateModal({ open, onClose, onTerminated, pmContract }) {
 
   return (
     <div className="fixed inset-0 z-[10002] flex items-center justify-center p-4">
-      <div className="absolute inset-0 bg-black/60" onClick={onClose} />
+      <button
+        type="button"
+        aria-label="Close"
+        onClick={onClose}
+        className="absolute inset-0 bg-black/60 cursor-default"
+      />
       <motion.div initial={{ opacity: 0, scale: 0.98 }} animate={{ opacity: 1, scale: 1 }} transition={{ duration: 0.15 }}
-        className="relative bg-card rounded-lg shadow-2xl max-w-md w-full border border-border overflow-hidden">
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="terminate-title"
+        className="relative bg-card rounded-lg max-w-md w-full border border-border overflow-hidden"
+        style={{ boxShadow: SOFT_SHADOW }}>
         <div className="flex items-center justify-between px-5 py-3 border-b border-border">
-          <h3 className="text-sm font-bold text-foreground">Terminate Assignment</h3>
+          <h3 id="terminate-title" className="text-sm font-bold text-foreground">Terminate Assignment</h3>
           <button onClick={onClose} className="p-1 rounded hover:bg-muted"><X size={14} /></button>
         </div>
         <div className="p-5 space-y-3">
@@ -1934,12 +2333,21 @@ function PMDetailModal({ pm, onClose, onChanged, units }) {
 
   return (
     <div className="fixed inset-0 z-[10000] flex items-center justify-center p-4">
-      <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} transition={{ duration: 0.2 }}
-        className="absolute inset-0 bg-black/50" onClick={onClose} />
+      <motion.button
+        type="button"
+        aria-label="Close"
+        initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} transition={{ duration: 0.2 }}
+        className="absolute inset-0 bg-black/50 cursor-default"
+        onClick={onClose}
+      />
       <motion.div initial={{ opacity: 0, scale: 0.96, y: 8 }} animate={{ opacity: 1, scale: 1, y: 0 }}
         exit={{ opacity: 0, scale: 0.96, y: 8 }}
         transition={{ type: 'spring', stiffness: 320, damping: 28 }}
-        className="relative w-full max-w-5xl h-[88vh] bg-card rounded-2xl shadow-2xl border border-border overflow-hidden flex flex-col"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="pm-detail-title"
+        className="relative w-full max-w-5xl h-[88vh] bg-card rounded-lg border border-border overflow-hidden flex flex-col"
+        style={{ boxShadow: SOFT_SHADOW }}
         onClick={(e) => e.stopPropagation()}
       >
         <button onClick={onClose} className="absolute top-3 right-3 z-20 p-2 rounded-full bg-card border border-border hover:bg-muted transition-colors shadow-sm">
@@ -1950,7 +2358,7 @@ function PMDetailModal({ pm, onClose, onChanged, units }) {
           <div className="flex-shrink-0 md:w-[320px] border-b md:border-b-0 md:border-r border-border bg-muted/20 flex flex-col overflow-y-auto">
             <div className="p-6 flex flex-col items-center text-center">
               <WorkerAvatar name={pm.name} photo_url={pm.photo_url} size="xl" />
-              <p className="mt-4 text-lg font-bold text-foreground truncate w-full leading-tight">{pm.name}</p>
+              <p id="pm-detail-title" className="mt-4 text-lg font-bold text-foreground truncate w-full leading-tight">{pm.name}</p>
               <p className="text-[11px] font-mono text-muted-foreground mt-1 uppercase tracking-wide">{pm.code}</p>
               <div className="mt-4 flex flex-col items-center gap-2">
                 <RoleBadge role="property_managers" size="lg" />
@@ -2162,7 +2570,7 @@ export default function TeamPage() {
   useEffect(() => { setSelected(null); setPMSelected(null); setPage(1) }, [activeTab])
   useEffect(() => { setPage(1) }, [debouncedSearch])
 
-  const fetchAll = useCallback(async () => {
+  const fetchAll = useCallback(async (signal) => {
     if (!hasLoadedOnce.current) setLoading(true)
     else setRefreshing(true)
     try {
@@ -2175,6 +2583,7 @@ export default function TeamPage() {
         fetchUnitsForSelect(),
         supabase.rpc('team_totals_bulk'),
       ])
+      if (signal?.aborted) return
       if (s.error) throw s.error
       if (a.error) throw a.error
       if (h.error) throw h.error
@@ -2236,14 +2645,21 @@ export default function TeamPage() {
       setPMs(enrichedPMs)
       setPMUnits(unitList)
     } catch (err) {
+      if (err?.name === 'AbortError') return
       console.error('Failed to load team:', err)
       toast.error('Failed to load team')
     } finally {
-      setLoading(false); setRefreshing(false); hasLoadedOnce.current = true
+      if (!signal?.aborted) {
+        setLoading(false); setRefreshing(false); hasLoadedOnce.current = true
+      }
     }
   }, [])
 
-  useEffect(() => { fetchAll() }, [fetchAll])
+  useEffect(() => {
+    const ac = new AbortController()
+    fetchAll(ac.signal)
+    return () => ac.abort()
+  }, [fetchAll])
 
   useEffect(() => {
     let timer = null
@@ -2332,33 +2748,6 @@ export default function TeamPage() {
   }
   const openEdit = (worker) => { setEditing(worker); setFormOpen(true) }
 
-  const handleExportCSV = () => {
-    if (filtered.length === 0) { toast.error('Nothing to export'); return }
-    const headers = ['Code', 'Name', 'Role', 'Email', 'Phone', 'Completed', 'Hired']
-    const rows = filtered.map((w) => [
-      w.code || '',
-      w.name || '',
-      activeTab === 'specialists' ? 'Booking Specialist'
-        : activeTab === 'affiliates' ? 'Affiliate'
-        : activeTab === 'property_managers' ? 'Property Manager'
-        : 'Housekeeper',
-      w.email || '', w.phone || '',
-      activeTab === 'property_managers' ? (w._activeCount || 0) : liveCountFor(w),
-      w.created_at ? new Date(w.created_at).toISOString().slice(0, 10) : '',
-    ])
-    const csv = [headers, ...rows]
-      .map((row) => row.map((v) => `"${String(v).replace(/"/g, '""')}"`).join(','))
-      .join('\n')
-    const blob = new Blob(['\uFEFF' + csv], { type: 'text/csv;charset=utf-8;' })
-    const url = URL.createObjectURL(blob)
-    const a = document.createElement('a')
-    a.href = url
-    a.download = `team_${activeTab}_${new Date().toISOString().slice(0, 10)}.csv`
-    a.click()
-    URL.revokeObjectURL(url)
-    toast.success('Exported')
-  }
-
   const showSkeleton = loading || refreshing
   const isPMTab = activeTab === 'property_managers'
 
@@ -2399,9 +2788,6 @@ export default function TeamPage() {
             <span className="hidden sm:inline ml-1">
               {isPMTab ? 'New PM' : 'New'}
             </span>
-          </Button>
-          <Button variant="outline" size="sm" onClick={handleExportCSV} className="h-9 rounded-lg" title="Download CSV">
-            <Download size={13} />
           </Button>
           <Button variant="outline" size="sm" onClick={fetchAll} disabled={refreshing} className="h-9 rounded-lg">
             <RefreshCw size={13} className={cn(refreshing && 'animate-spin')} />

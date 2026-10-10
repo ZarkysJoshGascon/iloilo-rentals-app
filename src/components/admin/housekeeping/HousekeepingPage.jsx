@@ -5,7 +5,7 @@ import { motion, AnimatePresence } from 'framer-motion'
 import {
   Plus, Search, RefreshCw, X, Check, Loader2, Trash2,
   Sparkles, AlertTriangle, User, Camera,
-  ChevronRight, ChevronLeft, Download, Building2, Clock,
+  ChevronRight, ChevronLeft, Building2, Clock,
   Image as ImageIcon, FileText, Shirt, Wallet, Send, Coffee,
   ZoomIn, RotateCcw, LogIn, CheckCircle2, Lock,
   Calendar as CalendarIcon, Copy,
@@ -26,24 +26,22 @@ import {
   addPhotosToCleaning, removePhotoFromCleaning,
   uploadCleaningPhoto, deleteCleaningPhoto,
   parseInventory, approveAndPayCleaning, updateLaundryPayment,
-  downloadCleaningsCSV,
   getSignedUrl, getSignedUrls,
   purgeCleaningPhotos,
 } from '@/lib/cleanings'
 import { ContextMenu } from '@/components/ui/ContextMenu'
 
 const BRAND = '#2d568e'
+const SOFT_SHADOW = '0 20px 40px -16px rgba(15,23,42,0.24), 0 6px 16px -6px rgba(15,23,42,0.10)'
 
-// ✅ FIX: cleaning status is a state machine. Prevents moving backward
+// Cleaning status is a state machine. Prevents moving backward
 // from "completed" or skipping the submit → approve flow.
-// Keys are the *stored* statuses; "to-be-evaluated" is the UI label for
-// status === 'submitted'.
 const VALID_CLEANING_TRANSITIONS = {
   scheduled: ['ready', 'cancelled'],
   ready:     ['submitted', 'cancelled'],
-  submitted: ['completed', 'ready'],      // completed = approve & pay; ready = send back
-  completed: [],                           // terminal
-  cancelled: [],                           // terminal
+  submitted: ['completed', 'ready'],
+  completed: [],
+  cancelled: [],
 }
 
 function canCleaningTransition(from, to) {
@@ -52,12 +50,6 @@ function canCleaningTransition(from, to) {
   return allowed.includes(to)
 }
 
-// ─────────────────────────────────────────────────────────────
-// Defensive cleanup — runs on every admin page load.
-// If any completed cleaning still has photos (e.g., a housekeeper
-// resubmitted after approval before the RPC guard shipped),
-// this purges them silently.
-// ─────────────────────────────────────────────────────────────
 async function defensivePhotoCleanup(cleanings) {
   const candidates = (cleanings || []).filter((c) => {
     if (c.status !== 'completed') return false
@@ -478,8 +470,8 @@ function SummaryCards({ cleanings }) {
           className="rounded-md bg-card border border-border shadow-sm p-4"
         >
           <div className="flex items-center gap-2 mb-2">
-            <card.icon size={15} className="text-muted-foreground" />
-            <span className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
+            <card.icon size={15} className="text-foreground" />
+            <span className="text-[11px] font-bold uppercase tracking-wider text-foreground">
               {card.label}
             </span>
           </div>
@@ -651,34 +643,66 @@ function DetailSection({ title, action, children }) {
   )
 }
 
+// ─────────────────────────────────────────────────────────────
+// Status pills — same shape as Inquiries / Campaigns
+// ─────────────────────────────────────────────────────────────
 function StatusPills({ active, onChange, counts }) {
   const containerRef = useRef(null)
   const [indicator, setIndicator] = useState({ left: 0, width: 0 })
+
   useEffect(() => {
-    if (!containerRef.current) return
-    const activeEl = containerRef.current.querySelector('[data-active="true"]')
-    if (!activeEl) return
-    const cRect = containerRef.current.getBoundingClientRect()
-    const aRect = activeEl.getBoundingClientRect()
-    setIndicator({ left: aRect.left - cRect.left, width: aRect.width })
+    const node = containerRef.current
+    if (!node) return
+    const measure = () => {
+      const activeEl = node.querySelector('[data-active="true"]')
+      if (!activeEl) {
+        setIndicator({ left: 0, width: 0 })
+        return
+      }
+      const cRect = node.getBoundingClientRect()
+      const aRect = activeEl.getBoundingClientRect()
+      setIndicator({ left: aRect.left - cRect.left, width: aRect.width })
+    }
+    measure()
+    const ro = typeof ResizeObserver !== 'undefined' ? new ResizeObserver(measure) : null
+    if (ro) ro.observe(node)
+    window.addEventListener('resize', measure)
+    return () => {
+      if (ro) ro.disconnect()
+      window.removeEventListener('resize', measure)
+    }
   }, [active, counts])
 
   return (
-    <div ref={containerRef} className="relative inline-flex items-center gap-1 bg-muted/60 rounded-full p-1">
-      <motion.div className="absolute top-1 bottom-1 rounded-full shadow-sm z-0 bg-card border border-border"
-        animate={{ left: indicator.left, width: indicator.width }} transition={{ type: 'spring', stiffness: 350, damping: 28 }} />
-      {STATUS_PILLS.map((tab) => {
-        const isActive = active === tab.id
-        const count = counts[tab.id] ?? 0
-        return (
-          <button key={tab.id} type="button" data-active={isActive} onClick={() => onChange(tab.id)}
-            className={cn('relative z-10 px-3 py-1 rounded-full text-[11px] font-semibold transition-colors duration-200 whitespace-nowrap',
-              isActive ? (PILL_TEXT_ACTIVE[tab.id] || 'text-foreground') : 'text-muted-foreground hover:text-foreground')}>
-            {tab.label}
-            <span className={cn('ml-1', isActive ? 'opacity-90' : 'opacity-60')}>{count}</span>
-          </button>
-        )
-      })}
+    <div className="inline-flex items-center p-1 rounded-full bg-muted/60 border border-border/60">
+      <div ref={containerRef} className="relative inline-flex items-center gap-1">
+        <motion.div
+          className="absolute top-0 bottom-0 rounded-full bg-card shadow-sm border border-border z-0"
+          animate={{ left: indicator.left, width: indicator.width }}
+          transition={{ type: 'spring', stiffness: 350, damping: 28 }}
+        />
+        {STATUS_PILLS.map((tab) => {
+          const isActive = active === tab.id
+          const count = counts[tab.id] ?? 0
+          return (
+            <button
+              key={tab.id}
+              type="button"
+              data-active={isActive}
+              onClick={() => onChange(tab.id)}
+              className={cn(
+                'relative z-10 px-3.5 py-1.5 rounded-full text-[11px] font-semibold transition-colors duration-200 whitespace-nowrap',
+                isActive
+                  ? (PILL_TEXT_ACTIVE[tab.id] || 'text-foreground')
+                  : 'text-muted-foreground hover:text-foreground',
+              )}
+            >
+              {tab.label}
+              <span className={cn('ml-1', isActive ? 'opacity-90' : 'opacity-60')}>{count}</span>
+            </button>
+          )
+        })}
+      </div>
     </div>
   )
 }
@@ -1000,10 +1024,10 @@ function PhotoSection({ cleaning, onChanged, onOpenPhoto }) {
 
   return (
     <DetailSection title="Cleaning Photos">
-      <div className="flex items-center gap-1 p-2 border-b border-border bg-muted/20">
+      <div className="flex gap-1 p-2 border-b border-border bg-muted/20">
         {tabs.map((t) => (
           <button key={t.id} type="button" onClick={() => setTab(t.id)}
-            className={cn('flex items-center gap-1.5 px-3 py-1 rounded-full text-[11px] font-semibold transition-colors',
+            className={cn('flex-1 flex items-center justify-center gap-1.5 px-3 py-1.5 rounded-full text-[11px] font-semibold transition-colors',
               tab === t.id ? 'bg-card border border-border text-foreground shadow-sm' : 'text-muted-foreground hover:text-foreground')}>
             {t.label}
             <span className="opacity-60 tabular-nums">{t.count}</span>
@@ -1542,6 +1566,18 @@ function NewCleaningModal({ open, onClose, onCreated, units, bookings, housekeep
 
   useEffect(() => { if (open) setForm(emptyNewCleaning()) }, [open])
 
+  useEffect(() => {
+    if (!open) return
+    const prevOverflow = document.body.style.overflow
+    document.body.style.overflow = 'hidden'
+    const onKey = (e) => { if (e.key === 'Escape') onClose?.() }
+    window.addEventListener('keydown', onKey)
+    return () => {
+      document.body.style.overflow = prevOverflow
+      window.removeEventListener('keydown', onKey)
+    }
+  }, [open, onClose])
+
   const setField = (k, v) => setForm((p) => ({ ...p, [k]: v }))
 
   const eligibleUnits = useMemo(() => {
@@ -1635,11 +1671,24 @@ function NewCleaningModal({ open, onClose, onCreated, units, bookings, housekeep
 
   return (
     <div className="fixed inset-0 z-[9999] flex items-center justify-center p-4">
-      <div className="absolute inset-0 bg-black/50" onClick={onClose} />
-      <motion.div initial={{ opacity: 0, scale: 0.98 }} animate={{ opacity: 1, scale: 1 }} transition={{ duration: 0.15 }}
-        className="relative bg-card rounded-md shadow-2xl max-w-lg w-full max-h-[90vh] flex flex-col overflow-hidden border border-border">
+      <button
+        type="button"
+        aria-label="Close"
+        onClick={onClose}
+        className="absolute inset-0 bg-black/50 cursor-default"
+      />
+      <motion.div
+        initial={{ opacity: 0, scale: 0.98 }}
+        animate={{ opacity: 1, scale: 1 }}
+        transition={{ duration: 0.15 }}
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="new-cleaning-title"
+        className="relative bg-card rounded-lg max-w-lg w-full max-h-[90vh] flex flex-col overflow-hidden border border-border"
+        style={{ boxShadow: SOFT_SHADOW }}
+      >
         <div className="flex items-center justify-between px-5 py-3 border-b border-border">
-          <h2 className="text-sm font-bold text-foreground">New Cleaning</h2>
+          <h2 id="new-cleaning-title" className="text-sm font-bold text-foreground">New Cleaning</h2>
           <button onClick={onClose} className="p-1 rounded hover:bg-muted transition-colors"><X size={16} /></button>
         </div>
         <div className="flex-1 overflow-y-auto px-5 py-4 space-y-4">
@@ -1890,8 +1939,6 @@ function CleaningDetailPanel({ cleaning, onClose, onChanged, onDelete, housekeep
                       value={effective}
                       onValueChange={(v) => {
                         if (isCompleted || isCancelled) return
-
-                        // ✅ FIX: reject illegal transitions and tell the user why.
                         const targetStatus = v === 'to-be-evaluated' ? 'submitted' : v
                         if (!canCleaningTransition(effective, targetStatus)) {
                           toast.error(
@@ -1900,7 +1947,6 @@ function CleaningDetailPanel({ cleaning, onClose, onChanged, onDelete, housekeep
                           )
                           return
                         }
-
                         if (v === 'completed') updateField('status', 'completed')
                         else if (v === 'ready') {
                           if (cleaning.status === 'submitted') {
@@ -2200,7 +2246,7 @@ export default function HousekeepingPage({ initialSelectedId }) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [initialSelectedId])
 
-  const fetchData = useCallback(async () => {
+  const fetchData = useCallback(async (signal) => {
     if (!hasLoadedOnce.current) setIsFirstLoad(true)
     else setIsRefreshing(true)
     try {
@@ -2211,6 +2257,7 @@ export default function HousekeepingPage({ initialSelectedId }) {
         supabase.from('housekeepers').select('id, code, name, photo_url').eq('status', 'active').order('name'),
         supabase.from('contracts').select('id, unit_id, contract_code, effective_date, expiry_date'),
       ])
+      if (signal?.aborted) return
       if (uRes.error) throw uRes.error
       if (bRes.error) throw bRes.error
       if (hRes.error) throw hRes.error
@@ -2225,14 +2272,21 @@ export default function HousekeepingPage({ initialSelectedId }) {
         console.warn('defensivePhotoCleanup threw:', err)
       })
     } catch (err) {
+      if (err?.name === 'AbortError') return
       console.error('Failed to load housekeeping data:', err)
       toast.error('Failed to load cleanings')
     } finally {
-      setIsFirstLoad(false); setIsRefreshing(false); hasLoadedOnce.current = true
+      if (!signal?.aborted) {
+        setIsFirstLoad(false); setIsRefreshing(false); hasLoadedOnce.current = true
+      }
     }
   }, [])
 
-  useEffect(() => { fetchData() }, [fetchData])
+  useEffect(() => {
+    const ac = new AbortController()
+    fetchData(ac.signal)
+    return () => ac.abort()
+  }, [fetchData])
 
   useEffect(() => {
     const ch = supabase
@@ -2384,12 +2438,6 @@ export default function HousekeepingPage({ initialSelectedId }) {
     }
   }
 
-  const handleExport = () => {
-    if (filtered.length === 0) { toast.error('Nothing to export'); return }
-    downloadCleaningsCSV(filtered, `cleanings_${new Date().toISOString().slice(0, 10)}.csv`)
-    toast.success('Exported')
-  }
-
   return (
     <div className="h-full flex min-h-0">
       <div className="flex-1 min-h-0 flex flex-col p-3 gap-3 overflow-y-auto">
@@ -2450,9 +2498,6 @@ export default function HousekeepingPage({ initialSelectedId }) {
           <Button variant="outline" size="sm" onClick={fetchData} disabled={isRefreshing} className="h-8 rounded transition-all duration-150">
             <RefreshCw size={13} className={cn(isRefreshing && 'animate-spin')} />
           </Button>
-          <Button variant="outline" size="sm" onClick={handleExport} className="h-8 rounded transition-all duration-150">
-            <Download size={13} />
-          </Button>
         </div>
 
         <div className="flex-shrink-0 flex items-center justify-between gap-3 flex-wrap">
@@ -2461,12 +2506,12 @@ export default function HousekeepingPage({ initialSelectedId }) {
 
         <div className="flex-shrink-0 rounded border border-border shadow-sm overflow-hidden bg-card flex flex-col">
           <div className={cn('flex-shrink-0 px-4 py-2 border-b border-border bg-card', ROW_GRID)}>
-            <span className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground truncate">Code · Unit</span>
-            <span className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground truncate">Booking</span>
-            <span className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground truncate">Type</span>
-            <span className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground truncate">Housekeeper</span>
-            <span className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground truncate">Scheduled</span>
-            <span className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground text-right truncate">Status</span>
+            <span className="text-[10px] font-bold uppercase tracking-wider text-foreground truncate">Code · Unit</span>
+            <span className="text-[10px] font-bold uppercase tracking-wider text-foreground truncate">Booking</span>
+            <span className="text-[10px] font-bold uppercase tracking-wider text-foreground truncate">Type</span>
+            <span className="text-[10px] font-bold uppercase tracking-wider text-foreground truncate">Housekeeper</span>
+            <span className="text-[10px] font-bold uppercase tracking-wider text-foreground truncate">Scheduled</span>
+            <span className="text-[10px] font-bold uppercase tracking-wider text-foreground text-right truncate">Status</span>
           </div>
 
           <div className="h-[280px] overflow-y-auto" style={{ scrollbarGutter: 'stable' }}>

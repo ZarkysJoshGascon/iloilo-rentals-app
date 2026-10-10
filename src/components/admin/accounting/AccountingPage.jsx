@@ -4,7 +4,7 @@ import { useNavigate } from 'react-router-dom'
 import { motion, AnimatePresence } from 'framer-motion'
 import {
   Search, RefreshCw, X, Loader2, TrendingUp, ChevronDown, ChevronLeft, ChevronRight,
-  Download, Wallet, Lock, Save, Home, Sparkles, Plus, Trash2,
+  Wallet, Lock, Save, Home, Sparkles, Plus, Trash2,
   Zap, Wifi, Droplets, Megaphone,
   Calendar, User, Pencil, BarChart3, Camera, Copy,
 } from 'lucide-react'
@@ -41,6 +41,9 @@ const PAGE_SIZE = 25
 const REALTIME_DEBOUNCE_MS = 1500
 const PARENT_REFRESH_DEBOUNCE_MS = 1200
 const DETAIL_REFRESH_DEBOUNCE_MS = 800
+
+// Shared modal shadow — matches Inquiries / Campaigns
+const SOFT_SHADOW = '0 20px 40px -16px rgba(15,23,42,0.24), 0 6px 16px -6px rgba(15,23,42,0.10)'
 
 const SORT_OPTIONS = [
   { id: 'unit_asc', label: 'Unit (A→Z)' },
@@ -137,19 +140,13 @@ function spansFullYear(effectiveDate, expiryDate) {
 // ─── Month enumeration (for zero-month padding) ─────────────
 function enumerateMonths(effectiveDate, expiryDate) {
   if (!effectiveDate) return []
-
   const start = new Date(`${effectiveDate}T00:00:00Z`)
-  const end = expiryDate
-    ? new Date(`${expiryDate}T00:00:00Z`)
-    : new Date()
-
+  const end = expiryDate ? new Date(`${expiryDate}T00:00:00Z`) : new Date()
   if (Number.isNaN(start.getTime()) || Number.isNaN(end.getTime())) return []
   if (end < start) return []
-
   const out = []
   const cur = new Date(Date.UTC(start.getUTCFullYear(), start.getUTCMonth(), 1))
   const endKey = Date.UTC(end.getUTCFullYear(), end.getUTCMonth(), 1)
-
   for (let i = 0; i < 480; i++) {
     out.push(`${cur.getUTCFullYear()}-${String(cur.getUTCMonth() + 1).padStart(2, '0')}`)
     if (cur.getTime() >= endKey) break
@@ -185,35 +182,31 @@ function makeEmptyStatement(month) {
   }
 }
 
-// ✅ FIX (instant expenses): recompute a statement's derived totals from a
-// patched manual row + custom items. Used for optimistic UI so expense
-// edits reflect immediately without waiting for the RPC round-trip.
 function recomputeStatement(statement, patch) {
   const next = { ...statement, ...patch }
-
   const customItems = Array.isArray(next.customItems) ? next.customItems : []
   next.customTotal = customItems.reduce((sum, x) => sum + (Number(x.amount) || 0), 0)
-
   const manual =
     Number(next.electricity || 0) +
     Number(next.internet || 0) +
     Number(next.water || 0) +
     Number(next.marketing || 0) +
     Number(next.customTotal || 0)
-
   const auto =
     Number(next.bookingCommission || 0) +
     Number(next.affiliateCommission || 0) +
     Number(next.housekeeping || 0) +
     Number(next.laundry || 0)
-
   next.totalExpenses = auto + manual
   next.netProfit = Number(next.grossRevenue || 0) - next.totalExpenses
-
   const net = next.netProfit
   next.ownerShare = Math.round(net * (OWNER_SPLIT_PCT / 100) * 100) / 100
   next.companyShare = Math.round(net * (COMPANY_SPLIT_PCT / 100) * 100) / 100
-
+  if (next.pmId) {
+    next.pmShare = Math.round((next.companyShare * (PM_SHARE_OF_COMPANY_PCT / 100)) * 100) / 100
+  } else {
+    next.pmShare = 0
+  }
   return next
 }
 
@@ -251,10 +244,8 @@ function buildYearSections(effectiveDate, expiryDate) {
   if (!effectiveDate) return []
   const eff = new Date(`${effectiveDate}T00:00:00Z`)
   if (Number.isNaN(eff.getTime())) return []
-
   const effYear = eff.getUTCFullYear()
   const effMonth = eff.getUTCMonth()
-
   let endYear, endMonth
   if (expiryDate) {
     const exp = new Date(`${expiryDate}T00:00:00Z`)
@@ -266,7 +257,6 @@ function buildYearSections(effectiveDate, expiryDate) {
     endYear = t.getUTCFullYear()
     endMonth = t.getUTCMonth()
   }
-
   const sections = []
   for (let y = effYear; y <= endYear; y++) {
     const startM = y === effYear ? effMonth : 0
@@ -294,14 +284,12 @@ function nightsInMonthFromBookings(bookings, year, month1to12, contract) {
   const daysInMonth = new Date(Date.UTC(year, month1to12, 0)).getUTCDate()
   const monthStart = new Date(Date.UTC(year, month1to12 - 1, 1))
   const monthEndExclusive = new Date(Date.UTC(year, month1to12, 1))
-
   let nights = 0
   for (const b of bookings) {
     if (!b.check_in || !b.check_out) continue
     if (b.cancelled_at) continue
     if (contract?.effective_date && b.check_in < contract.effective_date) continue
     if (contract?.expiry_date && b.check_in > contract.expiry_date) continue
-
     const ci = new Date(`${b.check_in}T00:00:00Z`)
     const co = new Date(`${b.check_out}T00:00:00Z`)
     if (Number.isNaN(ci.getTime()) || Number.isNaN(co.getTime())) continue
@@ -341,7 +329,6 @@ function weeklyOccupancyForMonth(year, month1to12, bookings, contract) {
       if (b.cancelled_at) continue
       if (contract?.effective_date && b.check_in < contract.effective_date) continue
       if (contract?.expiry_date && b.check_in > contract.expiry_date) continue
-
       const ci = new Date(`${b.check_in}T00:00:00Z`)
       const co = new Date(`${b.check_out}T00:00:00Z`)
       if (Number.isNaN(ci.getTime()) || Number.isNaN(co.getTime())) continue
@@ -374,7 +361,6 @@ function weeklyNetProfitForMonth(year, month1to12, bookings, cleanings, monthlyE
     (Array.isArray(manual.custom_items)
       ? manual.custom_items.reduce((s, x) => s + Number(x.amount || 0), 0)
       : 0)
-
   const weekData = weeks.map((w) => {
     const wStart = new Date(Date.UTC(year, month1to12 - 1, w.startDay))
     const wEndEx = new Date(Date.UTC(year, month1to12 - 1, w.endDay + 1))
@@ -401,7 +387,6 @@ function weeklyNetProfitForMonth(year, month1to12, bookings, cleanings, monthlyE
     const net = gross - bookerComm - affiliateComm - housekeeping - laundry
     return { label: `Wk ${w.week}`, week: w.week, net }
   })
-
   const manualPerWeek = manualTotal / 4
   const withManual = weekData.map((w) => ({ ...w, net: w.net - manualPerWeek }))
   let running = 0
@@ -425,7 +410,6 @@ function computeContractOccupancy(effectiveDate, expiryDate, bookings) {
     if (b.cancelled_at) continue
     if (b.check_in < effectiveDate) continue
     if (expiryDate && b.check_in > expiryDate) continue
-
     const ci = new Date(`${b.check_in}T00:00:00Z`)
     const co = new Date(`${b.check_out}T00:00:00Z`)
     if (Number.isNaN(ci.getTime()) || Number.isNaN(co.getTime())) continue
@@ -454,8 +438,8 @@ function Card({ label, value, icon: Icon }) {
   return (
     <div className="rounded-md bg-card border border-border shadow-sm p-4">
       <div className="flex items-center gap-2 mb-2">
-        {Icon && <Icon size={14} className="text-muted-foreground" />}
-        <span className="text-[11px] font-semibold text-foreground">{label}</span>
+        {Icon && <Icon size={14} className="text-foreground" />}
+        <span className="text-[11px] font-bold uppercase tracking-wider text-foreground">{label}</span>
       </div>
       <p className="text-2xl font-bold tabular-nums text-foreground">{value}</p>
     </div>
@@ -466,8 +450,8 @@ function SplitCard({ label, owner, company, pm = 0, icon: Icon }) {
   return (
     <div className="rounded-md bg-card border border-border shadow-sm p-4">
       <div className="flex items-center gap-2 mb-2">
-        {Icon && <Icon size={14} className="text-muted-foreground" />}
-        <span className="text-[11px] font-semibold text-foreground">{label}</span>
+        {Icon && <Icon size={14} className="text-foreground" />}
+        <span className="text-[11px] font-bold uppercase tracking-wider text-foreground">{label}</span>
       </div>
       <p className="text-lg font-bold tabular-nums text-foreground">
         {formatMoney(owner)}
@@ -506,40 +490,58 @@ function StatusPills({ statusFilter, onStatusFilter, counts }) {
   const [indicator, setIndicator] = useState({ left: 0, width: 0 })
 
   useEffect(() => {
-    if (!containerRef.current) return
-    const active = containerRef.current.querySelector('[data-active="true"]')
-    if (!active) return
-    const cRect = containerRef.current.getBoundingClientRect()
-    const aRect = active.getBoundingClientRect()
-    setIndicator({ left: aRect.left - cRect.left, width: aRect.width })
+    const node = containerRef.current
+    if (!node) return
+    const measure = () => {
+      const active = node.querySelector('[data-active="true"]')
+      if (!active) {
+        setIndicator({ left: 0, width: 0 })
+        return
+      }
+      const cRect = node.getBoundingClientRect()
+      const aRect = active.getBoundingClientRect()
+      setIndicator({ left: aRect.left - cRect.left, width: aRect.width })
+    }
+    measure()
+    const ro = typeof ResizeObserver !== 'undefined' ? new ResizeObserver(measure) : null
+    if (ro) ro.observe(node)
+    window.addEventListener('resize', measure)
+    return () => {
+      if (ro) ro.disconnect()
+      window.removeEventListener('resize', measure)
+    }
   }, [statusFilter, counts])
 
   return (
-    <div ref={containerRef} className="relative inline-flex items-center gap-1 bg-muted/60 rounded-full p-1">
-      <motion.div
-        className="absolute top-1 bottom-1 rounded-full shadow-sm z-0 bg-card border border-border"
-        animate={{ left: indicator.left, width: indicator.width }}
-        transition={{ type: 'spring', stiffness: 350, damping: 28 }}
-      />
-      {STATUS_PILLS.map((tab) => {
-        const isActive = statusFilter === tab.id
-        const count = counts[tab.id] ?? 0
-        return (
-          <button
-            key={tab.id}
-            type="button"
-            data-active={isActive}
-            onClick={() => onStatusFilter(tab.id)}
-            className={cn(
-              'relative z-10 px-3 py-1 rounded-full text-[11px] font-semibold transition-colors duration-200 whitespace-nowrap',
-              isActive ? (PILL_TEXT_ACTIVE[tab.id] || 'text-foreground') : 'text-muted-foreground hover:text-foreground',
-            )}
-          >
-            {tab.label}
-            <span className={cn('ml-1', isActive ? 'opacity-90' : 'opacity-60')}>{count}</span>
-          </button>
-        )
-      })}
+    <div className="inline-flex items-center p-1 rounded-full bg-muted/60 border border-border/60">
+      <div ref={containerRef} className="relative inline-flex items-center gap-1">
+        <motion.div
+          className="absolute top-0 bottom-0 rounded-full bg-card shadow-sm border border-border z-0"
+          animate={{ left: indicator.left, width: indicator.width }}
+          transition={{ type: 'spring', stiffness: 350, damping: 28 }}
+        />
+        {STATUS_PILLS.map((tab) => {
+          const isActive = statusFilter === tab.id
+          const count = counts[tab.id] ?? 0
+          return (
+            <button
+              key={tab.id}
+              type="button"
+              data-active={isActive}
+              onClick={() => onStatusFilter(tab.id)}
+              className={cn(
+                'relative z-10 px-3.5 py-1.5 rounded-full text-[11px] font-semibold transition-colors duration-200 whitespace-nowrap',
+                isActive
+                  ? (PILL_TEXT_ACTIVE[tab.id] || 'text-foreground')
+                  : 'text-muted-foreground hover:text-foreground',
+              )}
+            >
+              {tab.label}
+              <span className={cn('ml-1', isActive ? 'opacity-90' : 'opacity-60')}>{count}</span>
+            </button>
+          )
+        })}
+      </div>
     </div>
   )
 }
@@ -564,7 +566,6 @@ function ContractRow({ contract, lifetime, onClick }) {
           {contract.contract_code || '—'}
         </span>
       </div>
-
       <div className="min-w-0">
         <span className="text-[11px] text-foreground truncate block">
           {contract.owners?.name || 'No owner'}
@@ -573,17 +574,14 @@ function ContractRow({ contract, lifetime, onClick }) {
           {contract.units?.building || '—'}
         </span>
       </div>
-
       <div className="min-w-0 text-[11px] text-foreground tabular-nums">
         <div className="truncate">{formatDateShort(contract.effective_date)}</div>
         <div className="text-muted-foreground truncate">→ {formatDateShort(contract.expiry_date)}</div>
       </div>
-
       <div className="text-[11px] tabular-nums text-foreground min-w-0">
         <div className="truncate">{formatMoney(lifetime?.gross || 0)}</div>
         <div className="text-[11px] text-muted-foreground truncate">{formatMoney(lifetime?.net || 0)}</div>
       </div>
-
       <div className="flex items-center justify-end flex-shrink-0">
         <StatusText status={deriveContractStatus(contract)} />
       </div>
@@ -677,14 +675,12 @@ function HalfGauge({ pct, sublabel, compact = false }) {
   const clampedPct = Math.max(0, Math.min(1, pct || 0))
   const total = compact ? 44 : 60
   const filled = Math.round(clampedPct * total)
-
   const w = compact ? 140 : 200
   const h = compact ? 78 : 110
   const cx = w / 2
   const cy = h - 2
   const r = compact ? 56 : 80
   const strokeW = compact ? 5 : 6
-
   return (
     <div className="flex flex-col items-center justify-center">
       <div className="relative" style={{ width: w, height: h }}>
@@ -743,7 +739,6 @@ function YearNav({ yearSections, selectedYear, onSelectYear }) {
   const idx = yearSections.findIndex((s) => s.year === selectedYear)
   const canPrev = idx > 0
   const canNext = idx >= 0 && idx < yearSections.length - 1
-
   return (
     <div className="flex items-center justify-center">
       <div className="inline-flex items-center gap-1 bg-muted/50 rounded-full p-1">
@@ -780,7 +775,6 @@ function YearNav({ yearSections, selectedYear, onSelectYear }) {
 // ─── Charts ─────────────────────────────────────────────────
 const YearlyRevenueChart = memo(function YearlyRevenueChart({ yearSections, statements, selectedYear, title }) {
   const section = yearSections.find((s) => s.year === selectedYear)
-
   const data = useMemo(() => {
     if (!section) return []
     return section.months.map((mk) => {
@@ -935,12 +929,10 @@ const MonthlyOccupancyChart = memo(function MonthlyOccupancyChart({ statements, 
 
 const WeeklyOccupancyChart = memo(function WeeklyOccupancyChart({ statement, contract }) {
   const [y, m] = statement.month.split('-').map(Number)
-
   const data = useMemo(
     () => weeklyOccupancyForMonth(y, m, statement.bookingsList, contract),
     [y, m, statement.bookingsList, contract],
   )
-
   return (
     <div className="flex flex-col">
       <div className="flex items-center justify-between gap-3 mb-2">
@@ -981,22 +973,18 @@ const WeeklyOccupancyChart = memo(function WeeklyOccupancyChart({ statement, con
 
 const WeeklyCumulativeChart = memo(function WeeklyCumulativeChart({ statement, monthlyExpenses, contract }) {
   const [y, m] = statement.month.split('-').map(Number)
-
   const data = useMemo(
     () => weeklyNetProfitForMonth(y, m, statement.bookingsList, statement.cleaningsList, monthlyExpenses, contract),
     [y, m, statement.bookingsList, statement.cleaningsList, monthlyExpenses, contract],
   )
-
   const maxValue = useMemo(() => {
     const max = data.reduce((mx, d) => Math.max(mx, Math.abs(d.cumulative)), 0)
     return Math.max(Math.ceil(max / 1000) * 1000, 1000)
   }, [data])
-
   const minValue = useMemo(() => {
     const min = data.reduce((mn, d) => Math.min(mn, d.cumulative), 0)
     return min < 0 ? Math.floor(min / 1000) * 1000 : 0
   }, [data])
-
   return (
     <div className="flex flex-col">
       <div className="flex items-center justify-between gap-3 mb-2">
@@ -1069,12 +1057,10 @@ const CumulativeNetChart = memo(function CumulativeNetChart({ statements, select
     const max = data.reduce((m, d) => Math.max(m, Math.abs(d.cumulative)), 0)
     return Math.max(Math.ceil(max / 10000) * 10000, 70000)
   }, [data])
-
   const minValue = useMemo(() => {
     const min = data.reduce((mn, d) => Math.min(mn, d.cumulative), 0)
     return min < 0 ? Math.floor(min / 10000) * 10000 : 0
   }, [data])
-
   const ticks = useMemo(() => {
     const steps = 4
     const span = maxValue - minValue
@@ -1172,9 +1158,6 @@ function BookingCalendar({ month, bookings, cleanings, selectedId, onSelect }) {
         const isDepartureOnly = isCheckoutDay && !isCheckinDay
         const isCancelled = !!b.cancelled_at
 
-        // Rank: 0 = checkout morning, 2 = in-house, 3 = arriving afternoon
-        // Cancelled items rank between in-house and check-in so they're visible
-        // but not confused with active turnover.
         let rank
         if (isCancelled) rank = 4
         else if (isDepartureOnly) rank = 0
@@ -1253,11 +1236,9 @@ function BookingCalendar({ month, bookings, cleanings, selectedId, onSelect }) {
           if (day === null) {
             return <div key={idx} className="min-h-[110px] border-b border-r border-border last:border-r-0 bg-muted/10" />
           }
-
           const items = dayItems[day] || []
           const shown = items.slice(0, 3)
           const extra = Math.max(0, items.length - shown.length)
-
           return (
             <div
               key={idx}
@@ -1313,9 +1294,7 @@ function CalendarBookingBar({ booking, selected, onSelect, isCheckinDay, isCheck
   const { cursor, onMove, onLeave } = useCursorTooltip()
   const bookerComm = Number(booking.booker_commission || 0)
   const affiliateComm = Number(booking.affiliate_commission || 0)
-
   const isDepartureOnly = isCheckoutDay && !isCheckinDay && !isCancelled
-
   return (
     <>
       <motion.button
@@ -1334,11 +1313,7 @@ function CalendarBookingBar({ booking, selected, onSelect, isCheckinDay, isCheck
           isCancelled && 'line-through',
         )}
         style={{
-          backgroundColor: isCancelled
-            ? '#dc2626'
-            : isDepartureOnly
-              ? `${BRAND}80`
-              : BRAND,
+          backgroundColor: isCancelled ? '#dc2626' : isDepartureOnly ? `${BRAND}80` : BRAND,
           color: 'white',
           borderLeft: isDepartureOnly ? '2px dashed rgba(255,255,255,0.85)' : undefined,
           opacity: isCancelled ? 0.75 : 1,
@@ -1406,7 +1381,6 @@ function CalendarCleaningChip({ cleaning, selected, onSelect }) {
   const housekeeper = Number(cleaning.payment_amount || 0)
   const laundry = Number(cleaning.laundry_payment_amount || 0)
   const booking = cleaning.bookings || null
-
   return (
     <>
       <motion.button
@@ -1432,7 +1406,6 @@ function CalendarCleaningChip({ cleaning, selected, onSelect }) {
         <p className="font-semibold text-foreground mb-1.5">Cleaning</p>
         <div className="space-y-0.5">
           <div className="flex justify-between gap-2"><span className="text-foreground">Code</span><span className="text-foreground font-mono font-semibold">{cleaning.cleaning_code || '—'}</span></div>
-
           <div className="flex justify-between gap-2">
             <span className="text-foreground">Booking</span>
             {booking?.booking_code ? (
@@ -1451,7 +1424,6 @@ function CalendarCleaningChip({ cleaning, selected, onSelect }) {
               </span>
             </div>
           )}
-
           <div className="flex justify-between gap-2"><span className="text-foreground">Type</span><span className="text-foreground capitalize font-semibold">{cleaning.type || '—'}</span></div>
           <div className="flex justify-between gap-2"><span className="text-foreground">Status</span><span className="text-foreground font-semibold">{cleaning.status || '—'}</span></div>
           <div className="flex justify-between gap-2"><span className="text-foreground">Scheduled</span><span className="text-foreground tabular-nums">{cleaning.scheduled_date || '—'}</span></div>
@@ -1474,7 +1446,6 @@ function MonthSelector({ options, selectedMonth, onSelectMonth }) {
   const canPrev = idx >= 0 && idx < options.length - 1
   const canNext = idx > 0
   const currentLabel = selectedMonth ? monthLabel(selectedMonth) : 'No month'
-
   return (
     <div className="flex items-center justify-center">
       <div className="inline-flex items-center gap-1 bg-muted/50 rounded-full p-1">
@@ -1596,8 +1567,8 @@ function StatCard({ label, value, icon: Icon }) {
       className="rounded-md bg-card border border-border shadow-sm p-4"
     >
       <div className="flex items-center gap-2 mb-2">
-        {Icon && <Icon size={14} className="text-muted-foreground" />}
-        <span className="text-[11px] font-semibold text-foreground truncate">{label}</span>
+        {Icon && <Icon size={14} className="text-foreground" />}
+        <span className="text-[11px] font-bold uppercase tracking-wider text-foreground truncate">{label}</span>
       </div>
       <p className="text-2xl font-bold tabular-nums text-foreground truncate">{value}</p>
     </motion.div>
@@ -1607,16 +1578,13 @@ function StatCard({ label, value, icon: Icon }) {
 function GeneralStatistics({ lifetime, statements, yearSections, selectedYear, onSelectYear, contract, bookings }) {
   const totalBookings = statements.reduce((sum, s) => sum + s.bookingsList.filter((b) => !b.cancelled_at).length, 0)
   const totalCleanings = statements.reduce((sum, s) => sum + s.cleaningsList.length, 0)
-
   const occupancy = useMemo(
     () => computeContractOccupancy(contract.effective_date, contract.expiry_date, bookings),
     [contract.effective_date, contract.expiry_date, bookings],
   )
-
   const chartTitle = spansFullYear(contract.effective_date, contract.expiry_date)
     ? 'Yearly Revenue'
     : 'Months Revenue'
-
   return (
     <div className="space-y-4">
       <motion.div
@@ -1639,7 +1607,6 @@ function GeneralStatistics({ lifetime, statements, yearSections, selectedYear, o
         title={chartTitle}
       />
 
-      {/* ✅ FIX (single-row strip): full-width horizontal layout for the 3 charts. */}
       <div className="grid grid-cols-1 xl:grid-cols-[2fr_1fr_2fr] gap-4 items-stretch">
         <MonthlyOccupancyChart
           statements={statements}
@@ -1670,9 +1637,7 @@ function MonthlyLedger({ statements, selectedMonth, onSelectMonth }) {
     () => [...statements].sort((a, b) => a.month.localeCompare(b.month)),
     [statements],
   )
-
   const lifetime = useMemo(() => computeLifetime(ordered), [ordered])
-
   if (ordered.length === 0) {
     return (
       <CardBody>
@@ -1682,17 +1647,15 @@ function MonthlyLedger({ statements, selectedMonth, onSelectMonth }) {
       </CardBody>
     )
   }
-
   const ROW = 'grid grid-cols-[110px_1fr_1fr_1fr_1fr] gap-4 items-center'
-
   return (
     <CardBody>
       <div className={cn('px-4 py-2 border-b border-border bg-muted/20 sticky top-0 z-10', ROW)}>
-        <span className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground">Month</span>
-        <span className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground text-right">Gross</span>
-        <span className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground text-right">Expenses</span>
-        <span className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground text-right">Net</span>
-        <span className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground text-right">PM Payout</span>
+        <span className="text-[10px] font-bold uppercase tracking-wider text-foreground">Month</span>
+        <span className="text-[10px] font-bold uppercase tracking-wider text-foreground text-right">Gross</span>
+        <span className="text-[10px] font-bold uppercase tracking-wider text-foreground text-right">Expenses</span>
+        <span className="text-[10px] font-bold uppercase tracking-wider text-foreground text-right">Net</span>
+        <span className="text-[10px] font-bold uppercase tracking-wider text-foreground text-right">PM Payout</span>
       </div>
 
       <div className="max-h-[340px] overflow-y-auto">
@@ -1700,7 +1663,6 @@ function MonthlyLedger({ statements, selectedMonth, onSelectMonth }) {
           const isSelected = s.month === selectedMonth
           const [y, m] = s.month.split('-').map(Number)
           const label = `${MONTHS_SHORT[m - 1]} ${y}`
-
           return (
             <button
               key={s.month}
@@ -1851,7 +1813,6 @@ function ExpenseImageControl({ path, onUpload, onRemove, contractId, size = 'md'
   )
 }
 
-// ⚠️ FIX #2 — audit now includes contract_id
 async function upsertRow({ contract, month, existingId, patch, auditLabel }) {
   const monthDate = monthKeyToDate(month).toISOString().slice(0, 10)
   const payload = { contract_id: contract.id, month: monthDate, ...patch }
@@ -1971,6 +1932,18 @@ function AddExpenseModal({ open, onClose, onSubmit, contractId }) {
     if (open) { setName(''); setAmount(''); setImagePath(null); setBusy(false) }
   }, [open])
 
+  useEffect(() => {
+    if (!open) return
+    const prevOverflow = document.body.style.overflow
+    document.body.style.overflow = 'hidden'
+    const onKey = (e) => { if (e.key === 'Escape') onClose?.() }
+    window.addEventListener('keydown', onKey)
+    return () => {
+      document.body.style.overflow = prevOverflow
+      window.removeEventListener('keydown', onKey)
+    }
+  }, [open, onClose])
+
   if (!open) return null
 
   const submit = async () => {
@@ -1981,11 +1954,24 @@ function AddExpenseModal({ open, onClose, onSubmit, contractId }) {
 
   return (
     <div className="fixed inset-0 z-[10000] flex items-center justify-center p-4">
-      <div className="absolute inset-0 bg-black/50" onClick={onClose} />
-      <motion.div initial={{ opacity: 0, scale: 0.98 }} animate={{ opacity: 1, scale: 1 }} transition={{ duration: 0.15 }}
-        className="relative bg-card rounded-md shadow-2xl max-w-md w-full border border-border overflow-hidden">
+      <button
+        type="button"
+        aria-label="Close"
+        onClick={onClose}
+        className="absolute inset-0 bg-black/50 cursor-default"
+      />
+      <motion.div
+        initial={{ opacity: 0, scale: 0.98 }}
+        animate={{ opacity: 1, scale: 1 }}
+        transition={{ duration: 0.15 }}
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="add-expense-title"
+        className="relative bg-card rounded-lg max-w-md w-full border border-border overflow-hidden"
+        style={{ boxShadow: SOFT_SHADOW }}
+      >
         <div className="flex items-center justify-between px-5 py-3 border-b border-border">
-          <h3 className="text-sm font-bold text-foreground">Add Expense</h3>
+          <h3 id="add-expense-title" className="text-sm font-bold text-foreground">Add Expense</h3>
           <button onClick={onClose} className="p-1 rounded hover:bg-muted"><X size={14} /></button>
         </div>
         <div className="p-5 space-y-3">
@@ -2066,9 +2052,6 @@ function ExpensesPanel({ statement, contract, onChanged, onStatementPatched }) {
     setAddOpen(false)
   }, [statement.month, statement.electricity, statement.internet, statement.water, statement.marketing])
 
-  // ✅ FIX (instant expenses): build a full patch — including computed totals —
-  // so the parent's optimistic update carries every field the reconciliation
-  // effect needs to compare against.
   const applyPatchedRow = (row) => {
     const customItems = Array.isArray(row?.custom_items)
       ? row.custom_items
@@ -2572,7 +2555,7 @@ function MiniStat({ label, value }) {
       variants={{ hidden: { opacity: 0, y: 8 }, visible: { opacity: 1, y: 0, transition: { duration: 0.3 } } }}
       className="rounded-md bg-card border border-border shadow-sm p-3"
     >
-      <p className="text-[11px] font-semibold text-foreground mb-1 truncate">{label}</p>
+      <p className="text-[11px] font-bold uppercase tracking-wider text-foreground mb-1 truncate">{label}</p>
       <p className="text-base font-bold tabular-nums text-foreground truncate">{formatMoney(value)}</p>
     </motion.div>
   )
@@ -2584,7 +2567,7 @@ function MiniSplitStat({ label, owner, company }) {
       variants={{ hidden: { opacity: 0, y: 8 }, visible: { opacity: 1, y: 0, transition: { duration: 0.3 } } }}
       className="rounded-md bg-card border border-border shadow-sm p-3"
     >
-      <p className="text-[11px] font-semibold text-foreground mb-1">{label}</p>
+      <p className="text-[11px] font-bold uppercase tracking-wider text-foreground mb-1">{label}</p>
       <div className="space-y-0.5">
         <div className="flex items-center justify-between gap-2">
           <span className="text-[11px] text-foreground">Owner</span>
@@ -2596,6 +2579,63 @@ function MiniSplitStat({ label, owner, company }) {
         </div>
       </div>
     </motion.div>
+  )
+}
+
+function ListTabPills({ active, onChange, bookingsCount, cleaningsCount }) {
+  const tabs = useMemo(
+    () => [
+      { id: 'bookings', label: `Bookings · ${bookingsCount}` },
+      { id: 'cleanings', label: `Cleanings · ${cleaningsCount}` },
+    ],
+    [bookingsCount, cleaningsCount],
+  )
+  const containerRef = useRef(null)
+  const [indicator, setIndicator] = useState({ left: 0, width: 0 })
+
+  useEffect(() => {
+    const node = containerRef.current
+    if (!node) return
+    const measure = () => {
+      const activeEl = node.querySelector('[data-active="true"]')
+      if (!activeEl) return
+      const cRect = node.getBoundingClientRect()
+      const aRect = activeEl.getBoundingClientRect()
+      setIndicator({ left: aRect.left - cRect.left, width: aRect.width })
+    }
+    measure()
+    const ro = typeof ResizeObserver !== 'undefined' ? new ResizeObserver(measure) : null
+    if (ro) ro.observe(node)
+    return () => { if (ro) ro.disconnect() }
+  }, [active, tabs])
+
+  return (
+    <div className="inline-flex items-center p-1 rounded-full bg-muted/60 border border-border/60">
+      <div ref={containerRef} className="relative inline-flex items-center gap-1">
+        <motion.div
+          className="absolute top-0 bottom-0 rounded-full bg-card shadow-sm border border-border z-0"
+          animate={{ left: indicator.left, width: indicator.width }}
+          transition={{ type: 'spring', stiffness: 350, damping: 28 }}
+        />
+        {tabs.map((tab) => {
+          const isActive = active === tab.id
+          return (
+            <button
+              key={tab.id}
+              type="button"
+              data-active={isActive}
+              onClick={() => onChange(tab.id)}
+              className={cn(
+                'relative z-10 px-3.5 py-1.5 rounded-full text-[11px] font-semibold transition-colors whitespace-nowrap',
+                isActive ? 'text-foreground' : 'text-muted-foreground hover:text-foreground',
+              )}
+            >
+              {tab.label}
+            </button>
+          )
+        })}
+      </div>
+    </div>
   )
 }
 
@@ -2784,7 +2824,7 @@ function MonthlySection({
               >
                 <div className="flex items-center gap-2 mb-2">
                   <Home size={14} className="text-muted-foreground" />
-                  <span className="text-[11px] font-semibold text-foreground">Total Bookings</span>
+                  <span className="text-[11px] font-bold uppercase tracking-wider text-foreground">Total Bookings</span>
                 </div>
                 <div>
                   <p className="text-3xl font-bold tabular-nums text-foreground">{statement.bookingsList.filter((b) => !b.cancelled_at).length}</p>
@@ -2800,7 +2840,7 @@ function MonthlySection({
               >
                 <div className="flex items-center gap-2 mb-2">
                   <Sparkles size={14} className="text-muted-foreground" />
-                  <span className="text-[11px] font-semibold text-foreground">Total Cleanings</span>
+                  <span className="text-[11px] font-bold uppercase tracking-wider text-foreground">Total Cleanings</span>
                 </div>
                 <div>
                   <p className="text-3xl font-bold tabular-nums text-foreground">{statement.cleaningsList.length}</p>
@@ -2847,28 +2887,12 @@ function MonthlySection({
             </div>
 
             <div className="space-y-3">
-              <div className="inline-flex items-center gap-1 bg-muted/60 rounded-full p-1">
-                <button
-                  type="button"
-                  onClick={() => setListTab('bookings')}
-                  className={cn(
-                    'px-3 py-1 rounded-full text-[11px] font-semibold transition-colors',
-                    listTab === 'bookings' ? 'bg-card border border-border text-foreground shadow-sm' : 'text-muted-foreground hover:text-foreground',
-                  )}
-                >
-                  Bookings · {allBookingsSorted.length}
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setListTab('cleanings')}
-                  className={cn(
-                    'px-3 py-1 rounded-full text-[11px] font-semibold transition-colors',
-                    listTab === 'cleanings' ? 'bg-card border border-border text-foreground shadow-sm' : 'text-muted-foreground hover:text-foreground',
-                  )}
-                >
-                  Cleanings · {allCleaningsSorted.length}
-                </button>
-              </div>
+              <ListTabPills
+                active={listTab}
+                onChange={setListTab}
+                bookingsCount={allBookingsSorted.length}
+                cleaningsCount={allCleaningsSorted.length}
+              />
 
               {listTab === 'bookings' ? (
                 allBookingsSorted.length === 0 ? (
@@ -3030,16 +3054,12 @@ const ContractDetail = memo(function ContractDetail({ contract, onBack, onChange
   const [loading, setLoading] = useState(true)
   const [baseStatements, setBaseStatements] = useState([])
   const [statementsLoading, setStatementsLoading] = useState(true)
-
   const [optimisticPatches, setOptimisticPatches] = useState({})
 
   const contractId = contract?.id
   const contractUnitId = contract?.unit_id
-
   const reactId = useRef(Math.random().toString(36).slice(2, 8)).current
 
-  // ✅ FIX: when contractId changes, hard-reset all derived state so the new
-  // contract doesn't briefly render the previous contract's data.
   const prevContractIdRef = useRef(contractId)
   useEffect(() => {
     if (prevContractIdRef.current !== contractId) {
@@ -3054,7 +3074,7 @@ const ContractDetail = memo(function ContractDetail({ contract, onBack, onChange
     }
   }, [contractId])
 
-  const fetchDetailData = useCallback(async () => {
+  const fetchDetailData = useCallback(async (signal) => {
     if (!contractId || !contractUnitId) return
     setLoading(true)
     try {
@@ -3079,6 +3099,7 @@ const ContractDetail = memo(function ContractDetail({ contract, onBack, onChange
           .select('*')
           .eq('contract_id', contractId),
       ])
+      if (signal?.aborted) return
       if (bRes.error) throw bRes.error
       if (clRes.error) throw clRes.error
       if (exRes.error) throw exRes.error
@@ -3086,24 +3107,27 @@ const ContractDetail = memo(function ContractDetail({ contract, onBack, onChange
       setCleanings(clRes.data || [])
       setMonthlyExpenses(exRes.data || [])
     } catch (err) {
+      if (err?.name === 'AbortError') return
       console.error('Failed to load contract detail:', err)
       toast.error('Failed to load contract detail')
     } finally {
-      setLoading(false)
+      if (!signal?.aborted) setLoading(false)
     }
   }, [contractId, contractUnitId])
 
-  useEffect(() => { fetchDetailData() }, [fetchDetailData])
+  useEffect(() => {
+    const ac = new AbortController()
+    fetchDetailData(ac.signal)
+    return () => ac.abort()
+  }, [fetchDetailData])
 
   useEffect(() => {
     if (!contractUnitId || !contractId) return
-
     let timer = null
     const schedule = () => {
       if (timer) clearTimeout(timer)
       timer = setTimeout(() => fetchDetailData(), DETAIL_REFRESH_DEBOUNCE_MS)
     }
-
     const ch = supabase
       .channel(`contract-detail-${contractId}-${reactId}`)
       .on('postgres_changes',
@@ -3116,13 +3140,11 @@ const ContractDetail = memo(function ContractDetail({ contract, onBack, onChange
         { event: '*', schema: 'public', table: 'contract_monthly_expenses', filter: `contract_id=eq.${contractId}` },
         schedule)
       .subscribe()
-
     return () => {
       if (timer) clearTimeout(timer)
       supabase.removeChannel(ch)
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [contractId, contractUnitId])
+  }, [contractId, contractUnitId, fetchDetailData])
 
   const effectiveDate = useMemo(() => contract.effective_date || null, [contract.effective_date])
   const expiryDate = useMemo(() => contract.expiry_date || null, [contract.expiry_date])
@@ -3132,16 +3154,12 @@ const ContractDetail = memo(function ContractDetail({ contract, onBack, onChange
     let cancelled = false
     setStatementsLoading(true)
     fetchContractMonthlyBreakdown(contractId)
-      .then((rows) => {
-        if (!cancelled) setBaseStatements(rows)
-      })
+      .then((rows) => { if (!cancelled) setBaseStatements(rows) })
       .catch((err) => {
         console.error('Failed to load monthly breakdown:', err)
         toast.error('Failed to load monthly breakdown')
       })
-      .finally(() => {
-        if (!cancelled) setStatementsLoading(false)
-      })
+      .finally(() => { if (!cancelled) setStatementsLoading(false) })
     return () => { cancelled = true }
   }, [contractId])
 
@@ -3157,9 +3175,7 @@ const ContractDetail = memo(function ContractDetail({ contract, onBack, onChange
     const monthList = fullMonths.length > 0
       ? fullMonths
       : baseStatements.map((r) => r.month)
-
     if (monthList.length === 0) return []
-
     const baseByMonth = new Map()
     for (const row of baseStatements) baseByMonth.set(row.month, row)
 
@@ -3189,7 +3205,6 @@ const ContractDetail = memo(function ContractDetail({ contract, onBack, onChange
     return monthList.map((month) => {
       const base = baseByMonth.get(month) || makeEmptyStatement(month)
       const manualRow = expensesByMonth.get(month) || null
-
       const customItems = Array.isArray(manualRow?.custom_items)
         ? manualRow.custom_items
             .filter((x) => x && typeof x === 'object')
@@ -3201,7 +3216,6 @@ const ContractDetail = memo(function ContractDetail({ contract, onBack, onChange
             }))
             .filter((x) => x.name.length > 0)
         : []
-
       let merged = {
         ...base,
         month,
@@ -3210,19 +3224,14 @@ const ContractDetail = memo(function ContractDetail({ contract, onBack, onChange
         manualRow,
         customItems,
       }
-
       const patch = optimisticPatches[month]
       if (patch) {
         merged = recomputeStatement(merged, patch)
       }
-
       return merged
     })
   }, [baseStatements, bookings, cleanings, monthlyExpenses, effectiveDate, expiryDate, optimisticPatches])
 
-  // ✅ FIX (instant expenses): only clear the optimistic patch when the RPC's
-  // row matches our patch on every field we wrote. The old version cleared the
-  // patch too eagerly because `totalExpenses` wasn't part of the patch.
   useEffect(() => {
     if (Object.keys(optimisticPatches).length === 0) return
     setOptimisticPatches((prev) => {
@@ -3231,9 +3240,7 @@ const ContractDetail = memo(function ContractDetail({ contract, onBack, onChange
       for (const month of Object.keys(prev)) {
         const base = baseStatements.find((r) => r.month === month)
         if (!base) continue
-
         const opt = prev[month]
-
         const fields = [
           ['electricity',   Number(base.electricity   || 0)],
           ['internet',      Number(base.internet      || 0)],
@@ -3241,13 +3248,12 @@ const ContractDetail = memo(function ContractDetail({ contract, onBack, onChange
           ['marketing',     Number(base.marketing     || 0)],
           ['customTotal',   Number(base.customTotal   || 0)],
           ['totalExpenses', Number(base.totalExpenses || 0)],
+          ['pmShare',       Number(base.pmShare       || 0)],
         ]
-
         const allMatch = fields.every(([k, rpcVal]) => {
           if (opt[k] == null) return true
           return Math.abs(Number(opt[k]) - rpcVal) < 0.5
         })
-
         if (allMatch) {
           delete next[month]
           changed = true
@@ -3258,12 +3264,10 @@ const ContractDetail = memo(function ContractDetail({ contract, onBack, onChange
   }, [baseStatements, optimisticPatches])
 
   const lifetime = useMemo(() => computeLifetime(statements), [statements])
-
   const yearSections = useMemo(
     () => buildYearSections(effectiveDate, expiryDate),
     [effectiveDate, expiryDate],
   )
-
   const [selectedYear, setSelectedYear] = useState(() => pickDefaultYear(yearSections) ?? new Date().getUTCFullYear())
 
   useEffect(() => {
@@ -3401,15 +3405,12 @@ const ContractDetail = memo(function ContractDetail({ contract, onBack, onChange
 // ─── Pagination ─────────────────────────────────────────────
 function Pagination({ page, totalPages, onPageChange }) {
   if (totalPages <= 1) return null
-
   const pages = []
   const maxVisible = 5
   let start = Math.max(1, page - Math.floor(maxVisible / 2))
   let end = Math.min(totalPages, start + maxVisible - 1)
   if (end - start < maxVisible - 1) start = Math.max(1, end - maxVisible + 1)
-
   for (let i = start; i <= end; i++) pages.push(i)
-
   return (
     <div className="flex items-center justify-center gap-1 pt-3">
       <button
@@ -3420,7 +3421,6 @@ function Pagination({ page, totalPages, onPageChange }) {
       >
         <ChevronLeft size={13} />
       </button>
-
       {start > 1 && (
         <>
           <button
@@ -3433,7 +3433,6 @@ function Pagination({ page, totalPages, onPageChange }) {
           {start > 2 && <span className="text-xs text-muted-foreground px-1">…</span>}
         </>
       )}
-
       {pages.map((p) => (
         <button
           key={p}
@@ -3448,7 +3447,6 @@ function Pagination({ page, totalPages, onPageChange }) {
           {p}
         </button>
       ))}
-
       {end < totalPages && (
         <>
           {end < totalPages - 1 && <span className="text-xs text-muted-foreground px-1">…</span>}
@@ -3461,7 +3459,6 @@ function Pagination({ page, totalPages, onPageChange }) {
           </button>
         </>
       )}
-
       <button
         type="button"
         onClick={() => onPageChange(Math.min(totalPages, page + 1))}
@@ -3626,23 +3623,29 @@ function ContractList({
 
   const yearSections = useMemo(() => yearRange.map((y) => ({ year: y })), [yearRange])
 
-  const loadAnalytics = useCallback(async () => {
+  const loadAnalytics = useCallback(async (signal) => {
     setAnalyticsLoading(true)
     setAnalyticsError(null)
     try {
       const { data: monthly, error } = await supabase.rpc('accounting_analytics_by_year', { p_year: selectedYear })
+      if (signal?.aborted) return
       if (error) throw error
       setAnalyticsData(monthly || [])
     } catch (err) {
+      if (err?.name === 'AbortError') return
       console.error('Analytics load failed:', err)
       setAnalyticsError(err?.message || 'Unknown error')
       setAnalyticsData([])
     } finally {
-      setAnalyticsLoading(false)
+      if (!signal?.aborted) setAnalyticsLoading(false)
     }
   }, [selectedYear])
 
-  useEffect(() => { loadAnalytics() }, [loadAnalytics])
+  useEffect(() => {
+    const ac = new AbortController()
+    loadAnalytics(ac.signal)
+    return () => ac.abort()
+  }, [loadAnalytics])
 
   const yearTotals = useMemo(() => {
     const acc = { gross: 0, expenses: 0, net: 0, owner: 0, company: 0, pm: 0 }
@@ -3719,32 +3722,6 @@ function ContractList({
     [filteredSorted, page],
   )
 
-  const handleExport = () => {
-    if (filteredSorted.length === 0) { toast.error('Nothing to export'); return }
-    const headers = [
-      'Contract Code', 'Unit', 'Building', 'Owner', 'Effective', 'Expiry', 'Months',
-      'Lifetime Gross', 'Lifetime Expenses', 'Lifetime Net',
-      `Owner Payout (${OWNER_SPLIT_PCT}%)`, `Company Margin (${COMPANY_SPLIT_PCT}%)`,
-      `PM Payout (${PM_SHARE_OF_COMPANY_PCT}% of company)`,
-    ]
-    const rows = filteredSorted.map(({ contract, lifetime }) => [
-      contract.contract_code || '', contract.units?.unit_code || '', contract.units?.building || '', contract.owners?.name || '',
-      contract.effective_date || '', contract.expiry_date || '', lifetime.monthsCount || 0,
-      lifetime.gross, lifetime.expenses, lifetime.net, lifetime.owner, lifetime.company, lifetime.pm || 0,
-    ])
-    const csv = [headers, ...rows]
-      .map((row) => row.map((v) => `"${String(v).replace(/"/g, '""')}"`).join(','))
-      .join('\n')
-    const blob = new Blob(['\uFEFF' + csv], { type: 'text/csv;charset=utf-8;' })
-    const url = URL.createObjectURL(blob)
-    const a = document.createElement('a')
-    a.href = url
-    a.download = `accounting_${new Date().toISOString().slice(0, 10)}.csv`
-    a.click()
-    URL.revokeObjectURL(url)
-    toast.success('Exported')
-  }
-
   return (
     <div className="h-full min-h-0 overflow-y-auto">
       <div className="p-3 flex flex-col gap-2.5">
@@ -3770,7 +3747,7 @@ function ContractList({
           loading={analyticsLoading}
           collapsed={false}
           error={analyticsError}
-          onRetry={loadAnalytics}
+          onRetry={() => loadAnalytics()}
         />
 
         <div className="flex-shrink-0 flex items-center gap-2">
@@ -3798,7 +3775,6 @@ function ContractList({
           <Button variant="outline" size="sm" onClick={onRefresh} disabled={isRefreshing} className="h-8 rounded">
             <RefreshCw size={13} className={cn(isRefreshing && 'animate-spin')} />
           </Button>
-          <Button variant="outline" size="sm" onClick={handleExport} className="h-8 rounded"><Download size={13} /></Button>
         </div>
 
         <div className="flex-shrink-0 flex items-center justify-between gap-3 flex-wrap">
@@ -3865,7 +3841,7 @@ export default function AccountingPage({ initialSelectedId }) {
   const realtimeDebounceRef = useRef(null)
   const channelIdRef = useRef(Math.random().toString(36).slice(2, 8))
 
-  const fetchAll = useCallback(async () => {
+  const fetchAll = useCallback(async (signal) => {
     if (!hasLoadedOnce.current) setIsFirstLoad(true)
     else setIsRefreshing(true)
     try {
@@ -3877,6 +3853,7 @@ export default function AccountingPage({ initialSelectedId }) {
           owners:owner_id ( id, name, email, phone )
         `)
         .order('effective_date', { ascending: false, nullsFirst: false })
+      if (signal?.aborted) return
       if (error) throw error
 
       const list = data || []
@@ -3884,18 +3861,26 @@ export default function AccountingPage({ initialSelectedId }) {
 
       const ids = list.map((c) => c.id)
       const map = await fetchContractsLifetime(ids)
+      if (signal?.aborted) return
       setLifetimeMap(map)
     } catch (err) {
+      if (err?.name === 'AbortError') return
       console.error('Failed to load accounting data:', err)
       toast.error('Failed to load accounting data')
     } finally {
-      setIsFirstLoad(false)
-      setIsRefreshing(false)
-      hasLoadedOnce.current = true
+      if (!signal?.aborted) {
+        setIsFirstLoad(false)
+        setIsRefreshing(false)
+        hasLoadedOnce.current = true
+      }
     }
   }, [])
 
-  useEffect(() => { fetchAll() }, [fetchAll])
+  useEffect(() => {
+    const ac = new AbortController()
+    fetchAll(ac.signal)
+    return () => ac.abort()
+  }, [fetchAll])
 
   useEffect(() => {
     const ch = supabase

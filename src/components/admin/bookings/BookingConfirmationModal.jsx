@@ -1,3 +1,4 @@
+// src/components/admin/bookings/BookingConfirmationModal.jsx
 import { useEffect, useMemo, useState } from 'react'
 import { motion } from 'framer-motion'
 import {
@@ -17,6 +18,7 @@ import {
 } from '@/lib/email'
 
 const BRAND = '#2d568e'
+const SOFT_SHADOW = '0 20px 40px -16px rgba(15,23,42,0.24), 0 6px 16px -6px rgba(15,23,42,0.10)'
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
 
 export default function BookingConfirmationModal({ open, onClose, booking, onSent }) {
@@ -37,7 +39,6 @@ export default function BookingConfirmationModal({ open, onClose, booking, onSen
     ? `${BOOKING_CONFIRMATION.subjectPrefix} ${booking.booking_code || ''}`.trim()
     : ''
 
-  // Reset when modal opens/closes
   useEffect(() => {
     if (!open) return
     setHistoryOpen(false)
@@ -45,17 +46,31 @@ export default function BookingConfirmationModal({ open, onClose, booking, onSen
     setSending(false)
   }, [open, booking?.id])
 
-  // Load history when the tab is opened
+  useEffect(() => {
+    if (!open) return
+    const prevOverflow = document.body.style.overflow
+    document.body.style.overflow = 'hidden'
+    const onKey = (e) => { if (e.key === 'Escape') onClose?.() }
+    window.addEventListener('keydown', onKey)
+    return () => {
+      document.body.style.overflow = prevOverflow
+      window.removeEventListener('keydown', onKey)
+    }
+  }, [open, onClose])
+
   useEffect(() => {
     if (!open || !historyOpen || !booking?.id) return
+    let cancelled = false
     setHistoryLoading(true)
     listBookingConfirmations(booking.id)
-      .then(setHistory)
+      .then((rows) => { if (!cancelled) setHistory(rows) })
       .catch((err) => {
+        if (cancelled) return
         console.error(err)
         toast.error('Failed to load history')
       })
-      .finally(() => setHistoryLoading(false))
+      .finally(() => { if (!cancelled) setHistoryLoading(false) })
+    return () => { cancelled = true }
   }, [open, historyOpen, booking?.id])
 
   const handleSend = async () => {
@@ -97,20 +112,28 @@ export default function BookingConfirmationModal({ open, onClose, booking, onSen
 
   return (
     <div className="fixed inset-0 z-[10000] flex items-center justify-center p-4">
-      <div className="absolute inset-0 bg-black/50" onClick={onClose} />
+      <button
+        type="button"
+        aria-label="Close"
+        onClick={onClose}
+        className="absolute inset-0 bg-black/50 cursor-default"
+      />
 
       <motion.div
         initial={{ opacity: 0, scale: 0.98 }}
         animate={{ opacity: 1, scale: 1 }}
         transition={{ duration: 0.15 }}
-        className="relative bg-card rounded-lg shadow-2xl max-w-xl w-full max-h-[92vh] flex flex-col overflow-hidden border border-border"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="send-confirmation-title"
+        className="relative bg-card rounded-lg max-w-xl w-full max-h-[92vh] flex flex-col overflow-hidden border border-border"
+        style={{ boxShadow: SOFT_SHADOW }}
       >
-        {/* ---------- Header ---------- */}
         <div className="flex items-center justify-between gap-3 px-5 py-3 border-b border-border flex-shrink-0">
           <div className="flex items-center gap-2 min-w-0">
             <Mail size={16} className="text-foreground flex-shrink-0" />
             <div className="min-w-0">
-              <h2 className="text-sm font-bold text-foreground truncate">
+              <h2 id="send-confirmation-title" className="text-sm font-bold text-foreground truncate">
                 Send Booking Confirmation
               </h2>
               <p className="text-[11px] text-muted-foreground truncate">
@@ -143,7 +166,6 @@ export default function BookingConfirmationModal({ open, onClose, booking, onSen
           </div>
         </div>
 
-        {/* ---------- Body ---------- */}
         <div className="flex-1 overflow-y-auto">
           {historyOpen ? (
             <HistoryPanel
@@ -166,7 +188,6 @@ export default function BookingConfirmationModal({ open, onClose, booking, onSen
           )}
         </div>
 
-        {/* ---------- Footer ---------- */}
         <div className="flex items-center justify-between gap-3 px-5 py-3 border-t border-border bg-muted/30 flex-shrink-0">
           <p className="text-[10px] text-muted-foreground hidden sm:block truncate">
             Preview is read-only · Confirmation email is locked by design.
@@ -203,10 +224,6 @@ export default function BookingConfirmationModal({ open, onClose, booking, onSen
   )
 }
 
-/* ================================================================
-   Preview panel — mirrors what the guest will receive.
-   Keep this in sync with the Edge Function's render function.
-   ================================================================ */
 function PreviewPanel({
   guestEmail, validEmail, subject, booking,
   nightsLabel, guestsLabel, unitLine,
@@ -215,7 +232,6 @@ function PreviewPanel({
   return (
     <div className="p-5 space-y-4">
 
-      {/* To */}
       <div className="flex items-start gap-2 text-xs">
         <span className="font-semibold text-muted-foreground uppercase tracking-wider text-[10px] min-w-[64px] pt-0.5">
           To
@@ -237,7 +253,6 @@ function PreviewPanel({
         </div>
       )}
 
-      {/* Subject */}
       <div className="flex items-start gap-2 text-xs">
         <span className="font-semibold text-muted-foreground uppercase tracking-wider text-[10px] min-w-[64px] pt-0.5">
           Subject
@@ -245,7 +260,6 @@ function PreviewPanel({
         <span className="text-foreground font-semibold break-words">{subject}</span>
       </div>
 
-      {/* Divider */}
       <div className="relative pt-2">
         <div className="border-t border-border" />
         <span className="absolute -top-2 left-1/2 -translate-x-1/2 px-2 bg-card text-[10px] uppercase tracking-wider text-muted-foreground font-semibold">
@@ -253,7 +267,6 @@ function PreviewPanel({
         </span>
       </div>
 
-      {/* Email body preview */}
       <div className="rounded-md border border-border bg-background p-4 space-y-4">
 
         <p className="text-sm text-foreground">
@@ -264,7 +277,6 @@ function PreviewPanel({
           Thank you for booking with Iloilo Rentals! Here are your stay details:
         </p>
 
-        {/* Stay details card */}
         <div className="rounded-md bg-muted/40 p-4">
           <PreviewRow label="Booking code" value={booking.booking_code || '—'} mono />
           <PreviewRow label="Unit"         value={unitLine} />
@@ -282,14 +294,12 @@ function PreviewPanel({
           />
         </div>
 
-        {/* Amounts card */}
         <div className="rounded-md bg-muted/40 p-4">
           <AmountRow label="Total amount" value={totalAmount} />
           <AmountRow label="Amount paid"  value={amountPaid} />
           <AmountRow label="Balance"      value={balance} bold />
         </div>
 
-        {/* Notes (if any) */}
         {booking.notes && (
           <div className="rounded-md bg-muted/40 p-4">
             <p className="text-[10px] uppercase tracking-wider text-muted-foreground font-semibold mb-1.5">
@@ -316,7 +326,6 @@ function PreviewPanel({
         </p>
       </div>
 
-      {/* Info footer */}
       <div className="flex items-start gap-2 px-3 py-2 rounded-md bg-muted/40 border border-border">
         <Check size={12} className="text-muted-foreground flex-shrink-0 mt-0.5" />
         <p className="text-[11px] text-muted-foreground">
@@ -358,9 +367,6 @@ function AmountRow({ label, value, bold = false }) {
   )
 }
 
-/* ================================================================
-   History panel — shows prior sends for this booking.
-   ================================================================ */
 function HistoryPanel({ loading, items }) {
   if (loading) {
     return (

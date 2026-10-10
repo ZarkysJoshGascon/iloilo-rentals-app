@@ -1,3 +1,4 @@
+// src/components/admin/AdminSidebar.jsx
 import { useNavigate } from 'react-router-dom'
 import { useAuth } from "../../context/AuthContext";
 import {
@@ -7,20 +8,42 @@ import {
 import { motion, AnimatePresence } from 'framer-motion'
 import toast from 'react-hot-toast'
 
-// ============================================================
-// MOTION + THEME CONSTANTS
-// ============================================================
-const BRAND = '#2d568e'
+export const SIDEBAR_COLLAPSED_WIDTH = 56
+export const SIDEBAR_EXPANDED_WIDTH  = 224
+export const SIDEBAR_PUSH_DELTA      = SIDEBAR_EXPANDED_WIDTH - SIDEBAR_COLLAPSED_WIDTH  // 168
 
-const SHELL_EASE = [0.4, 0, 0.2, 1]
+export const SIDEBAR_SLIDE_MS        = 620
+export const SIDEBAR_SLIDE_EASE      = 'cubic-bezier(0.32, 0.72, 0, 1)'
 
-const LABEL_EXPAND_DELAY_S = 0.08
-const LABEL_EXPAND_DURATION_S = 0.18
-const LABEL_COLLAPSE_DURATION_S = 0.10
+const PILL_SPRING = { type: 'spring', stiffness: 300, damping: 32, mass: 0.9 }
 
-const PILL_SPRING = { type: 'spring', stiffness: 320, damping: 28, mass: 0.9 }
+const LABEL_EASE = [0.32, 0.72, 0, 1]
+const LABEL_DURATION = 0.32
+const LABEL_DELAY_WHEN_EXPANDING = 0.14
 
-export default function AdminSidebar({ activeTab, setActiveTab, collapsed, onMouseEnter, onMouseLeave, style }) {
+const ROW_PADDING_LEFT = '18px'
+
+const NAV_ITEMS = [
+  { id: 'dashboard',    label: 'Dashboard',       icon: LayoutDashboard },
+  { id: 'registry',     label: 'Registry',        icon: ScrollText },
+  { id: 'contracts',    label: 'Contracts',       icon: FileText },
+  { id: 'accounting',   label: 'Accounting',      icon: TrendingUp },
+  { id: 'bookings',     label: 'Bookings',        icon: Calendar },
+  { id: 'housekeeping', label: 'Housekeeping',    icon: Sparkles },
+  { id: 'inquiries',    label: 'Inquiries',       icon: Inbox },
+  { id: 'interior',     label: 'Interior Design', icon: Palette },
+  { id: 'campaigns',    label: 'Campaigns',       icon: Megaphone },
+  { id: 'team',         label: 'Team',            icon: Users },
+]
+
+export default function AdminSidebar({
+  activeTab,
+  setActiveTab,
+  collapsed,
+  onMouseEnter,
+  onMouseLeave,
+  prefetch,
+}) {
   const navigate = useNavigate()
   const { signOut } = useAuth()
 
@@ -30,125 +53,132 @@ export default function AdminSidebar({ activeTab, setActiveTab, collapsed, onMou
     navigate('/')
   }
 
-  // ✅ Corrected order — Contracts restored between Registry and Accounting.
-  const navItems = [
-    { id: 'dashboard',    label: 'Dashboard',       icon: LayoutDashboard },
-    { id: 'registry',     label: 'Registry',        icon: ScrollText },
-    { id: 'contracts',    label: 'Contracts',       icon: FileText },
-    { id: 'accounting',   label: 'Accounting',      icon: TrendingUp },
-    { id: 'bookings',     label: 'Bookings',        icon: Calendar },
-    { id: 'housekeeping', label: 'Housekeeping',    icon: Sparkles },
-    { id: 'inquiries',    label: 'Inquiries',       icon: Inbox },
-    { id: 'interior',     label: 'Interior Design', icon: Palette },
-    { id: 'campaigns',    label: 'Campaigns',       icon: Megaphone },
-    { id: 'team',         label: 'Team',            icon: Users },
-  ]
+  const handlePrefetch = (id) => {
+    if (!prefetch || !prefetch[id]) return
+    try { prefetch[id]() } catch { /* ignore */ }
+  }
+
+  const width = collapsed ? SIDEBAR_COLLAPSED_WIDTH : SIDEBAR_EXPANDED_WIDTH
+
+  const labelMotion = {
+    initial: { opacity: 0, x: -14 },
+    animate: {
+      opacity: 1,
+      x: 0,
+      transition: { duration: LABEL_DURATION, ease: LABEL_EASE, delay: LABEL_DELAY_WHEN_EXPANDING },
+    },
+    exit: {
+      opacity: 0,
+      x: -10,
+      transition: { duration: 0.16, ease: LABEL_EASE },
+    },
+  }
 
   return (
-    <div
+    <aside
       onMouseEnter={onMouseEnter}
       onMouseLeave={onMouseLeave}
-      style={style}
-      className="h-full bg-blue-50/70 dark:bg-gray-800/70 backdrop-blur-sm shadow-md flex flex-col overflow-hidden rounded-tl-xl"
+      className="fixed top-0 left-0 h-full z-30 overflow-hidden bg-[#2d568e] dark:bg-[#1e3f6a]"
+      style={{
+        width,
+        transition: `width ${SIDEBAR_SLIDE_MS}ms ${SIDEBAR_SLIDE_EASE}, background-color 300ms ease`,
+        willChange: 'width',
+      }}
     >
-      <nav className="flex-1 py-4 px-2 space-y-1 overflow-y-auto">
-        {navItems.map((item) => {
-          const Icon = item.icon
-          const isActive = activeTab === item.id
+      <div className="relative z-10 h-full flex flex-col">
+        <div className="flex-shrink-0 h-3" />
 
-          return (
-            <button
-              key={item.id}
-              onClick={() => setActiveTab(item.id)}
-              className={`group relative w-full flex items-center gap-3 px-3 py-3 text-left rounded-xl text-sm font-medium ${
-                isActive
-                  ? 'text-white'
-                  : 'text-gray-600 dark:text-gray-400 hover:text-[#2d568e] dark:hover:text-blue-300'
-              }`}
-            >
-              {!isActive && (
-                <span
-                  aria-hidden
-                  className="absolute inset-0 rounded-xl pointer-events-none
-                    opacity-0 group-hover:opacity-100 transition-opacity duration-150
-                    ring-1 ring-inset"
-                  style={{ '--tw-ring-color': BRAND }}
-                />
-              )}
+        <nav className="flex-1 min-h-0 overflow-y-auto py-2 space-y-0.5">
+          {NAV_ITEMS.map((item) => {
+            const Icon = item.icon
+            const isActive = activeTab === item.id
 
-              {isActive && (
-                <motion.div
-                  layoutId="activePill"
-                  className="absolute inset-0 bg-[#2d568e] rounded-xl shadow-md"
-                  transition={PILL_SPRING}
-                />
-              )}
-
-              <motion.span
-                className="relative z-10 flex-shrink-0 flex items-center justify-center"
-                whileHover={{ scale: 1.08 }}
-                whileTap={{ scale: 0.96 }}
-                transition={{ type: 'spring', stiffness: 500, damping: 30 }}
+            return (
+              <button
+                key={item.id}
+                type="button"
+                onMouseEnter={() => handlePrefetch(item.id)}
+                onFocus={() => handlePrefetch(item.id)}
+                onClick={() => setActiveTab(item.id)}
+                title={collapsed ? item.label : undefined}
+                className={[
+                  'group relative flex items-center h-10 w-full text-left gap-3 pr-3',
+                  'transition-colors duration-150',
+                  isActive
+                    ? 'text-[#2d568e] dark:text-[#1e3f6a]'
+                    : 'text-white/85 dark:text-white/70 hover:text-white',
+                ].join(' ')}
+                style={{ paddingLeft: ROW_PADDING_LEFT }}
               >
-                <Icon size={20} />
-              </motion.span>
-
-              <AnimatePresence initial={false}>
-                {!collapsed && (
-                  <motion.span
-                    key="label"
-                    initial={{ opacity: 0, x: -6 }}
-                    animate={{ opacity: 1, x: 0 }}
-                    exit={{ opacity: 0, x: -6, transition: { duration: LABEL_COLLAPSE_DURATION_S } }}
-                    transition={{
-                      duration: LABEL_EXPAND_DURATION_S,
-                      delay: LABEL_EXPAND_DELAY_S,
-                      ease: SHELL_EASE,
-                    }}
-                    className="relative z-10 whitespace-nowrap"
-                  >
-                    {item.label}
-                  </motion.span>
+                {!isActive && (
+                  <span
+                    aria-hidden
+                    className="absolute top-1 bottom-1 left-1 right-1 rounded-lg pointer-events-none opacity-0 group-hover:opacity-100 transition-opacity duration-150 ring-1 ring-inset ring-white/70 dark:ring-white/45"
+                  />
                 )}
-              </AnimatePresence>
-            </button>
-          )
-        })}
-      </nav>
 
-      <div className="p-3 border-t border-blue-100/50 dark:border-gray-700/50">
-        <button
-          onClick={handleSignOut}
-          className="group relative w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-gray-600 dark:text-gray-400 hover:text-red-500 dark:hover:text-red-400 text-sm font-medium"
-        >
-          <span
-            aria-hidden
-            className="absolute inset-0 rounded-xl pointer-events-none
-              opacity-0 group-hover:opacity-100 transition-opacity duration-150
-              ring-1 ring-inset ring-red-400/60 dark:ring-red-400/40"
-          />
+                {isActive && (
+                  <motion.div
+                    layoutId="admin-sidebar-pill"
+                    className="absolute top-1 bottom-1 left-1 right-1 rounded-lg bg-white"
+                    style={{ boxShadow: '0 1px 2px rgba(15,23,42,0.12)' }}
+                    transition={PILL_SPRING}
+                  />
+                )}
 
-          <LogOut size={18} className="relative z-10 flex-shrink-0" />
-          <AnimatePresence initial={false}>
-            {!collapsed && (
-              <motion.span
-                key="signout-label"
-                initial={{ opacity: 0, x: -6 }}
-                animate={{ opacity: 1, x: 0 }}
-                exit={{ opacity: 0, x: -6, transition: { duration: LABEL_COLLAPSE_DURATION_S } }}
-                transition={{
-                  duration: LABEL_EXPAND_DURATION_S,
-                  delay: LABEL_EXPAND_DELAY_S,
-                  ease: SHELL_EASE,
-                }}
-                className="relative z-10 whitespace-nowrap"
-              >
-                Sign Out
-              </motion.span>
-            )}
-          </AnimatePresence>
-        </button>
+                <span className="relative z-10 flex-shrink-0 flex items-center justify-center w-5 h-5">
+                  <Icon size={17} strokeWidth={1.9} />
+                </span>
+
+                <AnimatePresence initial={false}>
+                  {!collapsed && (
+                    <motion.span
+                      key="label"
+                      initial={labelMotion.initial}
+                      animate={labelMotion.animate}
+                      exit={labelMotion.exit}
+                      className="relative z-10 text-[13px] font-medium whitespace-nowrap truncate"
+                    >
+                      {item.label}
+                    </motion.span>
+                  )}
+                </AnimatePresence>
+              </button>
+            )
+          })}
+        </nav>
+
+        <div className="flex-shrink-0 py-2 border-t border-white/15 dark:border-white/[0.08]">
+          <button
+            type="button"
+            onClick={handleSignOut}
+            title={collapsed ? 'Sign Out' : undefined}
+            className="group relative flex items-center h-10 w-full text-left gap-3 pr-3 transition-colors duration-150 text-white/85 dark:text-white/70 hover:text-white"
+            style={{ paddingLeft: ROW_PADDING_LEFT }}
+          >
+            <span
+              aria-hidden
+              className="absolute top-1 bottom-1 left-1 right-1 rounded-lg pointer-events-none opacity-0 group-hover:opacity-100 transition-opacity duration-150 ring-1 ring-inset ring-white/70 dark:ring-white/45"
+            />
+            <span className="relative flex-shrink-0 flex items-center justify-center w-5 h-5">
+              <LogOut size={16} strokeWidth={1.9} />
+            </span>
+            <AnimatePresence initial={false}>
+              {!collapsed && (
+                <motion.span
+                  key="signout-label"
+                  initial={labelMotion.initial}
+                  animate={labelMotion.animate}
+                  exit={labelMotion.exit}
+                  className="relative text-[13px] font-medium whitespace-nowrap"
+                >
+                  Sign Out
+                </motion.span>
+              )}
+            </AnimatePresence>
+          </button>
+        </div>
       </div>
-    </div>
+    </aside>
   )
 }

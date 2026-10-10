@@ -1,17 +1,25 @@
 // src/pages/admin/AdminDashboardPage.jsx
-import { useEffect, useState, useCallback, useRef, lazy, Suspense } from 'react'
+import { useEffect, useState, useCallback, useRef, lazy, Suspense, memo } from 'react'
 import { useNavigate, useSearchParams } from 'react-router-dom'
-import { motion, AnimatePresence } from 'framer-motion'
+import { motion, AnimatePresence, MotionConfig, useReducedMotion } from 'framer-motion'
 import { useTheme } from "../../context/ThemeContext";
 import { useAuth } from "../../context/AuthContext";
 import {
-  Moon, Sun, LogOut, ScrollText, ArrowLeft, Calendar, Users, Sparkles,
+  Moon, Sun, LogOut, ArrowLeft, Calendar, Users, Sparkles,
   FileText, TrendingUp, Loader2, LayoutDashboard, Megaphone, Inbox, Palette,
+  ScrollText,
 } from 'lucide-react'
-import AdminSidebar from '../../components/admin/AdminSidebar'
+import AdminSidebar, {
+  SIDEBAR_COLLAPSED_WIDTH,
+  SIDEBAR_PUSH_DELTA,
+  SIDEBAR_SLIDE_MS,
+  SIDEBAR_SLIDE_EASE,
+} from '../../components/admin/AdminSidebar'
 import { InquiryNotifications } from '../../components/admin/InquiryNotifications'
 
-// ---- Lazy-loaded tabs ----
+// ─────────────────────────────────────────────────────────────
+// Lazy pages
+// ─────────────────────────────────────────────────────────────
 const DashboardPage         = lazy(() => import('../../components/admin/dashboard/DashboardPage'))
 const RegistryPage          = lazy(() => import('../../components/admin/registry/RegistryPage'))
 const ContractsPage         = lazy(() => import('../../components/admin/contracts/ContractsPage'))
@@ -22,6 +30,19 @@ const InquiriesPage         = lazy(() => import('../../components/admin/inquirie
 const InteriorInquiriesPage = lazy(() => import('../../components/admin/interior/InteriorInquiriesPage'))
 const TeamPage              = lazy(() => import('../../components/admin/team/TeamPage'))
 const HousekeepingPage      = lazy(() => import('../../components/admin/housekeeping/HousekeepingPage'))
+
+const PREFETCH = {
+  dashboard:    () => import('../../components/admin/dashboard/DashboardPage'),
+  registry:     () => import('../../components/admin/registry/RegistryPage'),
+  contracts:    () => import('../../components/admin/contracts/ContractsPage'),
+  accounting:   () => import('../../components/admin/accounting/AccountingPage'),
+  bookings:     () => import('../../components/admin/bookings/BookingsPage'),
+  housekeeping: () => import('../../components/admin/housekeeping/HousekeepingPage'),
+  inquiries:    () => import('../../components/admin/inquiries/InquiriesPage'),
+  interior:     () => import('../../components/admin/interior/InteriorInquiriesPage'),
+  campaigns:    () => import('../../components/admin/campaigns/CampaignsPage'),
+  team:         () => import('../../components/admin/team/TeamPage'),
+}
 
 const IDLE_LIMIT_MS   = 30 * 60 * 1000
 const HIDDEN_LIMIT_MS = 60 * 60 * 1000
@@ -34,13 +55,20 @@ const VALID_TABS = [
   'housekeeping', 'inquiries', 'interior', 'campaigns', 'team',
 ]
 
-const SIDEBAR_LEFT_OFFSET     = 12
-const SIDEBAR_COLLAPSED_WIDTH = 56
-const SIDEBAR_EXPANDED_WIDTH  = 224
-const PAGE_OVERLAP            = 4
+// ─────────────────────────────────────────────────────────────
+// Palette
+// ─────────────────────────────────────────────────────────────
+const C = {
+  pageBg:      '#f2f5f9',
+  pageBgDark:  '#070a12',
+  surface:     '#ffffff',
+  surfaceDark: '#0f131c',
+  border:      '#e1e7ef',
+  borderDark:  'rgba(255,255,255,0.07)',
+}
 
-const CONTENT_BASE_MARGIN = SIDEBAR_LEFT_OFFSET + SIDEBAR_COLLAPSED_WIDTH - PAGE_OVERLAP
-const CONTENT_SHIFT_RANGE = SIDEBAR_EXPANDED_WIDTH - SIDEBAR_COLLAPSED_WIDTH
+const SOFT_SHADOW = '0 12px 32px -12px rgba(15,23,42,0.18), 0 4px 12px -4px rgba(15,23,42,0.08)'
+const SOFT_SHADOW_DARK = '0 12px 32px -12px rgba(0,0,0,0.55), 0 4px 12px -4px rgba(0,0,0,0.35)'
 
 function readStorage(key, fallback = 0) {
   try {
@@ -48,15 +76,11 @@ function readStorage(key, fallback = 0) {
     if (!raw) return fallback
     const n = Number(raw)
     return Number.isFinite(n) ? n : fallback
-  } catch {
-    return fallback
-  }
+  } catch { return fallback }
 }
-
 function writeStorage(key, value) {
   try { sessionStorage.setItem(key, String(value)) } catch { /* ignore */ }
 }
-
 function clearSessionStorage() {
   try {
     sessionStorage.removeItem(ACTIVITY_KEY)
@@ -64,53 +88,105 @@ function clearSessionStorage() {
   } catch { /* ignore */ }
 }
 
-function PageTransition({ children, tabKey }) {
-  return (
-    <motion.div
-      key={tabKey}
-      initial={{ opacity: 0, y: 12 }}
-      animate={{ opacity: 1, y: 0 }}
-      exit={{ opacity: 0, y: -12 }}
-      transition={{ duration: 0.25 }}
-      className="h-full min-h-0"
-    >
-      {children}
-    </motion.div>
-  )
+function formatClockDate(d) {
+  return d.toLocaleDateString('en-PH', {
+    weekday: 'long', month: 'long', day: 'numeric', year: 'numeric',
+    timeZone: 'Asia/Manila',
+  })
+}
+function formatClockTime(d) {
+  return d.toLocaleTimeString('en-PH', {
+    hour: 'numeric', minute: '2-digit', hour12: true,
+    timeZone: 'Asia/Manila',
+  })
 }
 
-function TabLoader() {
+// ─────────────────────────────────────────────────────────────
+// Idle prefetch helper
+// ─────────────────────────────────────────────────────────────
+function scheduleIdle(cb, timeout = 2000) {
+  if (typeof window === 'undefined') return null
+  if ('requestIdleCallback' in window) {
+    return { kind: 'idle', id: window.requestIdleCallback(cb, { timeout }) }
+  }
+  return { kind: 'timeout', id: setTimeout(cb, 1200) }
+}
+function cancelIdle(handle) {
+  if (!handle) return
+  if (handle.kind === 'idle' && typeof window !== 'undefined' && 'cancelIdleCallback' in window) {
+    window.cancelIdleCallback(handle.id)
+  } else {
+    clearTimeout(handle.id)
+  }
+}
+
+// ─────────────────────────────────────────────────────────────
+// Page skeleton — only shown on a tab's FIRST visit
+// ─────────────────────────────────────────────────────────────
+function PageSkeleton() {
   return (
-    <div className="absolute inset-6 flex items-center justify-center">
-      <Loader2 className="w-6 h-6 animate-spin text-[#2d568e]" />
+    <div className="absolute inset-0 overflow-hidden">
+      <div className="px-6 py-5 md:px-8 md:py-6 max-w-[1600px] mx-auto space-y-4">
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+          {[0, 1, 2, 3].map((i) => (
+            <div key={i} className="h-24 rounded-lg bg-black/[0.04] dark:bg-white/[0.04] animate-pulse" />
+          ))}
+        </div>
+        <div className="h-10 rounded-lg bg-black/[0.03] dark:bg-white/[0.03] animate-pulse" />
+        <div className="rounded-lg overflow-hidden bg-black/[0.02] dark:bg-white/[0.02]">
+          {[0, 1, 2, 3, 4, 5].map((i) => (
+            <div
+              key={i}
+              className="h-14 border-b border-black/[0.04] dark:border-white/[0.04] last:border-b-0 animate-pulse"
+            />
+          ))}
+        </div>
+      </div>
     </div>
   )
 }
 
-function formatClockDate(d) {
-  return d.toLocaleDateString('en-PH', {
-    weekday: 'long',
-    month: 'long',
-    day: 'numeric',
-    year: 'numeric',
-    timeZone: 'Asia/Manila',
-  })
-}
+// ─────────────────────────────────────────────────────────────
+// Chunk cache — once a tab's component has mounted, we never
+// show its skeleton again for the rest of the browser session.
+// ─────────────────────────────────────────────────────────────
+const loadedTabs = new Set()
 
-function formatClockTime(d) {
-  return d.toLocaleTimeString('en-PH', {
-    hour: 'numeric',
-    minute: '2-digit',
-    hour12: true,
-    timeZone: 'Asia/Manila',
-  })
-}
+const ActiveTab = memo(function ActiveTab({
+  activeTab, contractId, bookingId, cleaningId, fromBookingId, onNavigateTab,
+}) {
+  switch (activeTab) {
+    case 'dashboard':
+      return <DashboardPage onNavigateTab={onNavigateTab} />
+    case 'registry':
+      return <RegistryPage />
+    case 'contracts':
+      return <ContractsPage />
+    case 'accounting':
+      return <AccountingPage initialSelectedId={contractId} />
+    case 'bookings':
+      return <BookingsPage initialSelectedId={bookingId} />
+    case 'housekeeping':
+      return <HousekeepingPage initialSelectedId={cleaningId} fromBookingId={fromBookingId} />
+    case 'inquiries':
+      return <InquiriesPage />
+    case 'interior':
+      return <InteriorInquiriesPage />
+    case 'campaigns':
+      return <CampaignsPage />
+    case 'team':
+      return <TeamPage />
+    default:
+      return <DashboardPage onNavigateTab={onNavigateTab} />
+  }
+})
 
 export default function AdminDashboardPage() {
   const { user, signOut } = useAuth()
   const { isDark, toggleTheme } = useTheme()
   const navigate = useNavigate()
   const [searchParams, setSearchParams] = useSearchParams()
+  const prefersReducedMotion = useReducedMotion()
 
   const urlTab = searchParams.get('tab')
   const initialTab = urlTab && VALID_TABS.includes(urlTab) ? urlTab : 'dashboard'
@@ -120,12 +196,19 @@ export default function AdminDashboardPage() {
   const [adminUser, setAdminUser] = useState(null)
   const [showProfileMenu, setShowProfileMenu] = useState(false)
 
+  // ── Mark current tab loaded as soon as it becomes active ──
+  useEffect(() => {
+    loadedTabs.add(activeTab)
+  }, [activeTab])
+
+  // ── Clock ────────────────────────────────────────────────
   const [now, setNow] = useState(() => new Date())
   useEffect(() => {
     const t = setInterval(() => setNow(new Date()), 30000)
     return () => clearInterval(t)
   }, [])
 
+  // ── Admin user ───────────────────────────────────────────
   useEffect(() => {
     if (user) {
       setAdminUser({
@@ -136,6 +219,7 @@ export default function AdminDashboardPage() {
     }
   }, [user])
 
+  // ── URL tab sync ─────────────────────────────────────────
   useEffect(() => {
     const tab = searchParams.get('tab')
     if (tab && VALID_TABS.includes(tab) && tab !== activeTab) {
@@ -143,8 +227,6 @@ export default function AdminDashboardPage() {
     }
   }, [searchParams, activeTab])
 
-  // Clear stale URL params when leaving a tab, so a selection from one page
-  // doesn't bleed into another.
   const handleTabChange = useCallback((tab) => {
     setActiveTab(tab)
     const next = new URLSearchParams(searchParams)
@@ -160,82 +242,63 @@ export default function AdminDashboardPage() {
 
   const handleSignOut = useCallback(async () => {
     clearSessionStorage()
-    try {
-      await signOut()
-    } catch (err) {
-      console.error('Sign out failed:', err)
-    }
+    try { await signOut() } catch (err) { console.error('Sign out failed:', err) }
     navigate('/', { replace: true })
   }, [signOut, navigate])
 
+  // ── Session timeouts ─────────────────────────────────────
   const tickRef = useRef(null)
   const handleSignOutRef = useRef(handleSignOut)
-
   useEffect(() => { handleSignOutRef.current = handleSignOut }, [handleSignOut])
 
   useEffect(() => {
     if (!user) return
-
     const nowTs = Date.now()
     let lastActivity = readStorage(ACTIVITY_KEY, 0)
     if (!lastActivity || lastActivity > nowTs) {
       lastActivity = nowTs
       writeStorage(ACTIVITY_KEY, lastActivity)
     }
-
     if (nowTs - lastActivity >= IDLE_LIMIT_MS) {
       handleSignOutRef.current()
       return
     }
-
-    const markActive = () => {
-      const t = Date.now()
-      writeStorage(ACTIVITY_KEY, t)
-    }
-
+    const markActive = () => writeStorage(ACTIVITY_KEY, Date.now())
     const tick = () => {
-      const nowTs = Date.now()
+      const t = Date.now()
       if (document.hidden) {
         const hiddenAt = readStorage(HIDDEN_AT_KEY, 0)
-        if (hiddenAt && nowTs - hiddenAt >= HIDDEN_LIMIT_MS) {
-          handleSignOutRef.current()
-        }
+        if (hiddenAt && t - hiddenAt >= HIDDEN_LIMIT_MS) handleSignOutRef.current()
         return
       }
-      const last = readStorage(ACTIVITY_KEY, nowTs)
-      if (nowTs - last >= IDLE_LIMIT_MS) {
-        handleSignOutRef.current()
-      }
+      const last = readStorage(ACTIVITY_KEY, t)
+      if (t - last >= IDLE_LIMIT_MS) handleSignOutRef.current()
     }
-
     tickRef.current = setInterval(tick, TICK_MS)
-
     const onVisibilityChange = () => {
-      const nowTs = Date.now()
+      const t = Date.now()
       if (document.hidden) {
-        writeStorage(HIDDEN_AT_KEY, nowTs)
+        writeStorage(HIDDEN_AT_KEY, t)
       } else {
         const hiddenAt = readStorage(HIDDEN_AT_KEY, 0)
-        if (hiddenAt && nowTs - hiddenAt >= HIDDEN_LIMIT_MS) {
+        if (hiddenAt && t - hiddenAt >= HIDDEN_LIMIT_MS) {
           clearSessionStorage()
           handleSignOutRef.current()
           return
         }
-        const last = readStorage(ACTIVITY_KEY, nowTs)
-        if (nowTs - last >= IDLE_LIMIT_MS) {
+        const last = readStorage(ACTIVITY_KEY, t)
+        if (t - last >= IDLE_LIMIT_MS) {
           handleSignOutRef.current()
           return
         }
-        writeStorage(ACTIVITY_KEY, nowTs)
+        writeStorage(ACTIVITY_KEY, t)
         try { sessionStorage.removeItem(HIDDEN_AT_KEY) } catch { /* ignore */ }
       }
     }
-
     const events = ['click', 'keydown', 'scroll', 'mousemove', 'touchstart']
     events.forEach((e) => window.addEventListener(e, markActive, { passive: true }))
     document.addEventListener('visibilitychange', onVisibilityChange)
     window.addEventListener('focus', onVisibilityChange)
-
     return () => {
       events.forEach((e) => window.removeEventListener(e, markActive))
       document.removeEventListener('visibilitychange', onVisibilityChange)
@@ -247,6 +310,17 @@ export default function AdminDashboardPage() {
     }
   }, [user])
 
+  // ── Idle prefetch every lazy chunk once ─────────────────
+  useEffect(() => {
+    const handle = scheduleIdle(() => {
+      Object.values(PREFETCH).forEach((fn) => {
+        try { fn().catch(() => {}) } catch { /* ignore */ }
+      })
+    }, 2500)
+    return () => cancelIdle(handle)
+  }, [])
+
+  // ── Profile menu escape ─────────────────────────────────
   useEffect(() => {
     if (!showProfileMenu) return
     const onKey = (e) => { if (e.key === 'Escape') setShowProfileMenu(false) }
@@ -255,244 +329,229 @@ export default function AdminDashboardPage() {
   }, [showProfileMenu])
 
   const tabIcons = {
-    dashboard:    LayoutDashboard,
-    registry:     ScrollText,
-    contracts:    FileText,
-    accounting:   TrendingUp,
-    bookings:     Calendar,
-    housekeeping: Sparkles,
-    inquiries:    Inbox,
-    interior:     Palette,
-    campaigns:    Megaphone,
-    team:         Users,
+    dashboard: LayoutDashboard, registry: ScrollText, contracts: FileText,
+    accounting: TrendingUp, bookings: Calendar, housekeeping: Sparkles,
+    inquiries: Inbox, interior: Palette, campaigns: Megaphone, team: Users,
   }
-
   const tabTitles = {
-    dashboard:    'Dashboard',
-    registry:     'Registry',
-    contracts:    'Contracts',
-    accounting:   'Accounting',
-    bookings:     'Bookings',
-    housekeeping: 'Housekeeping',
-    inquiries:    'Inquiries',
-    interior:     'Interior Design',
-    campaigns:    'Campaigns',
-    team:         'Team',
+    dashboard: 'Dashboard', registry: 'Registry', contracts: 'Contracts',
+    accounting: 'Accounting', bookings: 'Bookings', housekeeping: 'Housekeeping',
+    inquiries: 'Inquiries', interior: 'Interior Design', campaigns: 'Campaigns',
+    team: 'Team',
   }
-
   const Icon = tabIcons[activeTab] || LayoutDashboard
+  const title = tabTitles[activeTab] || 'Dashboard'
 
-  const sidebarContainerStyle = {
-    left: `${SIDEBAR_LEFT_OFFSET}px`,
-    width: `calc(100% - ${SIDEBAR_LEFT_OFFSET}px)`,
-  }
+  const contentPush = sidebarCollapsed ? 0 : SIDEBAR_PUSH_DELTA
 
-  const contentWrapperStyle = {
-    marginLeft: `${CONTENT_BASE_MARGIN}px`,
-    transform: sidebarCollapsed
-      ? 'translateX(0px)'
-      : `translateX(${CONTENT_SHIFT_RANGE}px)`,
-    transition: 'transform 300ms cubic-bezier(0.4, 0, 0.2, 1)',
-    willChange: 'transform',
-    contain: 'layout paint',
-  }
+  const surface = isDark ? C.surfaceDark : C.surface
+  const border = isDark ? C.borderDark : C.border
+
+  // ─────────────────────────────────────────────────────────
+  // Page transition — always left → right.
+  //   Incoming page: enters from left (-x), settles to 0
+  //   Outgoing page: exits to the right (+x)
+  // Respects reduced-motion preference (fade only).
+  // ─────────────────────────────────────────────────────────
+  const pageVariants = prefersReducedMotion
+    ? {
+        initial: { opacity: 0 },
+        animate: { opacity: 1, transition: { duration: 0.12 } },
+        exit:    { opacity: 0, transition: { duration: 0.08 } },
+      }
+    : {
+        initial: { opacity: 0, x: -24 },
+        animate: { opacity: 1, x: 0, transition: { duration: 0.26, ease: [0.16, 1, 0.3, 1] } },
+        exit:    { opacity: 0, x: 24, transition: { duration: 0.16, ease: [0.4, 0, 1, 1] } },
+      }
+
+  const skeletonFor = loadedTabs.has(activeTab) ? null : <PageSkeleton />
 
   return (
-    <div className="h-screen flex flex-col bg-[#d4deec] dark:bg-gray-900 overflow-hidden transition-colors duration-300">
-      <InquiryNotifications onNavigateTab={handleTabChange} />
+    <MotionConfig reducedMotion="user">
+      <div className="fixed inset-0 overflow-hidden text-foreground">
+        <InquiryNotifications onNavigateTab={handleTabChange} />
 
-      <div className="flex-shrink-0 h-14 flex items-center justify-between px-6 bg-transparent z-40">
-        <h1 className="text-xl font-bold text-[#2d568e] dark:text-blue-400 tracking-tight">
-          Iloilo Rentals Management System
-        </h1>
-        <div className="flex items-center gap-3">
-          <button
-            onClick={() => navigate('/')}
-            className="flex items-center gap-2 px-3 py-2 rounded-xl bg-white/80 dark:bg-gray-800/80 backdrop-blur-sm border border-gray-200 dark:border-gray-700 hover:bg-white dark:hover:bg-gray-700 text-gray-700 dark:text-gray-200 transition-all duration-200 shadow-sm"
-            title="Back to site"
-          >
-            <ArrowLeft size={17} />
-            <span className="hidden sm:inline text-sm font-medium">Back to site</span>
-          </button>
-          <button
-            onClick={toggleTheme}
-            className="flex items-center gap-2 px-3 py-2 rounded-xl bg-white/80 dark:bg-gray-800/80 backdrop-blur-sm border border-gray-200 dark:border-gray-700 hover:bg-white dark:hover:bg-gray-700 text-gray-700 dark:text-gray-200 transition-all duration-200 shadow-sm"
-            title="Toggle theme"
-          >
-            {isDark ? <Sun size={17} className="text-amber-400" /> : <Moon size={17} className="text-gray-600" />}
-          </button>
-          <div className="relative">
-            <button
-              onClick={() => setShowProfileMenu(!showProfileMenu)}
-              className="flex items-center gap-2 px-3 py-1.5 rounded-xl bg-white/80 dark:bg-gray-800/80 backdrop-blur-sm border border-gray-200 dark:border-gray-700 hover:bg-white dark:hover:bg-gray-700 transition-all duration-200 shadow-sm"
-            >
-              {adminUser?.avatar ? (
-                <img src={adminUser.avatar} alt="Admin" className="w-7 h-7 rounded-full object-cover ring-2 ring-white dark:ring-gray-700" />
-              ) : (
-                <div className="w-7 h-7 rounded-full bg-gradient-to-br from-[#2d568e] to-[#1e3a5f] flex items-center justify-center text-white text-xs font-semibold ring-2 ring-white dark:ring-gray-700">
-                  {adminUser?.name?.charAt(0)?.toUpperCase() || 'A'}
-                </div>
-              )}
-              <div className="hidden sm:block text-left">
-                <p className="text-xs font-medium text-gray-700 dark:text-gray-200 leading-tight">
-                  {adminUser?.name || 'Admin'}
-                </p>
-                <p className="text-[10px] text-gray-500 dark:text-gray-400 leading-tight">
-                  Administrator
-                </p>
-              </div>
-            </button>
-            {showProfileMenu && (
-              <>
-                <div className="fixed inset-0 z-40" onClick={() => setShowProfileMenu(false)} />
-                <div className="absolute right-0 top-full mt-2 w-64 bg-white dark:bg-gray-800 rounded-xl shadow-xl border border-gray-200 dark:border-gray-700 z-50 overflow-hidden">
-                  <div className="p-4 border-b border-gray-100 dark:border-gray-700">
-                    <div className="flex items-center gap-3">
-                      {adminUser?.avatar ? (
-                        <img src={adminUser.avatar} alt="Admin" className="w-10 h-10 rounded-full object-cover" />
-                      ) : (
-                        <div className="w-10 h-10 rounded-full bg-gradient-to-br from-[#2d568e] to-[#1e3a5f] flex items-center justify-center text-white font-semibold">
-                          {adminUser?.name?.charAt(0)?.toUpperCase() || 'A'}
-                        </div>
-                      )}
-                      <div className="min-w-0">
-                        <p className="text-sm font-semibold text-gray-900 dark:text-gray-100 truncate">
-                          {adminUser?.name || 'Admin'}
-                        </p>
-                        <p className="text-xs text-gray-500 dark:text-gray-400 truncate">
-                          {adminUser?.email || ''}
-                        </p>
-                      </div>
-                    </div>
-                  </div>
-                  <div className="p-2">
-                    <button
-                      onClick={handleSignOut}
-                      className="w-full flex items-center gap-2 px-3 py-2 text-sm text-red-600 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-900/20 rounded-lg transition-colors"
-                    >
-                      <LogOut size={16} /> Sign Out
-                    </button>
-                  </div>
-                </div>
-              </>
-            )}
-          </div>
-        </div>
-      </div>
-
-      <div className="flex-1 relative min-h-0">
-        <div className="absolute top-0 bottom-0 z-0" style={sidebarContainerStyle}>
-          <AdminSidebar
-            activeTab={activeTab}
-            setActiveTab={handleTabChange}
-            collapsed={sidebarCollapsed}
-            onMouseEnter={() => setSidebarCollapsed(false)}
-            onMouseLeave={() => setSidebarCollapsed(true)}
-            style={{ width: '100%', height: '100%' }}
-          />
-        </div>
+        <AdminSidebar
+          activeTab={activeTab}
+          setActiveTab={handleTabChange}
+          collapsed={sidebarCollapsed}
+          onMouseEnter={() => setSidebarCollapsed(false)}
+          onMouseLeave={() => setSidebarCollapsed(true)}
+          prefetch={PREFETCH}
+        />
 
         <div
           className="h-full flex flex-col"
-          style={contentWrapperStyle}
-          onMouseEnter={() => setSidebarCollapsed(true)}
+          style={{
+            position: 'absolute',
+            top: 0,
+            bottom: 0,
+            left: SIDEBAR_COLLAPSED_WIDTH,
+            width: `calc(100vw - ${SIDEBAR_COLLAPSED_WIDTH}px)`,
+            transform: `translate3d(${contentPush}px, 0, 0)`,
+            transition: `transform ${SIDEBAR_SLIDE_MS}ms ${SIDEBAR_SLIDE_EASE}`,
+            willChange: 'transform',
+            backfaceVisibility: 'hidden',
+          }}
         >
-          <div className="bg-white dark:bg-gray-800 rounded-tl-xl shadow-2xl overflow-hidden flex flex-col flex-1 transition-colors duration-300 z-10 relative">
+          <header
+            className="flex-shrink-0 flex items-center justify-between gap-4 px-5"
+            style={{
+              height: 56,
+              backgroundColor: surface,
+              borderBottom: `1px solid ${border}`,
+              transition: 'background-color 300ms ease, border-color 300ms ease',
+            }}
+          >
+          <div className="flex items-center gap-2.5 min-w-0 overflow-hidden">
+            <AnimatePresence mode="wait" initial={false}>
+              <motion.div
+                key={activeTab}
+                initial={{ opacity: 0, x: -18 }}
+                animate={{ opacity: 1, x: 0 }}
+                exit={{ opacity: 0, x: 12 }}
+                transition={{ duration: 0.32, ease: [0.16, 1, 0.3, 1] }}
+                className="flex items-center gap-2.5 min-w-0"
+              >
+                <Icon size={18} className="text-[#2d568e] dark:text-blue-400 flex-shrink-0" />
+                <h2 className="text-[15px] font-semibold text-foreground truncate tracking-tight">
+                  {title}
+                </h2>
+                <span className="hidden md:inline text-[11px] text-muted-foreground tabular-nums whitespace-nowrap ml-1">
+                  <span className="mx-1.5 text-muted-foreground/40">·</span>
+                  {formatClockDate(now)}
+                  <span className="mx-1.5 text-muted-foreground/40">·</span>
+                  {formatClockTime(now)}
+                </span>
+              </motion.div>
+            </AnimatePresence>
+          </div>
 
-            <div className="px-6 py-4 flex items-center gap-3 flex-shrink-0">
-              <Icon size={22} className="text-[#2d568e] dark:text-blue-400" />
-              <h2 className="text-lg font-semibold text-gray-800 dark:text-gray-100">
-                {tabTitles[activeTab] || 'Dashboard'}
-              </h2>
-              <span className="ml-auto text-[12px] text-gray-500 dark:text-gray-400 tabular-nums whitespace-nowrap">
-                {formatClockDate(now)}
-                <span className="mx-1.5 text-gray-300 dark:text-gray-600">·</span>
-                {formatClockTime(now)}
-              </span>
+            <div className="flex items-center gap-2 flex-shrink-0">
+              <button
+                onClick={() => navigate('/')}
+                className="hidden sm:inline-flex items-center gap-1.5 h-8 px-3 rounded-lg text-[12px] font-medium text-foreground transition-colors hover:bg-black/[0.04] dark:hover:bg-white/[0.06]"
+                style={{ border: `1px solid ${border}` }}
+              >
+                <ArrowLeft size={13} />
+                <span>Back to site</span>
+              </button>
+
+              <button
+                onClick={toggleTheme}
+                className="inline-flex items-center justify-center w-8 h-8 rounded-lg text-foreground transition-colors hover:bg-black/[0.04] dark:hover:bg-white/[0.06]"
+                style={{ border: `1px solid ${border}` }}
+                aria-label="Toggle theme"
+              >
+                {isDark
+                  ? <Sun size={14} className="text-amber-400" />
+                  : <Moon size={14} className="text-gray-600" />}
+              </button>
+
+              <div className="relative">
+                <button
+                  onClick={() => setShowProfileMenu((v) => !v)}
+                  className="flex items-center gap-2 h-8 pl-1 pr-2.5 rounded-lg transition-colors hover:bg-black/[0.04] dark:hover:bg-white/[0.06]"
+                  style={{ border: `1px solid ${border}` }}
+                >
+                  {adminUser?.avatar ? (
+                    <img src={adminUser.avatar} alt="" className="w-6 h-6 rounded-full object-cover" />
+                  ) : (
+                    <div className="w-6 h-6 rounded-full bg-gradient-to-br from-[#2d568e] to-[#1e3a5f] flex items-center justify-center text-white text-[10px] font-semibold">
+                      {adminUser?.name?.charAt(0)?.toUpperCase() || 'A'}
+                    </div>
+                  )}
+                  <div className="hidden md:block text-left leading-none">
+                    <p className="text-[12px] font-medium text-foreground truncate max-w-[140px]">
+                      {adminUser?.name || 'Admin'}
+                    </p>
+                    <p className="text-[10px] text-muted-foreground mt-0.5">Administrator</p>
+                  </div>
+                </button>
+
+                <AnimatePresence>
+                  {showProfileMenu && (
+                    <>
+                      <div className="fixed inset-0 z-40" onClick={() => setShowProfileMenu(false)} />
+                      <motion.div
+                        initial={{ opacity: 0, y: -4 }}
+                        animate={{ opacity: 1, y: 0 }}
+                        exit={{ opacity: 0, y: -4 }}
+                        transition={{ duration: 0.12, ease: [0.16, 1, 0.3, 1] }}
+                        className="absolute right-0 top-full mt-2 w-64 rounded-xl z-50 overflow-hidden"
+                        style={{
+                          backgroundColor: surface,
+                          border: `1px solid ${border}`,
+                          boxShadow: isDark ? SOFT_SHADOW_DARK : SOFT_SHADOW,
+                        }}
+                      >
+                        <div className="p-4" style={{ borderBottom: `1px solid ${border}` }}>
+                          <div className="flex items-center gap-3 min-w-0">
+                            {adminUser?.avatar ? (
+                              <img src={adminUser.avatar} alt="" className="w-10 h-10 rounded-full object-cover" />
+                            ) : (
+                              <div className="w-10 h-10 rounded-full bg-gradient-to-br from-[#2d568e] to-[#1e3a5f] flex items-center justify-center text-white font-semibold">
+                                {adminUser?.name?.charAt(0)?.toUpperCase() || 'A'}
+                              </div>
+                            )}
+                            <div className="min-w-0">
+                              <p className="text-[13px] font-semibold text-foreground truncate">
+                                {adminUser?.name || 'Admin'}
+                              </p>
+                              <p className="text-[11px] text-muted-foreground truncate">
+                                {adminUser?.email || ''}
+                              </p>
+                            </div>
+                          </div>
+                        </div>
+                        <div className="p-1.5">
+                          <button
+                            onClick={handleSignOut}
+                            className="w-full flex items-center gap-2 px-3 py-2 text-[12px] font-medium text-red-600 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-950/20 rounded-lg transition-colors"
+                          >
+                            <LogOut size={14} /> Sign Out
+                          </button>
+                        </div>
+                      </motion.div>
+                    </>
+                  )}
+                </AnimatePresence>
+              </div>
             </div>
+          </header>
 
-            <div className="flex-1 min-h-0 overflow-hidden p-6 relative">
-              <AnimatePresence mode="wait">
-                <Suspense fallback={<TabLoader />}>
-                  {activeTab === 'dashboard' && (
-                    <PageTransition tabKey="dashboard">
-                      <div className="absolute inset-6 min-h-0 flex flex-col">
-                        <DashboardPage onNavigateTab={handleTabChange} />
-                      </div>
-                    </PageTransition>
-                  )}
-                  {activeTab === 'registry' && (
-                    <PageTransition tabKey="registry">
-                      <div className="absolute inset-6 min-h-0 flex flex-col">
-                        <RegistryPage />
-                      </div>
-                    </PageTransition>
-                  )}
-                  {activeTab === 'contracts' && (
-                    <PageTransition tabKey="contracts">
-                      <div className="absolute inset-6 min-h-0 flex flex-col">
-                        <ContractsPage />
-                      </div>
-                    </PageTransition>
-                  )}
-                  {activeTab === 'accounting' && (
-                    <PageTransition tabKey="accounting">
-                      <div className="absolute inset-6 min-h-0 flex flex-col">
-                        <AccountingPage initialSelectedId={searchParams.get('contract')} />
-                      </div>
-                    </PageTransition>
-                  )}
-                  {activeTab === 'bookings' && (
-                    <PageTransition tabKey="bookings">
-                      <div className="absolute inset-6 min-h-0 flex flex-col">
-                        <BookingsPage initialSelectedId={searchParams.get('booking')} />
-                      </div>
-                    </PageTransition>
-                  )}
-                  {activeTab === 'housekeeping' && (
-                    <PageTransition tabKey="housekeeping">
-                      <div className="absolute inset-6 min-h-0 flex flex-col">
-                        <HousekeepingPage
-                          initialSelectedId={searchParams.get('cleaning')}
-                          fromBookingId={searchParams.get('fromBooking')}
-                        />
-                      </div>
-                    </PageTransition>
-                  )}
-                  {activeTab === 'inquiries' && (
-                    <PageTransition tabKey="inquiries">
-                      <div className="absolute inset-6 min-h-0 flex flex-col">
-                        <InquiriesPage />
-                      </div>
-                    </PageTransition>
-                  )}
-                  {activeTab === 'interior' && (
-                    <PageTransition tabKey="interior">
-                      <div className="absolute inset-6 min-h-0 flex flex-col">
-                        <InteriorInquiriesPage />
-                      </div>
-                    </PageTransition>
-                  )}
-                  {activeTab === 'campaigns' && (
-                    <PageTransition tabKey="campaigns">
-                      <div className="absolute inset-6 min-h-0 flex flex-col">
-                        <CampaignsPage />
-                      </div>
-                    </PageTransition>
-                  )}
-                  {activeTab === 'team' && (
-                    <PageTransition tabKey="team">
-                      <div className="absolute inset-6 min-h-0 flex flex-col">
-                        <TeamPage />
-                      </div>
-                    </PageTransition>
-                  )}
+          <div
+            className="flex-1 min-h-0 relative"
+            style={{
+              backgroundColor: isDark ? C.pageBgDark : C.pageBg,
+              transition: 'background-color 300ms ease',
+            }}
+          >
+            <AnimatePresence mode="wait" initial={false}>
+              <motion.div
+                key={activeTab}
+                variants={pageVariants}
+                initial="initial"
+                animate="animate"
+                exit="exit"
+                className="absolute inset-0"
+              >
+                <Suspense fallback={skeletonFor}>
+                  <ActiveTab
+                    activeTab={activeTab}
+                    contractId={searchParams.get('contract')}
+                    bookingId={searchParams.get('booking')}
+                    cleaningId={searchParams.get('cleaning')}
+                    fromBookingId={searchParams.get('fromBooking')}
+                    onNavigateTab={handleTabChange}
+                  />
                 </Suspense>
-              </AnimatePresence>
-            </div>
+              </motion.div>
+            </AnimatePresence>
           </div>
         </div>
       </div>
-    </div>
+    </MotionConfig>
   )
 }

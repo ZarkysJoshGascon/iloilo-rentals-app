@@ -3,7 +3,8 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import {
   RefreshCw, ArrowRight, Inbox, ChevronLeft, ChevronRight,
-  Copy, Calendar, TrendingUp, FileText, Mail, Sparkles,
+  Copy, Calendar, TrendingUp, FileText, Mail, Sparkles, Loader2,
+  CheckCircle2, AlertTriangle,
 } from 'lucide-react'
 import {
   ResponsiveContainer, BarChart, Bar, AreaChart, Area,
@@ -15,7 +16,6 @@ import { useDebouncedRealtime } from '@/hooks/useDebouncedRealtime'
 import { useAuth } from '@/context/AuthContext'
 import { cn } from '@/lib/utils'
 import { ContextMenu } from '@/components/ui/ContextMenu'
-import BackupStatusStrip from './BackupStatusStrip'
 
 const NEARING_END_DAYS = 60
 const LIST_LIMIT = 8
@@ -64,7 +64,46 @@ function formatDateShort(d) {
   return dt.toLocaleDateString('en-PH', { month: 'short', day: 'numeric', year: '2-digit', timeZone: 'UTC' })
 }
 
-// ── Shared context menu builder for any booking row ──────────
+function backupTimeAgo(iso) {
+  if (!iso) return 'never'
+  const then = new Date(iso).getTime()
+  if (Number.isNaN(then)) return 'never'
+  const diff = Date.now() - then
+  const mins = Math.floor(diff / 60000)
+  if (mins < 1) return 'just now'
+  if (mins < 60) return `${mins}m ago`
+  const hours = Math.floor(mins / 60)
+  if (hours < 24) return `${hours}h ago`
+  return `${Math.floor(hours / 24)}d ago`
+}
+
+// ─────────────────────────────────────────────────────────────
+// Booking status — matches BookingsPage logic exactly.
+//   completed       → has completed_at
+//   upcoming        → today < check-in
+//   in-house        → check-in <= today <= check-out
+//   checked-out     → today > check-out AND payment_status === 'paid'
+//   needs-attention → today > check-out AND payment_status !== 'paid'
+// ─────────────────────────────────────────────────────────────
+function deriveBookingStatus(b) {
+  if (b.completed_at) return 'completed'
+  const t = new Date(); t.setUTCHours(0, 0, 0, 0)
+  const ci = b.check_in ? new Date(b.check_in + 'T00:00:00Z') : null
+  const co = b.check_out ? new Date(b.check_out + 'T00:00:00Z') : null
+  if (!ci || !co) return 'upcoming'
+  if (t < ci) return 'upcoming'
+  if (t <= co) return 'in-house'
+  return b.payment_status === 'paid' ? 'checked-out' : 'needs-attention'
+}
+
+const BOOKING_STATUS_TEXT = {
+  upcoming:          { label: 'Upcoming',        className: 'text-blue-600 dark:text-blue-400' },
+  'in-house':        { label: 'In-House',        className: 'text-emerald-600 dark:text-emerald-400' },
+  'checked-out':     { label: 'Checked Out',     className: 'text-gray-500 dark:text-gray-400' },
+  'needs-attention': { label: 'Needs Attention', className: 'text-amber-600 dark:text-amber-400' },
+  completed:         { label: 'Done',            className: 'text-gray-500 dark:text-gray-400' },
+}
+
 function buildBookingContextItems(booking, navigate) {
   const openBooking = () => navigate(`/admin?tab=bookings&booking=${booking.id}`)
   return [
@@ -314,15 +353,7 @@ function BookingsChart({ data, loading }) {
       <ResponsiveContainer width="100%" height="100%">
         <BarChart data={chartData} margin={{ top: 4, right: 4, left: -8, bottom: 0 }}>
           <CartesianGrid strokeDasharray="3 3" stroke="currentColor" strokeOpacity={0.08} vertical={false} />
-          <XAxis
-            dataKey="label"
-            tick={{ fontSize: 10 }}
-            stroke="currentColor"
-            strokeOpacity={0.4}
-            tickLine={false}
-            axisLine={false}
-            interval={0}
-          />
+          <XAxis dataKey="label" tick={{ fontSize: 10 }} stroke="currentColor" strokeOpacity={0.4} tickLine={false} axisLine={false} interval={0} />
           <YAxis tick={{ fontSize: 10 }} stroke="currentColor" strokeOpacity={0.4} tickLine={false} axisLine={false} allowDecimals={false} />
           <Tooltip content={<ChartTooltip />} cursor={{ fill: 'rgba(45, 86, 142, 0.06)' }} />
           <Bar dataKey="bookings" name="Bookings" fill={BRAND} radius={[3, 3, 0, 0]} maxBarSize={26} />
@@ -355,35 +386,10 @@ function OccupancyChart({ data, loading }) {
             </linearGradient>
           </defs>
           <CartesianGrid strokeDasharray="3 3" stroke="currentColor" strokeOpacity={0.08} vertical={false} />
-          <XAxis
-            dataKey="label"
-            tick={{ fontSize: 10 }}
-            stroke="currentColor"
-            strokeOpacity={0.4}
-            tickLine={false}
-            axisLine={false}
-            interval={0}
-          />
-          <YAxis
-            tick={{ fontSize: 10 }}
-            stroke="currentColor"
-            strokeOpacity={0.4}
-            tickLine={false}
-            axisLine={false}
-            tickFormatter={(v) => `${v}%`}
-            domain={[0, 100]}
-          />
+          <XAxis dataKey="label" tick={{ fontSize: 10 }} stroke="currentColor" strokeOpacity={0.4} tickLine={false} axisLine={false} interval={0} />
+          <YAxis tick={{ fontSize: 10 }} stroke="currentColor" strokeOpacity={0.4} tickLine={false} axisLine={false} tickFormatter={(v) => `${v}%`} domain={[0, 100]} />
           <Tooltip content={<ChartTooltip />} cursor={{ stroke: BRAND, strokeOpacity: 0.15 }} />
-          <Area
-            type="monotone"
-            dataKey="occupancy_pct"
-            name="Occupancy"
-            stroke={BRAND}
-            strokeWidth={2}
-            fill="url(#dash-occupancy-fill)"
-            dot={{ r: 2.5, fill: BRAND }}
-            activeDot={{ r: 4 }}
-          />
+          <Area type="monotone" dataKey="occupancy_pct" name="Occupancy" stroke={BRAND} strokeWidth={2} fill="url(#dash-occupancy-fill)" dot={{ r: 2.5, fill: BRAND }} activeDot={{ r: 4 }} />
         </AreaChart>
       </ResponsiveContainer>
     </div>
@@ -428,20 +434,12 @@ function RevenueGauge({ data, loading, year }) {
             const y2 = cy - Math.sin(rad) * (r + strokeW / 2)
             const active = i < filledTicks
             return (
-              <line
-                key={i}
-                x1={x1} y1={y1} x2={x2} y2={y2}
-                stroke={active ? BRAND : '#d1d5db'}
-                strokeWidth="2"
-                strokeLinecap="round"
-              />
+              <line key={i} x1={x1} y1={y1} x2={x2} y2={y2} stroke={active ? BRAND : '#d1d5db'} strokeWidth="2" strokeLinecap="round" />
             )
           })}
         </svg>
         <div className="absolute inset-0 flex flex-col items-center justify-center" style={{ paddingTop: 22 }}>
-          <p className="text-xl font-bold tabular-nums text-foreground">
-            {formatMoneyCompact(totalRevenue)}
-          </p>
+          <p className="text-xl font-bold tabular-nums text-foreground">{formatMoneyCompact(totalRevenue)}</p>
           <p className="text-[10px] text-muted-foreground mt-0.5">{year} total</p>
         </div>
       </div>
@@ -452,7 +450,6 @@ function RevenueGauge({ data, loading, year }) {
   )
 }
 
-// ── My Bookings panel row (with context menu) ────────────────
 function MyBookingRow({ booking, onOpen }) {
   const navigate = useNavigate()
   const contextItems = buildBookingContextItems(booking, navigate)
@@ -482,7 +479,6 @@ function MyBookingRow({ booking, onOpen }) {
   )
 }
 
-// ── My Cleanings panel row (with context menu) ───────────────
 function MyCleaningRow({ cleaning, onOpen }) {
   const navigate = useNavigate()
 
@@ -535,7 +531,6 @@ function MyCleaningRow({ cleaning, onOpen }) {
   )
 }
 
-// ── My Referrals panel row (with context menu) ───────────────
 function MyReferralRow({ booking, onOpen }) {
   const navigate = useNavigate()
   const contextItems = buildBookingContextItems(booking, navigate)
@@ -787,23 +782,29 @@ export default function DashboardPage({ onNavigateTab }) {
   const [analyticsLoading, setAnalyticsLoading] = useState(true)
   const [analyticsYear, setAnalyticsYear] = useState(() => new Date().getFullYear())
 
+  const [backupLatest, setBackupLatest] = useState(null)
+  const [backupLoading, setBackupLoading] = useState(true)
+  const [backupRunning, setBackupRunning] = useState(false)
+
   const hasLoadedOnce = useRef(false)
 
-  const fetchAnalytics = useCallback(async (year) => {
+  const fetchAnalytics = useCallback(async (year, signal) => {
     setAnalyticsLoading(true)
     try {
       const { data, error: err } = await supabase.rpc('dashboard_analytics_year', { p_year: year })
+      if (signal?.aborted) return
       if (err) throw err
       setAnalytics(data || [])
     } catch (err) {
+      if (err?.name === 'AbortError') return
       console.error('Analytics load failed:', err)
       setAnalytics([])
     } finally {
-      setAnalyticsLoading(false)
+      if (!signal?.aborted) setAnalyticsLoading(false)
     }
   }, [])
 
-  const fetchAll = useCallback(async (isRefresh = false) => {
+  const fetchAll = useCallback(async (isRefresh = false, signal) => {
     if (isRefresh) setRefreshing(true)
     else setLoading(true)
     setError(null)
@@ -832,6 +833,8 @@ export default function DashboardPage({ onNavigateTab }) {
         supabase.from('contracts').select(`id, contract_code, effective_date, expiry_date, units:unit_id ( id, unit_code, building ), owners:owner_id ( id, name )`).gte('expiry_date', today).lte('expiry_date', soon).order('expiry_date', { ascending: true }).limit(LIST_LIMIT),
       ])
 
+      if (signal?.aborted) return
+
       const firstErr = [totalRes, inHouseRes, upcomingRes, unpaidListRes, cleaningsToEvaluateRes, checkInsRes, checkOutsRes, nearingEndRes].find((r) => r.error)
       if (firstErr?.error) throw firstErr.error
 
@@ -855,18 +858,41 @@ export default function DashboardPage({ onNavigateTab }) {
       setContractsNearingEnd(nearingEndRes.data || [])
       hasLoadedOnce.current = true
     } catch (err) {
+      if (err?.name === 'AbortError') return
       console.error('Dashboard load failed:', err)
       setError(err?.message || 'Failed to load dashboard')
     } finally {
-      setLoading(false)
-      setRefreshing(false)
+      if (!signal?.aborted) {
+        setLoading(false)
+        setRefreshing(false)
+      }
     }
   }, [])
 
+  const fetchBackupLatest = useCallback(async () => {
+    const { data, error: err } = await supabase
+      .from('backup_runs')
+      .select('id, started_at, finished_at, status, row_counts, duration_ms, error_message, trigger_source')
+      .order('started_at', { ascending: false })
+      .limit(1)
+      .maybeSingle()
+    if (err) console.error('backup_runs fetch failed:', err)
+    else setBackupLatest(data)
+    setBackupLoading(false)
+  }, [])
+
   useEffect(() => {
-    fetchAll(false)
-    fetchAnalytics(analyticsYear)
-  }, [fetchAll, fetchAnalytics, analyticsYear])
+    const ac = new AbortController()
+    fetchAll(false, ac.signal)
+    fetchAnalytics(analyticsYear, ac.signal)
+    fetchBackupLatest()
+    return () => ac.abort()
+  }, [fetchAll, fetchAnalytics, fetchBackupLatest, analyticsYear])
+
+  useEffect(() => {
+    const t = setInterval(fetchBackupLatest, 60_000)
+    return () => clearInterval(t)
+  }, [fetchBackupLatest])
 
   const handleRealtime = useCallback(() => {
     if (!hasLoadedOnce.current) return
@@ -888,6 +914,51 @@ export default function DashboardPage({ onNavigateTab }) {
     [],
   )
 
+  const sheetUrl = useMemo(
+    () => `https://docs.google.com/spreadsheets/d/${import.meta.env.VITE_BACKUP_SHEET_ID || ''}`,
+    [],
+  )
+
+  const runBackup = useCallback(async () => {
+    if (backupRunning) return
+    setBackupRunning(true)
+    try {
+      const { data: { session } } = await supabase.auth.getSession()
+      if (!session) throw new Error('Not signed in')
+
+      const res = await fetch(
+        `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/backup-to-sheets`,
+        {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            Authorization: `Bearer ${session.access_token}`,
+          },
+          body: '{}',
+        },
+      )
+      const body = await res.json().catch(() => ({}))
+      if (!res.ok) throw new Error(body?.error || `HTTP ${res.status}`)
+      toast.success(`Backup complete · ${body.duration_ms}ms`)
+      await fetchBackupLatest()
+    } catch (err) {
+      console.error(err)
+      toast.error(err?.message || 'Backup failed')
+    } finally {
+      setBackupRunning(false)
+    }
+  }, [backupRunning, fetchBackupLatest])
+
+  const backupStatusColor =
+    backupLatest?.status === 'success' ? 'text-emerald-600 dark:text-emerald-400'
+    : backupLatest?.status === 'partial' ? 'text-amber-600 dark:text-amber-400'
+    : backupLatest?.status === 'failed' ? 'text-red-600 dark:text-red-400'
+    : 'text-muted-foreground'
+
+  const backupTotalRows = backupLatest?.row_counts
+    ? Object.values(backupLatest.row_counts).reduce((s, v) => s + (Number(v) || 0), 0)
+    : 0
+
   if (error) {
     return (
       <div className="h-full flex items-center justify-center text-center px-6">
@@ -907,7 +978,7 @@ export default function DashboardPage({ onNavigateTab }) {
   }
 
   return (
-    <div className="h-full flex gap-4 min-h-0">
+    <div className="h-full flex gap-4 min-h-0 px-6 py-5 md:px-8 md:py-6">
       <MyActivityPanel />
 
       <div className="flex-1 min-w-0 overflow-y-auto">
@@ -918,15 +989,73 @@ export default function DashboardPage({ onNavigateTab }) {
               <h1 className="text-lg font-semibold text-foreground">Operations Overview</h1>
               <p className="text-[11px] text-muted-foreground mt-0.5">{nowLabel}</p>
             </div>
-            <button
-              type="button"
-              onClick={() => { fetchAll(true); fetchAnalytics(analyticsYear) }}
-              disabled={refreshing}
-              className="inline-flex items-center gap-1.5 h-8 px-3 rounded-md border border-border bg-card text-[11px] font-semibold text-foreground hover:bg-muted/40 transition-colors disabled:opacity-50 flex-shrink-0 shadow-sm"
-            >
-              <RefreshCw size={11} className={cn(refreshing && 'animate-spin')} />
-              Refresh
-            </button>
+
+            <div className="flex items-center gap-2 flex-shrink-0">
+              <div
+                className="inline-flex items-center gap-2 h-8 px-3 rounded-md border border-border bg-card shadow-sm flex-shrink-0"
+                title={
+                  backupLatest?.started_at
+                    ? `Last backup: ${backupTimeAgo(backupLatest.started_at)} · ${backupTotalRows.toLocaleString()} rows`
+                    : 'No backup runs yet'
+                }
+              >
+                {backupLatest?.status === 'success' ? (
+                  <CheckCircle2 size={11} className="text-emerald-600 dark:text-emerald-400" />
+                ) : backupLatest?.status === 'failed' ? (
+                  <AlertTriangle size={11} className="text-red-600 dark:text-red-400" />
+                ) : (
+                  <FileText size={11} className="text-muted-foreground" />
+                )}
+                <span className="text-[11px] font-semibold text-foreground">
+                  Backup
+                  <span className={cn('ml-1.5 font-normal', backupStatusColor)}>
+                    · {backupLoading ? '…' : (backupLatest?.status || 'none')}
+                  </span>
+                </span>
+                {backupLatest?.started_at && (
+                  <span className="text-[10px] text-muted-foreground tabular-nums">
+                    {backupTimeAgo(backupLatest.started_at)}
+                  </span>
+                )}
+              </div>
+
+              <a
+                href={sheetUrl}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="inline-flex items-center gap-1.5 h-8 px-3 rounded-md border border-border bg-card text-[11px] font-semibold text-foreground hover:bg-muted/40 transition-colors flex-shrink-0 shadow-sm"
+                title="Open Google Sheets backup"
+              >
+                <FileText size={11} />
+                Sheets
+              </a>
+
+              <button
+                type="button"
+                onClick={runBackup}
+                disabled={backupRunning}
+                className="inline-flex items-center gap-1.5 h-8 px-3 rounded-md text-[11px] font-semibold text-white transition-colors disabled:opacity-50 flex-shrink-0 shadow-sm"
+                style={{ backgroundColor: '#2d568e' }}
+                title="Run backup now"
+              >
+                {backupRunning ? (
+                  <Loader2 size={11} className="animate-spin" />
+                ) : (
+                  <RefreshCw size={11} />
+                )}
+                Run
+              </button>
+
+              <button
+                type="button"
+                onClick={() => { fetchAll(true); fetchAnalytics(analyticsYear) }}
+                disabled={refreshing}
+                className="inline-flex items-center gap-1.5 h-8 px-3 rounded-md border border-border bg-card text-[11px] font-semibold text-foreground hover:bg-muted/40 transition-colors disabled:opacity-50 flex-shrink-0 shadow-sm"
+              >
+                <RefreshCw size={11} className={cn(refreshing && 'animate-spin')} />
+                Refresh
+              </button>
+            </div>
           </div>
 
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-3">
@@ -936,8 +1065,6 @@ export default function DashboardPage({ onNavigateTab }) {
             <StatCard label="Unpaid Bookings" value={stats.unpaidBookingsCount} sub={stats.unpaidBookingsTotal > 0 ? `${formatMoney(stats.unpaidBookingsTotal)} outstanding` : 'No outstanding'} onClick={() => goto('bookings', 'unpaid')} />
             <StatCard label="Cleanings to Evaluate" value={stats.cleaningsToEvaluate} sub="Waiting for review" onClick={() => goto('housekeeping', 'evaluate')} />
           </div>
-
-          <BackupStatusStrip />
 
           <div className="flex items-center justify-center">
             <div className="inline-flex items-center gap-1 bg-muted/50 rounded-full p-1">
