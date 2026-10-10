@@ -86,16 +86,23 @@ async function hashIp(ip: string): Promise<string> {
 // ------------------------------------------------------------
 // Handler
 // ------------------------------------------------------------
+const MAX_BODY_BYTES = 1_500_000  // 1.5 MB — plenty for a JSON form + image refs
+
 serve(async (req) => {
   if (req.method === 'OPTIONS') return new Response('ok', { headers: corsHeaders })
   if (req.method !== 'POST') {
     return new Response('Method not allowed', { status: 405, headers: corsHeaders })
   }
 
+  // ✅ FIX: reject oversized bodies before parsing JSON.
+  const contentLength = Number(req.headers.get('content-length') || 0)
+  if (contentLength > MAX_BODY_BYTES) {
+    return json({ error: 'Request body too large' }, 413)
+  }
+
   const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE, {
     auth: { persistSession: false },
   })
-
   try {
     const p = await req.json().catch(() => ({}))
 

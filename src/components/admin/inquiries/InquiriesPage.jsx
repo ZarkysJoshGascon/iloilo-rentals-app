@@ -2,9 +2,9 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import {
-  Inbox, Search, RefreshCw, X, Mail, Phone, Building2,
-  Home, Check, Trash2, Loader2, AlertTriangle, MessageSquare,
-  User, Calendar, Wallet, ExternalLink, ChevronLeft, ChevronRight,
+  Inbox, Search, RefreshCw, X, Mail, Phone,
+  Check, Trash2, AlertTriangle,
+  ExternalLink, ChevronLeft, ChevronRight,
 } from 'lucide-react'
 import toast from 'react-hot-toast'
 import { Button } from '@/components/ui/button'
@@ -108,19 +108,6 @@ function StatusBadge({ status }) {
     <span className={cn('inline-flex items-center text-[11px] font-semibold px-2 py-0.5 rounded-full border', m.pill)}>
       {m.label}
     </span>
-  )
-}
-
-function SectionHeader({ icon: Icon, title, subtitle, action }) {
-  return (
-    <div className="flex items-center gap-2 mb-2 px-0.5">
-      {Icon ? <Icon size={14} className="text-foreground flex-shrink-0" /> : null}
-      <h3 className="text-[11px] font-semibold uppercase tracking-wider text-foreground truncate">
-        {title}
-      </h3>
-      {subtitle && <span className="text-[11px] text-muted-foreground tabular-nums truncate">{subtitle}</span>}
-      {action && <div className="ml-auto flex items-center gap-1">{action}</div>}
-    </div>
   )
 }
 
@@ -268,23 +255,36 @@ export default function InquiriesPage() {
   }, [fetchData])
 
   const counts = useMemo(() => {
-    const c = { all: inquiries.length, new: 0, contacted: 0, closed: 0 }
-    for (const i of inquiries) {
+    const q = debouncedSearch.trim().toLowerCase()
+    const tokens = q ? q.split(/\s+/).filter(Boolean) : []
+    const scoped = tokens.length === 0
+      ? inquiries
+      : inquiries.filter((i) => {
+          const hay = [
+            i.owner_name, i.owner_email, i.owner_phone,
+            i.building, i.location, i.property_type, i.message,
+          ].filter(Boolean).join(' ').toLowerCase()
+          return tokens.every((tok) => hay.includes(tok))
+        })
+
+    const c = { all: scoped.length, new: 0, contacted: 0, closed: 0 }
+    for (const i of scoped) {
       if (c[i.status] !== undefined) c[i.status]++
     }
     return c
-  }, [inquiries])
+  }, [inquiries, debouncedSearch])
 
   const filtered = useMemo(() => {
     const q = debouncedSearch.trim().toLowerCase()
+    const tokens = q ? q.split(/\s+/).filter(Boolean) : []
     return inquiries.filter((i) => {
       if (statusFilter !== 'all' && i.status !== statusFilter) return false
-      if (q) {
+      if (tokens.length > 0) {
         const hay = [
           i.owner_name, i.owner_email, i.owner_phone,
           i.building, i.location, i.property_type, i.message,
         ].filter(Boolean).join(' ').toLowerCase()
-        if (!hay.includes(q)) return false
+        if (!tokens.every((tok) => hay.includes(tok))) return false
       }
       return true
     })
@@ -476,6 +476,9 @@ export default function InquiriesPage() {
   )
 }
 
+// ─────────────────────────────────────────────────────────────
+// Detail panel — header is STATIC, only the body scrolls.
+// ─────────────────────────────────────────────────────────────
 function InquiryDetailPanel({ inquiry, onClose, onUpdate, onDelete }) {
   const [saving, setSaving] = useState(false)
   const [notesDraft, setNotesDraft] = useState(inquiry.admin_notes || '')
@@ -528,7 +531,7 @@ function InquiryDetailPanel({ inquiry, onClose, onUpdate, onDelete }) {
       className="h-full flex-shrink-0 p-3"
       style={{ maxWidth: '100%', width: 448 + 24 }}
     >
-      <div className="h-full rounded-md border border-border bg-card shadow-lg overflow-y-auto flex flex-col">
+      <div className="h-full rounded-md border border-border bg-card shadow-lg overflow-hidden flex flex-col">
         <AnimatePresence mode="wait" initial={false}>
           <motion.div
             key={inquiry.id}
@@ -536,9 +539,10 @@ function InquiryDetailPanel({ inquiry, onClose, onUpdate, onDelete }) {
             animate={{ opacity: 1, y: 0 }}
             exit={{ opacity: 0, y: -4 }}
             transition={{ duration: 0.18, ease: [0.4, 0, 0.2, 1] }}
-            className="flex-1 flex flex-col min-h-0"
+            className="h-full flex flex-col min-h-0"
           >
-            <div className="px-5 py-4 border-b border-border flex-shrink-0">
+            {/* STATIC HEADER */}
+            <div className="flex-shrink-0 px-5 py-4 border-b border-border">
               <div className="flex items-start gap-3">
                 <OwnerAvatar name={inquiry.owner_name} size="lg" />
                 <div className="min-w-0 flex-1">
@@ -597,7 +601,8 @@ function InquiryDetailPanel({ inquiry, onClose, onUpdate, onDelete }) {
               </div>
             </div>
 
-            <div className="p-4 space-y-4">
+            {/* SCROLLABLE BODY */}
+            <div className="flex-1 min-h-0 overflow-y-auto p-4 space-y-4">
 
               <DetailSection title="Contact">
                 <div className="p-3 space-y-2">
@@ -668,15 +673,26 @@ function InquiryDetailPanel({ inquiry, onClose, onUpdate, onDelete }) {
                           href={img.url}
                           target="_blank"
                           rel="noreferrer noopener"
-                          className="relative aspect-square rounded-md overflow-hidden border border-border bg-muted hover:opacity-90 transition-opacity group"
+                          className="relative aspect-square rounded-md overflow-hidden border border-border bg-muted hover:opacity-90 transition-opacity group flex items-center justify-center"
                         >
                           <img
                             src={img.url}
                             alt=""
                             className="w-full h-full object-cover"
                             loading="lazy"
+                            onError={(e) => {
+                              e.currentTarget.style.display = 'none'
+                              const parent = e.currentTarget.parentElement
+                              if (parent && !parent.querySelector('[data-fallback]')) {
+                                const icon = document.createElement('div')
+                                icon.setAttribute('data-fallback', 'true')
+                                icon.className = 'w-full h-full flex items-center justify-center text-muted-foreground'
+                                icon.innerHTML = '<svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect width="18" height="18" x="3" y="3" rx="2" ry="2"/><circle cx="9" cy="9" r="2"/><path d="m21 15-3.086-3.086a2 2 0 0 0-2.828 0L6 21"/></svg>'
+                                parent.appendChild(icon)
+                              }
+                            }}
                           />
-                          <div className="absolute inset-0 bg-black/0 group-hover:bg-black/20 transition-colors flex items-center justify-center">
+                          <div className="absolute inset-0 bg-black/0 group-hover:bg-black/20 transition-colors flex items-center justify-center pointer-events-none">
                             <ExternalLink
                               size={14}
                               className="text-white opacity-0 group-hover:opacity-100 transition-opacity drop-shadow-lg"

@@ -28,20 +28,31 @@ export function generateBookingCode(prefix = 'BK') {
 // ------------------------------------------------------------
 
 /**
- * Trim, collapse repeated whitespace, strip control chars, and cap length.
- * Safe for names, codes, references, etc.
- */
-/**
- * Trim, collapse repeated whitespace, strip control chars, and cap length.
- * Safe for names, codes, references, etc.
+ * Trim, collapse repeated whitespace, strip control chars, normalize Unicode,
+ * and cap length. Safe for names, codes, references, etc.
  */
 export function sanitizeText(input, { max = 200, allowNewlines = false } = {}) {
   if (input == null) return null
   let s = String(input)
-  // strip control chars except tab/newline if allowed
+
+  // ✅ FIX: Unicode normalization (NFC) collapses homoglyphs and composed
+  // characters so "café" (composed) and "cafe\u0301" (decomposed) become
+  // the same string. Prevents duplicate-lookup bypasses and lookalike attacks.
+  try {
+    s = s.normalize('NFC')
+  } catch {
+    // ignore — some environments don't support normalize
+  }
+
+  // Strip control chars except tab/newline if allowed
   // eslint-disable-next-line no-control-regex
   s = s.replace(allowNewlines ? /[\u0000-\u0008\u000B\u000C\u000E-\u001F\u007F]/g : /[\u0000-\u001F\u007F]/g, '')
-  s = allowNewlines ? s.replace(/[ \t]+/g, ' ').replace(/\n{3,}/g, '\n\n') : s.replace(/\s+/g, ' ')
+
+  // Collapse whitespace
+  s = allowNewlines
+    ? s.replace(/[ \t]+/g, ' ').replace(/\n{3,}/g, '\n\n')
+    : s.replace(/\s+/g, ' ')
+
   s = s.trim()
   if (s.length > max) s = s.slice(0, max)
   return s.length === 0 ? null : s
@@ -58,7 +69,19 @@ export function sanitizeEmail(input) {
 export function sanitizePhone(input) {
   const s = sanitizeText(input, { max: 40 })
   if (!s) return null
-  return s.replace(/[^\d+\-() .]/g, '')
+
+  const cleaned = s.replace(/[^\d+() -]/g, '')
+
+  // ✅ FIX: reject garbage. Must have 7–15 digits (E.164-ish range), at most
+  // one "+" and only at the start.
+  const digitCount = (cleaned.match(/\d/g) || []).length
+  if (digitCount < 7 || digitCount > 15) return null
+
+  const plusCount = (cleaned.match(/\+/g) || []).length
+  if (plusCount > 1) return null
+  if (plusCount === 1 && !cleaned.startsWith('+')) return null
+
+  return cleaned
 }
 
 export function sanitizeMoney(input, { min = 0, max = 100_000_000 } = {}) {
@@ -82,6 +105,7 @@ export function sanitizeDateOnly(input) {
   if (Number.isNaN(d.getTime())) return null
   return s
 }
+
 export function generateContractCode(prefix = 'CT') {
   const bytes = new Uint8Array(8)
   crypto.getRandomValues(bytes)
@@ -91,6 +115,7 @@ export function generateContractCode(prefix = 'CT') {
   }
   return `${prefix}-${s}`
 }
+
 export function generateCleaningCode(prefix = 'CL') {
   const bytes = new Uint8Array(8)
   crypto.getRandomValues(bytes)
@@ -100,11 +125,11 @@ export function generateCleaningCode(prefix = 'CL') {
   }
   return `${prefix}-${s}`
 }
+
 // ------------------------------------------------------------
 // Stay timing constants (Iloilo Rentals policy)
 //   Check-in:  3:00 PM
 //   Check-out: 11:00 AM
-// Change them here and every reference across the app updates.
 // ------------------------------------------------------------
 export const STAY_TIMES = {
   checkIn:  { hour: 15, minute: 0, label: '3:00 PM' },

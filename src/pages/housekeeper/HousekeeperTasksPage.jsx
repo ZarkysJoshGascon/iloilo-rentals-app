@@ -1,3 +1,4 @@
+// src/pages/housekeeper/HousekeeperTasksPage.jsx
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { motion } from 'framer-motion'
@@ -5,6 +6,7 @@ import {
   ArrowLeft, Camera, X, Trash2,
   AlertTriangle, CheckCircle2, Image as ImageIcon,
   Plus, Home, Clock, Sparkles, Coffee, Shirt, Wallet, Send,
+  Lock,
 } from 'lucide-react'
 import toast from 'react-hot-toast'
 import { supabase } from '@/lib/supabase'
@@ -45,6 +47,14 @@ function formatDateShort(d) {
   return dt.toLocaleDateString('en-PH', { month: 'short', day: 'numeric' })
 }
 
+function formatDateTime(d) {
+  if (!d) return '—'
+  return new Date(d).toLocaleString('en-PH', {
+    month: 'short', day: 'numeric', year: 'numeric',
+    hour: 'numeric', minute: '2-digit',
+  })
+}
+
 function initials(name) {
   if (!name) return '?'
   return name.trim().split(/\s+/).slice(0, 2).map((p) => p[0]?.toUpperCase() || '').join('') || '?'
@@ -74,9 +84,6 @@ function SectionCard({ title, icon: Icon, children, className }) {
   )
 }
 
-// ============================================================
-// SKELETON PRIMITIVES
-// ============================================================
 function SkeletonBlock({ className }) {
   return <div className={cn('animate-pulse rounded-md bg-muted', className)} />
 }
@@ -116,9 +123,6 @@ function SinglePhotoSkeleton() {
   return <SkeletonBlock className="aspect-video w-full rounded-md" />
 }
 
-// ============================================================
-// SIGNED-URL HOOKS
-// ============================================================
 function useSignedUrls(photos) {
   const paths = useMemo(
     () => (photos || []).map((p) => p?.path).filter(Boolean),
@@ -166,16 +170,257 @@ function useSignedUrl(photo) {
   return { url, loading }
 }
 
-// ============================================================
-// PHOTO GRID (multi) — before/after/report
-// ============================================================
+// ─────────────────────────────────────────────────────────────
+// READ-ONLY VIEWS (used when cleaning is completed/locked)
+// ─────────────────────────────────────────────────────────────
+
+function ReadOnlyPhotoGrid({ photos, label }) {
+  const safePhotos = Array.isArray(photos) ? photos : []
+  const { map: signedMap, loading } = useSignedUrls(safePhotos)
+
+  if (safePhotos.length === 0) {
+    return (
+      <div className="rounded-md border border-dashed border-border bg-muted/20 py-6 text-center">
+        <ImageIcon size={16} className="text-muted-foreground/40 mx-auto mb-1" />
+        <p className="text-[11px] text-muted-foreground italic">No {label.toLowerCase()} photos</p>
+      </div>
+    )
+  }
+
+  return (
+    <div>
+      <div className="flex items-center justify-between mb-2">
+        <p className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground">{label}</p>
+        <span className="text-[10px] text-muted-foreground tabular-nums">{safePhotos.length}</span>
+      </div>
+      <div className="grid grid-cols-3 gap-2">
+        {safePhotos.map((p, i) => {
+          const src = signedMap[p.path]
+          return (
+            <div key={p.path || i} className="relative aspect-square rounded-md overflow-hidden border border-border bg-muted">
+              {src ? (
+                <img src={src} alt="" className="w-full h-full object-cover" loading="lazy" />
+              ) : loading ? (
+                <PhotoTileSkeleton />
+              ) : (
+                <div className="w-full h-full flex items-center justify-center text-muted-foreground">
+                  <ImageIcon size={16} />
+                </div>
+              )}
+            </div>
+          )
+        })}
+      </div>
+    </div>
+  )
+}
+
+function ReadOnlySinglePhoto({ photo, label }) {
+  const { url, loading } = useSignedUrl(photo)
+
+  if (!photo) {
+    return (
+      <div>
+        <p className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground mb-2">{label}</p>
+        <div className="w-full aspect-video rounded-md border border-dashed border-border bg-muted/20 flex items-center justify-center">
+          <ImageIcon size={16} className="text-muted-foreground/40" />
+        </div>
+      </div>
+    )
+  }
+
+  return (
+    <div>
+      <p className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground mb-2">{label}</p>
+      <div className="aspect-video rounded-md overflow-hidden border border-border bg-muted">
+        {url ? (
+          <img src={url} alt="" className="w-full h-full object-cover" loading="lazy" />
+        ) : loading ? (
+          <SinglePhotoSkeleton />
+        ) : (
+          <div className="w-full h-full flex items-center justify-center text-muted-foreground">
+            <ImageIcon size={16} />
+          </div>
+        )}
+      </div>
+    </div>
+  )
+}
+
+function ReadOnlyItemsList({ items, emptyLabel = 'No items' }) {
+  const parsed = parseInventory(items)
+  if (parsed.length === 0) {
+    return <p className="text-[11px] italic text-muted-foreground text-center py-1">{emptyLabel}</p>
+  }
+  return (
+    <div className="space-y-1">
+      {parsed.map((it, i) => (
+        <div key={i} className="flex items-center justify-between px-2 py-1 rounded bg-muted/40 text-xs">
+          <span className="text-foreground truncate">{it.name}</span>
+          <span className="text-foreground font-semibold tabular-nums">×{it.quantity}</span>
+        </div>
+      ))}
+    </div>
+  )
+}
+
+function CompletedSummary({ cleaning }) {
+  const hasBefore = Array.isArray(cleaning.photos_before) && cleaning.photos_before.length > 0
+  const hasAfter = Array.isArray(cleaning.photos_after) && cleaning.photos_after.length > 0
+  const hasReport = Array.isArray(cleaning.photos_report) && cleaning.photos_report.length > 0
+
+  const amenitiesUsedItems = parseInventory(cleaning.amenities_used_items)
+  const amenitiesReplacedItems = parseInventory(cleaning.amenities_replaced_items)
+  const laundryUsedItems = parseInventory(cleaning.laundry_used_items)
+  const laundryReplacedItems = parseInventory(cleaning.laundry_replaced_items)
+
+  const laundryAmount = Number(cleaning.laundry_payment_amount || 0)
+  const hasLaundryPayment = laundryAmount > 0
+
+  return (
+    <div className="space-y-3">
+      {/* Lock banner */}
+      <div className="rounded-md bg-emerald-500/10 border border-emerald-500/30 p-3 flex items-start gap-2">
+        <Lock size={14} className="text-emerald-600 dark:text-emerald-400 flex-shrink-0 mt-0.5" />
+        <div className="min-w-0">
+          <p className="text-xs font-semibold text-emerald-700 dark:text-emerald-400">
+            Approved by admin · locked
+          </p>
+          <p className="text-[11px] text-emerald-700/80 dark:text-emerald-400/80 mt-0.5">
+            This cleaning is complete and cannot be edited. Contact admin if corrections are needed.
+          </p>
+        </div>
+      </div>
+
+      {/* Cleaning photos */}
+      <SectionCard title="Cleaning Photos" icon={ImageIcon}>
+        <div className="space-y-3">
+          {hasBefore && <ReadOnlyPhotoGrid photos={cleaning.photos_before} label="Before" />}
+          {hasAfter && <ReadOnlyPhotoGrid photos={cleaning.photos_after} label="After" />}
+          {hasReport && <ReadOnlyPhotoGrid photos={cleaning.photos_report} label="Report" />}
+          {!hasBefore && !hasAfter && !hasReport && (
+            <p className="text-[11px] italic text-muted-foreground text-center py-2">
+              No photos on file
+            </p>
+          )}
+        </div>
+      </SectionCard>
+
+      {/* Amenities */}
+      {(amenitiesUsedItems.length > 0 ||
+        amenitiesReplacedItems.length > 0 ||
+        cleaning.amenities_used_photo ||
+        cleaning.amenities_replaced_photo) && (
+        <SectionCard title="Amenities" icon={Coffee}>
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <p className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground mb-2">Used</p>
+              <ReadOnlySinglePhoto photo={cleaning.amenities_used_photo} label="Photo" />
+              <div className="mt-2">
+                <ReadOnlyItemsList items={cleaning.amenities_used_items} />
+              </div>
+            </div>
+            <div>
+              <p className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground mb-2">Replaced</p>
+              <ReadOnlySinglePhoto photo={cleaning.amenities_replaced_photo} label="Photo" />
+              <div className="mt-2">
+                <ReadOnlyItemsList items={cleaning.amenities_replaced_items} />
+              </div>
+            </div>
+          </div>
+        </SectionCard>
+      )}
+
+      {/* Laundry */}
+      {(laundryUsedItems.length > 0 ||
+        laundryReplacedItems.length > 0 ||
+        cleaning.laundry_used_photo ||
+        cleaning.laundry_replaced_photo) && (
+        <SectionCard title="Laundry" icon={Shirt}>
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <p className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground mb-2">Used</p>
+              <ReadOnlySinglePhoto photo={cleaning.laundry_used_photo} label="Photo" />
+              <div className="mt-2">
+                <ReadOnlyItemsList items={cleaning.laundry_used_items} />
+              </div>
+            </div>
+            <div>
+              <p className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground mb-2">Replaced</p>
+              <ReadOnlySinglePhoto photo={cleaning.laundry_replaced_photo} label="Photo" />
+              <div className="mt-2">
+                <ReadOnlyItemsList items={cleaning.laundry_replaced_items} />
+              </div>
+            </div>
+          </div>
+        </SectionCard>
+      )}
+
+      {/* ✅ Laundry Payment — read-only, always shown */}
+      <SectionCard title="Laundry Payment" icon={Wallet}>
+        {hasLaundryPayment ? (
+          <div className="space-y-2">
+            <div className="flex justify-between text-xs">
+              <span className="text-muted-foreground">Amount</span>
+              <span className="text-foreground font-semibold tabular-nums">
+                {`₱${laundryAmount.toLocaleString('en-PH', { minimumFractionDigits: 0, maximumFractionDigits: 2 })}`}
+              </span>
+            </div>
+            {cleaning.laundry_payment_method && (
+              <div className="flex justify-between text-xs">
+                <span className="text-muted-foreground">Method</span>
+                <span className="text-foreground">{cleaning.laundry_payment_method}</span>
+              </div>
+            )}
+            {cleaning.laundry_payment_reference && (
+              <div className="flex justify-between text-xs">
+                <span className="text-muted-foreground">Reference</span>
+                <span className="text-foreground font-mono text-[11px] break-all text-right ml-3">
+                  {cleaning.laundry_payment_reference}
+                </span>
+              </div>
+            )}
+            {cleaning.laundry_payment_note && (
+              <div className="pt-2 mt-2 border-t border-border">
+                <p className="text-[10px] uppercase tracking-wider text-muted-foreground font-semibold mb-1">Note</p>
+                <p className="text-xs text-foreground whitespace-pre-wrap break-words">{cleaning.laundry_payment_note}</p>
+              </div>
+            )}
+            {cleaning.laundry_paid_at && (
+              <div className="flex justify-between text-[10px] text-muted-foreground pt-2 border-t border-border">
+                <span>Paid at</span>
+                <span className="tabular-nums">{formatDateTime(cleaning.laundry_paid_at)}</span>
+              </div>
+            )}
+          </div>
+        ) : (
+          <p className="text-[11px] italic text-muted-foreground text-center py-2">
+            No laundry payment was recorded.
+          </p>
+        )}
+      </SectionCard>
+
+      {/* Notes */}
+      {cleaning.notes && (
+        <SectionCard title="Notes" icon={Sparkles}>
+          <p className="text-xs text-foreground whitespace-pre-wrap break-words">{cleaning.notes}</p>
+        </SectionCard>
+      )}
+    </div>
+  )
+}
+
+// ─────────────────────────────────────────────────────────────
+// EDITABLE COMPONENTS (only shown when NOT completed)
+// ─────────────────────────────────────────────────────────────
+
 function PhotoGridLocal({ label, existing = [], newFiles = [], limit = 15, onAdd, onRemoveExisting, onRemoveNew }) {
   const cameraRef = useRef(null)
   const galleryRef = useRef(null)
   const total = existing.length + newFiles.length
   const canUpload = total < limit
 
-  const { map: signedMap, loading: signedLoading } = useSignedUrls(existing)
+  const { map: signedMap } = useSignedUrls(existing)
 
   const handleFiles = (e) => {
     const files = Array.from(e.target.files || [])
@@ -242,9 +487,6 @@ function PhotoGridLocal({ label, existing = [], newFiles = [], limit = 15, onAdd
   )
 }
 
-// ============================================================
-// SINGLE PHOTO (amenities + laundry) — max 1 per side
-// ============================================================
 function SinglePhotoLocal({ label, existing, newFile, onPick, onClear }) {
   const cameraRef = useRef(null)
   const galleryRef = useRef(null)
@@ -298,9 +540,6 @@ function SinglePhotoLocal({ label, existing, newFile, onPick, onClear }) {
   )
 }
 
-// ============================================================
-// LIST EDITOR (item name + qty, add/remove)
-// ============================================================
 function ListEditor({ items, onChange, placeholder = 'Item name' }) {
   const [name, setName] = useState('')
   const [qty, setQty] = useState('1')
@@ -360,9 +599,6 @@ function ListEditor({ items, onChange, placeholder = 'Item name' }) {
   )
 }
 
-// ============================================================
-// CATEGORY CARD — used + replaced pair
-// ============================================================
 function CategoryCard({ title, Icon, usedPhoto, replacedPhoto, onPickUsed, onPickReplaced, onClearUsed, onClearReplaced,
   usedItems, replacedItems, onUsedItemsChange, onReplacedItemsChange, usedPlaceholder, replacedPlaceholder }) {
   return (
@@ -394,9 +630,6 @@ function CategoryCard({ title, Icon, usedPhoto, replacedPhoto, onPickUsed, onPic
   )
 }
 
-// ============================================================
-// CLEANING DETAIL
-// ============================================================
 function CleaningDetail({ cleaning, onBack, onChanged }) {
   const [photoTab, setPhotoTab] = useState('before')
   const [submitting, setSubmitting] = useState(false)
@@ -457,9 +690,23 @@ function CleaningDetail({ cleaning, onBack, onChanged }) {
     setNotesDraft(cleaning.notes || '')
   }, [cleaning.id])
 
+  // Revoke all pending new-file object URLs on unmount.
+  useEffect(() => {
+    return () => {
+      newBefore.forEach((f) => URL.revokeObjectURL(f.preview))
+      newAfter.forEach((f) => URL.revokeObjectURL(f.preview))
+      newReport.forEach((f) => URL.revokeObjectURL(f.preview))
+      if (amenitiesUsedFile?.preview) URL.revokeObjectURL(amenitiesUsedFile.preview)
+      if (amenitiesReplacedFile?.preview) URL.revokeObjectURL(amenitiesReplacedFile.preview)
+      if (laundryUsedFile?.preview) URL.revokeObjectURL(laundryUsedFile.preview)
+      if (laundryReplacedFile?.preview) URL.revokeObjectURL(laundryReplacedFile.preview)
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
+
   const effective = getEffectiveStatus(cleaning)
   const meta = STATUS_META[effective] || STATUS_META.scheduled
-  const alreadySubmitted = effective === 'submitted' || effective === 'completed'
+  const isLocked = effective === 'completed'
 
   const toPreview = (file) => ({ file, preview: URL.createObjectURL(file) })
 
@@ -477,6 +724,12 @@ function CleaningDetail({ cleaning, onBack, onChanged }) {
   }
 
   const handleSubmit = async () => {
+    // ✅ Client-side guard: never submit an approved cleaning.
+    if (isLocked) {
+      toast.error('This cleaning has been approved by admin and can no longer be edited.')
+      return
+    }
+
     const ok = window.confirm('Submit this cleaning? You can still edit after submitting.')
     if (!ok) return
     setSubmitting(true)
@@ -544,6 +797,7 @@ function CleaningDetail({ cleaning, onBack, onChanged }) {
       </header>
 
       <div className="p-4 space-y-3">
+        {/* Overview — always shown */}
         <SectionCard title="Overview" icon={Clock}>
           <div className="space-y-1">
             <div className="flex items-center justify-between py-0.5">
@@ -576,138 +830,137 @@ function CleaningDetail({ cleaning, onBack, onChanged }) {
           </div>
         </SectionCard>
 
-        {/* Photos */}
-        <div className="rounded-md bg-card border border-border overflow-hidden">
-          <div className="flex items-center gap-2 px-3 py-2 border-b border-border bg-muted/30">
-            <ImageIcon size={13} className="text-muted-foreground" />
-            <h4 className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground">Cleaning Photos</h4>
-          </div>
-          <div className="flex gap-1 p-2 border-b border-border bg-muted/20">
-            {['before', 'after', 'report'].map((t) => {
-              const existing = t === 'before' ? keepBefore : t === 'after' ? keepAfter : keepReport
-              const added = t === 'before' ? newBefore : t === 'after' ? newAfter : newReport
-              const count = existing.length + added.length
-              return (
-                <button key={t} onClick={() => setPhotoTab(t)}
-                  className={cn('flex-1 text-[11px] font-semibold py-1.5 rounded-full transition-colors',
-                    photoTab === t ? 'bg-card border border-border text-foreground shadow-sm' : 'text-muted-foreground hover:text-foreground')}>
-                  {t.charAt(0).toUpperCase() + t.slice(1)} ({count})
-                </button>
-              )
-            })}
-          </div>
-          <div className="p-3">
-            {photoTab === 'before' && <PhotoGridLocal label="Before" existing={keepBefore} newFiles={newBefore} limit={PHOTO_LIMITS.before} onAdd={handleAddBefore} onRemoveExisting={handleRemoveExisting(setKeepBefore, keepBefore)} onRemoveNew={removeNew(setNewBefore)} />}
-            {photoTab === 'after' && <PhotoGridLocal label="After" existing={keepAfter} newFiles={newAfter} limit={PHOTO_LIMITS.after} onAdd={handleAddAfter} onRemoveExisting={handleRemoveExisting(setKeepAfter, keepAfter)} onRemoveNew={removeNew(setNewAfter)} />}
-            {photoTab === 'report' && <PhotoGridLocal label="Report" existing={keepReport} newFiles={newReport} limit={PHOTO_LIMITS.report} onAdd={handleAddReport} onRemoveExisting={handleRemoveExisting(setKeepReport, keepReport)} onRemoveNew={removeNew(setNewReport)} />}
-          </div>
-        </div>
-
-        {/* Amenities */}
-        <CategoryCard
-          title="Amenities"
-          Icon={Coffee}
-          usedPhoto={{ existing: amenitiesUsedExisting, newFile: amenitiesUsedFile }}
-          replacedPhoto={{ existing: amenitiesReplacedExisting, newFile: amenitiesReplacedFile }}
-          onPickUsed={(f) => setAmenitiesUsedFile({ file: f, preview: URL.createObjectURL(f) })}
-          onPickReplaced={(f) => setAmenitiesReplacedFile({ file: f, preview: URL.createObjectURL(f) })}
-          onClearUsed={() => { setAmenitiesUsedFile(null); setAmenitiesUsedExisting(null) }}
-          onClearReplaced={() => { setAmenitiesReplacedFile(null); setAmenitiesReplacedExisting(null) }}
-          usedItems={amenitiesUsedItems}
-          replacedItems={amenitiesReplacedItems}
-          onUsedItemsChange={setAmenitiesUsedItems}
-          onReplacedItemsChange={setAmenitiesReplacedItems}
-          usedPlaceholder="e.g. Coffee, Water"
-          replacedPlaceholder="e.g. Coffee, Water"
-        />
-
-        {/* Laundry */}
-        <CategoryCard
-          title="Laundry"
-          Icon={Shirt}
-          usedPhoto={{ existing: laundryUsedExisting, newFile: laundryUsedFile }}
-          replacedPhoto={{ existing: laundryReplacedExisting, newFile: laundryReplacedFile }}
-          onPickUsed={(f) => setLaundryUsedFile({ file: f, preview: URL.createObjectURL(f) })}
-          onPickReplaced={(f) => setLaundryReplacedFile({ file: f, preview: URL.createObjectURL(f) })}
-          onClearUsed={() => { setLaundryUsedFile(null); setLaundryUsedExisting(null) }}
-          onClearReplaced={() => { setLaundryReplacedFile(null); setLaundryReplacedExisting(null) }}
-          usedItems={laundryUsedItems}
-          replacedItems={laundryReplacedItems}
-          onUsedItemsChange={setLaundryUsedItems}
-          onReplacedItemsChange={setLaundryReplacedItems}
-          usedPlaceholder="e.g. Bath towel, Bedsheet"
-          replacedPlaceholder="e.g. Bath towel, Bedsheet"
-        />
-
-        {/* Laundry payment (optional) */}
-        <SectionCard title="Laundry Payment (optional)" icon={Wallet}>
-          <p className="text-[10px] text-muted-foreground mb-2">
-            If the laundry shop was paid for replacement, enter the details here. Admin can also fill this in.
-          </p>
-          <div className="grid grid-cols-2 gap-3">
-            <div>
-              <label className="text-[10px] uppercase tracking-wider text-muted-foreground font-semibold mb-1 block">Amount (₱)</label>
-              <input
-                type="number" min={0}
-                value={laundryAmount}
-                onChange={(e) => setLaundryAmount(e.target.value)}
-                className="w-full h-8 text-xs bg-background border border-border rounded px-2 focus:outline-none focus:ring-2 focus:ring-ring/30"
-                placeholder="0"
-              />
+        {isLocked ? (
+          <CompletedSummary cleaning={cleaning} />
+        ) : (
+          <>
+            <div className="rounded-md bg-card border border-border overflow-hidden">
+              <div className="flex items-center gap-2 px-3 py-2 border-b border-border bg-muted/30">
+                <ImageIcon size={13} className="text-muted-foreground" />
+                <h4 className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground">Cleaning Photos</h4>
+              </div>
+              <div className="flex gap-1 p-2 border-b border-border bg-muted/20">
+                {['before', 'after', 'report'].map((t) => {
+                  const existing = t === 'before' ? keepBefore : t === 'after' ? keepAfter : keepReport
+                  const added = t === 'before' ? newBefore : t === 'after' ? newAfter : newReport
+                  const count = existing.length + added.length
+                  return (
+                    <button key={t} onClick={() => setPhotoTab(t)}
+                      className={cn('flex-1 text-[11px] font-semibold py-1.5 rounded-full transition-colors',
+                        photoTab === t ? 'bg-card border border-border text-foreground shadow-sm' : 'text-muted-foreground hover:text-foreground')}>
+                      {t.charAt(0).toUpperCase() + t.slice(1)} ({count})
+                    </button>
+                  )
+                })}
+              </div>
+              <div className="p-3">
+                {photoTab === 'before' && <PhotoGridLocal label="Before" existing={keepBefore} newFiles={newBefore} limit={PHOTO_LIMITS.before} onAdd={handleAddBefore} onRemoveExisting={handleRemoveExisting(setKeepBefore, keepBefore)} onRemoveNew={removeNew(setNewBefore)} />}
+                {photoTab === 'after' && <PhotoGridLocal label="After" existing={keepAfter} newFiles={newAfter} limit={PHOTO_LIMITS.after} onAdd={handleAddAfter} onRemoveExisting={handleRemoveExisting(setKeepAfter, keepAfter)} onRemoveNew={removeNew(setNewAfter)} />}
+                {photoTab === 'report' && <PhotoGridLocal label="Report" existing={keepReport} newFiles={newReport} limit={PHOTO_LIMITS.report} onAdd={handleAddReport} onRemoveExisting={handleRemoveExisting(setKeepReport, keepReport)} onRemoveNew={removeNew(setNewReport)} />}
+              </div>
             </div>
-            <div>
-              <label className="text-[10px] uppercase tracking-wider text-muted-foreground font-semibold mb-1 block">Method</label>
-              <input
-                type="text" maxLength={60}
-                value={laundryMethod}
-                onChange={(e) => setLaundryMethod(e.target.value)}
-                className="w-full h-8 text-xs bg-background border border-border rounded px-2 focus:outline-none focus:ring-2 focus:ring-ring/30"
-                placeholder="GCash, Cash…"
-              />
-            </div>
-          </div>
-          <div className="grid grid-cols-1 gap-3 mt-3">
-            <div>
-              <label className="text-[10px] uppercase tracking-wider text-muted-foreground font-semibold mb-1 block">Reference</label>
-              <input
-                type="text" maxLength={100}
-                value={laundryReference}
-                onChange={(e) => setLaundryReference(e.target.value)}
-                className="w-full h-8 text-xs bg-background border border-border rounded px-2 focus:outline-none focus:ring-2 focus:ring-ring/30"
-              />
-            </div>
-            <div>
-              <label className="text-[10px] uppercase tracking-wider text-muted-foreground font-semibold mb-1 block">Note</label>
-              <textarea
-                maxLength={2000}
-                value={laundryNote}
-                onChange={(e) => setLaundryNote(e.target.value)}
-                rows={2}
-                className="w-full text-xs bg-background border border-border rounded px-2 py-1.5 focus:outline-none focus:ring-2 focus:ring-ring/30 resize-none"
-              />
-            </div>
-          </div>
-        </SectionCard>
 
-        {/* Notes */}
-        <SectionCard title="Notes" icon={Sparkles}>
-          <textarea maxLength={2000} value={notesDraft} onChange={(e) => setNotesDraft(e.target.value)} rows={3}
-            placeholder="Any notes about this cleaning…"
-            className="w-full text-xs bg-background border border-border rounded px-3 py-2 focus:outline-none focus:ring-2 focus:ring-ring/30 resize-none" />
-        </SectionCard>
+            <CategoryCard
+              title="Amenities"
+              Icon={Coffee}
+              usedPhoto={{ existing: amenitiesUsedExisting, newFile: amenitiesUsedFile }}
+              replacedPhoto={{ existing: amenitiesReplacedExisting, newFile: amenitiesReplacedFile }}
+              onPickUsed={(f) => setAmenitiesUsedFile({ file: f, preview: URL.createObjectURL(f) })}
+              onPickReplaced={(f) => setAmenitiesReplacedFile({ file: f, preview: URL.createObjectURL(f) })}
+              onClearUsed={() => { setAmenitiesUsedFile(null); setAmenitiesUsedExisting(null) }}
+              onClearReplaced={() => { setAmenitiesReplacedFile(null); setAmenitiesReplacedExisting(null) }}
+              usedItems={amenitiesUsedItems}
+              replacedItems={amenitiesReplacedItems}
+              onUsedItemsChange={setAmenitiesUsedItems}
+              onReplacedItemsChange={setAmenitiesReplacedItems}
+              usedPlaceholder="e.g. Coffee, Water"
+              replacedPlaceholder="e.g. Coffee, Water"
+            />
 
-        {alreadySubmitted && (
-          <div className="rounded-md bg-violet-500/10 border border-violet-500/30 p-3">
-            <p className="text-xs text-violet-700 dark:text-violet-300">
-              {effective === 'completed'
-                ? 'Approved by admin — no more edits accepted.'
-                : 'Submitted — waiting for admin approval. You can still fix and resubmit.'}
-            </p>
-          </div>
+            <CategoryCard
+              title="Laundry"
+              Icon={Shirt}
+              usedPhoto={{ existing: laundryUsedExisting, newFile: laundryUsedFile }}
+              replacedPhoto={{ existing: laundryReplacedExisting, newFile: laundryReplacedFile }}
+              onPickUsed={(f) => setLaundryUsedFile({ file: f, preview: URL.createObjectURL(f) })}
+              onPickReplaced={(f) => setLaundryReplacedFile({ file: f, preview: URL.createObjectURL(f) })}
+              onClearUsed={() => { setLaundryUsedFile(null); setLaundryUsedExisting(null) }}
+              onClearReplaced={() => { setLaundryReplacedFile(null); setLaundryReplacedExisting(null) }}
+              usedItems={laundryUsedItems}
+              replacedItems={laundryReplacedItems}
+              onUsedItemsChange={setLaundryUsedItems}
+              onReplacedItemsChange={setLaundryReplacedItems}
+              usedPlaceholder="e.g. Bath towel, Bedsheet"
+              replacedPlaceholder="e.g. Bath towel, Bedsheet"
+            />
+
+            <SectionCard title="Laundry Payment (optional)" icon={Wallet}>
+              <p className="text-[10px] text-muted-foreground mb-2">
+                If the laundry shop was paid for replacement, enter the details here. Admin can also fill this in.
+              </p>
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="text-[10px] uppercase tracking-wider text-muted-foreground font-semibold mb-1 block">Amount (₱)</label>
+                  <input
+                    type="number" min={0}
+                    value={laundryAmount}
+                    onChange={(e) => setLaundryAmount(e.target.value)}
+                    className="w-full h-8 text-xs bg-background border border-border rounded px-2 focus:outline-none focus:ring-2 focus:ring-ring/30"
+                    placeholder="0"
+                  />
+                </div>
+                <div>
+                  <label className="text-[10px] uppercase tracking-wider text-muted-foreground font-semibold mb-1 block">Method</label>
+                  <input
+                    type="text" maxLength={60}
+                    value={laundryMethod}
+                    onChange={(e) => setLaundryMethod(e.target.value)}
+                    className="w-full h-8 text-xs bg-background border border-border rounded px-2 focus:outline-none focus:ring-2 focus:ring-ring/30"
+                    placeholder="GCash, Cash…"
+                  />
+                </div>
+              </div>
+              <div className="grid grid-cols-1 gap-3 mt-3">
+                <div>
+                  <label className="text-[10px] uppercase tracking-wider text-muted-foreground font-semibold mb-1 block">Reference</label>
+                  <input
+                    type="text" maxLength={100}
+                    value={laundryReference}
+                    onChange={(e) => setLaundryReference(e.target.value)}
+                    className="w-full h-8 text-xs bg-background border border-border rounded px-2 focus:outline-none focus:ring-2 focus:ring-ring/30"
+                  />
+                </div>
+                <div>
+                  <label className="text-[10px] uppercase tracking-wider text-muted-foreground font-semibold mb-1 block">Note</label>
+                  <textarea
+                    maxLength={2000}
+                    value={laundryNote}
+                    onChange={(e) => setLaundryNote(e.target.value)}
+                    rows={2}
+                    className="w-full text-xs bg-background border border-border rounded px-2 py-1.5 focus:outline-none focus:ring-2 focus:ring-ring/30 resize-none"
+                  />
+                </div>
+              </div>
+            </SectionCard>
+
+            <SectionCard title="Notes" icon={Sparkles}>
+              <textarea maxLength={2000} value={notesDraft} onChange={(e) => setNotesDraft(e.target.value)} rows={3}
+                placeholder="Any notes about this cleaning…"
+                className="w-full text-xs bg-background border border-border rounded px-3 py-2 focus:outline-none focus:ring-2 focus:ring-ring/30 resize-none" />
+            </SectionCard>
+
+            {effective === 'submitted' && (
+              <div className="rounded-md bg-violet-500/10 border border-violet-500/30 p-3">
+                <p className="text-xs text-violet-700 dark:text-violet-300">
+                  Submitted — waiting for admin approval. You can still fix and resubmit.
+                </p>
+              </div>
+            )}
+          </>
         )}
       </div>
 
-      {effective !== 'completed' && (
+      {!isLocked && (
         <div className="fixed bottom-0 left-0 right-0 p-4 bg-card border-t border-border z-30"
           style={{ paddingBottom: 'calc(1rem + env(safe-area-inset-bottom, 0px))' }}>
           <button onClick={handleSubmit} disabled={submitting}
@@ -721,9 +974,6 @@ function CleaningDetail({ cleaning, onBack, onChanged }) {
   )
 }
 
-// ============================================================
-// CLEANING CARD
-// ============================================================
 function CleaningCard({ cleaning, onClick }) {
   const effective = getEffectiveStatus(cleaning)
   const meta = STATUS_META[effective] || STATUS_META.scheduled
@@ -764,9 +1014,6 @@ function CleaningCard({ cleaning, onClick }) {
   )
 }
 
-// ============================================================
-// MAIN PAGE
-// ============================================================
 export default function HousekeeperTasksPage() {
   const navigate = useNavigate()
   const { signOut } = useAuth()

@@ -7,7 +7,7 @@ import {
   Sparkles, AlertTriangle, User, Camera,
   ChevronRight, ChevronLeft, Download, Building2, Clock,
   Image as ImageIcon, FileText, Shirt, Wallet, Send, Coffee,
-  ZoomIn, RotateCcw, LogIn, CheckCircle2,
+  ZoomIn, RotateCcw, LogIn, CheckCircle2, Lock,
   Calendar as CalendarIcon, Copy,
 } from 'lucide-react'
 import toast from 'react-hot-toast'
@@ -28,10 +28,64 @@ import {
   parseInventory, approveAndPayCleaning, updateLaundryPayment,
   downloadCleaningsCSV,
   getSignedUrl, getSignedUrls,
+  purgeCleaningPhotos,
 } from '@/lib/cleanings'
 import { ContextMenu } from '@/components/ui/ContextMenu'
 
 const BRAND = '#2d568e'
+
+// ✅ FIX: cleaning status is a state machine. Prevents moving backward
+// from "completed" or skipping the submit → approve flow.
+// Keys are the *stored* statuses; "to-be-evaluated" is the UI label for
+// status === 'submitted'.
+const VALID_CLEANING_TRANSITIONS = {
+  scheduled: ['ready', 'cancelled'],
+  ready:     ['submitted', 'cancelled'],
+  submitted: ['completed', 'ready'],      // completed = approve & pay; ready = send back
+  completed: [],                           // terminal
+  cancelled: [],                           // terminal
+}
+
+function canCleaningTransition(from, to) {
+  if (from === to) return true
+  const allowed = VALID_CLEANING_TRANSITIONS[from] || []
+  return allowed.includes(to)
+}
+
+// ─────────────────────────────────────────────────────────────
+// Defensive cleanup — runs on every admin page load.
+// If any completed cleaning still has photos (e.g., a housekeeper
+// resubmitted after approval before the RPC guard shipped),
+// this purges them silently.
+// ─────────────────────────────────────────────────────────────
+async function defensivePhotoCleanup(cleanings) {
+  const candidates = (cleanings || []).filter((c) => {
+    if (c.status !== 'completed') return false
+    const hasArr =
+      (Array.isArray(c.photos_before) && c.photos_before.length > 0) ||
+      (Array.isArray(c.photos_after)  && c.photos_after.length  > 0) ||
+      (Array.isArray(c.photos_report) && c.photos_report.length > 0)
+    const hasSingle =
+      c.amenities_used_photo ||
+      c.amenities_replaced_photo ||
+      c.laundry_used_photo ||
+      c.laundry_replaced_photo
+    return hasArr || hasSingle
+  })
+
+  if (candidates.length === 0) return
+
+  console.warn(`defensivePhotoCleanup: ${candidates.length} completed cleaning(s) still hold photos. Purging…`)
+
+  for (const c of candidates) {
+    try {
+      await purgeCleaningPhotos(c.id)
+      logAudit('DEFENSIVE_PURGE_CLEANING_PHOTOS', 'cleanings', c.id, {}).catch(() => {})
+    } catch (err) {
+      console.warn(`Failed to purge photos for ${c.cleaning_code}:`, err)
+    }
+  }
+}
 
 function getEffectiveStatus(cleaning) {
   if (cleaning.status === 'completed') return 'completed'
@@ -629,6 +683,213 @@ function StatusPills({ active, onChange, counts }) {
   )
 }
 
+// ─────────────────────────────────────────────────────────────
+// READ-ONLY PHOTO VIEWS (for completed cleanings)
+// ─────────────────────────────────────────────────────────────
+
+function ReadOnlyPhotoGrid({ photos, label, onOpenPhoto }) {
+  const safePhotos = Array.isArray(photos) ? photos : []
+  const signedUrls = useSignedUrls(safePhotos)
+
+  if (safePhotos.length === 0) {
+    return (
+      <div className="rounded-md border border-dashed border-border bg-muted/20 py-4 text-center">
+        <ImageIcon size={14} className="text-muted-foreground/40 mx-auto mb-1" />
+        <p className="text-[11px] text-muted-foreground italic">No {label.toLowerCase()} photos</p>
+      </div>
+    )
+  }
+
+  return (
+    <div>
+      <div className="flex items-center justify-between mb-2">
+        <p className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground">{label}</p>
+        <span className="text-[10px] text-muted-foreground tabular-nums">{safePhotos.length}</span>
+      </div>
+      <div className="grid grid-cols-3 gap-2">
+        {safePhotos.map((p, i) => {
+          const src = signedUrls[p.path]
+          return (
+            <button
+              key={p.path || i}
+              type="button"
+              onClick={() => src && onOpenPhoto?.(safePhotos, i)}
+              disabled={!src}
+              className="relative aspect-square rounded-md overflow-hidden border border-border bg-muted cursor-zoom-in disabled:cursor-default group"
+            >
+              {src ? (
+                <>
+                  <img src={src} alt="" className="w-full h-full object-cover transition-transform duration-300 group-hover:scale-[1.03]" loading="lazy" />
+                  <div className="absolute inset-0 bg-black/0 group-hover:bg-black/20 transition-colors flex items-center justify-center">
+                    <ZoomIn size={16} className="text-white opacity-0 group-hover:opacity-100 transition-opacity drop-shadow-lg" />
+                  </div>
+                </>
+              ) : (
+                <Skeleton className="w-full h-full rounded-none" />
+              )}
+            </button>
+          )
+        })}
+      </div>
+    </div>
+  )
+}
+
+function ReadOnlySinglePhoto({ photo, label, onOpenPhoto }) {
+  const signedUrl = useSignedUrl(photo)
+
+  if (!photo) {
+    return (
+      <div>
+        <p className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground mb-2">{label}</p>
+        <div className="w-full aspect-video rounded-md border border-dashed border-border bg-muted/20 flex items-center justify-center">
+          <ImageIcon size={14} className="text-muted-foreground/40" />
+        </div>
+      </div>
+    )
+  }
+
+  return (
+    <div>
+      <p className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground mb-2">{label}</p>
+      <button
+        type="button"
+        onClick={() => signedUrl && onOpenPhoto?.([photo], 0)}
+        disabled={!signedUrl}
+        className="w-full aspect-video rounded-md overflow-hidden border border-border bg-muted cursor-zoom-in disabled:cursor-default group"
+      >
+        {signedUrl ? (
+          <>
+            <img src={signedUrl} alt="" className="w-full h-full object-cover transition-transform duration-300 group-hover:scale-[1.02]" loading="lazy" />
+            <div className="absolute inset-0 bg-black/0 group-hover:bg-black/20 transition-colors flex items-center justify-center">
+              <ZoomIn size={16} className="text-white opacity-0 group-hover:opacity-100 transition-opacity drop-shadow-lg" />
+            </div>
+          </>
+        ) : (
+          <Skeleton className="w-full h-full rounded-none" />
+        )}
+      </button>
+    </div>
+  )
+}
+
+function ReadOnlyItemsList({ items, emptyLabel = 'No items' }) {
+  const parsed = parseInventory(items)
+  if (parsed.length === 0) {
+    return <p className="text-[11px] italic text-muted-foreground text-center py-1">{emptyLabel}</p>
+  }
+  return (
+    <div className="space-y-1">
+      {parsed.map((it, i) => (
+        <div key={i} className="flex items-center justify-between px-2 py-1 rounded bg-muted/40 text-xs">
+          <span className="text-foreground truncate">{it.name}</span>
+          <span className="text-foreground font-semibold tabular-nums">×{it.quantity}</span>
+        </div>
+      ))}
+    </div>
+  )
+}
+
+function CompletedReadOnlyPanel({ cleaning, onOpenPhoto }) {
+  const hasBefore = Array.isArray(cleaning.photos_before) && cleaning.photos_before.length > 0
+  const hasAfter = Array.isArray(cleaning.photos_after) && cleaning.photos_after.length > 0
+  const hasReport = Array.isArray(cleaning.photos_report) && cleaning.photos_report.length > 0
+
+  const amenitiesUsedItems = parseInventory(cleaning.amenities_used_items)
+  const amenitiesReplacedItems = parseInventory(cleaning.amenities_replaced_items)
+  const laundryUsedItems = parseInventory(cleaning.laundry_used_items)
+  const laundryReplacedItems = parseInventory(cleaning.laundry_replaced_items)
+
+  return (
+    <>
+      <div className="rounded-md bg-emerald-500/10 border border-emerald-500/30 p-3 flex items-start gap-2">
+        <Lock size={14} className="text-emerald-600 dark:text-emerald-400 flex-shrink-0 mt-0.5" />
+        <div className="min-w-0">
+          <p className="text-xs font-semibold text-emerald-700 dark:text-emerald-400">
+            Completed · locked
+          </p>
+          <p className="text-[11px] text-emerald-700/80 dark:text-emerald-400/80 mt-0.5">
+            This cleaning has been approved and paid. Records are frozen.
+          </p>
+        </div>
+      </div>
+
+      <DetailSection title="Cleaning Photos">
+        <div className="p-3 space-y-3">
+          {hasBefore && <ReadOnlyPhotoGrid photos={cleaning.photos_before} label="Before" onOpenPhoto={onOpenPhoto} />}
+          {hasAfter && <ReadOnlyPhotoGrid photos={cleaning.photos_after} label="After" onOpenPhoto={onOpenPhoto} />}
+          {hasReport && <ReadOnlyPhotoGrid photos={cleaning.photos_report} label="Report" onOpenPhoto={onOpenPhoto} />}
+          {!hasBefore && !hasAfter && !hasReport && (
+            <p className="text-[11px] italic text-muted-foreground text-center py-2">
+              No photos on file
+            </p>
+          )}
+        </div>
+      </DetailSection>
+
+      {(amenitiesUsedItems.length > 0 ||
+        amenitiesReplacedItems.length > 0 ||
+        cleaning.amenities_used_photo ||
+        cleaning.amenities_replaced_photo) && (
+        <DetailSection title="Amenities">
+          <div className="p-3 grid grid-cols-2 gap-3">
+            <div>
+              <p className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground mb-2">Used</p>
+              <ReadOnlySinglePhoto photo={cleaning.amenities_used_photo} label="Photo" onOpenPhoto={onOpenPhoto} />
+              <div className="mt-2">
+                <ReadOnlyItemsList items={cleaning.amenities_used_items} />
+              </div>
+            </div>
+            <div>
+              <p className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground mb-2">Replaced</p>
+              <ReadOnlySinglePhoto photo={cleaning.amenities_replaced_photo} label="Photo" onOpenPhoto={onOpenPhoto} />
+              <div className="mt-2">
+                <ReadOnlyItemsList items={cleaning.amenities_replaced_items} />
+              </div>
+            </div>
+          </div>
+        </DetailSection>
+      )}
+
+      {(laundryUsedItems.length > 0 ||
+        laundryReplacedItems.length > 0 ||
+        cleaning.laundry_used_photo ||
+        cleaning.laundry_replaced_photo) && (
+        <DetailSection title="Laundry">
+          <div className="p-3 grid grid-cols-2 gap-3">
+            <div>
+              <p className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground mb-2">Used</p>
+              <ReadOnlySinglePhoto photo={cleaning.laundry_used_photo} label="Photo" onOpenPhoto={onOpenPhoto} />
+              <div className="mt-2">
+                <ReadOnlyItemsList items={cleaning.laundry_used_items} />
+              </div>
+            </div>
+            <div>
+              <p className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground mb-2">Replaced</p>
+              <ReadOnlySinglePhoto photo={cleaning.laundry_replaced_photo} label="Photo" onOpenPhoto={onOpenPhoto} />
+              <div className="mt-2">
+                <ReadOnlyItemsList items={cleaning.laundry_replaced_items} />
+              </div>
+            </div>
+          </div>
+        </DetailSection>
+      )}
+
+      {cleaning.notes && (
+        <DetailSection title="Notes">
+          <div className="p-3">
+            <p className="text-xs text-foreground whitespace-pre-wrap break-words">{cleaning.notes}</p>
+          </div>
+        </DetailSection>
+      )}
+    </>
+  )
+}
+
+// ─────────────────────────────────────────────────────────────
+// EDITABLE COMPONENTS (only shown when NOT completed)
+// ─────────────────────────────────────────────────────────────
+
 function PhotoGrid({ cleaning, category, onChanged, onOpenPhoto }) {
   const [uploading, setUploading] = useState(false)
   const inputRef = useRef(null)
@@ -651,8 +912,6 @@ function PhotoGrid({ cleaning, category, onChanged, onOpenPhoto }) {
     setUploading(true)
     try {
       const toUpload = files.slice(0, remaining)
-      // Multi-upload via the safe path — this batches all uploads into a
-      // single DB write, so N photos don't overwrite each other.
       await addPhotosToCleaning(cleaning, category, toUpload)
       toast.success(`Uploaded ${toUpload.length} photo${toUpload.length === 1 ? '' : 's'}`)
       onChanged?.()
@@ -1020,9 +1279,10 @@ function HousekeeperPaymentSection({ cleaning, onChanged }) {
     if (!cleanMethod) { toast.error('Payment method is required'); return }
 
     const confirmed = window.confirm(
-      `Approve this cleaning and record housekeeper payment?\n\nAmount: ${formatMoney(amt)}\nMethod: ${cleanMethod}\n\nThis will mark the cleaning as completed.`
+      `Approve this cleaning and record housekeeper payment?\n\nAmount: ${formatMoney(amt)}\nMethod: ${cleanMethod}\n\nThis will mark the cleaning as completed AND delete all attached photos to free up storage.`
     )
     if (!confirmed) return
+
     setSaving(true)
     try {
       await approveAndPayCleaning({
@@ -1032,8 +1292,27 @@ function HousekeeperPaymentSection({ cleaning, onChanged }) {
         reference: cleanReference,
         note: cleanNote,
       })
-      logAudit('APPROVE_AND_PAY_CLEANING', 'cleanings', cleaning.id, { amount: amt, method: cleanMethod }).catch(() => {})
-      toast.success('Cleaning approved and paid')
+      logAudit('APPROVE_AND_PAY_CLEANING', 'cleanings', cleaning.id, {
+        amount: amt, method: cleanMethod,
+      }).catch(() => {})
+
+      let purged = { deleted: 0 }
+      try {
+        purged = await purgeCleaningPhotos(cleaning.id)
+        logAudit('PURGE_CLEANING_PHOTOS', 'cleanings', cleaning.id, {
+          deleted: purged.deleted,
+        }).catch(() => {})
+      } catch (purgeErr) {
+        console.error('purgeCleaningPhotos failed:', purgeErr)
+        toast('Cleaning approved, but photo cleanup failed.', { icon: '⚠️' })
+      }
+
+      if (purged.deleted > 0) {
+        toast.success(`Cleaning approved · ${purged.deleted} photo${purged.deleted === 1 ? '' : 's'} removed`)
+      } else {
+        toast.success('Cleaning approved and paid')
+      }
+
       onChanged()
     } catch (err) {
       console.error(err)
@@ -1131,6 +1410,7 @@ function HousekeeperPaymentSection({ cleaning, onChanged }) {
 }
 
 function LaundryPaymentSection({ cleaning, onChanged }) {
+  const isCompleted = cleaning.status === 'completed'
   const [amount, setAmount] = useState(cleaning.laundry_payment_amount != null ? String(cleaning.laundry_payment_amount) : '')
   const [method, setMethod] = useState(cleaning.laundry_payment_method || '')
   const [reference, setReference] = useState(cleaning.laundry_payment_reference || '')
@@ -1146,9 +1426,10 @@ function LaundryPaymentSection({ cleaning, onChanged }) {
 
   const hasAmount = Number(amount) > 0
   const hasMethod = method.trim().length > 0
-  const canSave = hasAmount && hasMethod
+  const canSave = hasAmount && hasMethod && !isCompleted
 
   const handleSave = async () => {
+    if (isCompleted) return
     const amt = sanitizeMoney(amount)
     const cleanMethod = sanitizeText(method, { max: MAX_METHOD_LEN })
     const cleanReference = sanitizeText(reference, { max: MAX_REFERENCE_LEN })
@@ -1181,7 +1462,21 @@ function LaundryPaymentSection({ cleaning, onChanged }) {
   const inputClass = 'h-8 text-xs rounded w-full'
   const hasStoredPayment = cleaning.laundry_paid_at
 
-  const statusLabel = hasStoredPayment ? 'Saved' : 'Not Saved'
+  const statusLabel = isCompleted
+    ? (hasStoredPayment ? 'Paid' : 'Not paid')
+    : (hasStoredPayment ? 'Saved' : 'Not Saved')
+
+  if (isCompleted && !hasStoredPayment && !cleaning.laundry_payment_amount) {
+    return (
+      <DetailSection title={`Laundry Payment · ${statusLabel}`}>
+        <div className="p-3">
+          <p className="text-xs italic text-muted-foreground text-center py-2">
+            No laundry payment was recorded for this cleaning.
+          </p>
+        </div>
+      </DetailSection>
+    )
+  }
 
   return (
     <DetailSection title={`Laundry Payment · ${statusLabel}`}>
@@ -1195,33 +1490,37 @@ function LaundryPaymentSection({ cleaning, onChanged }) {
 
         <div className="grid grid-cols-2 gap-3">
           <div>
-            <label className={labelClass}>Amount (₱) *</label>
-            <Input type="number" min={0} value={amount} onChange={(e) => setAmount(e.target.value)} placeholder="0" className={inputClass} />
+            <label className={labelClass}>Amount (₱) {!isCompleted && '*'}</label>
+            <Input type="number" min={0} value={amount} onChange={(e) => setAmount(e.target.value)} disabled={isCompleted} placeholder="0" className={inputClass} />
           </div>
           <div>
-            <label className={labelClass}>Method *</label>
-            <Input value={method} onChange={(e) => setMethod(e.target.value)} placeholder="GCash, Cash…" maxLength={MAX_METHOD_LEN} className={inputClass} />
+            <label className={labelClass}>Method {!isCompleted && '*'}</label>
+            <Input value={method} onChange={(e) => setMethod(e.target.value)} disabled={isCompleted} placeholder="GCash, Cash…" maxLength={MAX_METHOD_LEN} className={inputClass} />
           </div>
         </div>
 
         <div>
           <label className={labelClass}>Reference</label>
-          <Input value={reference} onChange={(e) => setReference(e.target.value)} maxLength={MAX_REFERENCE_LEN} className={inputClass} />
+          <Input value={reference} onChange={(e) => setReference(e.target.value)} disabled={isCompleted} maxLength={MAX_REFERENCE_LEN} className={inputClass} />
         </div>
 
         <div>
           <label className={labelClass}>Note</label>
-          <Textarea value={note} onChange={(e) => setNote(e.target.value)} maxLength={MAX_NOTE_LEN} rows={2} className="text-xs rounded resize-none w-full" />
+          <Textarea value={note} onChange={(e) => setNote(e.target.value)} disabled={isCompleted} maxLength={MAX_NOTE_LEN} rows={2} className="text-xs rounded resize-none w-full" />
         </div>
 
-        <Button size="sm" className="h-8 rounded text-xs w-full gap-1.5 text-white" style={{ backgroundColor: BRAND }} onClick={handleSave} disabled={!canSave || saving}>
-          {saving ? <Loader2 size={12} className="animate-spin" /> : <Wallet size={12} />}
-          {saving ? 'Saving…' : hasStoredPayment ? 'Update Laundry Payment' : 'Save Laundry Payment'}
-        </Button>
-        {!canSave && (
-          <p className="text-[10px] text-muted-foreground text-center">
-            Optional — fill amount and method to save
-          </p>
+        {!isCompleted && (
+          <>
+            <Button size="sm" className="h-8 rounded text-xs w-full gap-1.5 text-white" style={{ backgroundColor: BRAND }} onClick={handleSave} disabled={!canSave || saving}>
+              {saving ? <Loader2 size={12} className="animate-spin" /> : <Wallet size={12} />}
+              {saving ? 'Saving…' : hasStoredPayment ? 'Update Laundry Payment' : 'Save Laundry Payment'}
+            </Button>
+            {!canSave && (
+              <p className="text-[10px] text-muted-foreground text-center">
+                Optional — fill amount and method to save
+              </p>
+            )}
+          </>
         )}
       </div>
     </DetailSection>
@@ -1476,6 +1775,8 @@ function CleaningDetailPanel({ cleaning, onClose, onChanged, onDelete, housekeep
   const selectedHousekeeper = housekeepers.find((h) => h.id === cleaning.housekeeper_id) || null
   const effective = getEffectiveStatus(cleaning)
   const pendingEvaluation = isPendingEvaluation(cleaning)
+  const isCompleted = cleaning.status === 'completed'
+  const isCancelled = cleaning.status === 'cancelled'
 
   return (
     <>
@@ -1532,6 +1833,20 @@ function CleaningDetailPanel({ cleaning, onClose, onChanged, onDelete, housekeep
               </div>
             )}
 
+            {isCancelled && (
+              <div className="rounded-md bg-red-500/10 border border-red-500/30 p-3 flex items-start gap-2">
+                <X size={14} className="text-red-600 dark:text-red-400 flex-shrink-0 mt-0.5" />
+                <div className="min-w-0">
+                  <p className="text-xs font-semibold text-red-700 dark:text-red-400">
+                    This cleaning was cancelled
+                  </p>
+                  <p className="text-[11px] text-red-700/80 dark:text-red-400/80 mt-0.5">
+                    Cancelled cleanings are locked and cannot be edited.
+                  </p>
+                </div>
+              </div>
+            )}
+
             <DetailSection title="Overview">
               <div className="p-3 space-y-0.5">
                 {booking && (
@@ -1548,7 +1863,7 @@ function CleaningDetailPanel({ cleaning, onClose, onChanged, onDelete, housekeep
                     <span className="text-xs italic text-muted-foreground">Standalone (no booking)</span>
                   </div>
                 )}
-                {suggestDeep && (
+                {suggestDeep && !isCompleted && !isCancelled && (
                   <div className="mt-2 flex items-center gap-2 px-2.5 py-1.5 rounded-md bg-muted/40 border border-border">
                     <AlertTriangle size={12} className="text-muted-foreground flex-shrink-0" />
                     <span className="text-[11px] text-foreground flex-1">{stayNights}-night stay — consider deep clean</span>
@@ -1559,7 +1874,7 @@ function CleaningDetailPanel({ cleaning, onClose, onChanged, onDelete, housekeep
                 <div className="flex items-center gap-2 py-0.5">
                   <span className="text-[10px] uppercase tracking-wider text-muted-foreground font-semibold min-w-[72px] flex-shrink-0">Type</span>
                   <div className="flex-1">
-                    <Select value={cleaning.type} onValueChange={(v) => updateField('type', v)}>
+                    <Select value={cleaning.type} onValueChange={(v) => updateField('type', v)} disabled={isCompleted || isCancelled}>
                       <SelectTrigger className="h-7 text-xs rounded"><SelectValue /></SelectTrigger>
                       <SelectContent>
                         <SelectItem value="basic" className="text-xs">Basic</SelectItem>
@@ -1571,35 +1886,56 @@ function CleaningDetailPanel({ cleaning, onClose, onChanged, onDelete, housekeep
                 <div className="flex items-center gap-2 py-0.5">
                   <span className="text-[10px] uppercase tracking-wider text-muted-foreground font-semibold min-w-[72px] flex-shrink-0">Status</span>
                   <div className="flex-1">
-                    <Select value={effective} onValueChange={(v) => {
-                      if (v === 'completed') updateField('status', 'completed')
-                      else if (v === 'ready') {
-                        if (cleaning.status === 'submitted') {
-                          updateCleaning(cleaning.id, { status: 'ready', submitted_at: null })
-                            .then(() => { logAudit('UPDATE_CLEANING_FIELD:status', 'cleanings', cleaning.id, { field: 'status', to: 'ready' }).catch(() => {}); onChanged() })
-                            .catch((err) => toast.error(err?.message || 'Failed to update'))
-                        } else {
-                          updateField('status', 'ready')
+                    <Select
+                      value={effective}
+                      onValueChange={(v) => {
+                        if (isCompleted || isCancelled) return
+
+                        // ✅ FIX: reject illegal transitions and tell the user why.
+                        const targetStatus = v === 'to-be-evaluated' ? 'submitted' : v
+                        if (!canCleaningTransition(effective, targetStatus)) {
+                          toast.error(
+                            `Cannot move a cleaning from "${effective}" to "${v}". ` +
+                            `Approve & Pay is the only way to complete a submitted cleaning.`
+                          )
+                          return
                         }
-                      }
-                      else if (v === 'to-be-evaluated') updateField('status', 'submitted')
-                      else if (v === 'cancelled') updateField('status', 'cancelled')
-                      else updateField('status', 'scheduled')
-                    }}>
+
+                        if (v === 'completed') updateField('status', 'completed')
+                        else if (v === 'ready') {
+                          if (cleaning.status === 'submitted') {
+                            updateCleaning(cleaning.id, { status: 'ready', submitted_at: null })
+                              .then(() => { logAudit('UPDATE_CLEANING_FIELD:status', 'cleanings', cleaning.id, { field: 'status', to: 'ready' }).catch(() => {}); onChanged() })
+                              .catch((err) => toast.error(err?.message || 'Failed to update'))
+                          } else {
+                            updateField('status', 'ready')
+                          }
+                        }
+                        else if (v === 'to-be-evaluated') updateField('status', 'submitted')
+                        else if (v === 'cancelled') updateField('status', 'cancelled')
+                        else updateField('status', 'scheduled')
+                      }}
+                      disabled={isCompleted || isCancelled}
+                    >
                       <SelectTrigger className="h-7 text-xs rounded"><SelectValue /></SelectTrigger>
                       <SelectContent>
-                        <SelectItem value="scheduled" className="text-xs">Scheduled</SelectItem>
-                        <SelectItem value="ready" className="text-xs">Ready</SelectItem>
-                        <SelectItem value="to-be-evaluated" className="text-xs">To Be Evaluated</SelectItem>
-                        <SelectItem value="completed" className="text-xs">Completed</SelectItem>
-                        <SelectItem value="cancelled" className="text-xs">Cancelled</SelectItem>
+                        {['scheduled', 'ready', 'to-be-evaluated', 'completed', 'cancelled'].map((s) => {
+                          const statusKey = s === 'to-be-evaluated' ? 'submitted' : s
+                          const allowed = canCleaningTransition(effective, statusKey)
+                          const label = s.replace(/-/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase())
+                          return (
+                            <SelectItem key={s} value={s} className="text-xs" disabled={!allowed}>
+                              {label}{!allowed ? ' — not allowed' : ''}
+                            </SelectItem>
+                          )
+                        })}
                       </SelectContent>
                     </Select>
                   </div>
                 </div>
                 <div className="flex items-center gap-2 py-0.5">
                   <span className="text-[10px] uppercase tracking-wider text-muted-foreground font-semibold min-w-[72px] flex-shrink-0">Scheduled</span>
-                  <Input type="date" value={cleaning.scheduled_date || ''} onChange={(e) => updateField('scheduled_date', sanitizeDateOnly(e.target.value))} className="h-7 text-xs rounded bg-background flex-1" />
+                  <Input type="date" value={cleaning.scheduled_date || ''} onChange={(e) => updateField('scheduled_date', sanitizeDateOnly(e.target.value))} disabled={isCompleted || isCancelled} className="h-7 text-xs rounded bg-background flex-1" />
                 </div>
                 <div className="flex items-center gap-2 py-0.5">
                   <span className="text-[10px] uppercase tracking-wider text-muted-foreground font-semibold min-w-[72px] flex-shrink-0">Window</span>
@@ -1629,7 +1965,7 @@ function CleaningDetailPanel({ cleaning, onClose, onChanged, onDelete, housekeep
                     </div>
                   </div>
                 )}
-                <Select value={cleaning.housekeeper_id || '__none__'} onValueChange={(v) => updateField('housekeeper_id', v === '__none__' ? null : v)}>
+                <Select value={cleaning.housekeeper_id || '__none__'} onValueChange={(v) => updateField('housekeeper_id', v === '__none__' ? null : v)} disabled={isCompleted || isCancelled}>
                   <SelectTrigger className="h-8 text-xs rounded w-full">
                     <SelectValue placeholder="Unassigned">
                       {selectedHousekeeper ? selectedHousekeeper.name : <span className="text-muted-foreground italic">Unassigned</span>}
@@ -1643,57 +1979,63 @@ function CleaningDetailPanel({ cleaning, onClose, onChanged, onDelete, housekeep
               </div>
             </DetailSection>
 
-            <PhotoSection cleaning={cleaning} onChanged={onChanged} onOpenPhoto={openPhoto} />
+            {isCompleted ? (
+              <CompletedReadOnlyPanel cleaning={cleaning} onOpenPhoto={openPhoto} />
+            ) : (
+              <>
+                <PhotoSection cleaning={cleaning} onChanged={onChanged} onOpenPhoto={openPhoto} />
 
-            <CategoryPair
-              title="Amenities"
-              Icon={Coffee}
-              cleaning={cleaning}
-              usedPhotoField="amenities_used_photo"
-              replacedPhotoField="amenities_replaced_photo"
-              usedItemsField="amenities_used_items"
-              replacedItemsField="amenities_replaced_items"
-              usedCategory="amenities_used"
-              replacedCategory="amenities_replaced"
-              onChanged={onChanged}
-              onOpenPhoto={openPhoto}
-            />
-
-            <CategoryPair
-              title="Laundry"
-              Icon={Shirt}
-              cleaning={cleaning}
-              usedPhotoField="laundry_used_photo"
-              replacedPhotoField="laundry_replaced_photo"
-              usedItemsField="laundry_used_items"
-              replacedItemsField="laundry_replaced_items"
-              usedCategory="laundry_used"
-              replacedCategory="laundry_replaced"
-              onChanged={onChanged}
-              onOpenPhoto={openPhoto}
-            />
-
-            <DetailSection title="Notes">
-              <div className="p-3">
-                <Textarea
-                  key={cleaning.id}
-                  defaultValue={cleaning.notes || ''}
-                  maxLength={MAX_NOTE_LEN}
-                  onBlur={async (e) => {
-                    const cleaned = sanitizeText(e.target.value, { max: MAX_NOTE_LEN, allowNewlines: true })
-                    if (cleaned === (cleaning.notes || null)) return
-                    try {
-                      await updateCleaning(cleaning.id, { notes: cleaned })
-                      toast.success('Notes saved')
-                      onChanged()
-                    } catch { toast.error('Failed to save') }
-                  }}
-                  rows={3}
-                  className="text-xs rounded resize-none w-full"
-                  placeholder="Add notes..."
+                <CategoryPair
+                  title="Amenities"
+                  Icon={Coffee}
+                  cleaning={cleaning}
+                  usedPhotoField="amenities_used_photo"
+                  replacedPhotoField="amenities_replaced_photo"
+                  usedItemsField="amenities_used_items"
+                  replacedItemsField="amenities_replaced_items"
+                  usedCategory="amenities_used"
+                  replacedCategory="amenities_replaced"
+                  onChanged={onChanged}
+                  onOpenPhoto={openPhoto}
                 />
-              </div>
-            </DetailSection>
+
+                <CategoryPair
+                  title="Laundry"
+                  Icon={Shirt}
+                  cleaning={cleaning}
+                  usedPhotoField="laundry_used_photo"
+                  replacedPhotoField="laundry_replaced_photo"
+                  usedItemsField="laundry_used_items"
+                  replacedItemsField="laundry_replaced_items"
+                  usedCategory="laundry_used"
+                  replacedCategory="laundry_replaced"
+                  onChanged={onChanged}
+                  onOpenPhoto={openPhoto}
+                />
+
+                <DetailSection title="Notes">
+                  <div className="p-3">
+                    <Textarea
+                      key={cleaning.id}
+                      defaultValue={cleaning.notes || ''}
+                      maxLength={MAX_NOTE_LEN}
+                      onBlur={async (e) => {
+                        const cleaned = sanitizeText(e.target.value, { max: MAX_NOTE_LEN, allowNewlines: true })
+                        if (cleaned === (cleaning.notes || null)) return
+                        try {
+                          await updateCleaning(cleaning.id, { notes: cleaned })
+                          toast.success('Notes saved')
+                          onChanged()
+                        } catch { toast.error('Failed to save') }
+                      }}
+                      rows={3}
+                      className="text-xs rounded resize-none w-full"
+                      placeholder="Add notes..."
+                    />
+                  </div>
+                </DetailSection>
+              </>
+            )}
 
             <HousekeeperPaymentSection cleaning={cleaning} onChanged={onChanged} />
 
@@ -1878,6 +2220,10 @@ export default function HousekeepingPage({ initialSelectedId }) {
       setBookings(bRes.data || [])
       setHousekeepers(hRes.data || [])
       setContracts(ctRes.data || [])
+
+      defensivePhotoCleanup(cRes).catch((err) => {
+        console.warn('defensivePhotoCleanup threw:', err)
+      })
     } catch (err) {
       console.error('Failed to load housekeeping data:', err)
       toast.error('Failed to load cleanings')
@@ -1897,13 +2243,29 @@ export default function HousekeepingPage({ initialSelectedId }) {
   }, [fetchData])
 
   const counts = useMemo(() => {
-    const c = { all: cleanings.length, scheduled: 0, ready: 0, 'to-be-evaluated': 0, completed: 0, cancelled: 0 }
-    for (const x of cleanings) {
+    const q = debouncedSearch.trim().toLowerCase()
+    const tokens = q ? q.split(/\s+/).filter(Boolean) : []
+
+    const scoped = tokens.length === 0
+      ? cleanings
+      : cleanings.filter((c) => {
+          const hay = [
+            c.cleaning_code,
+            c.units?.unit_code, c.units?.building,
+            c.bookings?.booking_code, c.bookings?.guest_name,
+            c.housekeepers?.name, c.housekeepers?.code,
+            c.notes,
+          ].filter(Boolean).join(' ').toLowerCase()
+          return tokens.every((tok) => hay.includes(tok))
+        })
+
+    const c = { all: scoped.length, scheduled: 0, ready: 0, 'to-be-evaluated': 0, completed: 0, cancelled: 0 }
+    for (const x of scoped) {
       const eff = getEffectiveStatus(x)
       if (c[eff] !== undefined) c[eff]++
     }
     return c
-  }, [cleanings])
+  }, [cleanings, debouncedSearch])
 
   const todayStr = useMemo(() => new Date().toISOString().slice(0, 10), [])
 
@@ -1966,12 +2328,13 @@ export default function HousekeepingPage({ initialSelectedId }) {
 
   const filtered = useMemo(() => {
     const q = debouncedSearch.trim().toLowerCase()
+    const tokens = q ? q.split(/\s+/).filter(Boolean) : []
     return cleanings.filter((c) => {
       if (statusFilter !== 'all') {
         const eff = getEffectiveStatus(c)
         if (statusFilter !== eff) return false
       }
-      if (q) {
+      if (tokens.length > 0) {
         const hay = [
           c.cleaning_code,
           c.units?.unit_code, c.units?.building,
@@ -1979,7 +2342,7 @@ export default function HousekeepingPage({ initialSelectedId }) {
           c.housekeepers?.name, c.housekeepers?.code,
           c.notes,
         ].filter(Boolean).join(' ').toLowerCase()
-        if (!hay.includes(q)) return false
+        if (!tokens.every((tok) => hay.includes(tok))) return false
       }
       return true
     })

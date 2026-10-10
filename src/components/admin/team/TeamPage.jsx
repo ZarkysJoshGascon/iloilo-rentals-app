@@ -519,7 +519,7 @@ function DateFilterBar({ preset, setPreset, customFrom, setCustomFrom, customTo,
 }
 
 // ============================================================
-// WORKER ACTIVITY SECTION (specialists/affiliates/housekeepers)
+// WORKER ACTIVITY SECTION
 // ============================================================
 function WorkerActivitySection({ worker, role }) {
   const [preset, setPreset] = useState('all')
@@ -2146,14 +2146,12 @@ export default function TeamPage() {
   const [formOpen, setFormOpen] = useState(false)
   const [editing, setEditing] = useState(null)
   const [page, setPage] = useState(1)
-  const [cardsHidden, setCardsHidden] = useState(false)
 
   const [pms, setPMs] = useState([])
   const [pmUnits, setPMUnits] = useState([])
   const [pmSelected, setPMSelected] = useState(null)
   const [pmFormOpen, setPMFormOpen] = useState(false)
 
-  const headerRef = useRef(null)
   const hasLoadedOnce = useRef(false)
 
   useEffect(() => {
@@ -2187,7 +2185,6 @@ export default function TeamPage() {
         affiliates: countResult.affiliates || {},
       })
 
-      // Team totals come from the RPC — one row with four numbers
       if (totalsRes.error) {
         console.error('team_totals_bulk failed:', totalsRes.error)
         setTeamTotals({
@@ -2362,14 +2359,6 @@ export default function TeamPage() {
     toast.success('Exported')
   }
 
-  const handleListMouseMove = useCallback((e) => {
-    const headerEl = headerRef.current
-    if (!headerEl) return
-    const headerRect = headerEl.getBoundingClientRect()
-    setCardsHidden(e.clientY > headerRect.bottom)
-  }, [])
-  const handleListMouseLeave = useCallback(() => setCardsHidden(false), [])
-
   const showSkeleton = loading || refreshing
   const isPMTab = activeTab === 'property_managers'
 
@@ -2377,17 +2366,11 @@ export default function TeamPage() {
     <div className="h-full flex min-h-0">
       <div className="flex-1 min-h-0 flex flex-col p-4 gap-3">
 
-        <div className={cn(
-          'flex-shrink-0 pt-1 pb-2 transition-all duration-300 ease-out overflow-hidden',
-          cardsHidden ? 'max-h-0 opacity-0 -mb-3' : 'max-h-52 opacity-100',
-        )}>
+        <div className="flex-shrink-0 pt-1 pb-2">
           <SummaryCards data={data} teamTotals={teamTotals} activeTab={activeTab} />
         </div>
 
-        <div className={cn(
-          'flex-shrink-0 pt-1 pb-2 transition-all duration-300 ease-out overflow-hidden',
-          cardsHidden ? 'max-h-0 opacity-0 -mb-3' : 'max-h-24 opacity-100',
-        )}>
+        <div className="flex-shrink-0 pt-1 pb-2">
           <TeamTabs
             tabs={TABS}
             activeTab={activeTab}
@@ -2401,7 +2384,7 @@ export default function TeamPage() {
           />
         </div>
 
-        <div ref={headerRef} className="flex-shrink-0 flex items-center gap-2">
+        <div className="flex-shrink-0 flex items-center gap-2">
           <div className="relative flex-1 min-w-0">
             <Search size={13} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-muted-foreground" />
             <Input
@@ -2425,11 +2408,7 @@ export default function TeamPage() {
           </Button>
         </div>
 
-        <div
-          className="flex-1 min-h-0 rounded border border-border shadow-sm overflow-hidden bg-card flex flex-col"
-          onMouseMove={handleListMouseMove}
-          onMouseLeave={handleListMouseLeave}
-        >
+        <div className="flex-1 min-h-0 rounded border border-border shadow-sm overflow-hidden bg-card flex flex-col">
           <div className="flex-1 min-h-0 overflow-y-auto p-4" style={{ scrollbarGutter: 'stable' }}>
             {showSkeleton ? (
               <WorkerCardSkeletonGrid count={PAGE_SIZE} />

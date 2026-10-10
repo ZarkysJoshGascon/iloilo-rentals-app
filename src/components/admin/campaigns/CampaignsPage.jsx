@@ -1,3 +1,4 @@
+// src/components/admin/campaigns/CampaignsPage.jsx
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import {
@@ -21,10 +22,8 @@ import {
 
 const BRAND = '#2d568e'
 const PAGE_SIZE = 25
+const MAX_RECIPIENTS = 500
 
-// ------------------------------------------------------------
-// Helpers
-// ------------------------------------------------------------
 function fmtDate(iso) {
   if (!iso) return '—'
   const d = new Date(iso)
@@ -75,9 +74,6 @@ function GuestAvatar({ name, size = 'md' }) {
   )
 }
 
-// ------------------------------------------------------------
-// Status pill
-// ------------------------------------------------------------
 const STATUS_TEXT = {
   drafting: { label: 'Drafting', className: 'text-gray-500 dark:text-gray-400' },
   sending:  { label: 'Sending',  className: 'text-amber-600 dark:text-amber-400' },
@@ -90,9 +86,6 @@ function CampaignStatusPill({ status }) {
   return <span className={cn('text-[11px] font-semibold', config.className)}>{config.label}</span>
 }
 
-// ------------------------------------------------------------
-// Section header — OUTSIDE the card
-// ------------------------------------------------------------
 function SectionHeader({ icon: Icon, title, subtitle, action }) {
   return (
     <div className="flex items-center gap-2 mb-2 px-0.5">
@@ -108,9 +101,6 @@ function SectionHeader({ icon: Icon, title, subtitle, action }) {
   )
 }
 
-// ------------------------------------------------------------
-// Summary cards
-// ------------------------------------------------------------
 function SummaryCards({ guests, campaigns }) {
   const stats = useMemo(() => {
     const totalGuests = guests.length
@@ -148,15 +138,11 @@ function SummaryCards({ guests, campaigns }) {
   )
 }
 
-// ------------------------------------------------------------
-// Recipient row
-// ------------------------------------------------------------
 function RecipientRow({ guest, checked, onToggle, disabled }) {
   const staysAgo = useMemo(() => {
     if (!guest.last_check_out) return ''
-    const then = new Date(guest.last_check_out + 'T00:00:00Z').getTime()
-    // eslint-disable-next-line react-hooks/purity
-    const days = Math.floor((Date.now() - then) / 86400000)
+    const then = new Date(`${guest.last_check_out}T00:00:00Z`).getTime()
+    const days = Math.floor((Date.now() - then) / 86_400_000)
     if (days < 30) return `${days}d ago`
     const months = Math.floor(days / 30)
     if (months < 12) return `${months}mo ago`
@@ -199,9 +185,6 @@ function RecipientRow({ guest, checked, onToggle, disabled }) {
   )
 }
 
-// ------------------------------------------------------------
-// Time filter chips
-// ------------------------------------------------------------
 const TIME_FILTERS = [
   { id: 'all', label: 'All time' },
   { id: '6',   label: 'Last 6 months' },
@@ -209,9 +192,6 @@ const TIME_FILTERS = [
   { id: '24',  label: 'Last 2 years' },
 ]
 
-// ============================================================
-// Main page
-// ============================================================
 export default function CampaignsPage() {
   const [guests, setGuests] = useState([])
   const [campaigns, setCampaigns] = useState([])
@@ -244,13 +224,11 @@ export default function CampaignsPage() {
   const imageInputRef = useRef(null)
   const hasLoadedOnce = useRef(false)
 
-  // Debounce search
   useEffect(() => {
     const t = setTimeout(() => setDebouncedSearch(search), 300)
     return () => clearTimeout(t)
   }, [search])
 
-  // Load data
   const fetchData = useCallback(async () => {
     if (!hasLoadedOnce.current) setLoading(true)
     else setRefreshing(true)
@@ -270,9 +248,9 @@ export default function CampaignsPage() {
 
   useEffect(() => { fetchData() }, [fetchData])
 
-  // Filtered guests
   const filteredGuests = useMemo(() => {
     const q = debouncedSearch.trim().toLowerCase()
+    const tokens = q ? q.split(/\s+/).filter(Boolean) : []
     const cutoffISO = (() => {
       if (timeFilter === 'all') return null
       const months = Number(timeFilter)
@@ -283,25 +261,24 @@ export default function CampaignsPage() {
 
     return guests.filter((g) => {
       if (cutoffISO && (g.last_check_out || '') < cutoffISO) return false
-      if (q) {
+      if (tokens.length > 0) {
         const hay = `${g.name || ''} ${g.email || ''} ${g.last_unit || ''} ${g.last_building || ''}`.toLowerCase()
-        if (!hay.includes(q)) return false
+        if (!tokens.every((tok) => hay.includes(tok))) return false
       }
       return true
     })
   }, [guests, debouncedSearch, timeFilter])
 
-  // Filtered campaigns
   const filteredCampaigns = useMemo(() => {
     const q = debouncedSearch.trim().toLowerCase()
-    if (!q) return campaigns
+    const tokens = q ? q.split(/\s+/).filter(Boolean) : []
+    if (tokens.length === 0) return campaigns
     return campaigns.filter((c) => {
       const hay = `${c.name || ''} ${c.subject || ''}`.toLowerCase()
-      return hay.includes(q)
+      return tokens.every((tok) => hay.includes(tok))
     })
   }, [campaigns, debouncedSearch])
 
-  // Pagination
   const totalPages = Math.max(1, Math.ceil(filteredGuests.length / PAGE_SIZE))
   const pageItems = useMemo(
     () => filteredGuests.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE),
@@ -312,12 +289,18 @@ export default function CampaignsPage() {
     if (page > totalPages) setPage(totalPages)
   }, [page, totalPages])
 
-  // Selection
   const toggleOne = useCallback((email) => {
     setSelected((prev) => {
       const next = new Set(prev)
-      if (next.has(email)) next.delete(email)
-      else next.add(email)
+      if (next.has(email)) {
+        next.delete(email)
+      } else {
+        if (next.size >= MAX_RECIPIENTS) {
+          toast.error(`Maximum ${MAX_RECIPIENTS} recipients per campaign.`)
+          return prev
+        }
+        next.add(email)
+      }
       return next
     })
   }, [])
@@ -325,11 +308,24 @@ export default function CampaignsPage() {
   const toggleAllVisible = useCallback(() => {
     setSelected((prev) => {
       const next = new Set(prev)
-      const allVisibleSelected = pageItems.every((g) => next.has(g.email))
+      const allVisibleSelected = pageItems.length > 0 && pageItems.every((g) => next.has(g.email))
+
       if (allVisibleSelected) {
         for (const g of pageItems) next.delete(g.email)
       } else {
-        for (const g of pageItems) next.add(g.email)
+        const toAdd = pageItems.filter((g) => !next.has(g.email))
+        const canAddCount = MAX_RECIPIENTS - next.size
+
+        if (toAdd.length > canAddCount) {
+          if (canAddCount <= 0) {
+            toast.error(`You already have the maximum ${MAX_RECIPIENTS} selected.`)
+            return prev
+          }
+          toast.error(`Only added ${canAddCount} of ${toAdd.length}. Max is ${MAX_RECIPIENTS}.`)
+          for (let i = 0; i < canAddCount; i++) next.add(toAdd[i].email)
+        } else {
+          for (const g of pageItems) next.add(g.email)
+        }
       }
       return next
     })
@@ -344,7 +340,6 @@ export default function CampaignsPage() {
     [guests, selected],
   )
 
-  // Image upload
   const handleImagePick = async (e) => {
     const file = e.target.files?.[0]
     if (!file) return
@@ -362,7 +357,6 @@ export default function CampaignsPage() {
     }
   }
 
-  // Reset form
   const resetForm = useCallback(() => {
     setCampaignName('')
     setSubject('')
@@ -374,12 +368,15 @@ export default function CampaignsPage() {
     setHeroImage(null)
   }, [])
 
-  // Validation
   const validatePayload = () => {
     if (!campaignName.trim()) { toast.error('Give this campaign a name'); return false }
     if (!subject.trim())      { toast.error('Subject is required');       return false }
     if (!greeting.trim())     { toast.error('Greeting is required');      return false }
     if (!body.trim())         { toast.error('Message body is required');  return false }
+    if (selectedGuests.length > MAX_RECIPIENTS) {
+      toast.error(`You can select at most ${MAX_RECIPIENTS} recipients.`)
+      return false
+    }
     return true
   }
 
@@ -404,7 +401,6 @@ export default function CampaignsPage() {
     setShowConfirm(true)
   }
 
-  // ✅ FIX: partial-failure handling
   const handleSendReal = async () => {
     setShowConfirm(false)
     setSending(true)
@@ -417,31 +413,27 @@ export default function CampaignsPage() {
       }
       const res = await sendPromoCampaign(payload)
 
-      // res = { ok, campaign_id, recipient_count, sent, failed, failures[] }
       const sentCount   = Number(res?.sent ?? 0)
       const failedCount = Number(res?.failed ?? 0)
       const totalCount  = Number(res?.recipient_count ?? selectedGuests.length)
-      const skipped     = Math.max(0, totalCount - sentCount - failedCount)
+      const skippedOptedOut = Number(res?.skipped_opted_out ?? 0)
+      const skippedThrottled = Number(res?.skipped_throttled ?? 0)
+      const skipped = skippedOptedOut + skippedThrottled
 
       setSendProgress({ current: sentCount + failedCount, total: totalCount })
 
-      // ── Report accurately, not as all-or-nothing ─────────────
       if (failedCount === 0 && skipped === 0) {
         toast.success(`Sent to all ${sentCount} guest${sentCount === 1 ? '' : 's'}`)
       } else if (sentCount === 0 && failedCount > 0) {
-        toast.error(`Send failed for all ${failedCount} recipient${failedCount === 1 ? '' : 's'}. Check history.`)
+        toast.error(`Send failed for all ${failedCount} recipient${failedCount === 1 ? '' : 's'}.`)
       } else {
-        // Mixed result — surface counts plainly
-        const parts = [`Sent to ${sentCount}`]
+        const parts = [`Sent ${sentCount}`]
         if (failedCount > 0) parts.push(`${failedCount} failed`)
-        if (skipped > 0)     parts.push(`${skipped} skipped`)
-        toast(
-          parts.join(' · ') + ' — see history for details',
-          { icon: '⚠️', duration: 6000 },
-        )
+        if (skippedOptedOut > 0) parts.push(`${skippedOptedOut} opted out`)
+        if (skippedThrottled > 0) parts.push(`${skippedThrottled} throttled`)
+        toast(parts.join(' · '), { icon: '⚠️', duration: 6000 })
       }
 
-      // Log the first few failures for debugging
       if (Array.isArray(res?.failures) && res.failures.length > 0) {
         console.warn('Campaign send failures:', res.failures)
       }
@@ -449,6 +441,7 @@ export default function CampaignsPage() {
       resetForm()
       clearSelection()
       setView('history')
+      setPage(1)
       fetchData()
     } catch (err) {
       console.error(err)
@@ -468,12 +461,10 @@ export default function CampaignsPage() {
     <div className="h-full flex min-h-0">
       <div className="flex-1 min-h-0 flex flex-col p-3 gap-3">
 
-        {/* Summary cards */}
         <div className="flex-shrink-0 pt-1 pb-2">
           <SummaryCards guests={guests} campaigns={campaigns} />
         </div>
 
-        {/* Toolbar */}
         <div className="flex-shrink-0 flex items-center gap-2">
           <div className="inline-flex items-center gap-1 bg-muted/60 rounded-full p-1 flex-shrink-0">
             <button
@@ -584,9 +575,6 @@ export default function CampaignsPage() {
   )
 }
 
-// ============================================================
-// Compose view
-// ============================================================
 function ComposeView({
   loading, filteredGuests, pageItems, page, setPage, totalPages,
   timeFilter, setTimeFilter,
@@ -600,13 +588,12 @@ function ComposeView({
 
   return (
     <div className="flex-1 min-h-0 grid grid-cols-1 lg:grid-cols-[1fr_1.2fr] gap-4">
-
-      {/* ─────────── LEFT: Recipients ─────────── */}
+      {/* LEFT: Recipients */}
       <div className="flex flex-col min-h-0">
         <SectionHeader
           icon={Users}
           title="Recipients"
-          subtitle={`· ${selectedCount} selected of ${filteredGuests.length}`}
+          subtitle={`· ${selectedCount} selected of ${filteredGuests.length} (max ${MAX_RECIPIENTS})`}
           action={
             selectedCount > 0 && (
               <button
@@ -621,8 +608,6 @@ function ComposeView({
         />
 
         <div className="flex-1 min-h-0 flex flex-col rounded border border-border shadow-sm overflow-hidden bg-card">
-
-          {/* Time filters */}
           <div className="flex-shrink-0 px-3 py-2 border-b border-border space-y-2">
             <div className="flex items-center gap-1 flex-wrap">
               {TIME_FILTERS.map((f) => (
@@ -653,7 +638,6 @@ function ComposeView({
             </div>
           </div>
 
-          {/* Recipient list */}
           <div className="flex-1 min-h-0 overflow-y-auto">
             {loading ? (
               <div className="space-y-2 p-3">
@@ -682,7 +666,6 @@ function ComposeView({
             )}
           </div>
 
-          {/* Pagination */}
           {totalPages > 1 && (
             <div className="flex-shrink-0 border-t border-border bg-card px-3 py-2 flex items-center justify-between gap-2">
               <span className="text-[10px] text-muted-foreground tabular-nums">
@@ -717,21 +700,19 @@ function ComposeView({
         </div>
       </div>
 
-      {/* ─────────── RIGHT: Compose ─────────── */}
+      {/* RIGHT: Compose */}
       <div className="flex flex-col min-h-0">
         <SectionHeader
           icon={Mail}
           title="Compose Email"
           subtitle={
             selectedCount > 0
-              ? `· ${selectedCount} recipient${selectedCount === 1 ? '' : 's'}`
+              ? `· ${selectedCount} recipient${selectedCount === 1 ? '' : 's'} (max ${MAX_RECIPIENTS})`
               : '· No recipients selected'
           }
         />
 
         <div className="flex-1 min-h-0 flex flex-col rounded border border-border shadow-sm overflow-hidden bg-card">
-
-          {/* Scrollable body */}
           <div className="flex-1 min-h-0 overflow-y-auto p-4 space-y-4">
 
             <div>
@@ -876,7 +857,6 @@ function ComposeView({
 
           </div>
 
-          {/* Footer actions */}
           <div className="flex-shrink-0 border-t border-border bg-muted/30 px-4 py-3 flex items-center justify-between gap-2">
             <p className="text-[10px] text-muted-foreground hidden sm:block truncate">
               {sendProgress
@@ -904,9 +884,6 @@ function ComposeView({
   )
 }
 
-// ============================================================
-// History view
-// ============================================================
 function HistoryView({ campaigns, totalCampaigns, loading, onDeleted }) {
   const [deletingId, setDeletingId] = useState(null)
   const [clearingAll, setClearingAll] = useState(false)
@@ -1076,9 +1053,6 @@ function HistoryView({ campaigns, totalCampaigns, loading, onDeleted }) {
   )
 }
 
-// ============================================================
-// Confirm Send dialog
-// ============================================================
 function ConfirmSendDialog({
   recipientCount, subject, greeting, body, heroImage,
   onCancel, onConfirm,

@@ -14,7 +14,7 @@ const FROM_NAME             = Deno.env.get('FROM_NAME')       || 'Iloilo Rentals
 const DEFAULT_REPLY_TO      = Deno.env.get('REPLY_TO_EMAIL')  || null
 const BRAND_COLOR           = Deno.env.get('BRAND_COLOR')     || '#2d568e'
 const PUBLIC_SITE_URL       = Deno.env.get('PUBLIC_SITE_URL') || 'https://iloilorental.com'
-const LOGO_URL              = Deno.env.get('PROMO_LOGO_URL')  || ''
+const LOGO_URL              = Deno.env.get('EMAIL_LOGO_URL')  || ''
 
 if (!RESEND_API_KEY)        throw new Error('RESEND_API_KEY is required')
 if (!SUPABASE_URL)          throw new Error('SUPABASE_URL is required')
@@ -24,6 +24,7 @@ const EMAIL_RE       = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
 const MAX_SUBJECT    = 200
 const MAX_BODY       = 20_000
 const MAX_RECIPIENTS = 500
+const MAX_BODY_BYTES = 3_000_000  // ✅ FIX: 3 MB request cap
 
 // ================================================================
 // HELPERS
@@ -149,7 +150,6 @@ function renderPromoHtml({
 </head>
 <body style="margin:0;padding:0;background:#eef1f6;-webkit-font-smoothing:antialiased;-moz-osx-font-smoothing:grayscale;">
 
-  <!-- Preheader -->
   <div style="display:none;font-size:0;line-height:0;max-height:0;overflow:hidden;mso-hide:all;">
     ${escapeHtml(greeting)}
   </div>
@@ -159,16 +159,12 @@ function renderPromoHtml({
     <tr>
       <td align="center" style="padding:56px 16px;">
 
-        <!-- Card -->
         <table role="presentation" width="600" cellpadding="0" cellspacing="0" border="0"
                style="max-width:600px;width:100%;background:#ffffff;border-radius:20px;overflow:hidden;
                       box-shadow:0 1px 3px rgba(15,23,42,0.06),
                                  0 12px 32px rgba(15,23,42,0.08),
                                  0 40px 80px rgba(15,23,42,0.06);">
 
-          <!-- ═══════════════════════════════════════════
-               HERO HEADER — gradient + pattern + logo
-          ═══════════════════════════════════════════════ -->
           <tr>
             <td style="padding:0;background:${brandDeep};
                        background-image:${headerPattern()},
@@ -179,7 +175,6 @@ function renderPromoHtml({
                 <tr>
                   <td style="padding:52px 32px 20px 32px;text-align:center;">
 
-                    <!-- Logo -->
                     ${LOGO_URL ? `
                       <div style="text-align:center;margin:0 0 22px 0;line-height:0;">
                         <img src="${escapeHtml(LOGO_URL)}"
@@ -203,7 +198,6 @@ function renderPromoHtml({
                 <tr>
                   <td style="padding:0 32px 40px 32px;text-align:center;">
 
-                    <!-- Eyebrow -->
                     <div style="font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;
                                 font-size:10px;color:rgba(255,255,255,0.65);
                                 text-transform:uppercase;letter-spacing:2.4px;font-weight:700;
@@ -211,7 +205,6 @@ function renderPromoHtml({
                       A Note From Us
                     </div>
 
-                    <!-- Headline -->
                     <div style="font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;
                                 font-size:24px;line-height:1.3;color:#ffffff;
                                 font-weight:700;letter-spacing:-0.5px;
@@ -225,9 +218,6 @@ function renderPromoHtml({
             </td>
           </tr>
 
-          <!-- ═══════════════════════════════════════════
-               BODY
-          ═══════════════════════════════════════════════ -->
           <tr>
             <td style="padding:44px 44px 8px 44px;
                        font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;">
@@ -236,7 +226,6 @@ function renderPromoHtml({
 
               ${imageBlock}
 
-              <!-- Decorative dots divider -->
               <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0"
                      style="margin:36px 0 0 0;">
                 <tr>
@@ -252,7 +241,6 @@ function renderPromoHtml({
                 </tr>
               </table>
 
-              <!-- Sign-off -->
               <div style="margin:32px 0 0 0;font-size:14px;line-height:1.75;color:#0a0a0a;">
                 <span style="color:#d4d4d8;font-size:18px;line-height:1;">&mdash;</span><br/>
                 <span style="color:#71717a;font-size:13px;">${escapeHtml(signoff1)}</span><br/>
@@ -264,9 +252,6 @@ function renderPromoHtml({
             </td>
           </tr>
 
-          <!-- ═══════════════════════════════════════════
-               FOOTER
-          ═══════════════════════════════════════════════ -->
           <tr>
             <td style="padding:36px 44px 40px 44px;
                        background:${footerPattern()};
@@ -374,6 +359,12 @@ serve(async (req) => {
     return new Response('Method not allowed', { status: 405, headers: corsHeaders })
   }
 
+  // ✅ FIX: reject oversized bodies before parsing JSON.
+  const contentLength = Number(req.headers.get('content-length') || 0)
+  if (contentLength > MAX_BODY_BYTES) {
+    return json({ error: 'Request body too large' }, 413)
+  }
+
   const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE, {
     auth: { persistSession: false },
   })
@@ -401,9 +392,20 @@ serve(async (req) => {
     const bodyRaw      = sanitizeText(p.body, MAX_BODY, true)
     const signoff1     = sanitizeText(p.signoff1, 200) || 'Warm regards,'
     const signoff2     = sanitizeText(p.signoff2, 200) || 'Iloilo Rentals'
-    const imageUrl     = p.image_url ? sanitizeText(p.image_url, 1000) : null
     const imageAlt     = p.image_alt ? sanitizeText(p.image_alt, 200) : null
     const replyTo      = sanitizeText(p.reply_to, 254) || DEFAULT_REPLY_TO
+
+    // ✅ FIX: reject any image_url that isn't from our email-assets bucket.
+    // Prevents tracking-pixel injection and SSRF via the campaign image.
+    const imageUrlRaw = p.image_url ? sanitizeText(p.image_url, 1000) : null
+    let imageUrl: string | null = null
+    if (imageUrlRaw) {
+      const allowedPrefix = `${SUPABASE_URL}/storage/v1/object/public/email-assets/`
+      if (!imageUrlRaw.startsWith(allowedPrefix)) {
+        return json({ error: 'image_url must be from our email-assets storage bucket' }, 400)
+      }
+      imageUrl = imageUrlRaw
+    }
 
     if (!subject)  return json({ error: 'Subject is required' }, 400)
     if (!greeting) return json({ error: 'Greeting is required' }, 400)
@@ -415,7 +417,6 @@ serve(async (req) => {
       return json({ error: `Max ${MAX_RECIPIENTS} recipients per batch. Split into smaller sends.` }, 400)
     }
 
-    // Normalize recipients
     const normalized: { email: string; name: string }[] = []
     for (const r of recipients) {
       const email = sanitizeText(r?.email, 254).toLowerCase()
@@ -453,20 +454,26 @@ serve(async (req) => {
     // ---- 4. Loop recipients ------------------------------------------
     let sent = 0
     let failed = 0
+    let skippedOptedOut = 0
+    let skippedThrottled = 0
     const failures: { email: string; error: string }[] = []
     let sampleHtml = ''
     let sampleText = ''
 
     for (const { email, name } of normalized) {
-      // Skip opted-out
       const { data: optedOut } = await supabase.rpc('is_email_opted_out', { p_email: email })
-      if (optedOut) continue
+      if (optedOut) {
+        skippedOptedOut++
+        continue
+      }
 
-      // Skip if emailed in last 30s
       const { data: recent } = await supabase.rpc('recent_email_exists', {
         p_guest_email: email, p_seconds: 30,
       })
-      if (recent) continue
+      if (recent) {
+        skippedThrottled++
+        continue
+      }
 
       const tokens = { guest_name: name || 'Guest', guest_email: email }
       const personalizedSubject  = applyTokens(subject, tokens)
@@ -549,7 +556,7 @@ serve(async (req) => {
       body_text: sampleText,
       sent_count: sent,
       failed_count: failed,
-      status: failed === normalized.length ? 'failed' : 'sent',
+      status: failed === normalized.length && sent === 0 ? 'failed' : 'sent',
       sent_at: new Date().toISOString(),
     }).eq('id', campaign.id)
 
@@ -559,6 +566,8 @@ serve(async (req) => {
       recipient_count: normalized.length,
       sent,
       failed,
+      skipped_opted_out: skippedOptedOut,
+      skipped_throttled: skippedThrottled,
       failures: failures.slice(0, 20),
     })
 

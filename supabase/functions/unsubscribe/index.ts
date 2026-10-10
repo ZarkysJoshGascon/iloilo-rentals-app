@@ -42,6 +42,12 @@ serve(async (req) => {
     return new Response('Method not allowed', { status: 405, headers: corsHeaders })
   }
 
+  // ✅ FIX: unsubscribe accepts only email + token — 4 KB is plenty.
+  const contentLength = Number(req.headers.get('content-length') || 0)
+  if (contentLength > 4_096) {
+    return json({ error: 'Request body too large' }, 413)
+  }
+
   const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE, {
     auth: { persistSession: false },
   })

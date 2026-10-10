@@ -151,8 +151,6 @@ export async function deleteCleaning(id) {
 // IMAGE COMPRESSION — validates first, then re-encodes to JPEG
 // ============================================================
 export async function compressImage(file, { maxDimension = 1600, quality = 0.72 } = {}) {
-  // Reject anything that isn't actually a supported image, before we
-  // even spin up canvas. This blocks SVG, PDF, executables, etc.
   await validateImageFile(file)
 
   return new Promise((resolve, reject) => {
@@ -176,7 +174,6 @@ export async function compressImage(file, { maxDimension = 1600, quality = 0.72 
       ctx.drawImage(img, 0, 0, width, height)
       canvas.toBlob((blob) => {
         if (!blob) return reject(new Error('Compression failed'))
-        // Attach original filename for downstream error messages
         try { blob.name = file.name || 'photo.jpg' } catch { /* read-only on some browsers */ }
         resolve(blob)
       }, 'image/jpeg', quality)
@@ -187,7 +184,6 @@ export async function compressImage(file, { maxDimension = 1600, quality = 0.72 
 }
 
 function randomId() {
-  // crypto-based, ~16 chars
   const bytes = new Uint8Array(10)
   crypto.getRandomValues(bytes)
   return Array.from(bytes).map((b) => b.toString(36).padStart(2, '0')).join('').slice(0, 16)
@@ -220,8 +216,6 @@ export async function uploadCleaningPhoto({ cleaningId, file, category }) {
     })
   if (uploadErr) throw uploadErr
 
-  // NOTE: we no longer call getPublicUrl(). The bucket is private and
-  // URLs are generated on-demand via createSignedUrl().
   return {
     path,
     uploaded_at: new Date().toISOString(),
@@ -230,7 +224,7 @@ export async function uploadCleaningPhoto({ cleaningId, file, category }) {
 }
 
 // ============================================================
-// SIGNED URLS — short-lived, per-request
+// SIGNED URLS
 // ============================================================
 export async function getSignedUrl(path, expiresIn = SIGNED_URL_TTL) {
   if (!path) return null
@@ -272,8 +266,7 @@ const PHOTO_COLUMN_MAP = {
 
 /**
  * Upload N photos in one shot and write them to the cleaning row.
- * This is the SAFE way to add multiple photos — it does not loop
- * `addPhotoToCleaning`, which would overwrite each previous upload.
+ * Safe for multi-upload — doesn't overwrite previous photos.
  */
 export async function addPhotosToCleaning(cleaning, category, files) {
   const column = PHOTO_COLUMN_MAP[category]
@@ -297,7 +290,7 @@ export async function addPhotosToCleaning(cleaning, category, files) {
 }
 
 /**
- * Single-photo add. Uses the same safe path as addPhotosToCleaning.
+ * Single-photo add.
  */
 export async function addPhotoToCleaning(cleaning, category, file) {
   const { uploaded } = await addPhotosToCleaning(cleaning, category, [file])
@@ -333,7 +326,7 @@ export function parseInventory(raw) {
     .filter((x) => x.name.length > 0)
 }
 
-// Kept as an alias for backwards compat — same as parseInventory
+// Backwards-compat alias
 export function parseLaundryItems(raw) {
   return parseInventory(raw)
 }
@@ -390,7 +383,6 @@ export async function submitCleaning({
 }) {
   const id = cleaning.id
 
-  // Upload multi-photo batches
   const beforeUploaded = []
   for (const file of newPhotosBefore) {
     const photo = await uploadCleaningPhoto({ cleaningId: id, file, category: 'before' })
@@ -415,7 +407,6 @@ export async function submitCleaning({
   const finalAfter = keepPhotosAfter !== undefined ? [...keepPhotosAfter, ...afterUploaded] : [...existingAfter, ...afterUploaded]
   const finalReport = keepPhotosReport !== undefined ? [...keepPhotosReport, ...reportUploaded] : [...existingReport, ...reportUploaded]
 
-  // Single-photo categories
   let amenitiesUsedPhoto = cleaning.amenities_used_photo || null
   if (newAmenitiesUsedPhoto) {
     amenitiesUsedPhoto = await uploadCleaningPhoto({ cleaningId: id, file: newAmenitiesUsedPhoto, category: 'amenities_used' })
@@ -493,6 +484,79 @@ export async function approveAndPayCleaning({
     p_payment_note: note?.trim()?.slice(0, 2000) || null,
   })
   if (error) throw error
+}
+
+// ============================================================
+// POST-APPROVAL CLEANUP
+// ============================================================
+/**
+ * Permanently deletes every photo attached to a cleaning (before, after,
+ * report, amenities, laundry) from Supabase Storage, and clears the
+ * corresponding columns on the cleaning row.
+ *
+ * Called AFTER admin_approve_and_pay_cleaning succeeds. Once a cleaning
+ * is completed and paid, the JPEGs are no longer needed — the fact that
+ * the cleaning happened is preserved in the row itself.
+ *
+ * Safe to call multiple times — if photos are already empty, it's a no-op.
+ */
+export async function purgeCleaningPhotos(cleaningId) {
+  if (!cleaningId) return { deleted: 0 }
+
+  const { data: cleaning, error: fetchErr } = await supabase
+    .from('cleanings')
+    .select(`
+      photos_before, photos_after, photos_report,
+      amenities_used_photo, amenities_replaced_photo,
+      laundry_used_photo, laundry_replaced_photo
+    `)
+    .eq('id', cleaningId)
+    .single()
+
+  if (fetchErr) throw fetchErr
+  if (!cleaning) return { deleted: 0 }
+
+  const paths = []
+  for (const arr of [cleaning.photos_before, cleaning.photos_after, cleaning.photos_report]) {
+    if (Array.isArray(arr)) {
+      for (const p of arr) if (p?.path) paths.push(p.path)
+    }
+  }
+  for (const single of [
+    cleaning.amenities_used_photo,
+    cleaning.amenities_replaced_photo,
+    cleaning.laundry_used_photo,
+    cleaning.laundry_replaced_photo,
+  ]) {
+    if (single?.path) paths.push(single.path)
+  }
+
+  if (paths.length === 0) return { deleted: 0 }
+
+  const { error: rmErr } = await supabase.storage.from(BUCKET).remove(paths)
+  if (rmErr) {
+    // Don't throw — we still want to clear the DB columns even if storage
+    // removal partially failed, otherwise the next approval attempt will
+    // try to delete the same paths again and fail forever.
+    console.warn('purgeCleaningPhotos: storage remove partially failed:', rmErr)
+  }
+
+  const { error: updErr } = await supabase
+    .from('cleanings')
+    .update({
+      photos_before: [],
+      photos_after: [],
+      photos_report: [],
+      amenities_used_photo: null,
+      amenities_replaced_photo: null,
+      laundry_used_photo: null,
+      laundry_replaced_photo: null,
+    })
+    .eq('id', cleaningId)
+
+  if (updErr) throw updErr
+
+  return { deleted: paths.length }
 }
 
 // ============================================================

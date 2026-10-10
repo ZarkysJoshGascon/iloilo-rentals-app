@@ -31,7 +31,7 @@ const HIDDEN_AT_KEY   = 'ir:admin:hiddenAt'
 
 const VALID_TABS = [
   'dashboard', 'registry', 'contracts', 'accounting', 'bookings',
-  'campaigns', 'inquiries', 'interior', 'team', 'housekeeping',
+  'housekeeping', 'inquiries', 'interior', 'campaigns', 'team',
 ]
 
 const SIDEBAR_LEFT_OFFSET     = 12
@@ -260,11 +260,11 @@ export default function AdminDashboardPage() {
     contracts:    FileText,
     accounting:   TrendingUp,
     bookings:     Calendar,
-    campaigns:    Megaphone,
+    housekeeping: Sparkles,
     inquiries:    Inbox,
     interior:     Palette,
+    campaigns:    Megaphone,
     team:         Users,
-    housekeeping: Sparkles,
   }
 
   const tabTitles = {
@@ -273,11 +273,11 @@ export default function AdminDashboardPage() {
     contracts:    'Contracts',
     accounting:   'Accounting',
     bookings:     'Bookings',
-    campaigns:    'Campaigns',
+    housekeeping: 'Housekeeping',
     inquiries:    'Inquiries',
     interior:     'Interior Design',
+    campaigns:    'Campaigns',
     team:         'Team',
-    housekeeping: 'Housekeeping',
   }
 
   const Icon = tabIcons[activeTab] || LayoutDashboard
@@ -449,10 +449,13 @@ export default function AdminDashboardPage() {
                       </div>
                     </PageTransition>
                   )}
-                  {activeTab === 'campaigns' && (
-                    <PageTransition tabKey="campaigns">
+                  {activeTab === 'housekeeping' && (
+                    <PageTransition tabKey="housekeeping">
                       <div className="absolute inset-6 min-h-0 flex flex-col">
-                        <CampaignsPage />
+                        <HousekeepingPage
+                          initialSelectedId={searchParams.get('cleaning')}
+                          fromBookingId={searchParams.get('fromBooking')}
+                        />
                       </div>
                     </PageTransition>
                   )}
@@ -470,20 +473,17 @@ export default function AdminDashboardPage() {
                       </div>
                     </PageTransition>
                   )}
+                  {activeTab === 'campaigns' && (
+                    <PageTransition tabKey="campaigns">
+                      <div className="absolute inset-6 min-h-0 flex flex-col">
+                        <CampaignsPage />
+                      </div>
+                    </PageTransition>
+                  )}
                   {activeTab === 'team' && (
                     <PageTransition tabKey="team">
                       <div className="absolute inset-6 min-h-0 flex flex-col">
                         <TeamPage />
-                      </div>
-                    </PageTransition>
-                  )}
-                  {activeTab === 'housekeeping' && (
-                    <PageTransition tabKey="housekeeping">
-                      <div className="absolute inset-6 min-h-0 flex flex-col">
-                        <HousekeepingPage
-                          initialSelectedId={searchParams.get('cleaning')}
-                          fromBookingId={searchParams.get('fromBooking')}
-                        />
                       </div>
                     </PageTransition>
                   )}

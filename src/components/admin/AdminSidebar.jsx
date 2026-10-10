@@ -30,17 +30,18 @@ export default function AdminSidebar({ activeTab, setActiveTab, collapsed, onMou
     navigate('/')
   }
 
+  // ✅ Corrected order — Contracts restored between Registry and Accounting.
   const navItems = [
     { id: 'dashboard',    label: 'Dashboard',       icon: LayoutDashboard },
     { id: 'registry',     label: 'Registry',        icon: ScrollText },
     { id: 'contracts',    label: 'Contracts',       icon: FileText },
     { id: 'accounting',   label: 'Accounting',      icon: TrendingUp },
     { id: 'bookings',     label: 'Bookings',        icon: Calendar },
-    { id: 'campaigns',    label: 'Campaigns',       icon: Megaphone },
+    { id: 'housekeeping', label: 'Housekeeping',    icon: Sparkles },
     { id: 'inquiries',    label: 'Inquiries',       icon: Inbox },
     { id: 'interior',     label: 'Interior Design', icon: Palette },
+    { id: 'campaigns',    label: 'Campaigns',       icon: Megaphone },
     { id: 'team',         label: 'Team',            icon: Users },
-    { id: 'housekeeping', label: 'Housekeeping',    icon: Sparkles },
   ]
 
   return (

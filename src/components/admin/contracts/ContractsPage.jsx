@@ -25,6 +25,7 @@ import {
 import { supabase } from '@/lib/supabase'
 import { logAudit } from '@/lib/auditLog'
 import { cn, sanitizeText, generateContractCode } from '@/lib/utils'
+import { deriveContractStatus, CONTRACT_STATUS_TEXT } from '@/lib/contracts'
 
 const BRAND = '#2d568e'
 
@@ -46,18 +47,18 @@ function todayISO() {
   return d.toISOString().slice(0, 10)
 }
 function addDaysISO(iso, n) {
-  const d = new Date(iso + 'T00:00:00Z')
+  const d = new Date(`${iso}T00:00:00Z`)
   d.setUTCDate(d.getUTCDate() + n)
   return d.toISOString().slice(0, 10)
 }
 function diffDaysISO(a, b) {
-  const da = new Date(a + 'T00:00:00Z')
-  const db = new Date(b + 'T00:00:00Z')
-  return Math.round((db - da) / 86400000)
+  const da = new Date(`${a}T00:00:00Z`)
+  const db = new Date(`${b}T00:00:00Z`)
+  return Math.round((db - da) / 86_400_000)
 }
 function formatISOReadable(iso) {
   if (!iso) return '—'
-  const d = new Date(iso + 'T00:00:00Z')
+  const d = new Date(`${iso}T00:00:00Z`)
   if (Number.isNaN(d.getTime())) return '—'
   return d.toLocaleDateString('en-PH', { month: 'short', day: 'numeric', year: 'numeric', timeZone: 'UTC' })
 }
@@ -86,29 +87,8 @@ async function pdfSniffMime(file) {
   return null
 }
 
-// ── status ──────────────────────────────────────────────────
-function deriveContractStatus(contract) {
-  if (!contract) return 'incomplete'
-  const eff = contract.effective_date ? new Date(contract.effective_date + 'T00:00:00Z') : null
-  const exp = contract.expiry_date ? new Date(contract.expiry_date + 'T00:00:00Z') : null
-  const today = new Date()
-  today.setUTCHours(0, 0, 0, 0)
-  if (!eff && !exp) return 'incomplete'
-  if (eff && !exp) return 'active'
-  if (eff && exp) {
-    if (exp < today) return 'expired'
-    const daysLeft = Math.round((exp - today) / 86400000)
-    return daysLeft <= 60 ? 'expiring' : 'active'
-  }
-  return exp < today ? 'expired' : 'active'
-}
-
-const STATUS_TEXT = {
-  active:     { label: 'Active',     className: 'text-emerald-600 dark:text-emerald-400' },
-  expiring:   { label: 'Expiring',   className: 'text-amber-600 dark:text-amber-400' },
-  expired:    { label: 'Expired',    className: 'text-red-600 dark:text-red-400' },
-  incomplete: { label: 'Incomplete', className: 'text-gray-500 dark:text-gray-400' },
-}
+// ── status — sourced from @/lib/contracts ───────────────────
+const STATUS_TEXT = CONTRACT_STATUS_TEXT
 
 function StatusText({ contract }) {
   const status = deriveContractStatus(contract)
@@ -118,7 +98,7 @@ function StatusText({ contract }) {
 
 function formatDate(d) {
   if (!d) return '—'
-  const dt = new Date(d + 'T00:00:00Z')
+  const dt = new Date(`${d}T00:00:00Z`)
   if (Number.isNaN(dt.getTime())) return '—'
   return dt.toLocaleDateString('en-PH', { month: 'short', day: 'numeric', year: 'numeric', timeZone: 'UTC' })
 }
@@ -275,7 +255,7 @@ function NewContractModal({ open, onClose, onCreated, units, owners, contracts }
   useEffect(() => {
     if (!open) return
     const today = todayISO()
-    const oneYearEnd = new Date(today + 'T00:00:00Z')
+    const oneYearEnd = new Date(`${today}T00:00:00Z`)
     oneYearEnd.setUTCFullYear(oneYearEnd.getUTCFullYear() + 1)
     oneYearEnd.setUTCDate(oneYearEnd.getUTCDate() - 1)
     setForm({
@@ -292,10 +272,10 @@ function NewContractModal({ open, onClose, onCreated, units, owners, contracts }
   // Eligible = no existing contract AND has an owner attached.
   const eligibleUnits = useMemo(() => {
     const unitsWithContracts = new Set(
-      contracts.map((c) => c.unit_id).filter(Boolean)
+      contracts.map((c) => c.unit_id).filter(Boolean),
     )
     const list = units.filter(
-      (u) => !unitsWithContracts.has(u.id) && u.owner_id
+      (u) => !unitsWithContracts.has(u.id) && u.owner_id,
     )
     list.sort((a, b) => {
       const av = `${a.building || ''} ${a.unit_code || ''}`.trim()
@@ -305,20 +285,18 @@ function NewContractModal({ open, onClose, onCreated, units, owners, contracts }
     return list
   }, [units, contracts])
 
-  // Units blocked specifically because they lack an owner — used for the
-  // empty-state message so the user knows what to fix.
   const blockedNoOwner = useMemo(() => {
     const unitsWithContracts = new Set(
-      contracts.map((c) => c.unit_id).filter(Boolean)
+      contracts.map((c) => c.unit_id).filter(Boolean),
     )
     return units.filter(
-      (u) => !unitsWithContracts.has(u.id) && !u.owner_id
+      (u) => !unitsWithContracts.has(u.id) && !u.owner_id,
     )
   }, [units, contracts])
 
   const blockedHasContract = useMemo(() => {
     const unitsWithContracts = new Set(
-      contracts.map((c) => c.unit_id).filter(Boolean)
+      contracts.map((c) => c.unit_id).filter(Boolean),
     )
     return units.filter((u) => unitsWithContracts.has(u.id))
   }, [units, contracts])
@@ -415,7 +393,6 @@ function NewContractModal({ open, onClose, onCreated, units, owners, contracts }
         </div>
 
         <div className="flex-1 overflow-y-auto px-5 py-4 space-y-4">
-          {/* Empty state — no eligible units */}
           {noEligible && (
             <div className="rounded-md border border-amber-500/30 bg-amber-500/10 p-4">
               <p className="text-xs font-semibold text-amber-700 dark:text-amber-400 mb-1">
@@ -453,7 +430,6 @@ function NewContractModal({ open, onClose, onCreated, units, owners, contracts }
             </div>
           )}
 
-          {/* Unit */}
           <div>
             <label className={labelClass}>Unit *</label>
             <Select value={form.unit_id} onValueChange={(v) => setField('unit_id', v)} disabled={noEligible}>
@@ -474,7 +450,6 @@ function NewContractModal({ open, onClose, onCreated, units, owners, contracts }
             </Select>
           </div>
 
-          {/* Owner (read-only, from the unit) */}
           {selectedUnit && unitOwner && (
             <div>
               <label className={labelClass}>Owner</label>
@@ -488,7 +463,6 @@ function NewContractModal({ open, onClose, onCreated, units, owners, contracts }
             </div>
           )}
 
-          {/* Dates */}
           <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
             <div>
               <label className={labelClass}>Effective date *</label>
@@ -514,7 +488,6 @@ function NewContractModal({ open, onClose, onCreated, units, owners, contracts }
             </div>
           </div>
 
-          {/* Range info */}
           {rangeInfo && (
             <div className="text-[11px] text-muted-foreground">
               {rangeInfo.valid ? (
@@ -532,7 +505,6 @@ function NewContractModal({ open, onClose, onCreated, units, owners, contracts }
             </div>
           )}
 
-          {/* Notes */}
           <div>
             <label className={labelClass}>Notes (optional)</label>
             <Textarea
@@ -654,7 +626,7 @@ function StatusPills({ statusFilter, onStatusFilter, counts }) {
             onClick={() => onStatusFilter(tab.id)}
             className={cn(
               'relative z-10 px-3 py-1 rounded-full text-[11px] font-semibold transition-colors duration-200 whitespace-nowrap',
-              isActive ? (PILL_TEXT_ACTIVE[tab.id] || 'text-foreground') : 'text-muted-foreground hover:text-foreground'
+              isActive ? (PILL_TEXT_ACTIVE[tab.id] || 'text-foreground') : 'text-muted-foreground hover:text-foreground',
             )}
           >
             {tab.label}
@@ -767,7 +739,7 @@ function FilterPanel({
                 </div>
               </div>
               <p className="text-[10px] text-muted-foreground mt-1.5">
-                Shows contracts whose window overlaps this range.
+                Shows contracts whose active period overlaps this range.
               </p>
             </div>
           </div>
@@ -894,7 +866,7 @@ function EditableField({ label, value, type = 'text', options, onSave, auditTag,
             className={cn(
               'h-7 text-xs rounded bg-background flex-1 transition-colors',
               !value && 'border-border',
-              value && 'border-transparent hover:border-border'
+              value && 'border-transparent hover:border-border',
             )}
             placeholder="—"
           />
@@ -1174,7 +1146,7 @@ function ContractPdfUploader({ contract, onSaved }) {
             </div>
           </div>
         </motion.div>,
-        document.body
+        document.body,
       )}
     </>
   )
@@ -1200,7 +1172,38 @@ function ContractDetailPanel({ contract, onClose, onChanged, onDelete }) {
   const status = deriveContractStatus(contract)
   const statusConfig = STATUS_TEXT[status] || STATUS_TEXT.incomplete
 
+  // ✅ FIX: warn before committing a date change that would orphan bookings.
   const updateField = async (field, value) => {
+    if (field === 'effective_date' || field === 'expiry_date') {
+      const newEffective = field === 'effective_date' ? value : contract.effective_date
+      const newExpiry    = field === 'expiry_date'    ? value : contract.expiry_date
+
+      const filters = []
+      if (newEffective) filters.push(`check_in.lt.${newEffective}`)
+      if (newExpiry)    filters.push(`check_in.gt.${newExpiry}`)
+
+      if (filters.length > 0) {
+        const { count, error } = await supabase
+          .from('bookings')
+          .select('id', { count: 'exact', head: true })
+          .eq('unit_id', contract.unit_id)
+          .is('deleted_at', null)
+          .is('cancelled_at', null)
+          .or(filters.join(','))
+
+        if (error) {
+          console.warn('Could not check for orphaned bookings:', error)
+        } else if (count && count > 0) {
+          const ok = window.confirm(
+            `${count} booking${count === 1 ? '' : 's'} will fall outside the new contract range.\n\n` +
+            `They will stop appearing in Accounting until the contract covers them again.\n\n` +
+            `Continue?`
+          )
+          if (!ok) return
+        }
+      }
+    }
+
     const { error } = await supabase.from('contracts').update({ [field]: value }).eq('id', contract.id)
     if (error) throw error
     logAudit(`UPDATE_CONTRACT_FIELD:${field}`, 'contracts', contract.id, { field, from: contract[field], to: value }).catch(() => {})
@@ -1435,13 +1438,27 @@ export default function ContractsPage() {
   }, [contracts])
 
   const counts = useMemo(() => {
-    const c = { all: contracts.length, active: 0, expiring: 0, expired: 0 }
-    for (const x of contracts) {
+    const q = debouncedSearch.trim().toLowerCase()
+    const tokens = q ? q.split(/\s+/).filter(Boolean) : []
+
+    const scoped = tokens.length === 0
+      ? contracts
+      : contracts.filter((c) => {
+          const haystack = [
+            c.contract_code,
+            c.units?.unit_code, c.units?.building,
+            c.owners?.name, c.owners?.email,
+          ].filter(Boolean).join(' ').toLowerCase()
+          return tokens.every((tok) => haystack.includes(tok))
+        })
+
+    const c = { all: scoped.length, active: 0, expiring: 0, expired: 0 }
+    for (const x of scoped) {
       const s = deriveContractStatus(x)
       if (c[s] !== undefined) c[s]++
     }
     return c
-  }, [contracts])
+  }, [contracts, debouncedSearch])
 
   const activeFilterCount = useMemo(() => {
     let n = 0
@@ -1467,6 +1484,8 @@ export default function ContractsPage() {
 
   const filtered = useMemo(() => {
     const q = debouncedSearch.trim().toLowerCase()
+    const tokens = q ? q.split(/\s+/).filter(Boolean) : []
+
     return contracts.filter((c) => {
       if (filterUnitId && c.unit_id !== filterUnitId) return false
       const status = deriveContractStatus(c)
@@ -1475,21 +1494,25 @@ export default function ContractsPage() {
       if (ownerId !== 'all' && c.owner_id !== ownerId) return false
       if (unitId !== 'all' && c.unit_id !== unitId) return false
 
-      // Date range: contract window overlaps [rangeFrom, rangeTo]
+      // Overlap test:
+      //   contract range: [cStart, cEnd]
+      //   filter range:   [rangeFrom, rangeTo]
+      // Include if they overlap at all (treat open-ended as ±infinity).
       if (rangeFrom || rangeTo) {
         const cStart = c.effective_date || '0001-01-01'
-        const cEnd = c.expiry_date || '9999-12-31'
+        const cEnd   = c.expiry_date    || '9999-12-31'
+
         if (rangeFrom && cEnd < rangeFrom) return false
         if (rangeTo && cStart > rangeTo) return false
       }
 
-      if (q) {
+      if (tokens.length > 0) {
         const haystack = [
           c.contract_code,
           c.units?.unit_code, c.units?.building,
           c.owners?.name, c.owners?.email,
         ].filter(Boolean).join(' ').toLowerCase()
-        if (!haystack.includes(q)) return false
+        if (!tokens.every((tok) => haystack.includes(tok))) return false
       }
       return true
     })
@@ -1517,7 +1540,7 @@ export default function ContractsPage() {
 
   const handleDelete = async (contract) => {
     const confirmed = window.confirm(
-      `Delete this contract?\n\nCode: ${contract.contract_code || '—'}\nUnit: ${contract.units?.unit_code || '—'}\nEffective: ${formatDate(contract.effective_date)}\nExpiry: ${formatDate(contract.expiry_date)}\n\nThis cannot be undone.`
+      `Delete this contract?\n\nCode: ${contract.contract_code || '—'}\nUnit: ${contract.units?.unit_code || '—'}\nEffective: ${formatDate(contract.effective_date)}\nExpiry: ${formatDate(contract.expiry_date)}\n\nThis cannot be undone.`,
     )
     if (!confirmed) return
     try {

@@ -1,18 +1,6 @@
 // src/lib/email.js
 // ============================================================
 // Client-side email helpers for the CRM.
-//
-// Everything email-related that lives in the browser is here:
-//   · the booking-confirmation "shape" (subject pattern, times,
-//     disclaimer) so the modal preview matches what the server sends
-//   · formatters (date, money, nights)
-//   · the send function that calls the Edge Function
-//   · the history fetcher for the modal's History tab
-//
-// The actual HTML template lives in the Edge Function source
-// (supabase/functions/send-booking-confirmation/index.ts).
-// That's the source of truth — this file only mirrors the strings
-// the modal needs to render the preview.
 // ============================================================
 
 import { supabase } from './supabase'
@@ -32,7 +20,7 @@ export const BOOKING_CONFIRMATION = {
 }
 
 // ------------------------------------------------------------
-// Formatters — identical logic to the server so preview === reality
+// Formatters
 // ------------------------------------------------------------
 export function formatDateLong(iso) {
   if (!iso) return '—'
@@ -57,14 +45,8 @@ export function computeNights(checkIn, checkOut) {
 }
 
 // ------------------------------------------------------------
-// Send — the only way to send a booking confirmation
+// Send booking confirmation
 // ------------------------------------------------------------
-/**
- * Ask the Edge Function to render + send the booking confirmation
- * for a specific booking. The client sends ONLY the booking_id.
- * Everything else (subject, body, amounts) is built server-side,
- * so nothing can be tampered with from the browser.
- */
 export async function sendBookingConfirmation(bookingId) {
   if (!bookingId) throw new Error('Missing booking id')
 
@@ -89,13 +71,8 @@ export async function sendBookingConfirmation(bookingId) {
 }
 
 // ------------------------------------------------------------
-// History — for the modal's History tab
+// History
 // ------------------------------------------------------------
-/**
- * Recent booking-confirmation emails for a specific booking.
- * Filters to template_key = 'booking_confirmation' so the modal
- * doesn't show unrelated emails (e.g. future promo blasts).
- */
 export async function listBookingConfirmations(bookingId) {
   if (!bookingId) return []
   const { data, error } = await supabase
@@ -109,10 +86,6 @@ export async function listBookingConfirmations(bookingId) {
   return data || []
 }
 
-/**
- * All emails for a booking (any template). Useful if you later
- * add other per-booking emails and want one unified history view.
- */
 export async function listAllEmailsForBooking(bookingId) {
   if (!bookingId) return []
   const { data, error } = await supabase
@@ -129,11 +102,6 @@ export async function listAllEmailsForBooking(bookingId) {
 // PROMO CAMPAIGNS
 // ============================================================
 
-/**
- * Fetch past guests eligible to receive campaigns.
- * Rule: check_out < today, not soft-deleted, deduped by email.
- * Returns one row per unique guest (keeping the most recent booking).
- */
 export async function listPastGuests() {
   const today = new Date().toISOString().slice(0, 10)
 
@@ -151,7 +119,6 @@ export async function listPastGuests() {
 
   if (error) throw error
 
-  // Dedupe by email — keep the most recent booking per guest
   const map = new Map()
   for (const b of data || []) {
     const email = (b.guest_email || '').trim().toLowerCase()
@@ -169,11 +136,6 @@ export async function listPastGuests() {
   return [...map.values()]
 }
 
-/**
- * Fetch past guests filtered by how recently they stayed.
- * windowMonths: null = all time; a number = only guests whose
- * last stay was within that many months.
- */
 export async function listPastGuestsFiltered(windowMonths = null) {
   const all = await listPastGuests()
   if (!windowMonths) return all
@@ -185,9 +147,6 @@ export async function listPastGuestsFiltered(windowMonths = null) {
   return all.filter((g) => (g.last_check_out || '') >= cutoffISO)
 }
 
-/**
- * Fetch the campaigns history (most recent first).
- */
 export async function listCampaigns(limit = 50) {
   const { data, error } = await supabase
     .from('email_campaigns')
@@ -198,10 +157,6 @@ export async function listCampaigns(limit = 50) {
   return data || []
 }
 
-/**
- * Send a test version of a promo email to the current admin.
- * The Edge Function detects the mode and sends only to your admin email.
- */
 export async function sendPromoTest(payload) {
   const { data: { session } } = await supabase.auth.getSession()
   if (!session) throw new Error('Not signed in')
@@ -222,10 +177,6 @@ export async function sendPromoTest(payload) {
   return data
 }
 
-/**
- * Send a promo campaign to a list of recipients.
- * recipients: [{ email, name }]
- */
 export async function sendPromoCampaign(payload) {
   const { data: { session } } = await supabase.auth.getSession()
   if (!session) throw new Error('Not signed in')
@@ -246,11 +197,6 @@ export async function sendPromoCampaign(payload) {
   return data
 }
 
-/**
- * Upload a hero image for a campaign.
- * Images are auto-resized to 1200px wide (good for retina displays)
- * and stored in the 'email-assets' Supabase Storage bucket.
- */
 export async function uploadCampaignImage(file) {
   if (!file) throw new Error('No file')
   if (file.size > 5 * 1024 * 1024) throw new Error('Image must be under 5 MB')
@@ -258,7 +204,8 @@ export async function uploadCampaignImage(file) {
     throw new Error('Only JPEG, PNG, or WebP images are allowed')
   }
 
-  const resized = await resizeImage(file, 1200, 0.85)
+  // ✅ FIX #34 — Pass maxH so tall images don't blow up the email layout.
+  const resized = await resizeImage(file, 1200, 0.85, 1800)
 
   const rand = crypto.getRandomValues(new Uint8Array(8))
     .reduce((s, b) => s + b.toString(36).padStart(2, '0'), '')
@@ -278,15 +225,18 @@ export async function uploadCampaignImage(file) {
   return { path, url: data.publicUrl }
 }
 
-// Internal — resize an image on the client before uploading
-async function resizeImage(file, maxW, quality) {
+// ✅ FIX #34 — maxH is optional and caps both dimensions.
+async function resizeImage(file, maxW, quality, maxH = null) {
   const img = await new Promise((res, rej) => {
     const i = new Image()
     i.onload = () => res(i)
     i.onerror = () => rej(new Error('Failed to load image'))
     i.src = URL.createObjectURL(file)
   })
-  const scale = Math.min(1, maxW / img.width)
+
+  let scale = Math.min(1, maxW / img.width)
+  if (maxH) scale = Math.min(scale, maxH / img.height)
+
   const w = Math.round(img.width * scale)
   const h = Math.round(img.height * scale)
 

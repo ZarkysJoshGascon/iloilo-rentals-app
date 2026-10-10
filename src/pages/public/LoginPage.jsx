@@ -22,6 +22,17 @@ function isEmbeddedBrowser() {
   )
 }
 
+// ✅ FIX: single source of truth for redirect validation. Prevents open-redirect
+// drift between the post-login effect and the OAuth initiation handler.
+function safeRedirectTarget(raw) {
+  if (!raw || typeof raw !== 'string') return null
+  if (!raw.startsWith('/')) return null
+  if (raw.startsWith('//')) return null
+  if (raw.includes('://')) return null
+  if (raw.includes('\\')) return null
+  return raw
+}
+
 export default function LoginPage() {
   const navigate = useNavigate()
   const [searchParams] = useSearchParams()
@@ -41,13 +52,7 @@ export default function LoginPage() {
     redirectHandled.current = true
 
     const redirect = searchParams.get('redirect')
-    const safeRedirect =
-      redirect &&
-      redirect.startsWith('/') &&
-      !redirect.startsWith('//') &&
-      !redirect.includes('://')
-        ? redirect
-        : null
+    const safeRedirect = safeRedirectTarget(redirect)
 
     navigate(safeRedirect || '/post-login', { replace: true })
   }, [authLoading, user, navigate, searchParams])
@@ -68,13 +73,7 @@ export default function LoginPage() {
     setIsLoading(true)
     try {
       const redirect = searchParams.get('redirect')
-      const safeRedirect =
-        redirect &&
-        redirect.startsWith('/') &&
-        !redirect.startsWith('//') &&
-        !redirect.includes('://')
-          ? redirect
-          : null
+      const safeRedirect = safeRedirectTarget(redirect)
 
       const redirectTo = safeRedirect
         ? `${window.location.origin}/login?redirect=${encodeURIComponent(safeRedirect)}`
@@ -101,7 +100,6 @@ export default function LoginPage() {
   const handleCopyLink = async () => {
     const url = window.location.href
 
-    // Preferred path: async clipboard API (Chrome/Safari/Firefox, HTTPS only)
     try {
       if (navigator.clipboard && window.isSecureContext) {
         await navigator.clipboard.writeText(url)
@@ -114,13 +112,11 @@ export default function LoginPage() {
       // fall through to manual selection
     }
 
-    // Fallback: focus + select the URL so the user can copy manually
     try {
       const input = urlInputRef.current
       if (input) {
         input.focus()
         input.select()
-        // Some mobile browsers need execCommand for the copy to actually work
         document.execCommand?.('copy')
         setCopied(true)
         toast.success('URL selected — long-press to copy')
@@ -217,9 +213,7 @@ export default function LoginPage() {
         whileHover={{ scale: 1.02 }}
         className="relative bg-white rounded-2xl shadow-2xl max-w-md w-full mx-4 p-6 md:p-10 transition-all duration-500"
       >
-        {/* --------------------------------------------------
-            Embedded-browser warning
-            -------------------------------------------------- */}
+        {/* Embedded-browser warning */}
         {showWarning && (
           <motion.div
             initial={{ opacity: 0, y: -10 }}
@@ -247,7 +241,6 @@ export default function LoginPage() {
               </div>
             </div>
 
-            {/* URL display + copy button */}
             <div className="mt-3 flex items-center gap-2">
               <input
                 ref={urlInputRef}
@@ -282,9 +275,7 @@ export default function LoginPage() {
           </motion.div>
         )}
 
-        {/* --------------------------------------------------
-            Logo
-            -------------------------------------------------- */}
+        {/* Logo */}
         <div className="flex justify-center mb-4 md:mb-6">
           <motion.div
             variants={logoVariants}
@@ -309,9 +300,7 @@ export default function LoginPage() {
           </motion.div>
         </div>
 
-        {/* --------------------------------------------------
-            Headings
-            -------------------------------------------------- */}
+        {/* Headings */}
         <motion.h1
           variants={titleVariants}
           className="text-2xl md:text-4xl font-bold text-center bg-gradient-to-r from-[#2d568e] to-[#1e3a5f] bg-clip-text text-transparent mb-3"
@@ -333,9 +322,7 @@ export default function LoginPage() {
           in Iloilo City
         </motion.p>
 
-        {/* --------------------------------------------------
-            Divider
-            -------------------------------------------------- */}
+        {/* Divider */}
         <div className="relative mb-6 md:mb-8">
           <motion.div variants={dividerVariants} className="absolute inset-0 flex items-center">
             <div className="w-full border-t border-gray-200"></div>
@@ -352,9 +339,7 @@ export default function LoginPage() {
           </div>
         </div>
 
-        {/* --------------------------------------------------
-            Google Sign-In
-            -------------------------------------------------- */}
+        {/* Google Sign-In */}
         <motion.button
           variants={buttonVariants}
           initial="hidden"
@@ -414,9 +399,7 @@ export default function LoginPage() {
           )}
         </motion.button>
 
-        {/* --------------------------------------------------
-            Feature row
-            -------------------------------------------------- */}
+        {/* Feature row */}
         <motion.div
           variants={featuresVariants}
           initial="hidden"
@@ -439,9 +422,7 @@ export default function LoginPage() {
           </div>
         </motion.div>
 
-        {/* --------------------------------------------------
-            Legal footer
-            -------------------------------------------------- */}
+        {/* Legal footer */}
         <motion.p
           variants={footerVariants}
           initial="hidden"

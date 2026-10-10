@@ -15,6 +15,7 @@ import { useDebouncedRealtime } from '@/hooks/useDebouncedRealtime'
 import { useAuth } from '@/context/AuthContext'
 import { cn } from '@/lib/utils'
 import { ContextMenu } from '@/components/ui/ContextMenu'
+import BackupStatusStrip from './BackupStatusStrip'
 
 const NEARING_END_DAYS = 60
 const LIST_LIMIT = 8
@@ -935,6 +936,8 @@ export default function DashboardPage({ onNavigateTab }) {
             <StatCard label="Unpaid Bookings" value={stats.unpaidBookingsCount} sub={stats.unpaidBookingsTotal > 0 ? `${formatMoney(stats.unpaidBookingsTotal)} outstanding` : 'No outstanding'} onClick={() => goto('bookings', 'unpaid')} />
             <StatCard label="Cleanings to Evaluate" value={stats.cleaningsToEvaluate} sub="Waiting for review" onClick={() => goto('housekeeping', 'evaluate')} />
           </div>
+
+          <BackupStatusStrip />
 
           <div className="flex items-center justify-center">
             <div className="inline-flex items-center gap-1 bg-muted/50 rounded-full p-1">

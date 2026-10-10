@@ -15,7 +15,10 @@ if (!SUPABASE_URL) throw new Error('SUPABASE_URL is required')
 if (!SUPABASE_SERVICE_ROLE_KEY) throw new Error('SUPABASE_SERVICE_ROLE_KEY is required')
 if (!CRON_SECRET) throw new Error('CRON_SECRET is required')
 
-const ADMIN_EMAIL = Deno.env.get('ADMIN_EMAIL') || 'admin@iloilorentals.com'
+// ✅ FIX #24 — Fail loudly if ADMIN_EMAIL is missing.
+const ADMIN_EMAIL = Deno.env.get('ADMIN_EMAIL')
+if (!ADMIN_EMAIL) throw new Error('ADMIN_EMAIL is required')
+
 const FROM_EMAIL = Deno.env.get('FROM_EMAIL') || 'onboarding@resend.dev'
 
 function timingSafeEqual(a: string, b: string): boolean {
@@ -151,6 +154,15 @@ serve(async (req) => {
 
   if (req.method !== 'POST') {
     return new Response('Method not allowed', { status: 405, headers: corsHeaders })
+  }
+
+  // ✅ FIX: cron payload is a no-op — cap at 4 KB.
+  const contentLength = Number(req.headers.get('content-length') || 0)
+  if (contentLength > 4_096) {
+    return new Response(JSON.stringify({ error: 'Request body too large' }), {
+      status: 413,
+      headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+    })
   }
 
   try {

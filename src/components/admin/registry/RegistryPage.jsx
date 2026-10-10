@@ -2,9 +2,9 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import {
-  Camera, Check, Download, Loader2, Mail, Phone,
-  Plus, RefreshCw, Search, SlidersHorizontal, X, Pencil, Tag, Layers,
-  Building2, CheckCircle2, Clock, AlertTriangle, UserPlus, Trash2, PhoneCall,
+  Check, Download, Loader2, Mail, Phone,
+  Plus, RefreshCw, Search, SlidersHorizontal, X, Pencil,
+  CheckCircle2, Clock, AlertTriangle, Trash2, PhoneCall,
   User,
 } from 'lucide-react'
 import { useNavigate } from 'react-router-dom'
@@ -26,6 +26,7 @@ import {
   cn,
   sanitizeText,
   sanitizeDateOnly,
+  sanitizeEmail,
 } from '@/lib/utils'
 
 const BRAND = '#2d568e'
@@ -80,17 +81,7 @@ const PANEL_WIDTH = 448
 
 const EXPIRING_SOON_DAYS = 60
 
-// ── URL builder ─────────────────────────────────────────────
-// Cache-busting: appends a `?v=` param so the browser never
-// serves a stale 404 that was cached on an earlier failed load.
-function buildPhotoUrl(rawUrl) {
-  if (!rawUrl || typeof rawUrl !== 'string') return null
-  const trimmed = rawUrl.trim()
-  if (!/^https?:\/\//i.test(trimmed)) return null
-  const sep = trimmed.includes('?') ? '&' : '?'
-  return `${trimmed}${sep}v=${Date.now()}`
-}
-
+// ── OTA helpers ─────────────────────────────────────────────
 function normalizeOtaListings(raw) {
   if (!raw) return []
   if (Array.isArray(raw)) {
@@ -196,6 +187,7 @@ function DerivedStatusText({ unit }) {
   return <span className={cn('text-[11px] font-semibold', config.className)}>{config.label}</span>
 }
 
+// ── Avatars (owner only) ────────────────────────────────────
 const AVATAR_COLORS = [
   ['bg-blue-100', 'text-blue-700', 'dark:bg-blue-900/40', 'dark:text-blue-300'],
   ['bg-emerald-100', 'text-emerald-700', 'dark:bg-emerald-900/40', 'dark:text-emerald-300'],
@@ -206,57 +198,25 @@ const AVATAR_COLORS = [
   ['bg-amber-100', 'text-amber-700', 'dark:bg-amber-900/40', 'dark:text-amber-300'],
   ['bg-indigo-100', 'text-indigo-700', 'dark:bg-indigo-900/40', 'dark:text-indigo-300'],
 ]
+
 function initials(name) {
   if (!name) return '?'
   return name.trim().split(/\s+/).slice(0, 2).map((p) => p[0]?.toUpperCase() || '').join('') || '?'
 }
+
 function avatarColor(seed) {
   if (!seed) return AVATAR_COLORS[0]
   let hash = 0
   for (let i = 0; i < seed.length; i++) { hash = ((hash << 5) - hash) + seed.charCodeAt(i); hash = hash & hash }
   return AVATAR_COLORS[Math.abs(hash) % AVATAR_COLORS.length]
 }
+
 function OwnerAvatar({ name, email, size = 'md' }) {
   const [bg, text, dbg, dtext] = avatarColor(email || name)
   const sizeClasses = size === 'lg' ? 'w-12 h-12 text-base' : size === 'sm' ? 'w-8 h-8 text-[11px]' : 'w-10 h-10 text-sm'
   return (
     <div className={cn('rounded-full flex items-center justify-center font-semibold flex-shrink-0', sizeClasses, bg, text, dbg, dtext)}>
       {initials(name)}
-    </div>
-  )
-}
-
-// ── UnitAvatar with fallback ────────────────────────────────
-// If the img fails to load (404, CORS, blocked), swaps to the icon.
-// Also cache-busts via buildPhotoUrl.
-function UnitAvatar({ unit, size = 'md' }) {
-  const [imgFailed, setImgFailed] = useState(false)
-  const sizeClasses = size === 'lg' ? 'w-12 h-12' : size === 'sm' ? 'w-8 h-8' : 'w-10 h-10'
-
-  // Reset the failure flag whenever the URL changes (new upload)
-  useEffect(() => {
-    setImgFailed(false)
-  }, [unit?.photo_url])
-
-  const url = buildPhotoUrl(unit?.photo_url)
-  const showImg = !!url && !imgFailed
-
-  return (
-    <div className={cn('rounded-md flex items-center justify-center flex-shrink-0 overflow-hidden border border-border bg-muted', sizeClasses)}>
-      {showImg ? (
-        <img
-          src={url}
-          alt=""
-          className="w-full h-full object-cover"
-          onError={(e) => {
-            console.warn('Unit photo failed to load:', url)
-            setImgFailed(true)
-          }}
-          loading="lazy"
-        />
-      ) : (
-        <Building2 size={size === 'lg' ? 18 : 14} className="text-muted-foreground" />
-      )}
     </div>
   )
 }
@@ -274,7 +234,7 @@ function SummaryCards({ units }) {
   }, [units])
 
   const cards = [
-    { label: 'Total Units', value: stats.total,      icon: Building2     },
+    { label: 'Total Units', value: stats.total,      icon: CheckCircle2  },
     { label: 'Active',      value: stats.active,     icon: CheckCircle2  },
     { label: 'For Renewal', value: stats.forRenewal, icon: AlertTriangle },
     { label: 'Inactive',    value: stats.inactive,   icon: X             },
@@ -383,95 +343,7 @@ function EditableField({ label, value, type = 'text', options, onSave, actionHre
   )
 }
 
-// ── UnitPhotoUpload ─────────────────────────────────────────
-// Hardened. After a successful upload, calls onSave with the raw
-// public URL (un-cache-busted). UnitAvatar appends the cache-buster.
-function UnitPhotoUpload({ unit, onSave }) {
-  const [uploading, setUploading] = useState(false)
-  const inputRef = useRef(null)
-
-  const handleFile = async (e) => {
-    const file = e.target.files?.[0]
-    if (!file) return
-
-    setUploading(true)
-    try {
-      const mimeToExt = {
-        'image/jpeg': 'jpg',
-        'image/png': 'png',
-        'image/webp': 'webp',
-        'image/gif': 'gif',
-        'image/avif': 'avif',
-      }
-      const ext = mimeToExt[file.type] || 'jpg'
-      const path = `${unit.id}_${Date.now()}.${ext}`
-
-      const { error: uploadErr } = await supabase
-        .storage
-        .from('unit-photos')
-        .upload(path, file, {
-          cacheControl: '3600',
-          upsert: true,
-          contentType: file.type || 'image/jpeg',
-        })
-      if (uploadErr) throw uploadErr
-
-      const { data } = supabase.storage.from('unit-photos').getPublicUrl(path)
-      const publicUrl = data?.publicUrl
-      if (!publicUrl) throw new Error('Failed to get public URL')
-
-      await onSave(publicUrl)
-      logAudit('UPDATE_UNIT_PHOTO', 'units', unit.id, { url: publicUrl }).catch(() => {})
-      toast.success('Photo updated')
-    } catch (err) {
-      console.error('Unit photo upload failed:', err)
-      toast.error(err?.message || 'Upload failed')
-    } finally {
-      setUploading(false)
-      if (inputRef.current) inputRef.current.value = ''
-    }
-  }
-
-  const previewUrl = buildPhotoUrl(unit.photo_url)
-
-  return (
-    <div className="flex items-center gap-3 py-1">
-      <div className="w-16 h-16 rounded-md overflow-hidden bg-muted border border-border flex-shrink-0 flex items-center justify-center">
-        {previewUrl ? (
-          <img
-            src={previewUrl}
-            alt=""
-            className="w-full h-full object-cover"
-            onError={() => console.warn('Preview image failed:', previewUrl)}
-          />
-        ) : (
-          <Building2 size={22} className="text-muted-foreground" />
-        )}
-      </div>
-      <label className="cursor-pointer">
-        <input
-          ref={inputRef}
-          type="file"
-          accept="image/jpeg,image/png,image/webp"
-          className="hidden"
-          onChange={handleFile}
-          disabled={uploading}
-        />
-        <span
-          className={cn(
-            'inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded text-xs font-semibold text-white cursor-pointer transition-colors duration-150',
-            uploading && 'opacity-50 pointer-events-none',
-          )}
-          style={{ backgroundColor: BRAND }}
-        >
-          {uploading ? <Loader2 size={11} className="animate-spin" /> : <Camera size={11} />}
-          {unit.photo_url ? 'Replace' : 'Upload'}
-        </span>
-      </label>
-    </div>
-  )
-}
-
+// ── OTA Editor ──────────────────────────────────────────────
 function OtaEditor({ unit, onSave, channelOptions = [] }) {
   const listings = useMemo(() => normalizeOtaListings(unit.ota_listings), [unit.ota_listings])
   const [drafting, setDrafting] = useState(false)
@@ -678,6 +550,7 @@ function LogCallModal({ open, onClose, unit, onSaved }) {
   if (!open || !unit) return null
   const handleSave = async () => {
     if (!content.trim()) { toast.error('Add a short note'); return }
+    if (content.length > 2000) { toast.error('Note is too long (max 2000)'); return }
     setSaving(true)
     try {
       const { error } = await supabase.from('unit_interactions').insert({
@@ -1003,10 +876,6 @@ function RegistryDetailPanel({
     onUnitChange({ ...unit, ota_listings: otaListings })
     logAudit('UPDATE_UNIT_OTA', 'units', unit.id, { channels: otaListings.map((x) => x.channel) }).catch(() => {})
   }
-  const handlePhotoSave = async (url) => {
-    await updateUnit(unit.id, { photo_url: url })
-    onUnitChange({ ...unit, photo_url: url })
-  }
 
   const goToContracts = () => {
     navigate(`/admin?tab=contracts&unit=${unit.id}`)
@@ -1036,7 +905,6 @@ function RegistryDetailPanel({
           >
         <div className="flex-shrink-0 px-5 py-4 border-b border-border">
           <div className="flex items-start gap-3">
-            <UnitAvatar unit={unit} size="lg" />
             <div className="min-w-0 flex-1">
               <p className="text-base font-bold text-foreground truncate">{unit.unit_code}</p>
               <p className="text-[11px] text-muted-foreground truncate">{unit.building}</p>
@@ -1065,12 +933,9 @@ function RegistryDetailPanel({
 
           <DetailSection title="Unit">
             <div className="p-3 space-y-0.5">
-              <UnitPhotoUpload unit={unit} onSave={handlePhotoSave} />
-              <div className="pt-2 mt-2 border-t border-border space-y-0.5">
-                <EditableField label="Code" value={unit.unit_code} onSave={(v) => handleUnitField('unit_code', v)} auditTag="unit_code" />
-                <EditableField label="Building" value={unit.building} onSave={(v) => handleUnitField('building', v)} auditTag="building" />
-                <EditableField label="Type" value={unit.unit_type} options={UNIT_TYPES} onSave={(v) => handleUnitField('unit_type', v)} auditTag="unit_type" />
-              </div>
+              <EditableField label="Code" value={unit.unit_code} onSave={(v) => handleUnitField('unit_code', v)} auditTag="unit_code" />
+              <EditableField label="Building" value={unit.building} onSave={(v) => handleUnitField('building', v)} auditTag="building" />
+              <EditableField label="Type" value={unit.unit_type} options={UNIT_TYPES} onSave={(v) => handleUnitField('unit_type', v)} auditTag="unit_type" />
             </div>
           </DetailSection>
 
@@ -1170,11 +1035,21 @@ function AddUnitModal({ open, onClose, onCreated, existingBuildings = [], channe
   const handleSubmit = async () => {
     if (!form.unit_code.trim()) { toast.error('Unit Code is required'); return }
     if (!form.building.trim()) { toast.error('Building is required'); return }
+
+    // ✅ FIX: validate owner email before it hits the DB. sanitizeEmail returns
+    // null for bad input; we distinguish "empty" (skip) from "invalid" (block).
+    const ownerEmailRaw = form.owner_email.trim()
+    const ownerEmailClean = ownerEmailRaw ? sanitizeEmail(ownerEmailRaw) : null
+    if (ownerEmailRaw && !ownerEmailClean) {
+      toast.error('Owner email is not valid')
+      return
+    }
+
     setSaving(true)
     try {
       let ownerId = null
-      if (form.owner_email.trim() || form.owner_name.trim()) {
-        const email = form.owner_email.trim().toLowerCase() || null
+      if (ownerEmailClean || form.owner_name.trim()) {
+        const email = ownerEmailClean
         if (email) {
           const { data: existing } = await supabase.from('owners').select('id').eq('email', email).maybeSingle()
           if (existing?.id) ownerId = existing.id
@@ -1456,12 +1331,9 @@ function UnitListRow({ unit, selected, onClick }) {
       whileTap={{ scale: 0.998 }}
       className={cn('group/row w-full text-left px-4 py-3 border-b border-border cursor-pointer select-none', ROW_GRID)}
     >
-      <div className="flex items-center gap-3 min-w-0">
-        <UnitAvatar unit={unit} size="sm" />
-        <span className="text-sm font-semibold text-foreground truncate">
-          {unit.building || '—'}
-        </span>
-      </div>
+      <span className="text-sm font-semibold text-foreground truncate">
+        {unit.building || '—'}
+      </span>
 
       <span className="font-mono text-sm font-bold text-foreground truncate">
         {unit.unit_code || '—'}
@@ -1590,13 +1462,23 @@ export default function RegistryPage() {
   }, [allUnits, missingMap])
 
   const counts = useMemo(() => {
-    const c = { all: allUnits.length, ACTIVE: 0, FOR_RENEWAL: 0, INACTIVE: 0 }
-    for (const u of allUnits) {
+    const q = debouncedSearch.trim().toLowerCase()
+    const tokens = q ? q.split(/\s+/).filter(Boolean) : []
+    const scoped = tokens.length === 0
+      ? allUnits
+      : allUnits.filter((u) => {
+          const haystack = [u.unit_code, u.owner_name, u.owner_email, u.owner_phone, u.building, u.marketing_title, u.unit_type, u.gc_status]
+            .filter(Boolean).join(' ').toLowerCase()
+          return tokens.every((tok) => haystack.includes(tok))
+        })
+
+    const c = { all: scoped.length, ACTIVE: 0, FOR_RENEWAL: 0, INACTIVE: 0 }
+    for (const u of scoped) {
       const d = deriveUnitStatus(u).status
       if (c[d] !== undefined) c[d]++
     }
     return c
-  }, [allUnits])
+  }, [allUnits, debouncedSearch])
 
   const activeFilterCount = useMemo(() => {
     let n = 0
@@ -1618,6 +1500,7 @@ export default function RegistryPage() {
 
   const filteredUnits = useMemo(() => {
     const q = debouncedSearch.trim().toLowerCase()
+    const tokens = q ? q.split(/\s+/).filter(Boolean) : []
     return allUnits.filter((u) => {
       const derived = deriveUnitStatus(u)
       if (statusFilter !== 'all' && derived.status !== statusFilter) return false
@@ -1642,10 +1525,10 @@ export default function RegistryPage() {
         if (otaFilter === 'missing_names' && !listings.some((l) => !l.name)) return false
         if (otaFilter === 'duplicates' && findDuplicateChannels(listings).length === 0) return false
       }
-      if (q) {
+      if (tokens.length > 0) {
         const haystack = [u.unit_code, u.owner_name, u.owner_email, u.owner_phone, u.building, u.marketing_title, u.unit_type, u.gc_status]
           .filter(Boolean).join(' ').toLowerCase()
-        if (!haystack.includes(q)) return false
+        if (!tokens.every((tok) => haystack.includes(tok))) return false
       }
       return true
     })
@@ -1681,10 +1564,6 @@ export default function RegistryPage() {
     toast.success('Exported')
   }
 
-  // Merge updated unit fields into state. Preserves the joined `contract`
-  // field (which lives on the contracts table, not on the unit write).
-  // No refetch timer — the realtime subscription on `units` will fetch
-  // fresh data automatically when the DB write commits.
   const handleUnitUpdate = (updatedUnit) => {
     setAllUnits((prev) =>
       prev.map((u) =>
@@ -1801,7 +1680,6 @@ export default function RegistryPage() {
               ) : sorted.length === 0 ? (
                 <div className="h-full flex items-center justify-center text-center py-12">
                   <div>
-                    <Building2 size={36} className="text-muted-foreground/40 mx-auto mb-3" />
                     <p className="text-sm text-muted-foreground font-semibold">No units match your filters</p>
                     <p className="text-xs text-muted-foreground mt-1">Try clearing filters or adding a new unit</p>
                   </div>

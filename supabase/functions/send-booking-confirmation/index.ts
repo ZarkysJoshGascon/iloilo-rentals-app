@@ -466,6 +466,12 @@ serve(async (req) => {
     return new Response('Method not allowed', { status: 405, headers: corsHeaders })
   }
 
+  // ✅ FIX: this endpoint accepts only a booking_id — 16 KB is generous.
+  const contentLength = Number(req.headers.get('content-length') || 0)
+  if (contentLength > 16_384) {
+    return json({ error: 'Request body too large' }, 413)
+  }
+
   const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE, {
     auth: { persistSession: false },
   })

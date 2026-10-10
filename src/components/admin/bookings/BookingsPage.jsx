@@ -49,6 +49,7 @@ const STATUS_PILLS = [
   { id: 'needs-action', label: 'Needs Action' },
   { id: 'completed', label: 'Done' },
   { id: 'unpaid', label: 'Unpaid' },
+  { id: 'cancelled', label: 'Cancelled' },
 ]
 
 const ROW_GRID = 'grid grid-cols-[1.4fr_1fr_1.2fr_1.1fr_1fr_160px] gap-4 items-center'
@@ -182,6 +183,7 @@ function findContractForBooking(booking, contracts) {
 }
 
 function deriveBookingStatus(b) {
+  if (b.cancelled_at) return 'cancelled'
   if (b.completed_at) return 'completed'
   const t = today()
   const ci = parseDateOnly(b.check_in)
@@ -252,6 +254,7 @@ const BOOKING_STATUS_TEXT = {
   active: { label: 'Active', className: 'text-emerald-600 dark:text-emerald-400' },
   'needs-action': { label: 'Needs Action', className: 'text-amber-600 dark:text-amber-400' },
   completed: { label: 'Done', className: 'text-gray-500 dark:text-gray-400' },
+  cancelled: { label: 'Cancelled', className: 'text-red-600 dark:text-red-400' },
 }
 
 const PAYMENT_STATUS_TEXT = {
@@ -802,13 +805,15 @@ function DetailSection({ title, children }) {
 function BookingDetailPanel({
   booking, contracts, onBookingChange, onClose,
   onAddPayment, onExtend, onComplete, onEdit, onDelete, onEmail,
+  onCancel, onRestore,
 }) {
   const status = deriveBookingStatus(booking)
   const isCompleted = status === 'completed'
+  const isCancelled = !!booking.cancelled_at
   const isPaid = booking.payment_status === 'paid'
   const guestLeft = parseDateOnly(booking.check_out) < today()
-  const canComplete = !isCompleted && guestLeft && isPaid
-  const canExtend = !isCompleted && !guestLeft
+  const canComplete = !isCompleted && !isCancelled && guestLeft && isPaid
+  const canExtend = !isCompleted && !isCancelled && !guestLeft
 
   const transactions = Array.isArray(booking.transactions) ? booking.transactions : []
   const nights = computeNights(booking.check_in, booking.check_out)
@@ -853,11 +858,13 @@ function BookingDetailPanel({
           <div className="flex items-start gap-3">
             <GuestAvatar name={booking.guest_name} size="lg" />
             <div className="min-w-0 flex-1">
-              <p className="text-base font-bold text-foreground truncate">{booking.guest_name}</p>
+              <p className={cn('text-base font-bold text-foreground truncate', isCancelled && 'line-through')}>
+                {booking.guest_name}
+              </p>
               <p className="text-[11px] text-foreground font-mono truncate">{booking.booking_code}</p>
               <div className="flex items-center gap-3 mt-2 flex-wrap">
                 <BookingStatusBadge status={status} />
-                <PaymentStatusBadge status={booking.payment_status} />
+                {!isCancelled && <PaymentStatusBadge status={booking.payment_status} />}
               </div>
             </div>
             <button onClick={onClose} className="p-1 rounded hover:bg-muted text-foreground flex-shrink-0"><X size={16} /></button>
@@ -870,14 +877,37 @@ function BookingDetailPanel({
               className="h-7 rounded text-[11px] gap-1.5 text-white hover:opacity-90"
               style={{ backgroundColor: BRAND }}
               onClick={onEmail}
-              disabled={!booking.guest_email}
+              disabled={!booking.guest_email || isCancelled}
               title={booking.guest_email ? 'Send booking confirmation' : 'No email on file'}
             >
               <Mail size={11} /> Email Confirmation
             </Button>
-            <Button variant="outline" size="sm" className="h-7 rounded text-[11px] gap-1.5" onClick={onEdit}>
+            <Button variant="outline" size="sm" className="h-7 rounded text-[11px] gap-1.5" onClick={onEdit} disabled={isCancelled}>
               <Edit2 size={11} /> Edit
             </Button>
+
+            {!isCompleted && !isCancelled && (
+              <Button
+                variant="outline"
+                size="sm"
+                className="h-7 rounded text-[11px] gap-1.5 text-red-600 border-red-200 hover:bg-red-50 dark:text-red-400 dark:border-red-800 dark:hover:bg-red-900/20"
+                onClick={onCancel}
+              >
+                <X size={11} /> Cancel
+              </Button>
+            )}
+
+            {isCancelled && (
+              <Button
+                variant="outline"
+                size="sm"
+                className="h-7 rounded text-[11px] gap-1.5 text-emerald-600 border-emerald-200 hover:bg-emerald-50 dark:text-emerald-400 dark:border-emerald-800 dark:hover:bg-emerald-900/20"
+                onClick={onRestore}
+              >
+                <CheckCircle2 size={11} /> Restore
+              </Button>
+            )}
+
             <Button
               variant="outline"
               size="sm"
@@ -890,36 +920,54 @@ function BookingDetailPanel({
         </div>
 
         <div className="flex-1 min-h-0 overflow-y-auto p-4 space-y-4">
-          <div className="flex items-center justify-end gap-2 flex-wrap">
-            {!isCompleted && (
-              <Button variant="outline" size="sm" className="h-7 rounded text-[11px] gap-1.5" onClick={onAddPayment}>
-                <Plus size={11} /> Add Payment
-              </Button>
-            )}
-            {canExtend && (
-              <Button variant="outline" size="sm" className="h-7 rounded text-[11px] gap-1.5" onClick={onExtend}>
-                <CalendarIcon size={11} /> Extend Stay
-              </Button>
-            )}
-            {!isCompleted && (
-              <Button variant="outline" size="sm"
-                className={cn('h-7 rounded text-[11px] gap-1.5',
-                  canComplete
-                    ? 'text-emerald-600 border-emerald-200 hover:bg-emerald-50 dark:text-emerald-400 dark:border-emerald-800 dark:hover:bg-emerald-900/20'
-                    : 'text-muted-foreground border-border cursor-not-allowed opacity-60')}
-                onClick={canComplete ? onComplete : undefined}
-                disabled={!canComplete}>
-                <CheckCircle2 size={11} /> Mark as Done
-              </Button>
-            )}
-          </div>
+          {isCancelled && (
+            <div className="rounded-md bg-red-500/10 border border-red-500/30 p-3 flex items-start gap-2">
+              <X size={14} className="text-red-600 dark:text-red-400 flex-shrink-0 mt-0.5" />
+              <div className="min-w-0">
+                <p className="text-xs font-semibold text-red-700 dark:text-red-400">
+                  Cancelled · {new Date(booking.cancelled_at).toLocaleDateString('en-PH', { month: 'short', day: 'numeric', year: 'numeric' })}
+                </p>
+                {booking.cancelled_reason && (
+                  <p className="text-[11px] text-red-700/80 dark:text-red-400/80 mt-0.5 break-words">
+                    {booking.cancelled_reason}
+                  </p>
+                )}
+              </div>
+            </div>
+          )}
+
+          {!isCancelled && (
+            <div className="flex items-center justify-end gap-2 flex-wrap">
+              {!isCompleted && (
+                <Button variant="outline" size="sm" className="h-7 rounded text-[11px] gap-1.5" onClick={onAddPayment}>
+                  <Plus size={11} /> Add Payment
+                </Button>
+              )}
+              {canExtend && (
+                <Button variant="outline" size="sm" className="h-7 rounded text-[11px] gap-1.5" onClick={onExtend}>
+                  <CalendarIcon size={11} /> Extend Stay
+                </Button>
+              )}
+              {!isCompleted && (
+                <Button variant="outline" size="sm"
+                  className={cn('h-7 rounded text-[11px] gap-1.5',
+                    canComplete
+                      ? 'text-emerald-600 border-emerald-200 hover:bg-emerald-50 dark:text-emerald-400 dark:border-emerald-800 dark:hover:bg-emerald-900/20'
+                      : 'text-muted-foreground border-border cursor-not-allowed opacity-60')}
+                  onClick={canComplete ? onComplete : undefined}
+                  disabled={!canComplete}>
+                  <CheckCircle2 size={11} /> Mark as Done
+                </Button>
+              )}
+            </div>
+          )}
 
           <DetailSection title="Summary">
             <div className="p-3 space-y-1 text-xs">
               <div className="flex justify-between"><span className="text-foreground">Total</span><span className="font-semibold tabular-nums text-foreground">{formatMoney(booking.total_amount)}</span></div>
               <div className="flex justify-between"><span className="text-foreground">Paid</span><span className="font-semibold tabular-nums text-foreground">{formatMoney(booking.amount_paid)}</span></div>
               <div className="flex justify-between pt-1 border-t border-border"><span className="text-foreground font-semibold">Balance</span><span className="font-bold tabular-nums text-foreground">{formatMoney(booking.balance)}</span></div>
-              <div className="pt-2"><PaymentStatusBadge status={booking.payment_status} /></div>
+              {!isCancelled && <div className="pt-2"><PaymentStatusBadge status={booking.payment_status} /></div>}
             </div>
           </DetailSection>
 
@@ -1093,6 +1141,7 @@ function BookingListRow({ booking, contracts, selected, highlighted, onClick, on
   const bookedAgo = timeAgo(booking.created_at)
   const editedAgo = timeAgo(booking.updated_at)
   const wasEdited = booking.updated_at && booking.created_at && booking.updated_at !== booking.created_at
+  const isCancelled = !!booking.cancelled_at
 
   const contextItems = [
     { label: 'See in Bookings', icon: CalendarIcon, onSelect: onClick },
@@ -1140,7 +1189,10 @@ function BookingListRow({ booking, contracts, selected, highlighted, onClick, on
             ? 'rgba(45, 86, 142, 0.16)'
             : selected
               ? 'rgba(45, 86, 142, 0.10)'
-              : 'rgba(45, 86, 142, 0)',
+              : isCancelled
+                ? 'rgba(239, 68, 68, 0.04)'
+                : 'rgba(45, 86, 142, 0)',
+          opacity: isCancelled ? 0.6 : 1,
         }}
         transition={{ duration: 0.4 }}
         whileHover={{ backgroundColor: selected ? 'rgba(45, 86, 142, 0.14)' : 'rgba(45, 86, 142, 0.05)' }}
@@ -1150,7 +1202,9 @@ function BookingListRow({ booking, contracts, selected, highlighted, onClick, on
         <div className="flex items-center gap-2 min-w-0">
           <GuestAvatar name={booking.guest_name} size="sm" />
           <div className="min-w-0 flex-1">
-            <p className="text-sm font-semibold text-foreground truncate">{booking.guest_name}</p>
+            <p className={cn('text-sm font-semibold text-foreground truncate', isCancelled && 'line-through')}>
+              {booking.guest_name}
+            </p>
             <p className="text-[10px] text-muted-foreground truncate">
               {booking.guest_email || booking.guest_contact || `${booking.guests || 1} guest${booking.guests > 1 ? 's' : ''}`}
             </p>
@@ -1201,7 +1255,7 @@ function downloadCSV(bookings, filename) {
     'Payment Status', 'Booking Status',
     'Booker Code', 'Booker Name', 'Booker Commission', 'Booker Rate %',
     'Affiliate Code', 'Affiliate Name', 'Affiliate Commission', 'Affiliate Rate %',
-    'Booked At', 'Last Edited',
+    'Booked At', 'Last Edited', 'Cancelled At', 'Cancellation Reason',
     'Notes',
   ]
   const rows = bookings.map((b) => {
@@ -1215,6 +1269,7 @@ function downloadCSV(bookings, filename) {
       b.booker_code || '', b.booker_name || '', b.booker_commission || 0, b.booker_rate ?? '',
       b.affiliate_code || '', b.affiliate_name || '', b.affiliate_commission || 0, b.affiliate_rate ?? '',
       b.created_at || '', b.updated_at || '',
+      b.cancelled_at || '', b.cancelled_reason || '',
       b.notes || '',
     ]
   })
@@ -1252,6 +1307,7 @@ async function findOverlappingBooking({ unitId, checkIn, checkOut, excludeId }) 
     .select('booking_code, check_in, check_out')
     .eq('unit_id', unitId)
     .is('deleted_at', null)
+    .is('cancelled_at', null)
     .lt('check_in', checkOut)
     .gt('check_out', checkIn)
     .order('check_in')
@@ -1346,7 +1402,7 @@ function BookingFormModal({ open, onClose, onSaved, units, editing, specialists,
 
   const unitBookings = useMemo(() => {
     if (!form.unit_id) return []
-    return (bookings || []).filter((b) => b.unit_id === form.unit_id && !b.deleted_at)
+    return (bookings || []).filter((b) => b.unit_id === form.unit_id && !b.deleted_at && !b.cancelled_at)
   }, [bookings, form.unit_id])
 
   const unitsForDropdown = useMemo(() => {
@@ -1893,7 +1949,7 @@ function AddPaymentModal({ open, onClose, booking, onSaved }) {
             <div><div className="text-foreground">Balance</div><div className="font-semibold tabular-nums text-foreground">{formatMoney(balance)}</div></div>
           </div>
           <div><label className={labelClass}>Amount (₱) *</label><Input type="number" min={0} value={amount} onChange={(e) => setAmount(e.target.value)} className="h-8 text-xs rounded" autoFocus /></div>
-          <div><label className={labelClass}>Method</label><Input value={method} onChange={(e) => setMethod(e.target.value)} placeholder="GCash, Bank transfer, Cash..." className="h-8 text-xs rounded" maxLength={60} /></div>
+          <div><label className={labelClass}>Method</label><Input value={method} onChange={(e) => setMethod(e.target.value)} placeholder="GCash, Bank transfer, Cash..." className="h-8 rounded text-xs" maxLength={60} /></div>
           <div><label className={labelClass}>Reference</label><Input value={reference} onChange={(e) => setReference(e.target.value)} className="h-8 text-xs rounded" maxLength={100} /></div>
           <div><label className={labelClass}>Date</label><Input type="date" value={date} onChange={(e) => setDate(e.target.value)} className="h-8 text-xs rounded" /></div>
         </div>
@@ -2274,7 +2330,7 @@ export default function BookingsPage({ initialSelectedId }) {
   const [statusFilter, setStatusFilter] = useState(() => {
   if (typeof window === 'undefined') return 'all'
   const f = new URLSearchParams(window.location.search).get('filter')
-  if (f && ['in-house', 'upcoming', 'unpaid', 'active', 'needs-action', 'completed'].includes(f)) return f
+  if (f && ['in-house', 'upcoming', 'unpaid', 'active', 'needs-action', 'completed', 'cancelled'].includes(f)) return f
   return 'all'
   })
   const [search, setSearch] = useState('')
@@ -2392,36 +2448,51 @@ export default function BookingsPage({ initialSelectedId }) {
 
   const counts = useMemo(() => {
     const today = todayISO()
+    const q = debouncedSearch.trim().toLowerCase()
+    const tokens = q ? q.split(/\s+/).filter(Boolean) : []
+
+    const scoped = tokens.length === 0
+      ? bookings
+      : bookings.filter((b) => {
+          const hay = [
+            b.booking_code, b.guest_name, b.guest_email, b.guest_contact,
+            b.booker_code, b.booker_name, b.affiliate_code, b.affiliate_name, b.notes,
+            b.units?.unit_code, b.units?.building,
+          ].filter(Boolean).join(' ').toLowerCase()
+          return tokens.every((tok) => hay.includes(tok))
+        })
+
     const c = {
-      all: bookings.length,
+      all: scoped.length,
       'in-house': 0,
       upcoming: 0,
       active: 0,
       'needs-action': 0,
       completed: 0,
       unpaid: 0,
+      cancelled: 0,
     }
-    for (const b of bookings) {
+    for (const b of scoped) {
       const s = deriveBookingStatus(b)
       if (c[s] !== undefined) c[s]++
-      if (!b.completed_at && b.check_in && b.check_out && b.check_in <= today && b.check_out >= today) {
+      if (!b.completed_at && !b.cancelled_at && b.check_in && b.check_out && b.check_in <= today && b.check_out >= today) {
         c['in-house']++
       }
-      if (!b.completed_at && Number(b.balance || 0) > 0) {
+      if (!b.completed_at && !b.cancelled_at && Number(b.balance || 0) > 0) {
         c['unpaid']++
       }
     }
     return c
-  }, [bookings])
+  }, [bookings, debouncedSearch])
 
   const todayISOStr = useMemo(() => todayISO(), [])
 
   const checkInsToday = useMemo(
-    () => bookings.filter((b) => b.check_in === todayISOStr && !b.deleted_at),
+    () => bookings.filter((b) => b.check_in === todayISOStr && !b.deleted_at && !b.cancelled_at),
     [bookings, todayISOStr],
   )
   const checkOutsToday = useMemo(
-    () => bookings.filter((b) => b.check_out === todayISOStr && !b.deleted_at),
+    () => bookings.filter((b) => b.check_out === todayISOStr && !b.deleted_at && !b.cancelled_at),
     [bookings, todayISOStr],
   )
 
@@ -2433,7 +2504,7 @@ export default function BookingsPage({ initialSelectedId }) {
     () => bookings.filter((b) => {
       const t = today()
       const twoDays = new Date(t); twoDays.setDate(twoDays.getDate() + 2)
-      if (b.completed_at) return false
+      if (b.completed_at || b.cancelled_at) return false
       if (b.payment_status === 'paid') return false
       const co = parseDateOnly(b.check_out)
       return co >= t && co <= twoDays
@@ -2443,46 +2514,48 @@ export default function BookingsPage({ initialSelectedId }) {
 
   const filtered = useMemo(() => {
     const q = debouncedSearch.trim().toLowerCase()
+    const tokens = q ? q.split(/\s+/).filter(Boolean) : []
     const today = todayISO()
     return bookings.filter((b) => {
       const derived = deriveBookingStatus(b)
 
       if (statusFilter !== 'all') {
         if (statusFilter === 'in-house') {
-          if (b.completed_at) return false
+          if (b.completed_at || b.cancelled_at) return false
           if (!b.check_in || !b.check_out) return false
           if (b.check_in > today || b.check_out < today) return false
         } else if (statusFilter === 'upcoming') {
-          if (b.completed_at) return false
+          if (b.completed_at || b.cancelled_at) return false
           if (!b.check_in) return false
           if (b.check_in <= today) return false
         } else if (statusFilter === 'unpaid') {
-          if (b.completed_at) return false
+          if (b.completed_at || b.cancelled_at) return false
           if (Number(b.balance || 0) <= 0) return false
         } else {
           if (derived !== statusFilter) return false
         }
       }
-      if (q) {
+
+      if (tokens.length > 0) {
         const haystack = [
           b.booking_code, b.guest_name, b.guest_email, b.guest_contact,
           b.booker_code, b.booker_name, b.affiliate_code, b.affiliate_name, b.notes,
           b.units?.unit_code, b.units?.building,
         ].filter(Boolean).join(' ').toLowerCase()
-        if (!haystack.includes(q)) return false
+        if (!tokens.every((tok) => haystack.includes(tok))) return false
       }
       return true
     })
   }, [bookings, statusFilter, debouncedSearch])
 
-    useEffect(() => {
+  useEffect(() => {
     if (typeof window === 'undefined') return
     const url = new URL(window.location.href)
     if (statusFilter === 'all') url.searchParams.delete('filter')
     else url.searchParams.set('filter', statusFilter)
     window.history.replaceState({}, '', url.toString())
   }, [statusFilter])
-  
+
   const sorted = useMemo(() => {
     const copy = [...filtered]
     copy.sort((a, b) => {
@@ -2521,6 +2594,65 @@ export default function BookingsPage({ initialSelectedId }) {
       })
     })
   }, [])
+
+  const handleCancelBooking = useCallback(async (booking) => {
+    const confirmed = window.confirm(
+      `Cancel booking "${booking.booking_code}"?\n\n` +
+      `Guest: ${booking.guest_name}\n` +
+      `Dates: ${formatDate(booking.check_in)} → ${formatDate(booking.check_out)}\n\n` +
+      `The booking stays in the system and is excluded from occupancy and unpaid counters. You can restore it later.`
+    )
+    if (!confirmed) return
+
+    const reason = window.prompt('Reason for cancellation (optional):', '') || null
+
+    try {
+      const { error } = await supabase
+        .from('bookings')
+        .update({
+          cancelled_at: new Date().toISOString(),
+          cancelled_reason: reason,
+        })
+        .eq('id', booking.id)
+      if (error) throw error
+
+      logAudit('CANCEL_BOOKING', 'bookings', booking.id, {
+        booking_code: booking.booking_code,
+        reason,
+      }).catch(() => {})
+
+      toast.success('Booking cancelled')
+      fetchData()
+    } catch (err) {
+      console.error(err)
+      toast.error(err?.message || 'Failed to cancel')
+    }
+  }, [fetchData])
+
+  const handleRestoreBooking = useCallback(async (booking) => {
+    const confirmed = window.confirm(
+      `Restore booking "${booking.booking_code}"?\n\nIt will re-enter the active bookings list.`
+    )
+    if (!confirmed) return
+
+    try {
+      const { error } = await supabase
+        .from('bookings')
+        .update({ cancelled_at: null, cancelled_reason: null })
+        .eq('id', booking.id)
+      if (error) throw error
+
+      logAudit('RESTORE_BOOKING', 'bookings', booking.id, {
+        booking_code: booking.booking_code,
+      }).catch(() => {})
+
+      toast.success('Booking restored')
+      fetchData()
+    } catch (err) {
+      console.error(err)
+      toast.error(err?.message || 'Failed to restore')
+    }
+  }, [fetchData])
 
   const handleDelete = async (booking) => {
     const confirmed = window.confirm(
@@ -2650,6 +2782,8 @@ export default function BookingsPage({ initialSelectedId }) {
             onEdit={() => openEdit(selected)}
             onDelete={() => handleDelete(selected)}
             onEmail={() => setConfirmForBooking(selected)}
+            onCancel={() => handleCancelBooking(selected)}
+            onRestore={() => handleRestoreBooking(selected)}
           />
         )}
       </AnimatePresence>
