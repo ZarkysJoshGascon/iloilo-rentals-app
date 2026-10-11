@@ -1,15 +1,12 @@
 import { lazy, Suspense, useEffect } from 'react'
-import { Routes, Route, useLocation, useNavigate, Navigate } from 'react-router-dom'
+import { Routes, Route, useLocation, Navigate } from 'react-router-dom'
 import { Toaster } from 'react-hot-toast'
-import { motion, AnimatePresence } from 'framer-motion'
-import { Users, Loader2, Sparkles } from 'lucide-react'
+import { Loader2 } from 'lucide-react'
 import { ThemeProvider } from './context/ThemeContext'
-import { useAuth } from './context/AuthContext'
 import { supabase } from './lib/supabase'
 import Navbar from './components/layout/Navbar'
 import Footer from './components/layout/Footer'
 import AdminRoute from './components/admin/AdminRoute'
-import { useUserRole } from './hooks/useUserRole'
 
 // ---- Lazy-loaded pages (each becomes its own chunk) ----
 const HomePage = lazy(() => import('./pages/public/HomePage'))
@@ -23,7 +20,6 @@ const PrivacyPolicyPage = lazy(() => import('./pages/public/PrivacyPolicyPage'))
 const TermsPage = lazy(() => import('./pages/public/TermsPage'))
 const UnsubscribePage = lazy(() => import('./pages/public/UnsubscribePage'))
 const AdminDashboardPage = lazy(() => import('./pages/admin/AdminDashboardPage'))
-const HousekeeperTasksPage = lazy(() => import('./pages/housekeeper/HousekeeperTasksPage'))
 
 function PageLoader() {
   return (
@@ -33,86 +29,9 @@ function PageLoader() {
   )
 }
 
-function HousekeeperRoute({ children }) {
-  const { role, loading } = useUserRole()
-
-  if (loading) {
-    return (
-      <div className="min-h-screen flex items-center justify-center bg-gray-50">
-        <Loader2 className="w-8 h-8 animate-spin text-[#2d568e]" />
-      </div>
-    )
-  }
-
-  if (role !== 'housekeeper' && role !== 'both') {
-    return <Navigate to="/" replace />
-  }
-
-  return children
-}
-
-function FloatingButtons() {
-  const { user } = useAuth()
-  const { role } = useUserRole()
-  const navigate = useNavigate()
-  const location = useLocation()
-
-  const inAdmin = location.pathname.startsWith('/admin')
-  const inHk = location.pathname.startsWith('/hk')
-  const inUnsubscribe = location.pathname.startsWith('/unsubscribe')
-
-  const isAdmin = role === 'admin' || role === 'both'
-  const isHousekeeper = role === 'housekeeper' || role === 'both'
-
-  const showAdmin = !!user && isAdmin && !inAdmin && !inHk && !inUnsubscribe
-  const showHK = !!user && isHousekeeper && !inAdmin && !inHk && !inUnsubscribe
-
-  return (
-    <div className="fixed bottom-6 right-6 z-[9999] flex flex-col items-end gap-3">
-      <AnimatePresence>
-        {showHK && (
-          <motion.button
-            key="hk-btn"
-            initial={{ opacity: 0, y: 12 }}
-            animate={{ opacity: 1, y: 0 }}
-            exit={{ opacity: 0, y: 12 }}
-            transition={{ duration: 0.2 }}
-            type="button"
-            onClick={() => navigate('/hk')}
-            className="inline-flex items-center gap-2 px-4 py-2.5 rounded-full shadow-lg text-white text-sm font-semibold hover:scale-105 active:scale-95 transition-transform"
-            style={{ backgroundColor: '#059669' }}
-            title="My cleaning tasks"
-          >
-            <Sparkles size={16} />
-            <span>My Tasks</span>
-          </motion.button>
-        )}
-        {showAdmin && (
-          <motion.button
-            key="crm-btn"
-            initial={{ opacity: 0, y: 12 }}
-            animate={{ opacity: 1, y: 0 }}
-            exit={{ opacity: 0, y: 12 }}
-            transition={{ duration: 0.2 }}
-            type="button"
-            onClick={() => navigate('/admin')}
-            className="hidden md:inline-flex items-center gap-2 px-4 py-2.5 rounded-full shadow-lg text-white text-sm font-semibold hover:scale-105 active:scale-95 transition-transform"
-            style={{ backgroundColor: '#2d568e' }}
-            title="Open Admin CRM"
-          >
-            <Users size={16} />
-            <span>CRM</span>
-          </motion.button>
-        )}
-      </AnimatePresence>
-    </div>
-  )
-}
-
 function App() {
   const location = useLocation()
   const isAdminRoute = location.pathname.startsWith('/admin')
-  const isHousekeeperRoute = location.pathname.startsWith('/hk')
   const isUnsubscribeRoute = location.pathname.startsWith('/unsubscribe')
 
   useEffect(() => {
@@ -122,7 +41,7 @@ function App() {
   return (
     <ThemeProvider>
       <div className="min-h-screen bg-gray-50 flex flex-col">
-        {!isAdminRoute && !isHousekeeperRoute && !isUnsubscribeRoute && <Navbar />}
+        {!isAdminRoute && !isUnsubscribeRoute && <Navbar />}
         <main className="flex-grow">
           <Suspense fallback={<PageLoader />}>
             <Routes>
@@ -144,19 +63,13 @@ function App() {
                   </AdminRoute>
                 }
               />
-              <Route
-                path="/hk"
-                element={
-                  <HousekeeperRoute>
-                    <HousekeeperTasksPage />
-                  </HousekeeperRoute>
-                }
-              />
+              {/* The housekeeper task page is switched off for now; its code is kept in
+                  src/pages/housekeeper/HousekeeperTasksPage.jsx. Old links go home. */}
+              <Route path="/hk" element={<Navigate to="/" replace />} />
             </Routes>
           </Suspense>
         </main>
-        {!isAdminRoute && !isHousekeeperRoute && !isUnsubscribeRoute && <Footer />}
-        <FloatingButtons />
+        {!isAdminRoute && !isUnsubscribeRoute && <Footer />}
         <Toaster position="top-right" />
       </div>
     </ThemeProvider>

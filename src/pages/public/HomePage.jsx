@@ -1,4 +1,5 @@
-import { useState, useEffect, useRef, useLayoutEffect, createContext, useContext } from 'react'
+import { useState, useEffect, useRef, useLayoutEffect, useMemo, createContext, useContext } from 'react'
+import { createPortal } from 'react-dom'
 import { useNavigate } from 'react-router-dom'
 import {
   motion, useScroll, useTransform, useSpring, useReducedMotion, useMotionValueEvent,
@@ -7,16 +8,28 @@ import {
 import Footer from '../../components/layout/Footer'
 import { HeroParallax } from '@/components/ui/hero-parallax'
 import { navReveal } from '@/lib/navReveal'
+import { Photo } from '@/components/ui/photo'
+import { spot, useSitePhotos, useSiteGallery, REVIEWS } from '@/lib/siteImages'
+import { WorksWheel } from '@/components/ui/works-wheel'
+import { Preloader } from '@/components/ui/preloader'
+import { preloadImages } from '@/lib/preloadImages'
 import {
-  Phone, ArrowRight, ArrowUpRight,
-  Building2, Sofa, BedDouble, Handshake, CheckCircle2, Star, Quote,
+  Phone, ArrowRight,
+  Building2, Sofa, BedDouble, Handshake, CheckCircle2, X,
 } from 'lucide-react'
 
 const LOGO_BLUE = '#2d568e'
-const NAVY = '#0b1a2e'
+// A darker shade of LOGO_BLUE for the blue section backgrounds.
+const DEEP_BLUE = '#1b3a68'
 const EASE = [0.16, 1, 0.3, 1]
 // Scroll distance (px) over which the desktop navbar forms into its pill.
 const NAV_REVEAL_DISTANCE = 260
+const LOGO = '/Iloilo_rentals_img.png'
+// Longest the loading screen stays up (listing the photos plus downloading
+// them) before showing the page anyway; anything left keeps loading behind it.
+const PRELOAD_MAX_MS = 8000
+// The loading screen shows once per visit; after that the photos are cached.
+let pagePreloaded = false
 
 // The page scrolls inside a fixed container (not the window), so every
 // scroll-linked animation needs a reference to it.
@@ -42,17 +55,19 @@ function useParallax(ref, distance = 80) {
   return useTransform(progress, [0, 1], [d, -d])
 }
 
-function useIsDesktop() {
-  const query = '(min-width: 768px)'
-  const [desktop, setDesktop] = useState(() => window.matchMedia(query).matches)
+function useMediaQuery(query) {
+  const [matches, setMatches] = useState(() => window.matchMedia(query).matches)
   useEffect(() => {
     const mq = window.matchMedia(query)
-    const onChange = (e) => setDesktop(e.matches)
+    setMatches(mq.matches)
+    const onChange = (e) => setMatches(e.matches)
     mq.addEventListener('change', onChange)
     return () => mq.removeEventListener('change', onChange)
-  }, [])
-  return desktop
+  }, [query])
+  return matches
 }
+
+const useIsDesktop = () => useMediaQuery('(min-width: 768px)')
 
 // Parent/child pair that reveals children one after another.
 const staggerParent = {
@@ -87,70 +102,74 @@ function Item({ children, className = '', as = 'div', ...rest }) {
   )
 }
 
-// Dark section backgrounds: layered soft glows ("mesh gradient") on deep navy.
+// Blue section backgrounds: layered soft glows ("mesh gradient") on a logo-blue base.
 const SERVICES_BG = [
   'radial-gradient(55% 50% at 10% 15%, rgba(45, 86, 142, 0.55), transparent 70%)',
   'radial-gradient(45% 45% at 92% 85%, rgba(14, 165, 233, 0.16), transparent 70%)',
   'radial-gradient(70% 55% at 50% 115%, rgba(30, 64, 175, 0.4), transparent 70%)',
-  'linear-gradient(180deg, #0a1628 0%, #0b1a2e 100%)',
+  DEEP_BLUE,
 ].join(', ')
 
 const CTA_BG = [
   'radial-gradient(60% 55% at 50% -5%, rgba(96, 165, 250, 0.3), transparent 70%)',
   'radial-gradient(55% 50% at 0% 100%, rgba(45, 86, 142, 0.6), transparent 70%)',
   'radial-gradient(45% 45% at 100% 95%, rgba(99, 102, 241, 0.22), transparent 70%)',
-  '#0a1628',
+  DEEP_BLUE,
 ].join(', ')
 
 // Fine film grain over the glows — keeps big gradients from looking flat or banded.
+// Plain (normal) blending on purpose: mix-blend-overlay here made the browser
+// re-blend the whole screen under it on every scroll frame.
 const GRAIN_SVG = `url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='160' height='160'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='2' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E")`
 
-function Grain({ opacity = 0.09 }) {
+function Grain({ opacity = 0.05 }) {
   return (
     <div
       aria-hidden="true"
-      className="absolute inset-0 pointer-events-none mix-blend-overlay"
+      className="absolute inset-0 pointer-events-none"
       style={{ backgroundImage: GRAIN_SVG, opacity }}
     />
   )
 }
 
 // ============================================================
-// IMAGES — how to use your own photos
+// IMAGES — managed in Supabase Storage
 //
-//   HERO_IMG(6)            → 6.jpg uploaded to Supabase Storage › hero-images
-//   '/images/unit-1.jpg'   → file saved at public/images/unit-1.jpg
-//   UNSPLASH('…')          → free stock photo
+// Every photo spot on this page has its own file in the `hero-images` bucket,
+// in the `home/` folder. Upload (or replace) a photo with that name (JPG, PNG
+// or WebP) in the Supabase dashboard and the page shows it, no code changes.
+// Until a file is uploaded, the spot shows the placeholder written next to it.
 //
-// All photos are placeholders for now. Landscape photos work best.
+//   home/hero-01.jpg … hero-10.jpg   hero cards (01–05 top row, 06–10 bottom row)
+//   home/offer-<name>.jpg            "What We Offer" (management, interior, stays, affiliate)
+//   home/card-<name>.jpg             "Four ways" cards (book, list, design, buy)
+//
+// Uploads can be full size: the page asks Supabase for a copy resized to
+// 1200px wide. A replaced photo shows on the next page load (see
+// src/lib/siteImages.js). Placeholders are stock photos.
 // ============================================================
-const HERO_IMG = (n) => `https://mlksustamjaxfpolazgw.supabase.co/storage/v1/object/public/hero-images/${n}.jpg`
 const UNSPLASH = (id) => `https://images.unsplash.com/photo-${id}?w=1200&q=75&auto=format&fit=crop`
 
-// Hero parallax cards — 2 rows of 5 photos, in this order.
+// Hero parallax cards — 2 rows of 5, in this order.
+//   title — the text that shows when you hover the card
+//   link  — where clicking the card goes
+//   image — its file in Supabase, and the placeholder until that's uploaded
 const HERO_ROWS = 2
-const HERO_PRODUCTS = [
+const HERO_CARDS = [
   // ── Top row ──
-  HERO_IMG(1),
-  UNSPLASH('1502672260266-1c1ef2d93688'),
-  HERO_IMG(2),
-  UNSPLASH('1522708323590-d24dbb6b0267'),
-  HERO_IMG(5),
+  { title: 'Featured Stay 01', link: '/contact', image: spot('hero-01', UNSPLASH('1600607687939-ce8a6c25118c')) },
+  { title: 'Featured Stay 02', link: '/contact', image: spot('hero-02', UNSPLASH('1502672260266-1c1ef2d93688')) },
+  { title: 'Featured Stay 03', link: '/contact', image: spot('hero-03', UNSPLASH('1586023492125-27b2c045efd7')) },
+  { title: 'Featured Stay 04', link: '/contact', image: spot('hero-04', UNSPLASH('1522708323590-d24dbb6b0267')) },
+  { title: 'Featured Stay 05', link: '/contact', image: spot('hero-05', UNSPLASH('1560448204-e02f11c3d0e2')) },
 
   // ── Bottom row ──
-  HERO_IMG(3),
-  UNSPLASH('1493809842364-78817add7ffb'),
-  UNSPLASH('1505691938895-1758d7feb511'),
-  HERO_IMG(4),
-  UNSPLASH('1484154218962-a197022b5858'),
-
-  // Example — your own photo from the public folder:
-  // '/images/one-madison-living.jpg',
-].map((thumbnail, i) => ({
-  title: `Featured Stay ${String(i + 1).padStart(2, '0')}`,
-  link: '/contact',
-  thumbnail,
-}))
+  { title: 'Featured Stay 06', link: '/contact', image: spot('hero-06', UNSPLASH('1556911220-bff31c812dba')) },
+  { title: 'Featured Stay 07', link: '/contact', image: spot('hero-07', UNSPLASH('1493809842364-78817add7ffb')) },
+  { title: 'Featured Stay 08', link: '/contact', image: spot('hero-08', UNSPLASH('1505691938895-1758d7feb511')) },
+  { title: 'Featured Stay 09', link: '/contact', image: spot('hero-09', UNSPLASH('1545324418-cc1a3fa10c00')) },
+  { title: 'Featured Stay 10', link: '/contact', image: spot('hero-10', UNSPLASH('1484154218962-a197022b5858')) },
+]
 
 // "What We Offer" — one photo per service. Even entries put the photo on the
 // right, odd entries on the left; they swap sides through the "door".
@@ -162,7 +181,7 @@ const SERVICES = [
     description:
       'We handle guest bookings, check-ins, maintenance, and payouts so you can earn without lifting a finger.',
     icon: Building2,
-    image: HERO_IMG(2),
+    image: spot('offer-management', UNSPLASH('1560448204-e02f11c3d0e2')),
     bullets: ['Guest booking & check-in', 'Maintenance coordination', 'Monthly payouts & reports'],
     cta: 'List your property',
     to: '/list-property',
@@ -174,7 +193,7 @@ const SERVICES = [
     description:
       'From concept and layout to sourcing and styling, we design units that photograph beautifully and rent faster.',
     icon: Sofa,
-    image: HERO_IMG(5),
+    image: spot('offer-interior', UNSPLASH('1586023492125-27b2c045efd7')),
     bullets: ['Full interior design', 'Furnishing & styling', 'Renovation planning'],
     cta: 'Design your space',
     to: '/interior-design',
@@ -186,42 +205,33 @@ const SERVICES = [
     description:
       'Book a fully furnished, professionally cleaned unit for a night, a week, or longer — with a local team ready to help.',
     icon: BedDouble,
-    image: HERO_IMG(1),
+    image: spot('offer-stays', UNSPLASH('1505691938895-1758d7feb511')),
     bullets: ['Fully furnished units', 'Hotel-standard cleaning', 'Smooth, guided check-in'],
     cta: 'Book a stay',
     to: '/contact',
   },
   {
     key: 'affiliate',
-    title: 'Affiliate Agents',
+    title: 'Affiliate Partner',
     tagline: 'Earn from bookings and property sales',
     description:
       'Refer guests looking for a stay or buyers looking for a property, and earn a commission on every successful booking and sale.',
     icon: Handshake,
-    image: HERO_IMG(4),
+    image: spot('offer-affiliate', UNSPLASH('1545324418-cc1a3fa10c00')),
     bullets: ['Simple referral link', 'Commission on bookings', 'Commission on property sales'],
-    cta: 'Become an affiliate',
+    cta: 'Become an affiliate partner',
     to: '/contact',
   },
 ]
 
-const TESTIMONIALS = [
-  { id: 1, name: 'Maria Santos', role: 'Condo Owner · One Madison', avatar: 'https://i.pravatar.cc/150?img=1', quote: "I used to stress about guest turnover. Now I just check my monthly payout. Best decision I made for my unit.", rating: 5 },
-  { id: 2, name: 'John Reyes', role: 'Condo Owner · Lafayette', avatar: 'https://i.pravatar.cc/150?img=12', quote: "The housekeeping team is exceptional. Every single review mentions how clean the unit is. That's on them.", rating: 5 },
-  { id: 3, name: 'Anna Cruz', role: 'Guest · Stayed at WV Towers', avatar: 'https://i.pravatar.cc/150?img=5', quote: 'Check-in was seamless, the unit was exactly as pictured, and the location was perfect. Will book again.', rating: 5 },
-  { id: 4, name: 'Robert Lim', role: 'Condo Owner · Avida', avatar: 'https://i.pravatar.cc/150?img=13', quote: "They sold my unit in under 30 days. Fair price, no drama, paperwork handled. Professional from start to finish.", rating: 5 },
-  { id: 5, name: 'Christine Tan', role: 'Affiliate Agent', avatar: 'https://i.pravatar.cc/150?img=9', quote: 'Referred two owners, and the commissions have been steady for months. The referral system just works.', rating: 5 },
-  { id: 6, name: 'David Ong', role: 'Guest · Stayed at The Palladium', avatar: 'https://i.pravatar.cc/150?img=15', quote: 'Great support when I had a late arrival. Local team actually answered the phone at midnight. Rare these days.', rating: 5 },
-]
-
-// "Four ways to work with us" — bento order: large, wide, small, small.
+// "Four ways to work with us" — in the order they come round on the wheel.
 const ACTIONS = [
   {
     key: 'book',
     eyebrow: 'For guests',
     title: 'Book a stay',
     description: 'Fully furnished, professionally cleaned units across Iloilo City.',
-    image: HERO_IMG(4),
+    image: spot('card-book', UNSPLASH('1522708323590-d24dbb6b0267')),
     to: '/contact',
   },
   {
@@ -229,7 +239,7 @@ const ACTIONS = [
     eyebrow: 'For owners',
     title: 'List your property',
     description: 'We manage the guests, cleaning, and payouts.',
-    image: HERO_IMG(2),
+    image: spot('card-list', UNSPLASH('1600607687939-ce8a6c25118c')),
     to: '/list-property',
   },
   {
@@ -237,25 +247,26 @@ const ACTIONS = [
     eyebrow: 'For your space',
     title: 'Design your space',
     description: 'Full design, furnishing, and styling.',
-    image: HERO_IMG(5),
+    image: spot('card-design', UNSPLASH('1556911220-bff31c812dba')),
     to: '/interior-design',
   },
   {
     key: 'buy',
-    eyebrow: 'For investors',
-    title: 'Buy a property',
-    description: 'We match serious buyers with sellers.',
-    image: UNSPLASH('1545324418-cc1a3fa10c00'),
+    eyebrow: 'Brokerage',
+    title: 'Buy or sell a property',
+    description: 'Our brokerage team matches serious buyers with sellers.',
+    image: spot('card-buy', UNSPLASH('1545324418-cc1a3fa10c00')),
     to: '/contact',
   },
 ]
 
-const ACTION_LAYOUT = [
-  'h-[380px] md:h-auto md:col-span-2 md:row-span-2',
-  'h-[240px] md:h-auto md:col-span-2',
-  'h-[240px] md:h-auto',
-  'h-[240px] md:h-auto',
-]
+// The same four, as cards on the wheel.
+const wheelItems = (photo) =>
+  ACTIONS.map((a) => {
+    const { src, fallback } = photo(a.image)
+    return { title: a.title, eyebrow: a.eyebrow, description: a.description, image: src, fallback, href: a.to }
+  })
+
 
 // ============================================================
 // MAIN PAGE
@@ -280,12 +291,60 @@ export default function HomePage() {
   // Thin progress bar along the top of the page.
   const progressBar = useSpring(scrollYProgress, { stiffness: 120, damping: 30, restDelta: 0.001 })
 
+  const photo = useSitePhotos()
+  const reviews = useSiteGallery(REVIEWS)
+  const heroProducts = useMemo(
+    () => HERO_CARDS.map(({ image, ...card }) => {
+      const { src, fallback } = photo(image)
+      return { ...card, thumbnail: src, fallback }
+    }),
+    [photo],
+  )
+
+  // Loading screen: hold the page until every photo on it has downloaded, so
+  // nothing pops in while scrolling. Capped at PRELOAD_MAX_MS.
+  const [ready, setReady] = useState(pagePreloaded)
+  const [loaded, setLoaded] = useState(0)
+
+  // Every photo the page shows, once both photo folders have been listed.
+  const pageImages = useMemo(() => {
+    if (photo(HERO_CARDS[0].image).src === undefined || reviews === undefined) return null
+    return [
+      LOGO,
+      ...[...HERO_CARDS, ...SERVICES, ...ACTIONS].map((item) => photo(item.image).src),
+      ...reviews.map((r) => r.thumb),
+    ]
+  }, [photo, reviews])
+
+  useEffect(() => {
+    if (ready || !pageImages) return
+    let cancelled = false
+    preloadImages(pageImages, { onProgress: (done, total) => !cancelled && setLoaded(done / total) })
+      .then(() => !cancelled && setReady(true))
+    return () => { cancelled = true }
+  }, [pageImages, ready])
+
+  useEffect(() => {
+    if (ready) {
+      pagePreloaded = true
+      return
+    }
+    const cap = setTimeout(() => setReady(true), PRELOAD_MAX_MS)
+    return () => clearTimeout(cap)
+  }, [ready])
+
+  // Full-size review screenshots are only needed on click: fetch them after.
+  useEffect(() => {
+    if (ready && reviews?.length) preloadImages(reviews.map((r) => r.full))
+  }, [ready, reviews])
+
   return (
     <MotionConfig reducedMotion="user">
+      <Preloader show={!ready} progress={loaded} logo={LOGO} brandColor={LOGO_BLUE} />
       <ScrollContainerContext.Provider value={containerRef}>
         {/* ============== SCROLL PROGRESS ============== */}
         <motion.div
-          className="fixed top-0 left-0 right-0 h-1 z-50 origin-left"
+          className="fixed top-0 left-0 right-0 h-1 z-50 origin-left will-change-transform"
           style={{ scaleX: progressBar, background: `linear-gradient(90deg, ${LOGO_BLUE}, #60a5fa)` }}
         />
 
@@ -296,14 +355,14 @@ export default function HomePage() {
         >
           {/* ---------- HERO ---------- */}
           <HeroParallax
-            products={HERO_PRODUCTS}
+            products={heroProducts}
             rows={HERO_ROWS}
             container={containerRef}
-            // Height follows the content (header + rows + the rows' 500px slide-down),
-            // so the bottom row is never cut off by the next section.
-            className="bg-white h-auto pt-32 pb-[600px] md:pt-48 md:pb-[640px]"
+            // Height follows the content (header + rows + the rows' slide-down:
+            // 500px on desktop, 60px on phones), so the bottom row is never cut off.
+            className="bg-white h-auto pt-32 pb-[160px] md:pt-48 md:pb-[640px]"
           >
-            <HeroHeader navigate={navigate} />
+            <HeroHeader navigate={navigate} ready={ready} />
           </HeroParallax>
 
           {/* ---------- SERVICES (pinned) ---------- */}
@@ -311,7 +370,7 @@ export default function HomePage() {
 
           {/* ---------- DETAILS ---------- */}
           <TestimonialsSection />
-          <ActionsSection navigate={navigate} />
+          <ActionsSection />
           <FinalCTA navigate={navigate} />
 
           {/* ---------- FOOTER ---------- */}
@@ -353,18 +412,18 @@ export default function HomePage() {
 // ============================================================
 // HERO HEADER — big logo with the headline beside it, above the parallax rows
 // ============================================================
-function HeroHeader({ navigate }) {
+function HeroHeader({ navigate, ready }) {
   return (
     <div className="max-w-7xl relative mx-auto px-6 w-full pb-16 md:pb-28 flex flex-col md:flex-row items-center gap-8 md:gap-16">
       <motion.div
         className="relative shrink-0"
         initial={{ opacity: 0, scale: 0.6, rotate: -12 }}
-        animate={{ opacity: 1, scale: 1, rotate: 0 }}
+        animate={ready ? { opacity: 1, scale: 1, rotate: 0 } : undefined}
         transition={{ duration: 1.2, ease: EASE }}
       >
         <div className="absolute inset-0 rounded-full bg-blue-400/30 blur-3xl scale-125" />
         <img
-          src="/Iloilo_rentals_img.png"
+          src={LOGO}
           alt="Iloilo Rentals Logo"
           className="relative w-40 h-40 sm:w-52 sm:h-52 md:w-72 md:h-72 lg:w-80 lg:h-80 object-contain drop-shadow-2xl"
         />
@@ -373,7 +432,7 @@ function HeroHeader({ navigate }) {
       <motion.div
         variants={staggerParent}
         initial="hidden"
-        animate="show"
+        animate={ready ? 'show' : 'hidden'}
         className="text-center md:text-left"
       >
         <h1 className="text-4xl sm:text-5xl md:text-6xl lg:text-7xl font-black leading-[1.05] tracking-tight">
@@ -425,17 +484,19 @@ function HeroHeader({ navigate }) {
 // Mobile (photo stacked over text): each row has its own hole at the screen
 // edge — the photo slides right into one, the text left into the other.
 //
-// How "inside the hole" works: every element is drawn twice in identical
-// stage-sized frames. Copy A is the element in place, clipped at the opening.
-// Copy B sits inside the hole (clipped to the half-pill) and shows the part
-// that has gone in. Both copies get the same variants, so they move as one.
+// How "inside the hole" works: each element is drawn once, clipped by a
+// rectangle that ends at the hole's curved back with the same rounded corners
+// as the hole. So it passes over the opening, stays visible inside the hole,
+// and is cut off at the curve. The hole's shade is drawn under it and the
+// curved lip over it. (An earlier version drew everything twice, one copy each
+// side of the opening; the two copies rounded to different pixels and left a
+// faint "|" line at the opening as content passed through.)
 // ============================================================
 
-// The stage is a size container so hole frames can use cqw/cqh to line up
-// with it. CSS variables: hole width, gap between the holes, and the space
+// Stage CSS variables: hole width, gap between the holes, and the space
 // between each element and its hole at rest.
 const STAGE_CLASSES =
-  '[container-type:size] [--hole-w:18px] md:[--hole-w:36px] [--hole-gap:0px] md:[--hole-gap:40px] [--hole-space:14px] md:[--hole-space:32px]'
+  '[--hole-w:18px] md:[--hole-w:36px] [--hole-gap:0px] md:[--hole-gap:40px] [--hole-space:14px] md:[--hole-space:32px]'
 
 // A hole reads as a hole when it deepens away from you: the flat "|" opening
 // is fully clear (no edge, it melts into the background) and the shade grows
@@ -458,14 +519,9 @@ const HOLE_SHAPES = {
   },
 }
 
-// Copy A reaches this far past the opening, over copy B. Where the two meet,
-// both edges are anti-aliased; at fractional zoom (e.g. 110%) the opening lands
-// between pixels and a faint line of background showed through. The overlap
-// hides it, and both copies show identical pixels there.
-const SEAM = '2px'
-
-// Where the element, its hole, and its in-place clip sit — all in stage
-// percentages / container units. `dir` is the way the element slides in.
+// Where the element, its hole, and its clip sit — all in stage percentages /
+// container units. `dir` is the way the element slides in. The clip's rounded
+// corners match the hole's: rounded-*-full on a narrow box rounds to its width.
 function laneGeometry(side, desktop, kind) {
   const W = 'var(--hole-w)'
   const S = 'var(--hole-space)'
@@ -476,16 +532,14 @@ function laneGeometry(side, desktop, kind) {
         dir: 'right',
         box: { left: 0, top: 0, bottom: 0, width: `calc(50% - ${half} - ${S})` },
         hole: { left: `calc(50% - ${half})`, width: W, top: 0, bottom: 0 },
-        frame: { left: `calc(-50cqw + ${half})`, top: 0 },
-        clip: `inset(0 calc(50% + ${half} - ${SEAM}) 0 0)`,
+        clip: `inset(0 calc(50% + var(--hole-gap) / 2) 0 0 round 0 ${W} ${W} 0)`,
       }
     }
     return {
       dir: 'left',
       box: { right: 0, top: 0, bottom: 0, width: `calc(50% - ${half} - ${S})` },
       hole: { left: 'calc(50% + var(--hole-gap) / 2)', width: W, top: 0, bottom: 0 },
-      frame: { left: 'calc(-50cqw - var(--hole-gap) / 2)', top: 0 },
-      clip: `inset(0 0 0 calc(50% + ${half} - ${SEAM}))`,
+      clip: `inset(0 0 0 calc(50% + var(--hole-gap) / 2) round ${W} 0 0 ${W})`,
     }
   }
   if (kind === 'photo') {
@@ -494,8 +548,7 @@ function laneGeometry(side, desktop, kind) {
       dir: 'right',
       box: { left: 0, top: 0, height: '50%', width: `calc(100% - ${W} - ${S})` },
       hole: { left: `calc(100% - ${W})`, width: W, top: 0, height: '50%' },
-      frame: { left: `calc(-100cqw + ${W})`, top: 0 },
-      clip: `inset(0 calc(${W} - ${SEAM}) 0 0)`,
+      clip: `inset(0 0 50% 0 round 0 ${W} ${W} 0)`,
     }
   }
   // Bottom row; hole at the left edge.
@@ -503,8 +556,7 @@ function laneGeometry(side, desktop, kind) {
     dir: 'left',
     box: { left: `calc(${W} + ${S})`, right: 0, top: '54%', bottom: 0 },
     hole: { left: 0, width: W, top: '54%', bottom: 0 },
-    frame: { left: 0, top: '-54cqh' },
-    clip: `inset(0 0 0 calc(${W} - ${SEAM}))`,
+    clip: `inset(54% 0 0 0 round ${W} 0 0 ${W})`,
   }
 }
 
@@ -554,14 +606,14 @@ function ServicesShowcase() {
     <section
       ref={sectionRef}
       className="relative rounded-t-[2.5rem]"
-      style={{ height: `${(total + 1) * 100}vh`, backgroundColor: NAVY }}
+      style={{ height: `${(total + 1) * 100}vh`, backgroundColor: DEEP_BLUE }}
     >
       <div className="sticky top-0 h-svh overflow-hidden rounded-t-[2.5rem]" style={{ background: SERVICES_BG }}>
         <Grain />
 
         <div className="relative h-full max-w-7xl mx-auto px-5 md:px-10 pt-6 pb-28 md:pt-24 md:pb-8 flex flex-col gap-4 md:gap-5">
           <div className="flex items-center gap-3 text-xs font-bold uppercase tracking-widest">
-            <span className="text-sky-300">What We Offer</span>
+            <span className="text-white">What We Offer</span>
             <span className="h-px w-8 bg-white/30" />
             <span className="tabular-nums text-white">
               {number} <span className="text-white/50">/ {String(total).padStart(2, '0')}</span>
@@ -573,17 +625,15 @@ function ServicesShowcase() {
             <AnimatePresence mode="wait" initial={false}>
               <motion.div key={service.key} initial="enter" animate="center" exit="exit" className="absolute inset-0">
                 <HoleLane geometry={laneGeometry(photoSide, desktop, 'photo')}>
-                  {() => <ServicePhoto service={service} number={number} />}
+                  <ServicePhoto service={service} number={number} />
                 </HoleLane>
                 <HoleLane geometry={laneGeometry(textSide, desktop, 'text')}>
-                  {(copy) => (
-                    <ServiceText
-                      service={service}
-                      desktop={desktop}
-                      side={textSide}
-                      onCta={copy ? undefined : () => navigate(service.to)}
-                    />
-                  )}
+                  <ServiceText
+                    service={service}
+                    desktop={desktop}
+                    side={textSide}
+                    onCta={() => navigate(service.to)}
+                  />
                 </HoleLane>
               </motion.div>
             </AnimatePresence>
@@ -609,47 +659,45 @@ function ServicesShowcase() {
   )
 }
 
-// One element plus the hole it slides into. `children(isCopy)` renders the
-// element; it's called twice (in place, and inside the hole).
+// One element plus the hole it slides into.
 function HoleLane({ geometry, children }) {
-  const { dir, box, hole, frame, clip } = geometry
+  const { dir, box, hole, clip } = geometry
   const shape = HOLE_SHAPES[dir]
-  const slider = (isCopy) => (
-    <motion.div custom={{ dir }} variants={slideVariants} className="absolute pointer-events-auto" style={box}>
-      {children(isCopy)}
-    </motion.div>
-  )
 
   return (
     <>
-      {/* The hole: a half-pill cut into the background. Copy B shows what has gone in. */}
+      {/* The hole: a half-pill cut into the background, under the element */}
       <div
         aria-hidden="true"
-        className={`absolute overflow-hidden pointer-events-none ${shape.radius}`}
+        className={`absolute pointer-events-none ${shape.radius}`}
         style={{ ...hole, background: shape.fill }}
-      >
-        <div inert className="absolute" style={{ ...frame, width: '100cqw', height: '100cqh' }}>
-          {slider(true)}
-        </div>
-        {/* The curved ")" lip — over the content, which slips under it */}
-        <div className={`absolute inset-0 ${shape.radius} ${shape.lip} border-white/15`} style={{ boxShadow: shape.shade }} />
+      />
+
+      {/* The element, cut off at the hole's curved back */}
+      <div className="absolute inset-0 pointer-events-none" style={{ clipPath: clip }}>
+        <motion.div custom={{ dir }} variants={slideVariants} className="absolute pointer-events-auto" style={box}>
+          {children}
+        </motion.div>
       </div>
 
-      {/* Copy A — in place, cut off at the opening */}
-      <div className="absolute inset-0 pointer-events-none" style={{ clipPath: clip }}>
-        {slider(false)}
-      </div>
+      {/* The curved ")" lip — over the element, which slips under it */}
+      <div
+        aria-hidden="true"
+        className={`absolute pointer-events-none ${shape.radius} ${shape.lip} border-white/15`}
+        style={{ ...hole, boxShadow: shape.shade }}
+      />
     </>
   )
 }
 
 function ServicePhoto({ service, number }) {
+  const photo = useSitePhotos()
   return (
     <div className="relative h-full w-full rounded-[28px] overflow-hidden shadow-2xl shadow-black/40 ring-1 ring-white/10">
-      <img src={service.image} alt={service.title} decoding="async" className="absolute inset-0 h-full w-full object-cover" />
+      <Photo {...photo(service.image)} alt={service.title} decoding="async" className="absolute inset-0 h-full w-full object-cover" />
       <div className="absolute inset-0 bg-gradient-to-t from-black/50 via-transparent to-transparent" />
       <div className="absolute bottom-4 left-4 md:bottom-6 md:left-6 px-4 py-2 rounded-full bg-black/45 ring-1 ring-white/20 text-white text-xs md:text-sm font-semibold">
-        <span className="tabular-nums text-sky-200 mr-2">{number}</span>
+        <span className="tabular-nums text-white mr-2">{number}</span>
         {service.title}
       </div>
     </div>
@@ -662,26 +710,27 @@ function ServiceText({ service, desktop, side, onCta }) {
   const pad = desktop ? (side === 'left' ? 'pr-6' : 'pl-6') : ''
   return (
     <div className={`h-full flex flex-col ${desktop ? 'justify-center' : 'justify-start'} ${pad}`}>
-      <Icon size={40} strokeWidth={1.4} className="hidden md:block mb-5 text-sky-300 [@media(max-height:760px)]:hidden" />
+      <Icon size={40} strokeWidth={1.4} className="hidden md:block mb-5 text-white [@media(max-height:760px)]:hidden" />
       <h2 className="text-[1.6rem] sm:text-4xl md:text-5xl lg:text-6xl font-black text-white leading-[1.05] tracking-tight">
         {service.title}
       </h2>
-      <p className="mt-2 md:mt-4 text-base md:text-xl lg:text-2xl font-bold text-sky-300">{service.tagline}</p>
+      <p className="mt-2 md:mt-4 text-base md:text-xl lg:text-2xl font-bold text-white">{service.tagline}</p>
       <p className="mt-3 md:mt-5 text-white/90 text-sm md:text-lg leading-relaxed max-w-xl line-clamp-3 md:line-clamp-none">
         {service.description}
       </p>
-      <ul className="hidden md:block mt-5 space-y-3 [@media(max-height:820px)]:hidden">
+      {/* Bullets: desktop unless the screen is short; phones only when tall
+          enough (Pro Max / Plus size) for them to fit under the text. */}
+      <ul className="hidden [@media(min-height:880px)]:block md:block md:[@media(max-height:820px)]:hidden mt-3 md:mt-5 space-y-2 md:space-y-3">
         {service.bullets.map((b) => (
-          <li key={b} className="flex items-center gap-3 text-base text-white">
-            <CheckCircle2 size={20} className="text-emerald-400 flex-shrink-0" />
+          <li key={b} className="flex items-center gap-2.5 md:gap-3 text-sm md:text-base text-white">
+            <CheckCircle2 size={18} className="text-emerald-400 flex-shrink-0" />
             {b}
           </li>
         ))}
       </ul>
       <button
         onClick={onCta}
-        tabIndex={onCta ? undefined : -1}
-        className="group mt-4 md:mt-7 self-start inline-flex items-center gap-2 text-sm md:text-base font-bold text-white hover:text-sky-300 transition-colors"
+        className="group mt-4 md:mt-7 self-start inline-flex items-center gap-2 text-sm md:text-base font-bold text-white hover:text-white/75 transition-colors"
       >
         {service.cta}
         <ArrowRight size={18} className="transition-transform duration-300 group-hover:translate-x-1" />
@@ -695,7 +744,7 @@ function ProgressSegment({ progress, index, total, label, active, onClick }) {
   return (
     <button onClick={onClick} className="group text-left py-2" aria-label={`Show ${label}`}>
       <div className="h-1 rounded-full bg-white/20 overflow-hidden">
-        <motion.div className="h-full bg-sky-300 origin-left" style={{ scaleX: fill }} />
+        <motion.div className="h-full bg-white origin-left will-change-transform" style={{ scaleX: fill }} />
       </div>
       <span
         className={`hidden md:block mt-2 text-xs font-semibold truncate transition-colors duration-300 ${
@@ -709,11 +758,25 @@ function ProgressSegment({ progress, index, total, label, active, onClick }) {
 }
 
 // ============================================================
-// TESTIMONIALS — two rows drifting in opposite directions. Overlaps the
-// bottom of the services section as a rounded white sheet.
+// TESTIMONIALS — "What They Say": every review screenshot in Supabase
+// (`hero-images/home/reviews/`, newest first) as a card, in two rows drifting
+// in opposite directions. Click a card to read it full size. Hidden until at
+// least one screenshot is uploaded. Overlaps the bottom of the services
+// section as a rounded white sheet.
 // ============================================================
+// Cards per marquee copy, at least: a few reviews are repeated so a row is
+// always wider than the screen (otherwise the loop shows a gap).
+const MARQUEE_MIN_CARDS = 8
+// Seconds each card takes to drift past, so the speed doesn't depend on how
+// many reviews there are.
+const MARQUEE_SECONDS_PER_CARD = 7
+
 function TestimonialsSection() {
   const fade = 'linear-gradient(90deg, transparent, #000 8%, #000 92%, transparent)'
+  const reviews = useSiteGallery(REVIEWS)
+  const [open, setOpen] = useState(null)
+
+  if (!reviews?.length) return null
 
   return (
     <section className="relative z-10 -mt-10 rounded-t-[2.5rem] py-28 md:py-40 overflow-hidden bg-gradient-to-b from-white via-[#eef4fb] to-white">
@@ -733,139 +796,156 @@ function TestimonialsSection() {
       </div>
 
       <div className="relative space-y-6" style={{ maskImage: fade, WebkitMaskImage: fade }}>
-        <MarqueeRow items={TESTIMONIALS} />
-        <MarqueeRow items={[...TESTIMONIALS].reverse()} reverse />
+        <MarqueeRow items={reviews} onOpen={setOpen} />
+        {/* The same reviews again, drifting the other way — hidden from screen readers. */}
+        <MarqueeRow items={[...reviews].reverse()} onOpen={setOpen} reverse decorative />
       </div>
+
+      <ReviewLightbox review={open} onClose={() => setOpen(null)} />
     </section>
   )
 }
 
-function MarqueeRow({ items, reverse = false }) {
+function MarqueeRow({ items, onOpen, reverse = false, decorative = false }) {
+  const cards = Array.from({ length: Math.ceil(MARQUEE_MIN_CARDS / items.length) }, () => items).flat()
   return (
     <div className="marquee-row overflow-hidden">
       <div
         className="flex w-max animate-marquee"
-        style={{ animationDirection: reverse ? 'reverse' : 'normal' }}
+        style={{
+          animationDirection: reverse ? 'reverse' : 'normal',
+          animationDuration: `${cards.length * MARQUEE_SECONDS_PER_CARD}s`,
+        }}
       >
-        {/* Two copies so the -50% loop is seamless; padding (not gap) keeps both halves equal. */}
+        {/* Two copies so the -50% loop is seamless; padding (not gap) keeps both halves equal.
+            Only the first appearance of each review is announced and focusable. */}
         {[0, 1].map((copy) =>
-          items.map((t) => (
-            <div key={`${copy}-${t.id}`} className="pr-6" aria-hidden={copy === 1}>
-              <TestimonialCard testimonial={t} />
-            </div>
-          )),
+          cards.map((review, i) => {
+            const hidden = decorative || copy === 1 || i >= items.length
+            return (
+              <div key={`${copy}-${i}-${review.key}`} className="pr-6" aria-hidden={hidden || undefined}>
+                <ReviewCard review={review} hidden={hidden} onOpen={() => onOpen(review)} />
+              </div>
+            )
+          }),
         )}
       </div>
     </div>
   )
 }
 
-function TestimonialCard({ testimonial }) {
+function ReviewCard({ review, hidden, onOpen }) {
   return (
-    <div className="w-[300px] md:w-[380px] h-full bg-white/80 backdrop-blur rounded-3xl border border-gray-200/80 shadow-sm hover:shadow-xl hover:-translate-y-1 transition-all duration-500 p-7 flex flex-col">
-      <div className="flex items-center justify-between mb-5">
-        <Quote size={28} style={{ color: LOGO_BLUE }} strokeWidth={1.4} />
-        <div className="flex items-center gap-0.5">
-          {[...Array(testimonial.rating)].map((_, i) => (
-            <Star key={i} size={14} className="fill-amber-400 text-amber-400" />
-          ))}
-        </div>
-      </div>
-      <p className="text-gray-700 text-base leading-relaxed mb-6 flex-1">"{testimonial.quote}"</p>
-      <div className="flex items-center gap-3 pt-5 border-t border-gray-100">
-        <img src={testimonial.avatar} alt={testimonial.name} className="w-11 h-11 rounded-full object-cover ring-2 ring-gray-100" loading="lazy" decoding="async" />
-        <div className="min-w-0">
-          <p className="text-sm font-bold text-gray-900 truncate">{testimonial.name}</p>
-          <p className="text-xs text-gray-500 truncate">{testimonial.role}</p>
-        </div>
-      </div>
-    </div>
+    <button
+      type="button"
+      onClick={onOpen}
+      tabIndex={hidden ? -1 : undefined}
+      aria-label={hidden ? undefined : 'Read this review'}
+      className="flex h-[280px] md:h-[360px] min-w-[160px] items-center justify-center overflow-hidden rounded-xl border border-gray-200/80 bg-white shadow-sm transition-all duration-500 hover:-translate-y-1 hover:shadow-xl cursor-zoom-in"
+    >
+      <Photo
+        src={review.thumb}
+        alt="Client review"
+        decoding="async"
+        draggable={false}
+        className="h-full w-auto max-w-[80vw] md:max-w-[520px] object-cover object-top"
+      />
+    </button>
+  )
+}
+
+// Full-size review over the page. Rendered into <body>: inside the page's
+// scroll container it would sit under the navbar.
+function ReviewLightbox({ review, onClose }) {
+  useEffect(() => {
+    if (!review) return
+    const onKey = (e) => { if (e.key === 'Escape') onClose() }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [review, onClose])
+
+  return createPortal(
+    <AnimatePresence>
+      {review && (
+        <motion.div
+          key={review.key}
+          role="dialog"
+          aria-modal="true"
+          aria-label="Client review"
+          className="fixed inset-0 z-[300] flex items-center justify-center bg-black/80 p-4 md:p-10 cursor-zoom-out"
+          initial={{ opacity: 0 }}
+          animate={{ opacity: 1 }}
+          exit={{ opacity: 0 }}
+          transition={{ duration: 0.25 }}
+          onClick={onClose}
+        >
+          <motion.img
+            src={review.full}
+            alt="Client review"
+            initial={{ scale: 0.96 }}
+            animate={{ scale: 1 }}
+            exit={{ scale: 0.96 }}
+            transition={{ duration: 0.35, ease: EASE }}
+            className="max-h-full max-w-full rounded-xl object-contain shadow-2xl cursor-default"
+            onClick={(e) => e.stopPropagation()}
+          />
+          <button
+            type="button"
+            autoFocus
+            onClick={onClose}
+            aria-label="Close review"
+            className="absolute top-4 right-4 p-2 text-white/80 hover:text-white transition-colors"
+          >
+            <X size={28} />
+          </button>
+        </motion.div>
+      )}
+    </AnimatePresence>,
+    document.body,
   )
 }
 
 // ============================================================
-// ACTIONS — bento of photo cards with a cursor spotlight
+// ACTIONS — "Four ways to work with us" as a wheel of photo cards. The
+// section pins while scrolling turns the wheel: first a ring around the
+// heading, then each card in turn at the front, then it releases.
 // ============================================================
-function ActionsSection({ navigate }) {
-  return (
-    <section className="relative py-28 md:py-40">
-      <div className="max-w-6xl mx-auto px-6 w-full">
-        <Stagger className="text-center mb-14 md:mb-16" amount={0.5}>
-          <Item className="text-xs font-bold uppercase tracking-widest mb-4" style={{ color: LOGO_BLUE }}>
-            Get Started
-          </Item>
-          <Item as="h2" className="text-4xl md:text-6xl font-black text-gray-900 leading-[1.05] mb-4 tracking-tight">
-            Four ways to work with us.
-          </Item>
-          <Item as="p" className="text-gray-500 text-base md:text-lg max-w-2xl mx-auto">
-            Whatever brings you here, we have a path for it.
-          </Item>
-        </Stagger>
+// Scroll length per card, in viewport heights.
+const WHEEL_VH_PER_ITEM = 70
 
-        <div className="grid gap-5 md:gap-6 md:grid-cols-4 md:grid-rows-2 md:h-[640px]">
-          {ACTIONS.map((action, i) => (
-            <ActionCard
-              key={action.key}
-              action={action}
-              index={i}
-              layout={ACTION_LAYOUT[i]}
-              large={i === 0}
-              onClick={() => navigate(action.to)}
-            />
-          ))}
-        </div>
-      </div>
-    </section>
-  )
-}
+function ActionsSection() {
+  const sectionRef = useRef(null)
+  const container = useContext(ScrollContainerContext)
+  // 0 when the section pins to the top, 1 when it is about to release.
+  const progress = useSectionProgress(sectionRef, ['start start', 'end end'])
+  // Turns: ring → first card, then one per card after it.
+  const photo = useSitePhotos()
+  const items = useMemo(() => wheelItems(photo), [photo])
+  const turns = items.length
 
-function ActionCard({ action, index, layout, large, onClick }) {
-  const trackSpotlight = (e) => {
-    const rect = e.currentTarget.getBoundingClientRect()
-    e.currentTarget.style.setProperty('--x', `${e.clientX - rect.left}px`)
-    e.currentTarget.style.setProperty('--y', `${e.clientY - rect.top}px`)
+  // Scroll to where card i rests at the front.
+  const goTo = (i) => {
+    const el = sectionRef.current
+    const scroller = container?.current
+    if (!el || !scroller) return
+    const top = scroller.scrollTop + el.getBoundingClientRect().top - scroller.getBoundingClientRect().top
+    const span = el.offsetHeight - scroller.clientHeight
+    scroller.scrollTo({ top: top + (span * (i + 1)) / turns, behavior: 'smooth' })
   }
 
   return (
-    <motion.button
-      onClick={onClick}
-      onMouseMove={trackSpotlight}
-      initial={{ opacity: 0, y: 60, scale: 0.96 }}
-      whileInView={{ opacity: 1, y: 0, scale: 1 }}
-      viewport={{ once: true, amount: 0.3 }}
-      transition={{ duration: 1, delay: index * 0.1, ease: EASE }}
-      className={`group relative overflow-hidden rounded-3xl text-left shadow-xl ${layout}`}
-    >
-      <img
-        src={action.image}
-        alt=""
-        loading="lazy"
-        decoding="async"
-        className="absolute inset-0 h-full w-full object-cover transition-transform duration-[1.2s] ease-out group-hover:scale-110"
-      />
-      <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-black/25 to-transparent" />
-      {/* Spotlight that follows the cursor */}
-      <div
-        className="absolute inset-0 opacity-0 group-hover:opacity-100 transition-opacity duration-500 pointer-events-none"
-        style={{ background: 'radial-gradient(420px circle at var(--x, 50%) var(--y, 50%), rgba(255,255,255,0.22), transparent 45%)' }}
-      />
-
-      <ArrowUpRight
-        size={large ? 36 : 28}
-        strokeWidth={1.6}
-        className="absolute top-6 right-6 text-white drop-shadow transition-transform duration-500 group-hover:translate-x-1 group-hover:-translate-y-1"
-      />
-
-      <div className="absolute inset-x-0 bottom-0 p-6 md:p-7">
-        <p className="text-xs font-bold uppercase tracking-widest text-sky-200 mb-2">{action.eyebrow}</p>
-        <h3 className={`font-black text-white tracking-tight leading-tight ${large ? 'text-3xl md:text-5xl' : 'text-2xl'}`}>
-          {action.title}
-        </h3>
-        <p className={`mt-2 text-white/85 leading-relaxed ${large ? 'text-base md:text-lg max-w-md' : 'text-sm'}`}>
-          {action.description}
-        </p>
+    <div ref={sectionRef} className="relative bg-white" style={{ height: `${turns * WHEEL_VH_PER_ITEM + 100}vh` }}>
+      <div className="sticky top-0 h-svh overflow-hidden">
+        <WorksWheel
+          items={items}
+          progress={progress}
+          onPick={goTo}
+          label="Four ways to work with us."
+          action="Explore"
+          className="bg-white text-gray-900"
+        />
       </div>
-    </motion.button>
+    </div>
   )
 }
 
@@ -890,12 +970,12 @@ function FinalCTA({ navigate }) {
       <motion.div
         style={{ y: blobAY }}
         aria-hidden="true"
-        className="absolute -top-24 -left-24 w-[28rem] h-[28rem] rounded-full bg-sky-500/30 blur-3xl"
+        className="absolute -top-24 -left-24 w-[28rem] h-[28rem] rounded-full bg-sky-500/30 blur-3xl will-change-transform"
       />
       <motion.div
         style={{ y: blobBY }}
         aria-hidden="true"
-        className="absolute -bottom-32 -right-24 w-[32rem] h-[32rem] rounded-full bg-indigo-500/30 blur-3xl"
+        className="absolute -bottom-32 -right-24 w-[32rem] h-[32rem] rounded-full bg-indigo-500/30 blur-3xl will-change-transform"
       />
       <Grain />
 
@@ -946,7 +1026,7 @@ function FinalCTA({ navigate }) {
 function ScrollWord({ children, progress, range }) {
   const opacity = useTransform(progress, range, [0.15, 1])
   return (
-    <motion.span aria-hidden="true" style={{ opacity }}>
+    <motion.span aria-hidden="true" className="will-change-[opacity]" style={{ opacity }}>
       {children}
     </motion.span>
   )

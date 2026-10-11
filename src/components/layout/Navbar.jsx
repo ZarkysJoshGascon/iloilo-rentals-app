@@ -4,12 +4,16 @@ import { Link, useNavigate, useLocation } from 'react-router-dom'
 import { motion, AnimatePresence, useTransform, useSpring, useMotionValue } from 'framer-motion'
 import { useAuth } from "../../context/AuthContext";
 import { navReveal } from '../../lib/navReveal'
+import { useUserRole } from '@/hooks/useUserRole'
 import {
-  Menu, X, User, Home, Phone, Info, FileText, Shield, LogOut, Building2, Palette,
+  Menu, X, User, Home, Phone, Info, FileText, Shield, LogOut, Building2, Palette, LayoutDashboard,
 } from 'lucide-react'
 
 export default function Navbar() {
   const { user, signOut } = useAuth()
+  const { role } = useUserRole()
+  // Admins get a CRM link in the navbar's account area (and in the mobile menu).
+  const isAdmin = !!user && (role === 'admin' || role === 'both')
   const navigate = useNavigate()
   const location = useLocation()
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false)
@@ -71,7 +75,7 @@ export default function Navbar() {
     window.addEventListener('resize', measure)
     document.fonts?.ready.then(measure)
     return () => window.removeEventListener('resize', measure)
-  }, [user, pillWidth, spreadWidth])
+  }, [user, isAdmin, pillWidth, spreadWidth])
 
   const navWidth = useTransform([reveal, spreadWidth, pillWidth], ([v, spread, pill]) => {
     if (!pill) return 'auto'
@@ -156,6 +160,16 @@ export default function Navbar() {
             <div className="pr-2">
               {user ? (
                 <div className="flex items-center gap-2">
+                  {isAdmin && (
+                    <Link
+                      to="/admin"
+                      title="Open the admin CRM"
+                      className="flex items-center gap-2 px-3 py-2 rounded-full text-sm font-medium transition-colors text-[color:var(--nav-fg)] hover:text-[color:var(--nav-fg-strong)] hover:bg-white/5"
+                    >
+                      <LayoutDashboard size={15} />
+                      <span>CRM</span>
+                    </Link>
+                  )}
                   <div className="w-9 h-9 rounded-full overflow-hidden bg-[color:var(--nav-line)] flex items-center justify-center flex-shrink-0 ring-1 ring-[color:var(--nav-line)]">
                     {userAvatar ? (
                       <img key={`desktop-avatar-${userKey}`} src={userAvatar} alt={userName} className="w-full h-full object-cover" />
@@ -301,6 +315,16 @@ export default function Navbar() {
                           <p className="text-xs text-gray-500">{user?.email}</p>
                         </div>
                       </div>
+                      {isAdmin && (
+                        <Link
+                          to="/admin"
+                          onClick={() => setMobileMenuOpen(false)}
+                          className="w-full flex items-center justify-center gap-2 py-3 px-4 rounded-xl bg-[#2d568e] text-white font-medium text-sm"
+                        >
+                          <LayoutDashboard size={16} />
+                          Open CRM
+                        </Link>
+                      )}
                       <button
                         onClick={handleLogout}
                         className="w-full flex items-center justify-center gap-2 py-3 px-4 rounded-xl bg-red-50 text-red-600 font-medium hover:bg-red-100 transition-colors text-sm"
