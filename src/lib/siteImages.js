@@ -98,20 +98,23 @@ function newestByName(files) {
  * Returns `photo(spot)` → `{ src, fallback }` for <Photo>. While the folder is
  * still being listed `src` is undefined, so nothing loads yet. A spot's file
  * can be JPG, PNG or WebP; if there are several, the newest upload wins.
+ * A spot's placeholder can be another spot: that uploaded photo stands in
+ * until this spot gets its own file.
  */
 export function useSitePhotos() {
   const files = useFolder(HOME)
   const byName = useMemo(() => (files ? newestByName(files) : null), [files])
   return useCallback(
-    ({ name, placeholder, width }) => {
+    function resolve({ name, placeholder, width }) {
       const transform = { ...TRANSFORM, width }
-      if (files === undefined) return { src: undefined, fallback: placeholder }
+      const standIn = placeholder && typeof placeholder === 'object' ? resolve(placeholder).src : placeholder
+      if (files === undefined) return { src: undefined, fallback: standIn }
       // Listing failed: try the .jpg anyway; <Photo> falls back if it's missing.
-      if (files === null) return { src: photoUrl(`${HOME}/${name}.jpg`, null, transform), fallback: placeholder }
+      if (files === null) return { src: photoUrl(`${HOME}/${name}.jpg`, null, transform), fallback: standIn }
       const match = byName.get(name)
       return match
-        ? { src: photoUrl(`${HOME}/${match.file}`, match.info.version, transform), fallback: placeholder }
-        : { src: placeholder }
+        ? { src: photoUrl(`${HOME}/${match.file}`, match.info.version, transform), fallback: standIn }
+        : { src: standIn }
     },
     [files, byName],
   )

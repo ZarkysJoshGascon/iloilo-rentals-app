@@ -1,9 +1,8 @@
 // Navbar.jsx
 import { useState, useEffect, useLayoutEffect, useRef } from 'react'
 import { Link, useNavigate, useLocation } from 'react-router-dom'
-import { motion, AnimatePresence, useTransform, useSpring, useMotionValue } from 'framer-motion'
+import { motion, AnimatePresence } from 'framer-motion'
 import { useAuth } from "../../context/AuthContext";
-import { navReveal } from '../../lib/navReveal'
 import { useUserRole } from '@/hooks/useUserRole'
 import {
   Menu, X, User, Home, Phone, Info, FileText, Shield, LogOut, Building2, Palette, LayoutDashboard,
@@ -46,18 +45,12 @@ export default function Navbar() {
     setMobileMenuOpen(false)
   }
 
-  // ---- Desktop navbar morph ----
-  // navReveal 0 (top of the homepage): the links sit spread evenly across a
-  // wide row resting on a hairline, in dark text over the page.
-  // navReveal 1 (scrolled, and every other page): the row has gathered into
-  // the glass pill with light text. A spring smooths out wheel-step jumps.
-  const reveal = useSpring(navReveal, { stiffness: 170, damping: 26, mass: 0.6 })
-  const spreadWidth = useMotionValue(0)
-  const pillWidth = useMotionValue(0)
-
-  // The pill's natural width is the row's items packed with the normal gap;
-  // the spread width is the page width with a margin. Items keep their own
-  // widths at any row width, so measuring them is safe mid-morph.
+  // ---- Desktop navbar ----
+  // A wide frosted-white bar with the links spread evenly across it, in dark
+  // text. It keeps the same look on every page and while scrolling.
+  // Its width is the page width with a margin, but never narrower than the
+  // links packed together.
+  const [barWidth, setBarWidth] = useState(null)
   useLayoutEffect(() => {
     const measure = () => {
       const row = rowRef.current
@@ -68,58 +61,30 @@ export default function Navbar() {
         items.reduce((sum, el) => sum + el.offsetWidth, 0) +
         4 * (items.length - 1) +
         parseFloat(css.paddingLeft) + parseFloat(css.paddingRight)
-      pillWidth.set(Math.ceil(packed))
-      spreadWidth.set(Math.max(Math.ceil(packed), Math.min(window.innerWidth - 64, 1280)))
+      setBarWidth(Math.max(Math.ceil(packed), Math.min(window.innerWidth - 64, 1280)))
     }
     measure()
     window.addEventListener('resize', measure)
     document.fonts?.ready.then(measure)
     return () => window.removeEventListener('resize', measure)
-  }, [user, isAdmin, pillWidth, spreadWidth])
-
-  const navWidth = useTransform([reveal, spreadWidth, pillWidth], ([v, spread, pill]) => {
-    if (!pill) return 'auto'
-    const t = Math.min(1, Math.max(0, v))
-    return spread + (pill - spread) * t
-  })
-  // The glass is fully in before the text turns light, so the links stay
-  // readable throughout (dark on clear → dark on glass → light on glass).
-  const glassOpacity = useTransform(reveal, [0.1, 0.55], [0, 1])
-  const hairlineOpacity = useTransform(reveal, [0, 0.4], [1, 0])
-  // A short colour window: mid-way greys are unreadable on the glass.
-  const navFg = useTransform(reveal, [0.6, 0.68], ['#374151', 'rgba(255, 255, 255, 0.72)'])
-  const navFgStrong = useTransform(reveal, [0.6, 0.68], ['#111827', '#ffffff'])
-  const navLine = useTransform(reveal, [0.6, 0.68], ['rgba(17, 24, 39, 0.15)', 'rgba(255, 255, 255, 0.15)'])
+  }, [user, isAdmin])
 
   const userAvatar = user?.user_metadata?.avatar_url || null
   const userName = user?.user_metadata?.full_name || user?.email?.split('@')[0] || 'User'
 
   return (
     <>
-      {/* DESKTOP - Top navbar: wide row on a hairline → glass pill */}
+      {/* DESKTOP - Top navbar: wide frosted-white bar */}
       <motion.div
         className="hidden md:block fixed top-4 left-1/2 -translate-x-1/2 z-50"
         initial={{ y: -80, opacity: 0 }}
         animate={{ y: 0, opacity: 1 }}
         transition={{ duration: 0.6, delay: 0.2, ease: 'easeOut' }}
       >
-        <motion.div
-          className="relative rounded-full"
-          style={{ width: navWidth, '--nav-fg': navFg, '--nav-fg-strong': navFgStrong, '--nav-line': navLine }}
+        <div
+          className="relative rounded-full bg-white/80 backdrop-blur-xl border border-gray-200/70 shadow-lg shadow-black/5"
+          style={{ width: barWidth ?? 'auto', '--nav-fg': '#374151', '--nav-fg-strong': '#111827', '--nav-line': 'rgba(17, 24, 39, 0.15)' }}
         >
-          {/* Glass pill, fades in as the row gathers */}
-          <motion.div
-            aria-hidden="true"
-            className="absolute inset-0 bg-black/30 backdrop-blur-xl rounded-full border border-white/10 shadow-lg shadow-black/10"
-            style={{ opacity: glassOpacity }}
-          />
-          {/* Hairline the spread-out links rest on */}
-          <motion.div
-            aria-hidden="true"
-            className="absolute left-4 right-4 bottom-0 h-px bg-gradient-to-r from-transparent via-gray-900/25 to-transparent"
-            style={{ opacity: hairlineOpacity }}
-          />
-
           <div ref={rowRef} className="relative flex items-center justify-between gap-1 px-2 py-1.5">
             <Link to="/" className="flex-shrink-0 pl-1.5 pr-3">
               <div className="w-9 h-9 rounded-full flex items-center justify-center hover:scale-105 transition-transform">
@@ -135,7 +100,7 @@ export default function Navbar() {
                   key={link.path}
                   to={link.path}
                   className={`relative flex items-center px-4 py-2.5 text-sm font-medium rounded-full transition-colors duration-200 whitespace-nowrap ${
-                    active ? 'text-[#1a3a5c]' : 'text-[color:var(--nav-fg)] hover:text-[color:var(--nav-fg-strong)] hover:bg-white/5'
+                    active ? 'text-[#1a3a5c]' : 'text-[color:var(--nav-fg)] hover:text-[color:var(--nav-fg-strong)] hover:bg-gray-900/5'
                   }`}
                 >
                   {active && (
@@ -164,7 +129,7 @@ export default function Navbar() {
                     <Link
                       to="/admin"
                       title="Open the admin CRM"
-                      className="flex items-center gap-2 px-3 py-2 rounded-full text-sm font-medium transition-colors text-[color:var(--nav-fg)] hover:text-[color:var(--nav-fg-strong)] hover:bg-white/5"
+                      className="flex items-center gap-2 px-3 py-2 rounded-full text-sm font-medium transition-colors text-[color:var(--nav-fg)] hover:text-[color:var(--nav-fg-strong)] hover:bg-gray-900/5"
                     >
                       <LayoutDashboard size={15} />
                       <span>CRM</span>
@@ -177,20 +142,20 @@ export default function Navbar() {
                       <User size={15} className="text-[color:var(--nav-fg-strong)]" />
                     )}
                   </div>
-                  <button onClick={handleLogout} className="text-[color:var(--nav-fg)] hover:text-red-400 transition-colors p-2 rounded-full hover:bg-white/5" title="Sign Out">
+                  <button onClick={handleLogout} className="text-[color:var(--nav-fg)] hover:text-red-400 transition-colors p-2 rounded-full hover:bg-gray-900/5" title="Sign Out">
                     <LogOut size={15} />
                   </button>
                 </div>
               ) : (
                 <Link to="/login">
-                  <div className="flex items-center gap-2 px-4 py-2.5 hover:bg-white/5 rounded-full transition-colors text-[color:var(--nav-fg)] hover:text-[color:var(--nav-fg-strong)]">
+                  <div className="flex items-center gap-2 px-4 py-2.5 hover:bg-gray-900/5 rounded-full transition-colors text-[color:var(--nav-fg)] hover:text-[color:var(--nav-fg-strong)]">
                     <User size={15} /><span className="text-sm font-medium">Sign In</span>
                   </div>
                 </Link>
               )}
             </div>
           </div>
-        </motion.div>
+        </div>
       </motion.div>
 
       {/* MOBILE - Bottom pill navbar */}

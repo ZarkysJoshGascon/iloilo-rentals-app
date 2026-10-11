@@ -9,6 +9,18 @@ description: Framer Motion animation patterns for this project — scroll reveal
 
 Reference implementation: `src/pages/public/HomePage.jsx`. Copy its helpers rather than reinventing them.
 
+> **Note (Oct 2026):** the homepage went back to its layout from before the parallax redesign (parent of commit `593ba63`): the hero card over two drifting photo rows, alternating service sections that slide in from the sides, the "Look out the window" banner, the closing section with no buttons and no hero button. It scrolls inside its own container (`containerRef`, passed as a prop, with no `ScrollContainerContext`). From the redesign it kept:
+> - the redesign's service content (Property Management, Interior Design, Booking Stays, Affiliate Partner), shown in the old layout;
+> - the navbar is a static frosted-white bar on every page (wide, links spread evenly, dark text). It no longer morphs on scroll: the user asked for it to stay white. `navReveal` was removed. Don't push the hero's photo rows down to make room for it: the user saw that as empty space;
+> - service photos are isometric cards (`FloatingPhoto`): they flip into place around the upright axis when scrolled into view (from ~105° past rest, back hidden, 1.6s on a gentle ease; the expo `EASE` made the flip too quick to see), then float with a 6s bob at a mild tilt (rotateX 10 / rotateY ±15 / rotateZ ∓2, facing the text) over a blurred ground shadow that shrinks as the card rises. Keep the tilt mild: the user wants the photo easy to see;
+> - the page background eases between white and grey (`#eef0f3`) section by section (`ToneZone`: `onViewportEnter` on a band across the middle of the screen sets the canvas colour, with a 0.9s CSS transition). Sections on the canvas stay transparent; the wheel gets `bg-transparent`;
+> - phones: the scroll container has `overflow-x-hidden` (the side-sliding reveals pushed the page 56px wide); service text uses a plain fade-up with `amount: 0.15` below `md` (`useIsDesktop`), because at 0.7 the tall stacked text stayed invisible under its photo; both hero photo rows show on phones so the area around the card isn't blank. Check phone changes with a mid-animation sideways-overflow scan, not just a settled screenshot;
+> - the scroll-driven `WorksWheel` for "Four ways to work with us";
+> - the Supabase photo spots (`Photo` + `useSitePhotos`/`useSiteGallery`);
+> - a still grid of review screenshots for "What They Say" (click to enlarge).
+>
+> These redesign sections described below are no longer on the page: `HeroParallax` hero, `ServicesShowcase` holes, `Preloader`, review marquee, scroll-filled CTA. They live in git at commit `ce5a844`, and `hero-parallax.jsx`, `preloader.jsx` and `preloadImages.js` are kept but unused.
+
 ## House style
 
 - Easing: `const EASE = [0.16, 1, 0.3, 1]` (expo-out). Use it for reveals and entrances.
@@ -137,8 +149,8 @@ CSS keyframe `translateX(-50%)` over two copies of the items. Space items with p
 ### Scroll-filled headline (homepage `FinalCTA`)
 Split the headline into words; each word is a small component with `opacity = useTransform(progress, [i/n, (i+1)/n], [0.15, 1])`. Put `aria-label` with the full text on the heading and `aria-hidden` on the word spans.
 
-### Navbar that forms on scroll (`src/lib/navReveal.js`)
-`navReveal` is a shared `motionValue` (0 = top of homepage, 1 = full pill). HomePage sets it from its container's `scrollY` (0–260px) and resets it to 1 on unmount. `Navbar.jsx` smooths it with `useSpring` (overdamped, no overshoot) and maps it to: row `width` (measured spread width → measured packed pill width; links use `justify-between` so they spread evenly), glass layer opacity, a hairline under the spread row, and CSS variables for text colour (dark on the white hero → light on the glass, with a short colour window so mid-greys never show). The active-link highlight uses `layoutId` inside the link so it follows the link as the row narrows. The user wants the links visible at the top, not hidden. Use the same module for any other component outside the homepage tree that needs the homepage's scroll position.
+### Navbar
+The desktop navbar is a static frosted-white bar (see the note at the top). It used to form from a spread row into a glass pill on scroll via a shared `navReveal` motion value. That code is in git at commit `ce5a844` if it is ever wanted again.
 
 ### Carousels / swapping content
 `<AnimatePresence mode="popLayout" initial={false}>` with a `key` that changes per slide; enter from `x: 40`, exit to `x: -40`.

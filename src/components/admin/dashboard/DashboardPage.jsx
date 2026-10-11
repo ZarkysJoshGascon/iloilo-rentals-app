@@ -1220,10 +1220,11 @@ export default function DashboardPage() {
   const dateLabel = now.toLocaleDateString('en-PH', { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric', timeZone: 'Asia/Manila' })
   const firstName = (user?.user_metadata?.full_name || user?.email?.split('@')[0] || '').split(' ')[0]
 
-  const sheetUrl = useMemo(
-    () => `https://docs.google.com/spreadsheets/d/${import.meta.env.VITE_BACKUP_SHEET_ID || ''}`,
-    [],
-  )
+  // Without an ID the link would point at Google's "file can't be opened" page, so it's hidden instead.
+  const sheetUrl = useMemo(() => {
+    const id = import.meta.env.VITE_BACKUP_SHEET_ID?.trim()
+    return id ? `https://docs.google.com/spreadsheets/d/${id}/edit` : null
+  }, [])
 
   const runBackup = useCallback(async () => {
     if (backupRunning) return
@@ -1314,15 +1315,17 @@ export default function DashboardPage() {
               >
                 <StatusLabel tone={backupStatus.tone} icon={backupStatus.icon}>{backupStatus.label}</StatusLabel>
                 <span className="w-px h-4 bg-border" />
-                <a
-                  href={sheetUrl}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="inline-flex items-center gap-1 h-6 px-2 rounded-md text-[11px] font-medium text-muted-foreground hover:text-foreground hover:bg-muted/60"
-                  title="Open the Google Sheets backup"
-                >
-                  Sheets <ExternalLink size={11} />
-                </a>
+                {sheetUrl && (
+                  <a
+                    href={sheetUrl}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="inline-flex items-center gap-1 h-6 px-2 rounded-md text-[11px] font-medium text-muted-foreground hover:text-foreground hover:bg-muted/60"
+                    title="Open the Google Sheets backup"
+                  >
+                    Sheets <ExternalLink size={11} />
+                  </a>
+                )}
                 <button
                   type="button"
                   onClick={runBackup}
