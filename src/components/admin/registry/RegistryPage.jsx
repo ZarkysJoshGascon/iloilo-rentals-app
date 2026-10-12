@@ -21,6 +21,7 @@ import {
   updateInteraction, deleteInteraction, formatDate,
 } from '@/lib/registry'
 import { logAudit } from '@/lib/auditLog'
+import { currentContractForUnit } from '@/lib/contracts'
 import { cn, sanitizeText, sanitizeEmail } from '@/lib/utils'
 import { searchProfiles, isEmailRegistered } from '@/lib/staff'
 import { InitialsAvatar } from '@/components/admin/_shared/Panel'
@@ -1539,9 +1540,9 @@ export default function RegistryPage() {
       if (signal?.aborted) return
       if (contractsRes.error) throw contractsRes.error
       if (ownersRes.error) throw ownersRes.error
-      const byUnit = new Map()
-      for (const c of (contractsRes.data || [])) byUnit.set(c.unit_id, c)
-      const enriched = unitsData.map((u) => ({ ...u, contract: byUnit.get(u.id) || null }))
+      // A unit can have several terms once renewed; show the one it's on now.
+      const allContracts = contractsRes.data || []
+      const enriched = unitsData.map((u) => ({ ...u, contract: currentContractForUnit(u, allContracts) }))
       setAllUnits(enriched)
       setOwners(ownersRes.data || [])
     } catch (err) {

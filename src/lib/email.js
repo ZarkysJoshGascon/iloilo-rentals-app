@@ -255,3 +255,66 @@ async function resizeImage(file, maxW, quality, maxH = null) {
     )
   })
 }
+// ------------------------------------------------------------
+// Owner statements (send-contract-statement Edge Function)
+// ------------------------------------------------------------
+async function callStatementFunction(contractId, mode) {
+  if (!contractId) throw new Error('Missing contract id')
+  const { data: { session } } = await supabase.auth.getSession()
+  if (!session) throw new Error('Not signed in')
+
+  const res = await fetch(
+    `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/send-contract-statement`,
+    {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${session.access_token}`,
+      },
+      body: JSON.stringify({ contract_id: contractId, mode }),
+    },
+  )
+  const data = await res.json().catch(() => ({}))
+  if (!res.ok) {
+    if (res.status === 404 && !data?.error) throw new Error('The statement function is not deployed yet.')
+    throw new Error(data?.error || `Request failed (${res.status})`)
+  }
+  return data
+}
+
+/** Builds the Excel statement and saves it in the browser, to check before sending. */
+export async function downloadContractStatement(contractId) {
+  const { filename, file } = await callStatementFunction(contractId, 'download')
+  const bytes = Uint8Array.from(atob(file), (c) => c.charCodeAt(0))
+  const blob = new Blob([bytes], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' })
+  const url = URL.createObjectURL(blob)
+  const a = document.createElement('a')
+  a.href = url
+  a.download = filename || 'statement.xlsx'
+  document.body.appendChild(a)
+  a.click()
+  a.remove()
+  setTimeout(() => URL.revokeObjectURL(url), 1000)
+  return filename
+}
+
+/** Emails the Excel statement to the contract's owner (ended contracts only). */
+export function sendContractStatement(contractId) {
+  return callStatementFunction(contractId, 'send')
+}
+
+/** Past statement emails for a contract, newest first (empty if the table isn't there yet). */
+export async function listContractStatements(contractId) {
+  if (!contractId) return []
+  const { data, error } = await supabase
+    .from('contract_statements')
+    .select('id, sent_to, status, sent_at, created_at, error_message, sent_by_email')
+    .eq('contract_id', contractId)
+    .order('created_at', { ascending: false })
+    .limit(10)
+  if (error) {
+    console.warn('Statement history unavailable:', error.message)
+    return []
+  }
+  return data || []
+}

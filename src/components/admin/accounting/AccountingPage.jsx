@@ -3,20 +3,20 @@ import { useCallback, useEffect, useMemo, useRef, useState, memo, useLayoutEffec
 import { useNavigate } from 'react-router-dom'
 import { motion, AnimatePresence } from 'framer-motion'
 import {
-  Search, RefreshCw, X, Loader2, TrendingUp, ChevronDown, ChevronLeft, ChevronRight,
+  Search, RefreshCw, X, Loader2, TrendingUp, ChevronLeft,
   Wallet, Lock, Save, Home, Sparkles, Plus, Trash2,
   Zap, Wifi, Droplets, Megaphone,
-  Calendar, User, Pencil, BarChart3, Camera, Copy,
+  Calendar, CalendarDays, CalendarRange, User, Pencil, BarChart3, Table2, Camera, Copy,
+  FileText, Landmark, Building2, UserRound, AlertTriangle, ArrowUpRight, ArrowDownRight, Receipt, History,
 } from 'lucide-react'
 import {
-  ComposedChart, Bar, BarChart, AreaChart, Area,
+  ComposedChart, Bar, BarChart, AreaChart, Area, Cell,
   XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer,
 } from 'recharts'
 import toast from 'react-hot-toast'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Skeleton } from '@/components/ui/skeleton'
-import { Textarea } from '@/components/ui/textarea'
 import { supabase } from '@/lib/supabase'
 import { logAudit } from '@/lib/auditLog'
 import { cn, sanitizeMoney, sanitizeText, CLEANING_WINDOW, STAY_TIMES } from '@/lib/utils'
@@ -27,35 +27,79 @@ import {
 } from '@/lib/accounting'
 import { fetchContractsLifetime, fetchContractMonthlyBreakdown } from '@/lib/accountingRpc'
 import { ContextMenu } from '@/components/ui/ContextMenu'
-import { deriveContractStatus } from '@/lib/contracts'
-import { findContractForBooking } from '@/lib/contracts'
-import { timeAgo } from '@/lib/format'
+import { deriveContractStatus, contractTerms } from '@/lib/contracts'
 import { StatusTabs, PeriodStepper } from '@/components/admin/_shared/StatusTabs'
+import { StatStrip, StatTile } from '@/components/admin/_shared/StatStrip'
+import { Sparkline } from '@/components/admin/_shared/Sparkline'
+import { StatementActions } from '@/components/admin/_shared/StatementActions'
+import { Panel, PanelHeader, SectionLabel, InitialsAvatar } from '@/components/admin/_shared/Panel'
+import { SortHeader, nextSort, ResultsBar, SearchKeyHint, useListShortcuts } from '@/components/admin/_shared/listTools'
 
 // Logo blue: BRAND fills sit behind white text; CHART is for chart marks
 // (a lighter tint in dark mode so it reads on dark cards).
 const BRAND = 'var(--brand-solid)'
 const CHART = 'var(--brand)'
 const CLEAN_COLOR = '#10b981'
+const CANCELLED_COLOR = '#dc2626'
+// Profit and loss marks in charts.
+const PROFIT_COLOR = '#059669'
+const LOSS_COLOR = '#dc2626'
 const EXPENSE_BUCKET = 'expense-proofs'
-const ROW_GRID = 'grid grid-cols-[1.2fr_1fr_1.2fr_1fr_140px] gap-4 items-center'
 const MONTHS_SHORT = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']
 const DOW_SHORT = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat']
-const PAGE_SIZE = 25
 const REALTIME_DEBOUNCE_MS = 1500
 const PARENT_REFRESH_DEBOUNCE_MS = 1200
 const DETAIL_REFRESH_DEBOUNCE_MS = 800
 
+// Page and card layout, as on the Dashboard.
+const PAGE = 'px-6 py-5 md:px-8 md:py-6 max-w-[1600px] mx-auto space-y-4 pb-10'
+const DASH_ROW = 'grid grid-cols-1 xl:grid-cols-[minmax(0,2fr)_minmax(0,1fr)] gap-4'
+
+// Peso amounts are longer than the Dashboard's counts, so KPI numbers are a
+// size smaller to fit six tiles across.
+const MONEY_TILE = 'text-[22px] sm:text-[24px]'
+
+// Chart axes and grid, as on the Dashboard: black labels, no axis lines,
+// horizontal guides only.
+const AXIS_TICK = { fontSize: 11, fill: 'var(--foreground)' }
+const X_AXIS = { tick: AXIS_TICK, tickLine: false, axisLine: false, dy: 6 }
+const Y_AXIS = { tick: AXIS_TICK, tickLine: false, axisLine: false }
+const GRID = { stroke: 'currentColor', strokeOpacity: 0.08, vertical: false }
+
 // Shared modal shadow — matches Inquiries / Campaigns
 const SOFT_SHADOW = '0 20px 40px -16px rgba(15,23,42,0.24), 0 6px 16px -6px rgba(15,23,42,0.10)'
 
-const SORT_OPTIONS = [
-  { id: 'unit_asc', label: 'Unit (A→Z)' },
-  { id: 'date_desc', label: 'Newest first' },
-  { id: 'date_asc', label: 'Oldest first' },
-  { id: 'net_desc', label: 'Net (high→low)' },
-  { id: 'net_asc', label: 'Net (low→high)' },
-]
+// Contract list: sortable columns. "Status" puts expired contracts first,
+// then ones ending soon, then active ones.
+const ROW_GRID = 'grid grid-cols-[minmax(0,0.9fr)_minmax(0,1.4fr)_minmax(0,1fr)_minmax(0,0.9fr)_minmax(0,0.9fr)_88px] gap-4 items-center'
+const STATUS_RANK = { expired: 0, expiring: 1, active: 2, renewed: 3 }
+const CONTRACT_SORT_VALUE = {
+  unit:      ({ contract }) => contract.units?.unit_code || '',
+  owner:     ({ contract }) => contract.owners?.name || '',
+  effective: ({ contract }) => contract.effective_date || '',
+  gross:     ({ lifetime }) => Number(lifetime.gross || 0),
+  net:       ({ lifetime }) => Number(lifetime.net || 0),
+  status:    ({ contract }) => STATUS_RANK[deriveContractStatus(contract)] ?? 3,
+}
+// Money and dates start highest / newest first; text starts A→Z.
+const SORT_DEFAULTS = { effective: 'desc', gross: 'desc', net: 'desc' }
+
+// Whole pesos for KPI tiles; exact amounts stay in the tables and tooltips.
+function formatPeso(n) {
+  const v = Math.round(Number(n || 0))
+  return `${v < 0 ? '−' : ''}₱${Math.abs(v).toLocaleString('en-PH')}`
+}
+
+function plural(n, one, many) {
+  return `${n} ${n === 1 ? one : many}`
+}
+
+function copyText(text, okMessage) {
+  navigator.clipboard.writeText(text || '').then(
+    () => toast.success(okMessage),
+    () => toast.error('Failed to copy'),
+  )
+}
 
 // ─── Lazy chart wrapper ──────────────────────────────────────
 function LazyChart({ children, rootMargin = '200px', minHeight = 260 }) {
@@ -101,21 +145,70 @@ function LazyChart({ children, rootMargin = '200px', minHeight = 260 }) {
 const STATUS_TEXT = {
   active:     { label: 'Active',     className: 'text-emerald-600 dark:text-emerald-400' },
   expiring:   { label: 'Expiring',   className: 'text-amber-600 dark:text-amber-400' },
-  expired:    { label: 'Expired',    className: 'text-red-600 dark:text-red-400' },
-  incomplete: { label: 'Incomplete', className: 'text-gray-500 dark:text-gray-400' },
-  inactive:   { label: 'Inactive',   className: 'text-gray-500 dark:text-gray-400' },
+  expired:    { label: 'For renewal', className: 'text-red-600 dark:text-red-400' },
+  renewed:    { label: 'Renewed',    className: 'text-foreground' },
+  incomplete: { label: 'Incomplete', className: 'text-foreground' },
+  inactive:   { label: 'Inactive',   className: 'text-foreground' },
 }
 
 const STATUS_PILLS = [
   { id: 'all', label: 'All' },
   { id: 'active', label: 'Active' },
   { id: 'expiring', label: 'Expiring' },
-  { id: 'expired', label: 'Expired' },
+  { id: 'expired', label: 'For renewal' },
+  { id: 'renewed', label: 'Renewed' },
 ]
 
-function StatusText({ status }) {
+function StatusText({ status, className }) {
   const config = STATUS_TEXT[status] || STATUS_TEXT.inactive
-  return <span className={cn('text-[11px] font-semibold', config.className)}>{config.label}</span>
+  return <span className={cn('text-[11.5px] font-semibold whitespace-nowrap', config.className, className)}>{config.label}</span>
+}
+
+// Accounting is the one place money takes colour: profit in green, loss in
+// red. Gross and expenses stay black.
+const GOOD_TEXT = 'text-emerald-600 dark:text-emerald-400'
+const BAD_TEXT = 'text-red-600 dark:text-red-400'
+
+function moneyTone(n) {
+  const v = Number(n)
+  if (v > 0) return GOOD_TEXT
+  if (v < 0) return BAD_TEXT
+  return 'text-foreground'
+}
+
+// Shares of net (owner, company): red only when they go negative.
+function lossTone(n) {
+  return Number(n) < 0 ? BAD_TEXT : 'text-foreground'
+}
+
+/**
+ * "+12% vs Sep" in green when the change is good, red when it's bad.
+ * upIsGood  false for expenses, where going up is bad.
+ */
+function Growth({ current, previous, vs, upIsGood = true }) {
+  if (previous == null || !Number.isFinite(previous) || previous === 0) {
+    return <span>Nothing in {vs} to compare</span>
+  }
+  const shown = Math.round(((current - previous) / Math.abs(previous)) * 100)
+  if (shown === 0) {
+    return <span><span className="font-semibold">No change</span> vs {vs}</span>
+  }
+  const up = shown > 0
+  const Icon = up ? ArrowUpRight : ArrowDownRight
+  return (
+    <span className="inline-flex items-center gap-1 min-w-0">
+      <span className={cn('inline-flex items-center gap-0.5 font-semibold tabular-nums', up === upIsGood ? GOOD_TEXT : BAD_TEXT)}>
+        <Icon size={12} strokeWidth={2.25} />
+        {up ? '+' : '−'}{Math.abs(shown) > 999 ? '999+' : Math.abs(shown)}%
+      </span>
+      <span className="truncate">vs {vs}</span>
+    </span>
+  )
+}
+
+function growthTone(current, previous, upIsGood = true) {
+  if (previous == null || !Number.isFinite(previous) || previous === 0 || current === previous) return 'neutral'
+  return (current > previous) === upIsGood ? 'good' : 'bad'
 }
 
 function formatDateShort(d) {
@@ -420,116 +513,175 @@ function computeContractOccupancy(effectiveDate, expiryDate, bookings) {
   return { pct: totalNights > 0 ? nights / totalNights : 0, nights, totalNights }
 }
 
-// ─── Presentational components ──────────────────────────────
-function SectionHeader({ icon: Icon, title, action }) {
+// ─── Building blocks (the Dashboard's look) ─────────────────
+// Card header whose controls wrap under the title on narrow screens, like
+// the Dashboard's Performance card.
+function CardHead({ icon: Icon, title, subtitle, children }) {
   return (
-    <div className="flex items-center gap-2 mb-3">
-      {Icon ? <Icon size={16} className="text-foreground flex-shrink-0" /> : null}
-      <h2 className="text-sm font-bold text-foreground uppercase tracking-wide">{title}</h2>
-      {action ? <div className="ml-auto">{action}</div> : null}
-    </div>
-  )
-}
-
-function Card({ label, value, icon: Icon }) {
-  return (
-    <div className="rounded-md bg-card border border-border shadow-sm p-4">
-      <div className="flex items-center gap-2 mb-2">
-        {Icon && <Icon size={14} className="text-foreground" />}
-        <span className="text-[11px] font-bold uppercase tracking-wider text-foreground">{label}</span>
+    <div className="flex flex-wrap items-center justify-between gap-3 px-5 py-4 border-b border-border">
+      <div className="flex items-center gap-3 min-w-0">
+        {Icon && <Icon size={18} strokeWidth={1.75} className="text-foreground flex-shrink-0" />}
+        <div className="min-w-0">
+          <h3 className="text-[14px] font-semibold text-foreground truncate">{title}</h3>
+          {subtitle && <p className="text-[11px] text-foreground mt-0.5 truncate">{subtitle}</p>}
+        </div>
       </div>
-      <p className="text-2xl font-bold tabular-nums text-foreground">{value}</p>
+      {children && <div className="flex flex-wrap items-center gap-2">{children}</div>}
     </div>
   )
 }
 
-function SplitCard({ label, owner, company, pm = 0, icon: Icon }) {
+function EmptyState({ icon: Icon = FileText, title, hint, children }) {
   return (
-    <div className="rounded-md bg-card border border-border shadow-sm p-4">
-      <div className="flex items-center gap-2 mb-2">
-        {Icon && <Icon size={14} className="text-foreground" />}
-        <span className="text-[11px] font-bold uppercase tracking-wider text-foreground">{label}</span>
-      </div>
-      <p className="text-lg font-bold tabular-nums text-foreground">
-        {formatMoney(owner)}
-        <span className="text-muted-foreground mx-1">·</span>
-        {formatMoney(company)}
-      </p>
-      {pm > 0 && (
-        <p className="text-[10px] text-muted-foreground mt-1">
-          incl. PM {formatMoney(pm)}
-        </p>
-      )}
+    <div className="flex-1 flex flex-col items-center justify-center py-10 px-4 text-center">
+      <Icon size={22} strokeWidth={1.5} className="text-foreground mb-2" />
+      <p className="text-[12px] font-medium text-foreground">{title}</p>
+      {hint && <p className="text-[11px] text-foreground mt-0.5">{hint}</p>}
+      {children}
     </div>
   )
 }
 
-function SummaryCards({ totals }) {
+// Label, big number and a note under it (the Dashboard's summary stat).
+function SummaryStat({ label, value, children }) {
   return (
-    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-3">
-      <Card label="Gross" value={formatMoney(totals.gross)} icon={TrendingUp} />
-      <Card label="Expenses" value={formatMoney(totals.expenses)} icon={Wallet} />
-      <Card label="Net" value={formatMoney(totals.net)} icon={TrendingUp} />
-      <SplitCard
-        label="Owner / Company"
-        owner={totals.owner}
-        company={totals.company}
-        pm={totals.pm}
-        icon={Wallet}
+    <div className="min-w-0">
+      <p className="text-[12px] font-medium text-foreground">{label}</p>
+      <p className="text-[24px] font-semibold text-foreground tracking-tight leading-none tabular-nums mt-1.5">{value}</p>
+      {children && <p className="text-[11px] text-foreground mt-1.5 truncate">{children}</p>}
+    </div>
+  )
+}
+
+// Chart ↔ table switch, as on the Dashboard.
+function ViewToggle({ view, onChange }) {
+  return (
+    <button
+      type="button"
+      onClick={() => onChange(view === 'chart' ? 'table' : 'chart')}
+      className="inline-flex items-center gap-1.5 h-8 px-2.5 rounded-md border border-border bg-card text-[12px] font-medium text-foreground hover:bg-muted/50 transition-colors"
+      aria-pressed={view === 'table'}
+    >
+      {view === 'chart' ? <Table2 size={14} /> : <BarChart3 size={14} />}
+      {view === 'chart' ? 'Table' : 'Chart'}
+    </button>
+  )
+}
+
+/**
+ * Monthly figures → what a KPI tile's trend line and growth line need.
+ * months    [{ gross, expenses, net }] in time order (the trend line)
+ * current   totals being compared; previous the same totals one period back
+ *           (null when there is nothing to compare with)
+ * vs        name of the earlier period, e.g. "Sep" or "Jan–Oct 2025"
+ */
+function buildTrend(months, current, previous, vs) {
+  return {
+    values: {
+      gross: months.map((m) => m.gross),
+      expenses: months.map((m) => m.expenses),
+      net: months.map((m) => m.net),
+    },
+    current,
+    previous,
+    vs,
+  }
+}
+
+// Trend line + growth for one money tile. Net's line is green while the
+// period is in profit and red at a loss; gross and expenses follow growth.
+function trendProps(trend, key, upIsGood, fallbackSub) {
+  if (!trend) return { sub: fallbackSub }
+  const cur = trend.current?.[key] ?? 0
+  const prev = trend.previous ? trend.previous[key] : null
+  const tone = key === 'net'
+    ? (cur < 0 ? 'bad' : cur > 0 ? 'good' : 'neutral')
+    : growthTone(cur, prev, upIsGood)
+  return {
+    trend: <Sparkline values={trend.values[key]} tone={tone} label={`${key} by month`} />,
+    sub: trend.previous ? <Growth current={cur} previous={prev} vs={trend.vs} upIsGood={upIsGood} /> : fallbackSub,
+  }
+}
+
+/**
+ * KPI strip for a year or a month: gross, expenses, net, and how net splits.
+ * totals  { gross, expenses, net, owner, company, pm }; company is the full
+ *         company share, out of which the PM is paid.
+ * trend   optional buildTrend() result: adds trend lines and growth
+ */
+function MoneyStrip({ totals, grossSub, pmSub, trend, loading = false }) {
+  const loss = !loading && totals.net < 0
+  const kept = totals.company - totals.pm
+  return (
+    <StatStrip cols={6}>
+      <StatTile
+        icon={TrendingUp}
+        label="Gross revenue"
+        value={formatPeso(totals.gross)}
+        loading={loading}
+        valueClassName={MONEY_TILE}
+        {...trendProps(trend, 'gross', true, grossSub)}
       />
-      <Card label="PM Payout" value={formatMoney(totals.pm || 0)} icon={User} />
-    </div>
+      <StatTile
+        icon={Wallet}
+        label="Expenses"
+        value={formatPeso(totals.expenses)}
+        loading={loading}
+        valueClassName={MONEY_TILE}
+        {...trendProps(trend, 'expenses', false, 'Commissions, cleaning, bills')}
+      />
+      <StatTile
+        icon={Landmark}
+        label="Net profit"
+        value={formatPeso(totals.net)}
+        loading={loading}
+        valueClassName={cn(MONEY_TILE, moneyTone(totals.net))}
+        {...trendProps(trend, 'net', true, loss ? 'Expenses are higher than revenue' : 'Gross minus expenses')}
+      />
+      <StatTile icon={UserRound} label="Owner share" value={formatPeso(totals.owner)} sub={`${OWNER_SPLIT_PCT}% of net`} loading={loading} valueClassName={cn(MONEY_TILE, lossTone(totals.owner))} />
+      <StatTile
+        icon={Building2}
+        label="Company share"
+        value={formatPeso(totals.company)}
+        sub={totals.pm > 0 ? `${formatPeso(kept)} kept after PM` : `${COMPANY_SPLIT_PCT}% of net`}
+        loading={loading}
+        valueClassName={cn(MONEY_TILE, lossTone(totals.company))}
+      />
+      <StatTile icon={User} label="PM payout" value={formatPeso(totals.pm)} sub={pmSub} loading={loading} valueClassName={MONEY_TILE} />
+    </StatStrip>
   )
 }
 
 function ContractRow({ contract, lifetime, onClick }) {
   return (
-    <motion.button
+    <button
       type="button"
       onClick={onClick}
-      initial={false}
-      animate={{ backgroundColor: 'rgba(34, 81, 147, 0)' }}
-      transition={{ duration: 0.2 }}
-      whileHover={{ backgroundColor: 'rgba(34, 81, 147, 0.05)' }}
-      whileTap={{ scale: 0.998 }}
-      className={cn('w-full text-left px-4 py-3 border-b border-border cursor-pointer select-none', ROW_GRID)}
+      className={cn(ROW_GRID, 'w-full text-left px-5 py-3 border-b border-border last:border-0 hover:bg-muted/40 transition-colors cursor-pointer')}
     >
       <div className="min-w-0">
-        <span className="font-mono text-xs font-bold text-foreground truncate block">
-          {contract.units?.unit_code || '—'}
-        </span>
-        <span className="text-[11px] text-muted-foreground truncate block">
-          {contract.contract_code || '—'}
-        </span>
+        <span className="font-mono text-[12px] font-semibold text-foreground truncate block">{contract.units?.unit_code || '—'}</span>
+        <span className="text-[11px] text-foreground truncate block mt-0.5">{contract.units?.building || '—'}</span>
       </div>
-      <div className="min-w-0">
-        <span className="text-[11px] text-foreground truncate block">
-          {contract.owners?.name || 'No owner'}
-        </span>
-        <span className="text-[11px] text-muted-foreground font-mono truncate block">
-          {contract.units?.building || '—'}
-        </span>
+      <div className="min-w-0 flex items-center gap-2.5">
+        <InitialsAvatar name={contract.owners?.name} size="sm" />
+        <div className="min-w-0">
+          <span className="text-[12px] font-semibold text-foreground truncate block">{contract.owners?.name || 'No owner'}</span>
+          <span className="font-mono text-[11px] text-foreground truncate block mt-0.5">{contract.contract_code || '—'}</span>
+        </div>
       </div>
-      <div className="min-w-0 text-[11px] text-foreground tabular-nums">
-        <div className="truncate">{formatDateShort(contract.effective_date)}</div>
-        <div className="text-muted-foreground truncate">→ {formatDateShort(contract.expiry_date)}</div>
+      <div className="min-w-0 tabular-nums text-foreground">
+        <span className="text-[12px] truncate block">{formatDateShort(contract.effective_date)}</span>
+        <span className="text-[11px] truncate block mt-0.5">→ {contract.expiry_date ? formatDateShort(contract.expiry_date) : 'Open-ended'}</span>
       </div>
-      <div className="text-[11px] tabular-nums text-foreground min-w-0">
-        <div className="truncate">{formatMoney(lifetime?.gross || 0)}</div>
-        <div className="text-[11px] text-muted-foreground truncate">{formatMoney(lifetime?.net || 0)}</div>
-      </div>
-      <div className="flex items-center justify-end flex-shrink-0">
+      <span className="text-[12px] tabular-nums text-foreground text-right truncate">{formatMoney(lifetime?.gross || 0)}</span>
+      <span className={cn('text-[12px] font-semibold tabular-nums text-right truncate', moneyTone(lifetime?.net))}>
+        {formatMoney(lifetime?.net || 0)}
+      </span>
+      <div className="flex justify-end">
         <StatusText status={deriveContractStatus(contract)} />
       </div>
-    </motion.button>
-  )
-}
-
-function CardBody({ children, className }) {
-  return (
-    <div className={cn('rounded-md bg-card border border-border shadow-sm overflow-hidden', className)}>
-      {children}
-    </div>
+    </button>
   )
 }
 
@@ -550,32 +702,42 @@ function CursorTooltip({ cursor, children }) {
     pointerEvents: 'none',
   }
   return (
-    <div style={style} className="rounded-md border border-border bg-popover shadow-lg p-3 text-xs w-[264px]">
+    <div style={style} className="rounded-md border border-border bg-popover shadow-lg px-3 py-2.5 text-[12px] w-[264px]">
       {children}
     </div>
   )
 }
 
-function ChartTooltip({ active, payload, label }) {
+// ─── Chart tooltips (the Dashboard's style) ─────────────────
+const TOOLTIP_BOX = 'rounded-md border border-border bg-popover shadow-lg px-3 py-2'
+
+// Gross, expenses and net for one month; `highlight` marks the series on screen.
+function ChartTooltip({ active, payload, label, highlight }) {
   if (!active || !payload || payload.length === 0) return null
-  const byKey = {}
-  for (const p of payload) byKey[p.dataKey] = p.value
+  const row = payload[0]?.payload || {}
+  const lines = [
+    { key: 'gross', label: 'Gross' },
+    { key: 'expenses', label: 'Expenses' },
+    { key: 'net', label: 'Net' },
+  ]
   return (
-    <div className="rounded-md border border-border bg-popover shadow-md px-3 py-2 text-xs">
-      <p className="font-semibold text-foreground mb-1.5">{label}</p>
+    <div className={cn(TOOLTIP_BOX, 'min-w-[176px]')}>
+      <p className="text-[11px] font-semibold text-foreground mb-1">{label}</p>
       <div className="space-y-0.5">
-        <div className="flex items-center justify-between gap-3">
-          <span className="text-foreground">Gross</span>
-          <span className="tabular-nums font-semibold text-foreground">{formatMoney(byKey.gross || 0)}</span>
-        </div>
-        <div className="flex items-center justify-between gap-3">
-          <span className="text-foreground">Expenses</span>
-          <span className="tabular-nums font-semibold text-foreground">{formatMoney(byKey.expenses || 0)}</span>
-        </div>
-        <div className="flex items-center justify-between gap-3">
-          <span className="text-foreground">Net</span>
-          <span className="tabular-nums font-semibold text-foreground">{formatMoney(byKey.net || 0)}</span>
-        </div>
+        {lines.map((l) => (
+          <div key={l.key} className="flex items-center justify-between gap-4 text-[12px]">
+            <span className={cn('text-foreground', highlight === l.key && 'font-semibold')}>{l.label}</span>
+            <span
+              className={cn(
+                'tabular-nums',
+                l.key === 'net' ? moneyTone(row.net) : 'text-foreground',
+                (highlight === l.key || (!highlight && l.key === 'net')) && 'font-semibold',
+              )}
+            >
+              {formatMoney(row[l.key] || 0)}
+            </span>
+          </div>
+        ))}
       </div>
     </div>
   )
@@ -587,10 +749,11 @@ function OccupancyTooltip({ active, payload, label }) {
   const nights = payload[0]?.payload?.nights || 0
   const days = payload[0]?.payload?.daysInMonth || payload[0]?.payload?.daysCount || 0
   return (
-    <div className="rounded-md border border-border bg-popover shadow-md px-3 py-2 text-xs">
-      <p className="font-semibold text-foreground mb-1">{label}</p>
-      <p className="text-foreground tabular-nums">
-        {nights} of {days} nights · <span className="font-semibold">{Math.round(pct)}%</span>
+    <div className={TOOLTIP_BOX}>
+      <p className="text-[14px] font-semibold tabular-nums text-foreground">{Math.round(pct)}%</p>
+      <p className="text-[11px] text-foreground mt-0.5 flex items-center gap-1.5 tabular-nums">
+        <span className="inline-block w-3 h-[2px] rounded-full" style={{ backgroundColor: CHART }} />
+        {label} · {nights} of {days} nights
       </p>
     </div>
   )
@@ -600,9 +763,12 @@ function CumulativeTooltip({ active, payload, label }) {
   if (!active || !payload || payload.length === 0) return null
   const v = payload[0]?.value || 0
   return (
-    <div className="rounded-md border border-border bg-popover shadow-md px-3 py-2 text-xs">
-      <p className="font-semibold text-foreground mb-1">{label}</p>
-      <p className="text-foreground tabular-nums font-semibold">{formatMoney(v)}</p>
+    <div className={TOOLTIP_BOX}>
+      <p className={cn('text-[14px] font-semibold tabular-nums', moneyTone(v))}>{formatMoney(v)}</p>
+      <p className="text-[11px] text-foreground mt-0.5 flex items-center gap-1.5">
+        <span className="inline-block w-3 h-[2px] rounded-full" style={{ backgroundColor: CHART }} />
+        Net so far · {label}
+      </p>
     </div>
   )
 }
@@ -618,7 +784,7 @@ function HalfGauge({ pct, sublabel, compact = false }) {
   const r = compact ? 56 : 80
   const strokeW = compact ? 5 : 6
   return (
-    <div className="flex flex-col items-center justify-center">
+    <div className="flex flex-col items-center justify-center text-foreground">
       <div className="relative" style={{ width: w, height: h }}>
         <svg viewBox={`0 0 ${w} ${h}`} className="w-full h-full">
           {[...Array(total)].map((_, i) => {
@@ -637,7 +803,8 @@ function HalfGauge({ pct, sublabel, compact = false }) {
                 y1={y1}
                 x2={x2}
                 y2={y2}
-                stroke={active ? CHART : '#d1d5db'}
+                stroke={active ? CHART : 'currentColor'}
+                strokeOpacity={active ? 1 : 0.15}
                 strokeWidth="2"
                 strokeLinecap="round"
                 initial={{ opacity: 0 }}
@@ -656,12 +823,12 @@ function HalfGauge({ pct, sublabel, compact = false }) {
             initial={{ opacity: 0, y: 4 }}
             animate={{ opacity: 1, y: 0 }}
             transition={{ duration: 0.3 }}
-            className={cn('font-bold tabular-nums text-foreground', compact ? 'text-2xl' : 'text-3xl')}
+            className={cn('font-semibold tracking-tight tabular-nums text-foreground', compact ? 'text-[22px]' : 'text-[28px]')}
           >
             {Math.round(clampedPct * 100)}%
           </motion.p>
           {sublabel && (
-            <p className={cn('text-foreground mt-0.5 text-center px-2', compact ? 'text-[11px]' : 'text-xs')}>
+            <p className={cn('text-foreground mt-0.5 text-center px-2 tabular-nums', compact ? 'text-[11px]' : 'text-[12px]')}>
               {sublabel}
             </p>
           )}
@@ -676,23 +843,64 @@ function YearNav({ yearSections, selectedYear, onSelectYear }) {
   const canPrev = idx > 0
   const canNext = idx >= 0 && idx < yearSections.length - 1
   return (
-    <div className="flex items-center justify-center">
-      <PeriodStepper
-        label={selectedYear}
-        canPrev={canPrev}
-        canNext={canNext}
-        onPrev={() => canPrev && onSelectYear(yearSections[idx - 1].year)}
-        onNext={() => canNext && onSelectYear(yearSections[idx + 1].year)}
-        prevLabel="Previous year"
-        nextLabel="Next year"
-        minWidth={56}
-      />
-    </div>
+    <PeriodStepper
+      label={selectedYear}
+      canPrev={canPrev}
+      canNext={canNext}
+      onPrev={() => canPrev && onSelectYear(yearSections[idx - 1].year)}
+      onNext={() => canNext && onSelectYear(yearSections[idx + 1].year)}
+      prevLabel="Previous year"
+      nextLabel="Next year"
+      minWidth={56}
+    />
   )
 }
 
 // ─── Charts ─────────────────────────────────────────────────
-const YearlyRevenueChart = memo(function YearlyRevenueChart({ yearSections, statements, selectedYear, title }) {
+const CHART_HEIGHT = 260
+
+// Gross is an outlined bar, expenses hatched, net solid — all logo blue.
+function RevenueLegend() {
+  return (
+    <div className="hidden md:flex items-center gap-3 text-[11px] text-foreground mr-1">
+      <span className="inline-flex items-center gap-1.5">
+        <span className="w-3 h-3 rounded-sm border-[1.5px]" style={{ borderColor: CHART }} />
+        Gross
+      </span>
+      <span className="inline-flex items-center gap-1.5">
+        <svg width="12" height="12" viewBox="0 0 12 12" className="rounded-sm">
+          <defs>
+            <pattern id="legend-hatch" width="4" height="4" patternUnits="userSpaceOnUse" patternTransform="rotate(45)">
+              <line x1="0" y1="0" x2="0" y2="4" stroke={CHART} strokeWidth="1.2" />
+            </pattern>
+          </defs>
+          <rect width="12" height="12" fill="url(#legend-hatch)" />
+        </svg>
+        Expenses
+      </span>
+      <span className="inline-flex items-center gap-1.5">
+        <span className="w-3 h-3 rounded-sm" style={{ backgroundColor: CHART }} />
+        Net
+      </span>
+    </div>
+  )
+}
+
+function ChartBody({ height = CHART_HEIGHT, empty, emptyTitle = 'No months to show', emptyHint, children }) {
+  return (
+    <div className="p-5 flex-1">
+      <div className={cn('text-foreground', empty ? 'flex flex-col' : '-ml-2')} style={{ height }}>
+        {empty ? (
+          <EmptyState icon={BarChart3} title={emptyTitle} hint={emptyHint} />
+        ) : (
+          <LazyChart minHeight={height}>{children}</LazyChart>
+        )}
+      </div>
+    </div>
+  )
+}
+
+const YearlyRevenueChart = memo(function YearlyRevenueChart({ yearSections, statements, selectedYear, onSelectYear, title }) {
   const section = yearSections.find((s) => s.year === selectedYear)
   const data = useMemo(() => {
     if (!section) return []
@@ -721,68 +929,30 @@ const YearlyRevenueChart = memo(function YearlyRevenueChart({ yearSections, stat
   }, [data])
 
   return (
-    <div>
-      <div className="flex items-center justify-between gap-3 mb-2">
-        <div className="flex items-center gap-2 min-w-0">
-          <TrendingUp size={16} className="text-foreground flex-shrink-0" />
-          <h3 className="text-base font-semibold text-foreground truncate">{title}</h3>
-        </div>
-        <div className="hidden md:flex items-center gap-3 text-[11px]">
-          <span className="inline-flex items-center gap-1.5">
-            <span className="w-3 h-3 rounded-sm border" style={{ borderColor: CHART }} />
-            <span className="text-foreground">Gross</span>
-          </span>
-          <span className="inline-flex items-center gap-1.5">
-            <svg width="12" height="12" viewBox="0 0 12 12">
-              <pattern id="legend-hatch" width="4" height="4" patternUnits="userSpaceOnUse" patternTransform="rotate(45)">
-                <line x1="0" y1="0" x2="0" y2="4" stroke={CHART} strokeWidth="1.2" />
+    <Panel>
+      <CardHead icon={TrendingUp} title={title} subtitle={`${selectedYear} · gross, expenses and net by month`}>
+        <RevenueLegend />
+        <YearNav yearSections={yearSections} selectedYear={selectedYear} onSelectYear={onSelectYear} />
+      </CardHead>
+      <ChartBody height={300} empty={!section || section.months.length === 0} emptyHint={`This contract has no months in ${selectedYear}.`}>
+        <ResponsiveContainer width="100%" height={300} debounce={100}>
+          <ComposedChart data={data} margin={{ top: 8, right: 8, left: 0, bottom: 0 }} barGap={2} barCategoryGap="25%">
+            <defs>
+              <pattern id="expenses-hatch-main" width="6" height="6" patternUnits="userSpaceOnUse" patternTransform="rotate(45)">
+                <line x1="0" y1="0" x2="0" y2="6" stroke={CHART} strokeWidth="1.5" opacity="0.55" />
               </pattern>
-              <rect width="12" height="12" fill="url(#legend-hatch)" />
-            </svg>
-            <span className="text-foreground">Expenses</span>
-          </span>
-          <span className="inline-flex items-center gap-1.5">
-            <span className="w-3 h-3 rounded-sm" style={{ backgroundColor: CHART }} />
-            <span className="text-foreground">Net</span>
-          </span>
-        </div>
-      </div>
-      <CardBody>
-        <div className="p-3">
-          <div className="h-[320px] w-full">
-            {!section || section.months.length === 0 ? (
-              <div className="h-full flex items-center justify-center text-xs text-muted-foreground italic">
-                No months to display
-              </div>
-            ) : (
-              <LazyChart minHeight={320}>
-                <ResponsiveContainer width="100%" height={320} debounce={100}>
-                  <ComposedChart data={data} margin={{ top: 8, right: 8, left: 0, bottom: 0 }} barGap={2} barCategoryGap="25%">
-                    <pattern id="expenses-hatch-main" width="6" height="6" patternUnits="userSpaceOnUse" patternTransform="rotate(45)">
-                      <line x1="0" y1="0" x2="0" y2="6" stroke={CHART} strokeWidth="1.5" opacity="0.55" />
-                    </pattern>
-                    <CartesianGrid strokeDasharray="3 3" stroke="currentColor" strokeOpacity={0.1} />
-                    <XAxis dataKey="label" tick={{ fontSize: 12 }} stroke="currentColor" strokeOpacity={0.4} interval={0} />
-                    <YAxis
-                      tick={{ fontSize: 12 }}
-                      tickFormatter={formatMoneyCompact}
-                      stroke="currentColor"
-                      strokeOpacity={0.4}
-                      width={60}
-                      domain={[minY, maxY]}
-                    />
-                    <Tooltip content={<ChartTooltip />} animationDuration={0} cursor={{ fill: 'currentColor', fillOpacity: 0.05 }} />
-                    <Bar dataKey="gross" fill="transparent" stroke={CHART} strokeWidth={1.5} name="Gross" maxBarSize={40} radius={[6, 6, 0, 0]} isAnimationActive={false} />
-                    <Bar dataKey="expenses" fill="url(#expenses-hatch-main)" name="Expenses" maxBarSize={40} radius={[6, 6, 0, 0]} isAnimationActive={false} />
-                    <Bar dataKey="net" fill={CHART} name="Net" maxBarSize={40} radius={[6, 6, 0, 0]} isAnimationActive={false} />
-                  </ComposedChart>
-                </ResponsiveContainer>
-              </LazyChart>
-            )}
-          </div>
-        </div>
-      </CardBody>
-    </div>
+            </defs>
+            <CartesianGrid {...GRID} />
+            <XAxis dataKey="label" {...X_AXIS} interval={0} />
+            <YAxis {...Y_AXIS} tickFormatter={formatMoneyCompact} width={56} domain={[minY, maxY]} />
+            <Tooltip content={<ChartTooltip />} animationDuration={0} cursor={{ fill: 'currentColor', fillOpacity: 0.04 }} />
+            <Bar dataKey="gross" fill="transparent" stroke={CHART} strokeWidth={1.5} name="Gross" maxBarSize={28} radius={[4, 4, 0, 0]} isAnimationActive={false} />
+            <Bar dataKey="expenses" fill="url(#expenses-hatch-main)" name="Expenses" maxBarSize={28} radius={[4, 4, 0, 0]} isAnimationActive={false} />
+            <Bar dataKey="net" fill={CHART} name="Net" maxBarSize={28} radius={[4, 4, 0, 0]} isAnimationActive={false} />
+          </ComposedChart>
+        </ResponsiveContainer>
+      </ChartBody>
+    </Panel>
   )
 })
 
@@ -804,45 +974,20 @@ const MonthlyOccupancyChart = memo(function MonthlyOccupancyChart({ statements, 
   }, [statements, selectedYear, contract])
 
   return (
-    <div className="flex flex-col">
-      <div className="flex items-center justify-between gap-3 mb-2">
-        <div className="flex items-center gap-2 min-w-0">
-          <Home size={16} className="text-foreground flex-shrink-0" />
-          <h3 className="text-base font-semibold text-foreground truncate">Monthly Occupancy</h3>
-        </div>
-      </div>
-      <CardBody className="flex-1">
-        <div className="p-3 h-full">
-          <div className="h-[260px] w-full">
-            {data.length === 0 ? (
-              <div className="h-full flex items-center justify-center text-xs text-muted-foreground italic">
-                No months to display
-              </div>
-            ) : (
-              <LazyChart minHeight={260}>
-                <ResponsiveContainer width="100%" height={260} debounce={100}>
-                  <BarChart data={data} margin={{ top: 8, right: 8, left: 0, bottom: 0 }} barCategoryGap="25%">
-                    <CartesianGrid strokeDasharray="3 3" stroke="currentColor" strokeOpacity={0.1} />
-                    <XAxis dataKey="label" tick={{ fontSize: 11 }} stroke="currentColor" strokeOpacity={0.4} interval={0} />
-                    <YAxis
-                      tick={{ fontSize: 11 }}
-                      tickFormatter={(v) => `${v}%`}
-                      stroke="currentColor"
-                      strokeOpacity={0.4}
-                      width={44}
-                      domain={[0, 100]}
-                      ticks={[0, 25, 50, 75, 100]}
-                    />
-                    <Tooltip content={<OccupancyTooltip />} animationDuration={0} cursor={{ fill: 'currentColor', fillOpacity: 0.05 }} />
-                    <Bar dataKey="pct" fill={CHART} radius={[6, 6, 0, 0]} maxBarSize={28} isAnimationActive={false} />
-                  </BarChart>
-                </ResponsiveContainer>
-              </LazyChart>
-            )}
-          </div>
-        </div>
-      </CardBody>
-    </div>
+    <Panel>
+      <PanelHeader icon={Home} title="Monthly occupancy" subtitle={`${selectedYear} · nights booked ÷ nights in the month`} />
+      <ChartBody empty={data.length === 0} emptyHint={`This contract has no months in ${selectedYear}.`}>
+        <ResponsiveContainer width="100%" height={CHART_HEIGHT} debounce={100}>
+          <BarChart data={data} margin={{ top: 8, right: 8, left: 0, bottom: 0 }} barCategoryGap="30%">
+            <CartesianGrid {...GRID} />
+            <XAxis dataKey="label" {...X_AXIS} interval={0} />
+            <YAxis {...Y_AXIS} tickFormatter={(v) => `${v}%`} width={44} domain={[0, 100]} ticks={[0, 25, 50, 75, 100]} />
+            <Tooltip content={<OccupancyTooltip />} animationDuration={0} cursor={{ fill: 'currentColor', fillOpacity: 0.04 }} />
+            <Bar dataKey="pct" fill={CHART} radius={[4, 4, 0, 0]} maxBarSize={24} isAnimationActive={false} />
+          </BarChart>
+        </ResponsiveContainer>
+      </ChartBody>
+    </Panel>
   )
 })
 
@@ -853,40 +998,20 @@ const WeeklyOccupancyChart = memo(function WeeklyOccupancyChart({ statement, con
     [y, m, statement.bookingsList, contract],
   )
   return (
-    <div className="flex flex-col">
-      <div className="flex items-center justify-between gap-3 mb-2">
-        <div className="flex items-center gap-2 min-w-0">
-          <Home size={16} className="text-foreground flex-shrink-0" />
-          <h3 className="text-base font-semibold text-foreground truncate">Weekly Occupancy</h3>
-        </div>
-        <span className="text-xs font-bold text-foreground tabular-nums">{monthLabel(statement.month)}</span>
-      </div>
-      <CardBody className="flex-1">
-        <div className="p-3 h-full">
-          <div className="h-[260px] w-full">
-            <LazyChart minHeight={260}>
-              <ResponsiveContainer width="100%" height={260} debounce={100}>
-                <BarChart data={data} margin={{ top: 8, right: 8, left: 0, bottom: 0 }} barCategoryGap="25%">
-                  <CartesianGrid strokeDasharray="3 3" stroke="currentColor" strokeOpacity={0.1} />
-                  <XAxis dataKey="label" tick={{ fontSize: 11 }} stroke="currentColor" strokeOpacity={0.4} />
-                  <YAxis
-                    tick={{ fontSize: 11 }}
-                    tickFormatter={(v) => `${v}%`}
-                    stroke="currentColor"
-                    strokeOpacity={0.4}
-                    width={44}
-                    domain={[0, 100]}
-                    ticks={[0, 25, 50, 75, 100]}
-                  />
-                  <Tooltip content={<OccupancyTooltip />} animationDuration={0} cursor={{ fill: 'currentColor', fillOpacity: 0.05 }} />
-                  <Bar dataKey="pct" fill={CHART} radius={[6, 6, 0, 0]} maxBarSize={40} isAnimationActive={false} />
-                </BarChart>
-              </ResponsiveContainer>
-            </LazyChart>
-          </div>
-        </div>
-      </CardBody>
-    </div>
+    <Panel>
+      <PanelHeader icon={Home} title="Weekly occupancy" subtitle={`${monthLabel(statement.month)} · nights booked each week`} />
+      <ChartBody>
+        <ResponsiveContainer width="100%" height={CHART_HEIGHT} debounce={100}>
+          <BarChart data={data} margin={{ top: 8, right: 8, left: 0, bottom: 0 }} barCategoryGap="30%">
+            <CartesianGrid {...GRID} />
+            <XAxis dataKey="label" {...X_AXIS} />
+            <YAxis {...Y_AXIS} tickFormatter={(v) => `${v}%`} width={44} domain={[0, 100]} ticks={[0, 25, 50, 75, 100]} />
+            <Tooltip content={<OccupancyTooltip />} animationDuration={0} cursor={{ fill: 'currentColor', fillOpacity: 0.04 }} />
+            <Bar dataKey="pct" fill={CHART} radius={[4, 4, 0, 0]} maxBarSize={32} isAnimationActive={false} />
+          </BarChart>
+        </ResponsiveContainer>
+      </ChartBody>
+    </Panel>
   )
 })
 
@@ -905,53 +1030,35 @@ const WeeklyCumulativeChart = memo(function WeeklyCumulativeChart({ statement, m
     return min < 0 ? Math.floor(min / 1000) * 1000 : 0
   }, [data])
   return (
-    <div className="flex flex-col">
-      <div className="flex items-center justify-between gap-3 mb-2">
-        <div className="flex items-center gap-2 min-w-0">
-          <TrendingUp size={16} className="text-foreground flex-shrink-0" />
-          <h3 className="text-base font-semibold text-foreground truncate">Weekly Cumulative Net</h3>
-        </div>
-        <span className="text-xs font-bold text-foreground tabular-nums">{monthLabel(statement.month)}</span>
-      </div>
-      <CardBody className="flex-1">
-        <div className="p-3 h-full">
-          <div className="h-[260px] w-full">
-            <LazyChart minHeight={260}>
-              <ResponsiveContainer width="100%" height={260} debounce={100}>
-                <AreaChart data={data} margin={{ top: 8, right: 8, left: 0, bottom: 0 }}>
-                  <linearGradient id="weekly-cumulative-fill" x1="0" y1="0" x2="0" y2="1">
-                    <stop offset="0%" stopColor={CHART} stopOpacity={0.45} />
-                    <stop offset="60%" stopColor={CHART} stopOpacity={0.12} />
-                    <stop offset="100%" stopColor={CHART} stopOpacity={0} />
-                  </linearGradient>
-                  <CartesianGrid strokeDasharray="3 3" stroke="currentColor" strokeOpacity={0.1} />
-                  <XAxis dataKey="label" tick={{ fontSize: 11 }} stroke="currentColor" strokeOpacity={0.4} />
-                  <YAxis
-                    tick={{ fontSize: 11 }}
-                    tickFormatter={formatMoneyCompact}
-                    stroke="currentColor"
-                    strokeOpacity={0.4}
-                    width={56}
-                    domain={[minValue, maxValue]}
-                  />
-                  <Tooltip content={<CumulativeTooltip />} animationDuration={0} cursor={{ stroke: CHART, strokeOpacity: 0.2 }} />
-                  <Area
-                    type="monotone"
-                    dataKey="cumulative"
-                    stroke={CHART}
-                    strokeWidth={2.5}
-                    fill="url(#weekly-cumulative-fill)"
-                    dot={{ r: 3, fill: CHART }}
-                    activeDot={{ r: 5, fill: CHART }}
-                    isAnimationActive={false}
-                  />
-                </AreaChart>
-              </ResponsiveContainer>
-            </LazyChart>
-          </div>
-        </div>
-      </CardBody>
-    </div>
+    <Panel>
+      <PanelHeader icon={TrendingUp} title="Weekly cumulative net" subtitle={`${monthLabel(statement.month)} · bills spread evenly across the weeks`} />
+      <ChartBody>
+        <ResponsiveContainer width="100%" height={CHART_HEIGHT} debounce={100}>
+          <AreaChart data={data} margin={{ top: 8, right: 8, left: 0, bottom: 0 }}>
+            <defs>
+              <linearGradient id="weekly-cumulative-fill" x1="0" y1="0" x2="0" y2="1">
+                <stop offset="0%" stopColor={CHART} stopOpacity={0.14} />
+                <stop offset="100%" stopColor={CHART} stopOpacity={0.02} />
+              </linearGradient>
+            </defs>
+            <CartesianGrid {...GRID} />
+            <XAxis dataKey="label" {...X_AXIS} padding={{ left: 14, right: 14 }} />
+            <YAxis {...Y_AXIS} tickFormatter={formatMoneyCompact} width={52} domain={[minValue, maxValue]} />
+            <Tooltip content={<CumulativeTooltip />} animationDuration={0} cursor={{ stroke: 'currentColor', strokeOpacity: 0.2 }} />
+            <Area
+              type="monotone"
+              dataKey="cumulative"
+              stroke={CHART}
+              strokeWidth={2}
+              fill="url(#weekly-cumulative-fill)"
+              dot={{ r: 4, fill: CHART, stroke: 'var(--card)', strokeWidth: 2 }}
+              activeDot={{ r: 5, fill: CHART, stroke: 'var(--card)', strokeWidth: 2 }}
+              isAnimationActive={false}
+            />
+          </AreaChart>
+        </ResponsiveContainer>
+      </ChartBody>
+    </Panel>
   )
 })
 
@@ -989,64 +1096,43 @@ const CumulativeNetChart = memo(function CumulativeNetChart({ statements, select
   }, [maxValue, minValue])
 
   return (
-    <div className="flex flex-col">
-      <div className="flex items-center justify-between gap-3 mb-2">
-        <div className="flex items-center gap-2 min-w-0">
-          <TrendingUp size={16} className="text-foreground flex-shrink-0" />
-          <h3 className="text-base font-semibold text-foreground truncate">Cumulative Net</h3>
-        </div>
-      </div>
-      <CardBody className="flex-1">
-        <div className="p-3 h-full">
-          <div className="h-[260px] w-full">
-            {data.length === 0 ? (
-              <div className="h-full flex items-center justify-center text-xs text-muted-foreground italic">
-                No months to display
-              </div>
-            ) : (
-              <LazyChart minHeight={260}>
-                <ResponsiveContainer width="100%" height={260} debounce={100}>
-                  <AreaChart data={data} margin={{ top: 8, right: 8, left: 0, bottom: 0 }}>
-                    <linearGradient id="cumulative-fill" x1="0" y1="0" x2="0" y2="1">
-                      <stop offset="0%" stopColor={CHART} stopOpacity={0.45} />
-                      <stop offset="60%" stopColor={CHART} stopOpacity={0.12} />
-                      <stop offset="100%" stopColor={CHART} stopOpacity={0} />
-                    </linearGradient>
-                    <CartesianGrid strokeDasharray="3 3" stroke="currentColor" strokeOpacity={0.1} />
-                    <XAxis dataKey="label" tick={{ fontSize: 11 }} stroke="currentColor" strokeOpacity={0.4} interval={0} />
-                    <YAxis
-                      tick={{ fontSize: 11 }}
-                      tickFormatter={formatMoneyCompact}
-                      stroke="currentColor"
-                      strokeOpacity={0.4}
-                      width={56}
-                      domain={[minValue, maxValue]}
-                      ticks={ticks}
-                    />
-                    <Tooltip content={<CumulativeTooltip />} animationDuration={0} cursor={{ stroke: CHART, strokeOpacity: 0.2 }} />
-                    <Area
-                      type="monotone"
-                      dataKey="cumulative"
-                      stroke={CHART}
-                      strokeWidth={2.5}
-                      fill="url(#cumulative-fill)"
-                      dot={false}
-                      activeDot={{ r: 4, fill: CHART }}
-                      isAnimationActive={false}
-                    />
-                  </AreaChart>
-                </ResponsiveContainer>
-              </LazyChart>
-            )}
-          </div>
-        </div>
-      </CardBody>
-    </div>
+    <Panel>
+      <PanelHeader icon={TrendingUp} title="Cumulative net" subtitle={`${selectedYear} · running total since the contract started`} />
+      <ChartBody empty={data.length === 0} emptyHint={`This contract has no months in ${selectedYear}.`}>
+        <ResponsiveContainer width="100%" height={CHART_HEIGHT} debounce={100}>
+          <AreaChart data={data} margin={{ top: 8, right: 8, left: 0, bottom: 0 }}>
+            <defs>
+              <linearGradient id="cumulative-fill" x1="0" y1="0" x2="0" y2="1">
+                <stop offset="0%" stopColor={CHART} stopOpacity={0.14} />
+                <stop offset="100%" stopColor={CHART} stopOpacity={0.02} />
+              </linearGradient>
+            </defs>
+            <CartesianGrid {...GRID} />
+            <XAxis dataKey="label" {...X_AXIS} interval={0} padding={{ left: 10, right: 10 }} />
+            <YAxis {...Y_AXIS} tickFormatter={formatMoneyCompact} width={52} domain={[minValue, maxValue]} ticks={ticks} />
+            <Tooltip content={<CumulativeTooltip />} animationDuration={0} cursor={{ stroke: 'currentColor', strokeOpacity: 0.2 }} />
+            <Area
+              type="monotone"
+              dataKey="cumulative"
+              stroke={CHART}
+              strokeWidth={2}
+              fill="url(#cumulative-fill)"
+              dot={{ r: 3.5, fill: CHART, stroke: 'var(--card)', strokeWidth: 2 }}
+              activeDot={{ r: 5, fill: CHART, stroke: 'var(--card)', strokeWidth: 2 }}
+              isAnimationActive={false}
+            />
+          </AreaChart>
+        </ResponsiveContainer>
+      </ChartBody>
+    </Panel>
   )
 })
 
 // ─── Calendar ────────────────────────────────────────────────
-function BookingCalendar({ month, bookings, cleanings, selectedId, onSelect }) {
+// Grid lines between days only — the card's own border draws the outer edge.
+const CAL_CELL = 'min-h-[110px] border-b border-r border-border [&:nth-child(7n)]:border-r-0 [&:nth-last-child(-n+7)]:border-b-0'
+
+function BookingCalendar({ title, subtitle, month, bookings, cleanings, selectedId, onSelect }) {
   const [y, m] = month.split('-').map(Number)
   const firstDay = new Date(Date.UTC(y, m - 1, 1))
   const daysInMonth = new Date(Date.UTC(y, m, 0)).getUTCDate()
@@ -1119,8 +1205,9 @@ function BookingCalendar({ month, bookings, cleanings, selectedId, onSelect }) {
   const todayDay = isCurrentMonth ? today.getUTCDate() : null
 
   return (
-    <div className="rounded-md border border-border shadow-sm overflow-hidden bg-card">
-      <div className="flex items-center gap-4 px-3 py-2 text-[10px] text-muted-foreground border-b border-border bg-muted/20 flex-wrap">
+    <Panel>
+      <PanelHeader icon={CalendarDays} title={title} subtitle={subtitle} />
+      <div className="flex items-center gap-x-4 gap-y-1.5 px-5 py-2.5 text-[11px] text-foreground border-b border-border flex-wrap">
         <span className="inline-flex items-center gap-1.5">
           <span
             className="w-3 h-3 rounded-sm"
@@ -1140,12 +1227,12 @@ function BookingCalendar({ month, bookings, cleanings, selectedId, onSelect }) {
           Check-in (3:00 PM) / in-house
         </span>
         <span className="inline-flex items-center gap-1.5">
-          <span className="w-3 h-3 rounded-sm" style={{ backgroundColor: '#dc2626' }} />
+          <span className="w-3 h-3 rounded-sm" style={{ backgroundColor: CANCELLED_COLOR }} />
           Cancelled
         </span>
       </div>
 
-      <div className="grid grid-cols-7 border-b border-border bg-muted/30">
+      <div className="grid grid-cols-7 border-b border-border">
         {DOW_SHORT.map((d) => (
           <div key={d} className="text-[11px] font-semibold text-foreground text-center py-2">{d}</div>
         ))}
@@ -1153,7 +1240,7 @@ function BookingCalendar({ month, bookings, cleanings, selectedId, onSelect }) {
       <div className="grid grid-cols-7">
         {cells.map((day, idx) => {
           if (day === null) {
-            return <div key={idx} className="min-h-[110px] border-b border-r border-border last:border-r-0 bg-muted/10" />
+            return <div key={idx} className={CAL_CELL} />
           }
           const items = dayItems[day] || []
           const shown = items.slice(0, 3)
@@ -1162,7 +1249,8 @@ function BookingCalendar({ month, bookings, cleanings, selectedId, onSelect }) {
             <div
               key={idx}
               className={cn(
-                'min-h-[110px] border-b border-r border-border last:border-r-0 p-1.5 flex flex-col gap-1',
+                CAL_CELL,
+                'p-1.5 flex flex-col gap-1',
                 todayDay === day && 'bg-brand-solid/5',
               )}
             >
@@ -1205,7 +1293,7 @@ function BookingCalendar({ month, bookings, cleanings, selectedId, onSelect }) {
           )
         })}
       </div>
-    </div>
+    </Panel>
   )
 }
 
@@ -1232,7 +1320,7 @@ function CalendarBookingBar({ booking, selected, onSelect, isCheckinDay, isCheck
           isCancelled && 'line-through',
         )}
         style={{
-          backgroundColor: isCancelled ? '#dc2626' : isDepartureOnly ? 'color-mix(in srgb, var(--brand-solid) 50%, transparent)' : BRAND,
+          backgroundColor: isCancelled ? CANCELLED_COLOR : isDepartureOnly ? 'color-mix(in srgb, var(--brand-solid) 50%, transparent)' : BRAND,
           color: 'white',
           borderLeft: isDepartureOnly ? '2px dashed rgba(255,255,255,0.85)' : undefined,
           opacity: isCancelled ? 0.75 : 1,
@@ -1253,30 +1341,24 @@ function CalendarBookingBar({ booking, selected, onSelect, isCheckinDay, isCheck
         <p className="font-mono font-semibold text-foreground mb-0.5">{booking.booking_code}</p>
         <p className="text-foreground font-semibold mb-2">{booking.guest_name}</p>
         {isCancelled && (
-          <div className="mb-2 px-2 py-1 rounded bg-red-500/10 border border-red-500/30">
-            <p className="text-[10px] font-bold uppercase tracking-wider text-red-600 dark:text-red-400">
-              Cancelled
-            </p>
-            {booking.cancelled_reason && (
-              <p className="text-[10px] text-red-700/80 dark:text-red-400/80 mt-0.5 break-words">
-                {booking.cancelled_reason}
-              </p>
-            )}
-          </div>
+          <p className="mb-2 text-[11px] text-foreground break-words">
+            <span className="font-semibold text-red-600 dark:text-red-400">Cancelled</span>
+            {booking.cancelled_reason && <> · {booking.cancelled_reason}</>}
+          </p>
         )}
         <div className="space-y-0.5">
           <div className="flex justify-between gap-2">
             <span className="text-foreground">Check-in</span>
             <span className="text-foreground tabular-nums">
               {booking.check_in}
-              {isCheckinDay && <span className="text-muted-foreground"> · {STAY_TIMES.checkIn.label}</span>}
+              {isCheckinDay && <> · {STAY_TIMES.checkIn.label}</>}
             </span>
           </div>
           <div className="flex justify-between gap-2">
             <span className="text-foreground">Check-out</span>
             <span className="text-foreground tabular-nums">
               {booking.check_out}
-              {isCheckoutDay && <span className="text-muted-foreground"> · {STAY_TIMES.checkOut.label}</span>}
+              {isCheckoutDay && <> · {STAY_TIMES.checkOut.label}</>}
             </span>
           </div>
           <div className="flex justify-between gap-2 pt-1 border-t border-border mt-1">
@@ -1332,7 +1414,7 @@ function CalendarCleaningChip({ cleaning, selected, onSelect }) {
                 {booking.booking_code}
               </span>
             ) : (
-              <span className="text-muted-foreground italic">Standalone</span>
+              <span className="text-foreground">Standalone</span>
             )}
           </div>
           {booking?.guest_name && (
@@ -1366,114 +1448,104 @@ function MonthSelector({ options, selectedMonth, onSelectMonth }) {
   const canNext = idx > 0
   const currentLabel = selectedMonth ? monthLabel(selectedMonth) : 'No month'
   return (
-    <div className="flex items-center justify-center">
-      <PeriodStepper
-        label={currentLabel}
-        canPrev={canPrev}
-        canNext={canNext}
-        onPrev={() => canPrev && onSelectMonth(options[idx + 1].month)}
-        onNext={() => canNext && onSelectMonth(options[idx - 1].month)}
-        prevLabel="Previous month"
-        nextLabel="Next month"
-        minWidth={120}
-      />
-    </div>
+    <PeriodStepper
+      label={currentLabel}
+      canPrev={canPrev}
+      canNext={canNext}
+      onPrev={() => canPrev && onSelectMonth(options[idx + 1].month)}
+      onNext={() => canNext && onSelectMonth(options[idx - 1].month)}
+      prevLabel="Previous month"
+      nextLabel="Next month"
+      minWidth={96}
+    />
   )
 }
 
-// ─── Sidebar / details ──────────────────────────────────────
+// ─── Contract details ───────────────────────────────────────
+function formatDateLong(d) {
+  if (!d) return '—'
+  const dt = new Date(`${d}T00:00:00Z`)
+  if (Number.isNaN(dt.getTime())) return '—'
+  return dt.toLocaleDateString('en-PH', { month: 'short', day: 'numeric', year: 'numeric', timeZone: 'UTC' })
+}
+
 function Field({ label, value, mono = false }) {
   return (
-    <div className="flex items-baseline gap-2 py-0.5 min-w-0">
-      <span className="text-[11px] font-semibold text-foreground min-w-[72px] flex-shrink-0">{label}</span>
-      <span className={cn('text-xs text-foreground truncate', mono && 'font-mono')}>{value}</span>
+    <div className="grid grid-cols-[76px_minmax(0,1fr)] gap-3 py-1 items-baseline">
+      <span className="text-[11px] font-semibold text-foreground">{label}</span>
+      <span className={cn('text-[12px] text-foreground truncate', mono && 'font-mono')}>{value}</span>
     </div>
   )
 }
 
-function SidebarSection({ title, action, children }) {
-  return (
-    <div>
-      <div className="flex items-center justify-between gap-2 mb-2">
-        <h3 className="text-sm font-semibold text-foreground truncate">{title}</h3>
-        {action}
-      </div>
-      <CardBody><div className="p-3">{children}</div></CardBody>
-    </div>
-  )
+// Terms and owner, beside the revenue chart. On wide screens the body scrolls
+// inside the card, so the row height comes from the chart.
+// Extensions of this contract, oldest first (empty if none, or if the
+// contract_extensions table isn't there yet).
+function useContractExtensions(contractId, expiryDate) {
+  const [rows, setRows] = useState([])
+  useEffect(() => {
+    let cancelled = false
+    if (!contractId) return undefined
+    supabase
+      .from('contract_extensions')
+      .select('id, previous_expiry, new_expiry, created_at')
+      .eq('contract_id', contractId)
+      .order('created_at', { ascending: true })
+      .then(({ data, error }) => {
+        if (cancelled) return
+        setRows(error ? [] : data || [])
+      })
+    return () => { cancelled = true }
+  }, [contractId, expiryDate])
+  return rows
 }
 
-function ContractSidebar({ contract, onBack }) {
+function ContractCard({ contract }) {
+  const owner = contract.owners || null
+  const extensions = useContractExtensions(contract.id, contract.expiry_date)
   return (
-    <aside className="w-full lg:w-[280px] flex-shrink-0 p-3 space-y-4">
-      <CardBody>
-        <div className="p-3">
-          <div className="flex items-start gap-2 mb-2">
-            <button type="button" onClick={onBack} className="p-1 rounded hover:bg-muted text-muted-foreground flex-shrink-0 -ml-1" title="Back to list">
-              <ChevronLeft size={16} />
-            </button>
-            <div className="min-w-0 flex-1">
-              <div className="flex items-center gap-2 flex-wrap">
-                <p className="font-mono text-sm font-bold text-foreground truncate">{contract.units?.unit_code || '—'}</p>
-                <StatusText status={deriveContractStatus(contract)} />
+    <Panel>
+      <PanelHeader icon={FileText} title="Contract" subtitle={`${OWNER_SPLIT_PCT}/${COMPANY_SPLIT_PCT} owner/company split`} />
+      <div className="relative flex-1 min-h-[220px]">
+        <div className="xl:absolute xl:inset-0 overflow-y-auto">
+          <SectionLabel title="Terms" />
+          <div className="px-5 py-2.5">
+            <Field label="Code" value={contract.contract_code || '—'} mono />
+            <Field label="Starts" value={formatDateLong(contract.effective_date)} />
+            <Field label="Ends" value={contract.expiry_date ? formatDateLong(contract.expiry_date) : 'Open-ended'} />
+            {extensions.length > 0 && (
+              <Field
+                label="Extended"
+                value={`${extensions.length}× · first ended ${formatDateLong(extensions[0].previous_expiry)}`}
+              />
+            )}
+            <Field label="Split" value={`${OWNER_SPLIT_PCT}% owner · ${COMPANY_SPLIT_PCT}% company`} />
+            <Field label="PM" value={`${PM_SHARE_OF_COMPANY_PCT}% of the company share`} />
+          </div>
+          <SectionLabel title="Owner" />
+          <div className="px-5 py-3">
+            <div className="flex items-center gap-3 mb-2">
+              <InitialsAvatar name={owner?.name} size="md" />
+              <div className="min-w-0">
+                <p className="text-[13px] font-semibold text-foreground truncate">{owner?.name || 'No owner'}</p>
+                <p className="text-[11px] text-foreground truncate mt-0.5">
+                  <span className="font-mono font-medium">{contract.units?.unit_code || '—'}</span> · {contract.units?.building || '—'}
+                </p>
               </div>
-              <p className="text-xs text-foreground truncate mt-0.5">{contract.units?.building || '—'}</p>
             </div>
+            <Field label="Email" value={owner?.email || '—'} />
+            <Field label="Phone" value={owner?.phone || '—'} />
           </div>
-          <p className="text-[11px] text-muted-foreground truncate">{contract.contract_code || '—'} · {contract.owners?.name || 'No owner'}</p>
-          <div className="mt-2">
-            <span className="inline-flex items-center px-2 py-0.5 rounded text-[11px] font-semibold bg-muted text-foreground">
-              {OWNER_SPLIT_PCT}/{COMPANY_SPLIT_PCT}
-            </span>
-          </div>
+          {contract.notes && (
+            <>
+              <SectionLabel title="Notes" />
+              <p className="px-5 py-3 text-[12px] text-foreground whitespace-pre-wrap break-words">{contract.notes}</p>
+            </>
+          )}
         </div>
-      </CardBody>
-
-      <SidebarSection title="Contract Details">
-        <div className="space-y-0.5">
-          <Field label="Code" value={contract.contract_code || '—'} mono />
-          <Field label="Effective" value={contract.effective_date || '—'} mono />
-          <Field label="Expiry" value={contract.expiry_date ? contract.expiry_date : <span className="italic text-muted-foreground">Open-ended</span>} mono />
-          <Field label="Split" value={<span className="font-semibold">{OWNER_SPLIT_PCT}/{COMPANY_SPLIT_PCT}</span>} />
-        </div>
-        <div className="pt-2 mt-2 border-t border-border">
-          <p className="text-[10px] text-muted-foreground italic">
-            Contract PDF is available on the Contracts page.
-          </p>
-        </div>
-        {contract.notes && (
-          <div className="pt-2 mt-2 border-t border-border">
-            <p className="text-[11px] font-semibold text-foreground mb-1">Notes</p>
-            <p className="text-[11px] text-foreground whitespace-pre-wrap break-words">{contract.notes}</p>
-          </div>
-        )}
-      </SidebarSection>
-
-      <SidebarSection title="Owner Details">
-        <div className="space-y-0.5">
-          <Field label="Name" value={contract.owners?.name || '—'} />
-          <Field label="Email" value={contract.owners?.email || '—'} />
-          <Field label="Phone" value={contract.owners?.phone || '—'} />
-          <Field label="Unit" value={contract.units?.unit_code || '—'} mono />
-          <Field label="Building" value={contract.units?.building || '—'} />
-        </div>
-      </SidebarSection>
-    </aside>
-  )
-}
-
-function StatCard({ label, value, icon: Icon }) {
-  return (
-    <motion.div
-      variants={{ hidden: { opacity: 0, y: 8 }, visible: { opacity: 1, y: 0, transition: { duration: 0.3 } } }}
-      className="rounded-md bg-card border border-border shadow-sm p-4"
-    >
-      <div className="flex items-center gap-2 mb-2">
-        {Icon && <Icon size={14} className="text-foreground" />}
-        <span className="text-[11px] font-bold uppercase tracking-wider text-foreground truncate">{label}</span>
       </div>
-      <p className="text-2xl font-bold tabular-nums text-foreground truncate">{value}</p>
-    </motion.div>
+    </Panel>
   )
 }
 
@@ -1485,54 +1557,75 @@ function GeneralStatistics({ lifetime, statements, yearSections, selectedYear, o
     [contract.effective_date, contract.expiry_date, bookings],
   )
   const chartTitle = spansFullYear(contract.effective_date, contract.expiry_date)
-    ? 'Yearly Revenue'
-    : 'Months Revenue'
+    ? 'Yearly revenue'
+    : 'Revenue by month'
+  const loss = lifetime.net < 0
+  // Trend lines over the contract's months (the last two years at most).
+  const lifetimeTrend = useMemo(() => {
+    const recent = statements.slice(-24).map((s) => ({ gross: s.grossRevenue, expenses: s.totalExpenses, net: s.netProfit }))
+    return buildTrend(recent, lifetime, null, '')
+  }, [statements, lifetime])
+  const since = statements.length > 24 ? 'Last 24 months shown' : statements[0] ? `Monthly since ${monthLabel(statements[0].month)}` : 'Lifetime'
   return (
-    <div className="space-y-4">
-      <motion.div
-        initial="hidden"
-        animate="visible"
-        variants={{ hidden: {}, visible: { transition: { staggerChildren: 0.05 } } }}
-        className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-3 pt-1 pb-2"
-      >
-        <StatCard label="Total Bookings" value={totalBookings} icon={Home} />
-        <StatCard label="Total Cleanings" value={totalCleanings} icon={Sparkles} />
-        <StatCard label="Total Revenue" value={formatMoney(lifetime.gross)} icon={TrendingUp} />
-        <StatCard label="Total Expenses" value={formatMoney(lifetime.expenses)} icon={Wallet} />
-        <StatCard label="Total Net" value={formatMoney(lifetime.net)} icon={TrendingUp} />
-      </motion.div>
+    <>
+      <StatStrip cols={5}>
+        <StatTile icon={CalendarRange} label="Bookings" value={totalBookings.toLocaleString('en-PH')} sub="Over the whole contract" />
+        <StatTile icon={Sparkles} label="Cleanings" value={totalCleanings.toLocaleString('en-PH')} sub="Over the whole contract" />
+        <StatTile
+          icon={TrendingUp}
+          label="Revenue"
+          value={formatPeso(lifetime.gross)}
+          valueClassName={MONEY_TILE}
+          {...trendProps(lifetimeTrend, 'gross', true, since)}
+        />
+        <StatTile
+          icon={Wallet}
+          label="Expenses"
+          value={formatPeso(lifetime.expenses)}
+          valueClassName={MONEY_TILE}
+          {...trendProps(lifetimeTrend, 'expenses', false, since)}
+        />
+        <StatTile
+          icon={Landmark}
+          label="Net profit"
+          value={formatPeso(lifetime.net)}
+          valueClassName={cn(MONEY_TILE, moneyTone(lifetime.net))}
+          className="col-span-2 sm:col-span-1"
+          {...trendProps(
+            lifetimeTrend,
+            'net',
+            true,
+            loss ? 'Expenses are higher than revenue' : `Owner ${formatPeso(lifetime.owner)} · Company ${formatPeso(lifetime.company)}`,
+          )}
+        />
+      </StatStrip>
 
-      <YearlyRevenueChart
-        yearSections={yearSections}
-        statements={statements}
-        selectedYear={selectedYear}
-        title={chartTitle}
-      />
-
-      <div className="grid grid-cols-1 xl:grid-cols-[2fr_1fr_2fr] gap-4 items-stretch">
-        <MonthlyOccupancyChart
+      <div className={DASH_ROW}>
+        <YearlyRevenueChart
+          yearSections={yearSections}
           statements={statements}
           selectedYear={selectedYear}
-          contract={contract}
+          onSelectYear={onSelectYear}
+          title={chartTitle}
         />
+        <ContractCard contract={contract} />
+      </div>
 
-        <div className="flex flex-col">
-          <div className="flex items-center gap-2 mb-2">
-            <Home size={16} className="text-foreground flex-shrink-0" />
-            <h3 className="text-base font-semibold text-foreground truncate">Contract Occupancy</h3>
+      <div className="grid grid-cols-1 xl:grid-cols-[minmax(0,2fr)_minmax(0,1fr)_minmax(0,2fr)] gap-4">
+        <MonthlyOccupancyChart statements={statements} selectedYear={selectedYear} contract={contract} />
+        <Panel>
+          <PanelHeader icon={Home} title="Contract occupancy" subtitle="Across the whole contract" />
+          <div className="flex-1 p-5 min-h-[260px] flex items-center justify-center">
+            <HalfGauge pct={occupancy.pct} sublabel={`${occupancy.nights} of ${occupancy.totalNights} nights`} />
           </div>
-          <CardBody className="flex-1">
-            <div className="p-3 h-full min-h-[292px] flex items-center justify-center">
-              <HalfGauge pct={occupancy.pct} sublabel={`${occupancy.nights} of ${occupancy.totalNights} nights`} />
-            </div>
-          </CardBody>
-        </div>
-
+        </Panel>
         <CumulativeNetChart statements={statements} selectedYear={selectedYear} />
       </div>
-    </div>
+    </>
   )
 }
+
+const LEDGER_ROW = 'grid grid-cols-[minmax(84px,1fr)_repeat(4,minmax(0,1fr))] gap-4 items-center'
 
 function MonthlyLedger({ statements, selectedMonth, onSelectMonth }) {
   const ordered = useMemo(
@@ -1540,70 +1633,62 @@ function MonthlyLedger({ statements, selectedMonth, onSelectMonth }) {
     [statements],
   )
   const lifetime = useMemo(() => computeLifetime(ordered), [ordered])
-  if (ordered.length === 0) {
-    return (
-      <CardBody>
-        <div className="p-4 text-xs text-muted-foreground italic">
-          No months on this contract yet
-        </div>
-      </CardBody>
-    )
-  }
-  const ROW = 'grid grid-cols-[110px_1fr_1fr_1fr_1fr] gap-4 items-center'
   return (
-    <CardBody>
-      <div className={cn('px-4 py-2 border-b border-border bg-muted/20 sticky top-0 z-10', ROW)}>
-        <span className="text-[10px] font-bold uppercase tracking-wider text-foreground">Month</span>
-        <span className="text-[10px] font-bold uppercase tracking-wider text-foreground text-right">Gross</span>
-        <span className="text-[10px] font-bold uppercase tracking-wider text-foreground text-right">Expenses</span>
-        <span className="text-[10px] font-bold uppercase tracking-wider text-foreground text-right">Net</span>
-        <span className="text-[10px] font-bold uppercase tracking-wider text-foreground text-right">PM Payout</span>
-      </div>
+    <Panel>
+      <PanelHeader icon={Table2} title="Monthly ledger" subtitle="Click a month to open it below" count={ordered.length} />
+      {ordered.length === 0 ? (
+        <EmptyState icon={Table2} title="No months yet" hint="This contract has no months to show." />
+      ) : (
+        <div className="overflow-x-auto">
+          <div className="min-w-[560px]">
+            <div className={cn(LEDGER_ROW, 'px-5 py-2.5 border-b border-border text-[11px] font-semibold text-foreground')}>
+              <span>Month</span>
+              <span className="text-right">Gross</span>
+              <span className="text-right">Expenses</span>
+              <span className="text-right">Net</span>
+              <span className="text-right">PM payout</span>
+            </div>
 
-      <div className="max-h-[340px] overflow-y-auto">
-        {ordered.map((s) => {
-          const isSelected = s.month === selectedMonth
-          const [y, m] = s.month.split('-').map(Number)
-          const label = `${MONTHS_SHORT[m - 1]} ${y}`
-          return (
-            <button
-              key={s.month}
-              type="button"
-              onClick={() => onSelectMonth(s.month)}
-              className={cn(
-                'w-full text-left px-4 py-2.5 border-b border-border last:border-0 transition-colors cursor-pointer',
-                ROW,
-                isSelected ? 'bg-brand-solid/10 hover:bg-brand-solid/15' : 'hover:bg-muted/40',
-              )}
-            >
-              <span className={cn('text-xs font-semibold tabular-nums', isSelected ? 'text-brand' : 'text-foreground')}>
-                {label}
-              </span>
-              <span className="text-xs tabular-nums text-foreground text-right">{formatMoney(s.grossRevenue)}</span>
-              <span className="text-xs tabular-nums text-foreground text-right">{formatMoney(s.totalExpenses)}</span>
-              <span className={cn('text-xs tabular-nums font-semibold text-right', s.netProfit < 0 ? 'text-red-600 dark:text-red-400' : 'text-emerald-600 dark:text-emerald-400')}>
-                {formatMoney(s.netProfit)}
-              </span>
-              <span className={cn('text-xs tabular-nums text-right', Number(s.pmShare) > 0 ? 'font-semibold text-foreground' : 'text-muted-foreground')}>
-                {Number(s.pmShare) > 0 ? formatMoney(s.pmShare) : '—'}
-              </span>
-            </button>
-          )
-        })}
-      </div>
+            <div className="max-h-[340px] overflow-y-auto">
+              {ordered.map((s) => {
+                const isSelected = s.month === selectedMonth
+                const [y, m] = s.month.split('-').map(Number)
+                const pm = Number(s.pmShare) || 0
+                return (
+                  <button
+                    key={s.month}
+                    type="button"
+                    onClick={() => onSelectMonth(s.month)}
+                    aria-pressed={isSelected}
+                    className={cn(
+                      LEDGER_ROW,
+                      'w-full text-left px-5 py-2.5 border-b border-border last:border-0 text-[12px] tabular-nums transition-colors cursor-pointer',
+                      isSelected ? 'bg-brand-solid/10 hover:bg-brand-solid/15' : 'hover:bg-muted/40',
+                    )}
+                  >
+                    <span className={cn('font-semibold', isSelected ? 'text-brand' : 'text-foreground')}>
+                      {MONTHS_SHORT[m - 1]} {y}
+                    </span>
+                    <span className="text-right text-foreground">{formatMoney(s.grossRevenue)}</span>
+                    <span className="text-right text-foreground">{formatMoney(s.totalExpenses)}</span>
+                    <span className={cn('text-right font-semibold', moneyTone(s.netProfit))}>{formatMoney(s.netProfit)}</span>
+                    <span className="text-right text-foreground">{pm > 0 ? formatMoney(pm) : '—'}</span>
+                  </button>
+                )
+              })}
+            </div>
 
-      <div className={cn('px-4 py-2.5 border-t-2 border-border bg-muted/30', ROW)}>
-        <span className="text-[11px] font-bold uppercase tracking-wider text-foreground">Lifetime</span>
-        <span className="text-xs font-bold tabular-nums text-foreground text-right">{formatMoney(lifetime.gross)}</span>
-        <span className="text-xs font-bold tabular-nums text-foreground text-right">{formatMoney(lifetime.expenses)}</span>
-        <span className={cn('text-xs font-bold tabular-nums text-right', lifetime.net < 0 ? 'text-red-600 dark:text-red-400' : 'text-emerald-600 dark:text-emerald-400')}>
-          {formatMoney(lifetime.net)}
-        </span>
-        <span className="text-xs font-bold tabular-nums text-right text-foreground">
-          {lifetime.pm > 0 ? formatMoney(lifetime.pm) : '—'}
-        </span>
-      </div>
-    </CardBody>
+            <div className={cn(LEDGER_ROW, 'px-5 py-2.5 border-t border-border text-[12px] font-semibold tabular-nums text-foreground')}>
+              <span>Lifetime</span>
+              <span className="text-right">{formatMoney(lifetime.gross)}</span>
+              <span className="text-right">{formatMoney(lifetime.expenses)}</span>
+              <span className={cn('text-right', moneyTone(lifetime.net))}>{formatMoney(lifetime.net)}</span>
+              <span className="text-right">{lifetime.pm > 0 ? formatMoney(lifetime.pm) : '—'}</span>
+            </div>
+          </div>
+        </div>
+      )}
+    </Panel>
   )
 }
 
@@ -1664,14 +1749,14 @@ function ExpenseImageControl({ path, onUpload, onRemove, contractId, size = 'md'
           <button
             type="button"
             onClick={() => thumbUrl && setLightboxUrl(thumbUrl)}
-            className={cn('rounded-md overflow-hidden border border-border bg-muted', sizeClasses)}
+            className={cn('rounded-md overflow-hidden border border-border bg-card', sizeClasses)}
             title="View"
           >
             {thumbUrl ? (
               <img src={thumbUrl} alt="" className="w-full h-full object-cover" />
             ) : (
               <div className="w-full h-full flex items-center justify-center">
-                <Loader2 size={iconSize} className="animate-spin text-muted-foreground" />
+                <Loader2 size={iconSize} className="animate-spin text-foreground" />
               </div>
             )}
           </button>
@@ -1689,7 +1774,7 @@ function ExpenseImageControl({ path, onUpload, onRemove, contractId, size = 'md'
           type="button"
           onClick={() => inputRef.current?.click()}
           disabled={uploading}
-          className={cn('rounded-md border border-dashed border-border flex items-center justify-center text-muted-foreground hover:bg-muted/50 disabled:opacity-50 flex-shrink-0', sizeClasses)}
+          className={cn('rounded-md border border-dashed border-border flex items-center justify-center text-foreground hover:bg-muted/50 disabled:opacity-50 flex-shrink-0', sizeClasses)}
           title="Attach proof"
         >
           {uploading ? <Loader2 size={iconSize} className="animate-spin" /> : <Camera size={iconSize} />}
@@ -1777,25 +1862,20 @@ function CustomItemRow({ item, contractId, onUpdate, onRemove }) {
 
   if (editing) {
     return (
-      <div className="rounded-md border border-primary/40 bg-primary/5 p-2 space-y-1.5">
-        <div className="grid grid-cols-[1fr_110px] gap-2">
-          <Input value={draftName} onChange={(e) => setDraftName(e.target.value)} maxLength={80} placeholder="Name" className="h-7 text-xs rounded" />
-          <Input type="number" min={0} value={draftAmount} onChange={(e) => setDraftAmount(e.target.value)} className="h-7 text-xs rounded tabular-nums" />
-        </div>
-        <div className="flex items-center gap-2">
-          <span className="text-[11px] font-semibold text-foreground">Proof</span>
-          <ExpenseImageControl
-            path={draftImage}
-            contractId={contractId}
-            onUpload={(path) => setDraftImage(path)}
-            onRemove={() => setDraftImage(null)}
-            size="sm"
-          />
-        </div>
-        <div className="flex items-center justify-end gap-2">
-          <Button size="sm" variant="outline" className="h-6 rounded text-[10px]" onClick={() => setEditing(false)} disabled={busy}>Cancel</Button>
-          <Button size="sm" className="h-6 rounded text-[10px]" onClick={save} disabled={busy} style={{ backgroundColor: BRAND }}>
-            {busy ? <Loader2 size={10} className="animate-spin mr-1" /> : <Save size={10} className="mr-1" />}
+      <div className="flex flex-wrap items-center gap-2 px-5 py-2.5 border-b border-border bg-brand-solid/5">
+        <Input value={draftName} onChange={(e) => setDraftName(e.target.value)} maxLength={80} placeholder="Name" aria-label="Expense name" className="h-8 flex-1 min-w-[140px] text-xs rounded-md" />
+        <Input type="number" min={0} value={draftAmount} onChange={(e) => setDraftAmount(e.target.value)} aria-label="Amount" className="h-8 w-[110px] text-xs text-right rounded-md tabular-nums" />
+        <ExpenseImageControl
+          path={draftImage}
+          contractId={contractId}
+          onUpload={(path) => setDraftImage(path)}
+          onRemove={() => setDraftImage(null)}
+          size="sm"
+        />
+        <div className="flex items-center gap-2 ml-auto">
+          <Button size="sm" variant="outline" className="h-7 rounded-md text-[11px]" onClick={() => setEditing(false)} disabled={busy}>Cancel</Button>
+          <Button size="sm" className="h-7 rounded-md text-[11px] text-white" onClick={save} disabled={busy} style={{ backgroundColor: BRAND }}>
+            {busy ? <Loader2 size={11} className="animate-spin mr-1" /> : <Save size={11} className="mr-1" />}
             Save
           </Button>
         </div>
@@ -1804,9 +1884,12 @@ function CustomItemRow({ item, contractId, onUpdate, onRemove }) {
   }
 
   return (
-    <div className="flex items-center gap-2 px-2 py-1.5 rounded-md border border-border bg-background">
-      <span className="text-xs text-foreground flex-1 truncate">{item.name}</span>
-      <span className="text-xs font-semibold tabular-nums text-foreground">{formatMoney(item.amount)}</span>
+    <div className="flex items-center gap-3 px-5 py-2.5 border-b border-border min-h-[52px]">
+      <Receipt size={15} strokeWidth={1.9} className="text-foreground flex-shrink-0" />
+      <div className="min-w-0 flex-1">
+        <p className="text-[12px] font-medium text-foreground truncate">{item.name}</p>
+        <p className="text-[11px] text-foreground truncate mt-0.5">{item.image ? 'Receipt attached' : 'No receipt'}</p>
+      </div>
       <ExpenseImageControl
         path={item.image}
         contractId={contractId}
@@ -1814,12 +1897,15 @@ function CustomItemRow({ item, contractId, onUpdate, onRemove }) {
         onRemove={async () => { await onUpdate(item.id, { name: item.name, amount: item.amount, image: null }) }}
         size="sm"
       />
-      <button type="button" onClick={() => setEditing(true)} disabled={busy} className="p-1 rounded hover:bg-muted text-foreground disabled:opacity-50" title="Edit">
-        <Pencil size={11} />
-      </button>
-      <button type="button" onClick={remove} disabled={busy} className="p-1 rounded hover:bg-red-500/10 text-foreground hover:text-red-500 disabled:opacity-50" title="Remove">
-        {busy ? <Loader2 size={11} className="animate-spin" /> : <Trash2 size={11} />}
-      </button>
+      <div className="flex items-center">
+        <button type="button" onClick={() => setEditing(true)} disabled={busy} className="p-1.5 rounded-md hover:bg-muted text-foreground disabled:opacity-50" title="Edit" aria-label={`Edit ${item.name}`}>
+          <Pencil size={12} />
+        </button>
+        <button type="button" onClick={remove} disabled={busy} className="p-1.5 rounded-md hover:bg-muted text-foreground hover:text-red-600 disabled:opacity-50" title="Remove" aria-label={`Remove ${item.name}`}>
+          {busy ? <Loader2 size={12} className="animate-spin" /> : <Trash2 size={12} />}
+        </button>
+      </div>
+      <span className="text-[13px] font-semibold tabular-nums text-foreground text-right min-w-[84px]">{formatMoney(item.amount)}</span>
     </div>
   )
 }
@@ -1873,8 +1959,8 @@ function AddExpenseModal({ open, onClose, onSubmit, contractId }) {
         style={{ boxShadow: SOFT_SHADOW }}
       >
         <div className="flex items-center justify-between px-5 py-3 border-b border-border">
-          <h3 id="add-expense-title" className="text-sm font-bold text-foreground">Add Expense</h3>
-          <button onClick={onClose} className="p-1 rounded hover:bg-muted"><X size={14} /></button>
+          <h3 id="add-expense-title" className="text-[14px] font-semibold text-foreground">Add expense</h3>
+          <button type="button" onClick={onClose} aria-label="Close" className="p-1.5 rounded-md text-foreground hover:bg-muted/60"><X size={14} /></button>
         </div>
         <div className="p-5 space-y-3">
           <div>
@@ -1895,17 +1981,17 @@ function AddExpenseModal({ open, onClose, onSubmit, contractId }) {
                 onRemove={() => setImagePath(null)}
                 size="lg"
               />
-              <span className="text-[10px] text-muted-foreground">
+              <span className="text-[11px] text-foreground">
                 Click the box to attach a receipt or proof photo
               </span>
             </div>
           </div>
         </div>
-        <div className="flex items-center justify-end gap-2 px-5 py-3 border-t border-border bg-muted/30">
+        <div className="flex items-center justify-end gap-2 px-5 py-3 border-t border-border bg-card">
           <Button variant="outline" size="sm" className="h-8 rounded text-xs" onClick={onClose} disabled={busy}>Cancel</Button>
           <Button size="sm" className="h-8 rounded text-xs" onClick={submit} disabled={busy} style={{ backgroundColor: BRAND }}>
             {busy ? <Loader2 size={12} className="mr-1.5 animate-spin" /> : <Plus size={12} className="mr-1.5" />}
-            {busy ? 'Adding…' : 'Add Expense'}
+            {busy ? 'Adding…' : 'Add expense'}
           </Button>
         </div>
       </motion.div>
@@ -1913,21 +1999,79 @@ function AddExpenseModal({ open, onClose, onSubmit, contractId }) {
   )
 }
 
-function ExpenseLine({ icon: Icon, label, value }) {
+// Section heading inside the Expenses card (the Dashboard's section label,
+// with room for buttons on the right).
+function SectionBar({ icon: Icon, title, count, children }) {
   return (
-    <div className="flex items-center gap-2 text-xs py-0.5">
-      <Icon size={11} className="text-muted-foreground flex-shrink-0" />
-      <span className="text-foreground flex-1 truncate">{label}</span>
-      <span className="tabular-nums font-semibold text-foreground">{formatMoney(value)}</span>
+    <div className="flex items-center justify-between gap-2 px-5 h-10 border-b border-border">
+      <span className="flex items-center gap-2 min-w-0 text-[11px] font-semibold uppercase tracking-wider text-foreground">
+        {Icon && <Icon size={13} strokeWidth={2} className="flex-shrink-0" />}
+        <span className="truncate">{title}</span>
+        {count != null && <span className="tabular-nums">{count}</span>}
+      </span>
+      {children && <div className="flex items-center gap-2 flex-shrink-0">{children}</div>}
     </div>
   )
 }
 
-function TotalLine({ label, value, bold = false }) {
+// One expense: icon, name and a short note, then anything extra (receipt,
+// input) and the amount.
+function ExpenseRow({ icon: Icon, label, hint, amount, editing = false, children }) {
   return (
-    <div className="flex items-center justify-between text-[11px]">
+    <div className={cn('flex items-center gap-3 px-5 py-2.5 border-b border-border min-h-[52px]', editing && 'bg-brand-solid/5')}>
+      <Icon size={15} strokeWidth={1.9} className="text-foreground flex-shrink-0" />
+      <div className="min-w-0 flex-1">
+        <p className="text-[12px] font-medium text-foreground truncate">{label}</p>
+        {hint && <p className="text-[11px] text-foreground truncate mt-0.5">{hint}</p>}
+      </div>
+      {children}
+      {amount != null && (
+        <span className="text-[13px] font-semibold tabular-nums text-foreground text-right min-w-[84px]">{formatMoney(amount)}</span>
+      )}
+    </div>
+  )
+}
+
+function SubtotalRow({ label, value }) {
+  return (
+    <div className="flex items-center justify-between gap-3 px-5 py-2.5 text-[12px]">
       <span className="text-foreground">{label}</span>
-      <span className={cn('tabular-nums text-foreground', bold && 'font-bold')}>{formatMoney(value)}</span>
+      <span className="font-semibold tabular-nums text-foreground">{formatMoney(value)}</span>
+    </div>
+  )
+}
+
+// Where the month's expenses went, as one bar split by category in shades of
+// the logo blue, with the amounts under it.
+const BREAKDOWN_SHADES = [100, 70, 45, 28, 14]
+
+function ExpenseBreakdown({ parts, total }) {
+  if (!(total > 0)) {
+    return <p className="text-[12px] text-foreground">No expenses recorded this month.</p>
+  }
+  const shade = (i) => `color-mix(in srgb, var(--brand) ${BREAKDOWN_SHADES[i]}%, transparent)`
+  return (
+    <div>
+      <div className="flex h-2.5 w-full gap-0.5 rounded-full overflow-hidden" role="img" aria-label="Expenses by category">
+        {parts.map((p, i) => (p.value > 0 ? (
+          <span
+            key={p.key}
+            className="h-full first:rounded-l-full last:rounded-r-full"
+            style={{ width: `${(p.value / total) * 100}%`, backgroundColor: shade(i) }}
+            title={`${p.label}: ${formatMoney(p.value)}`}
+          />
+        ) : null))}
+      </div>
+      <div className="mt-2.5 flex flex-wrap gap-x-5 gap-y-1.5">
+        {parts.map((p, i) => (
+          <span key={p.key} className="inline-flex items-center gap-1.5 text-[11px] text-foreground">
+            <span className="w-2.5 h-2.5 rounded-sm flex-shrink-0" style={{ backgroundColor: shade(i) }} />
+            {p.label}
+            <span className="font-semibold tabular-nums">{formatMoney(p.value)}</span>
+            <span className="tabular-nums">· {Math.round((p.value / total) * 100)}%</span>
+          </span>
+        ))}
+      </div>
     </div>
   )
 }
@@ -2139,149 +2283,179 @@ function ExpensesPanel({ statement, contract, onChanged, onStatementPatched }) {
     statement.marketing +
     statement.customTotal
 
+  const smallButton = 'inline-flex items-center gap-1 h-7 px-2.5 rounded-md border border-border bg-card text-[11px] font-medium text-foreground hover:bg-muted/50 transition-colors disabled:opacity-50'
+
+  const liveBookings = statement.bookingsList.filter((b) => !b.cancelled_at)
+  const withAffiliate = liveBookings.filter((b) => Number(b.affiliate_commission || 0) > 0).length
+  const cleaningsCount = statement.cleaningsList.length
+  const gross = Number(statement.grossRevenue || 0)
+  const net = Number(statement.netProfit || 0)
+  const total = Number(statement.totalExpenses || 0)
+
+  const breakdown = [
+    { key: 'commissions', label: 'Commissions',        value: statement.bookingCommission + statement.affiliateCommission },
+    { key: 'cleaning',    label: 'Cleaning & laundry', value: statement.housekeeping + statement.laundry },
+    { key: 'utilities',   label: 'Utilities',          value: statement.electricity + statement.internet + statement.water },
+    { key: 'marketing',   label: 'Marketing',          value: statement.marketing },
+    { key: 'other',       label: 'Other',              value: statement.customTotal },
+  ]
+
   return (
-    <div>
-      <div className="flex items-center gap-2 mb-2">
-        <Wallet size={16} className="text-foreground" />
-        <h3 className="text-base font-semibold text-foreground">Expenses</h3>
-      </div>
+    <Panel>
+      <PanelHeader
+        icon={Wallet}
+        title="Expenses"
+        subtitle={`${monthLabel(statement.month)} · where the month's money went`}
+      />
 
-      <CardBody>
-        <div className="grid grid-cols-1 lg:grid-cols-[300px_1fr] divide-y lg:divide-y-0 lg:divide-x divide-border">
-          <div className="p-4 space-y-4 lg:sticky lg:top-0 self-start">
-            <div>
-              <p className="text-[11px] font-semibold text-foreground mb-2 flex items-center gap-1.5">
-                <Lock size={11} /> Auto-computed
-              </p>
-              <div className="space-y-0.5">
-                <ExpenseLine icon={Wallet}   label="Booking commission"   value={statement.bookingCommission} />
-                <ExpenseLine icon={Wallet}   label="Affiliate commission" value={statement.affiliateCommission} />
-                <ExpenseLine icon={Sparkles} label="Housekeeping"         value={statement.housekeeping} />
-                <ExpenseLine icon={Sparkles} label="Laundry"              value={statement.laundry} />
-              </div>
-            </div>
-
-            <div className="pt-3 border-t border-border space-y-1.5">
-              <TotalLine label="Auto-computed" value={autoComputed} />
-              <TotalLine label="Manual"        value={manualTotal} />
-              <div className="pt-2 mt-1 border-t border-border">
-                <TotalLine label="Total expenses" value={statement.totalExpenses} bold />
-              </div>
-            </div>
-          </div>
-
-          <div className="p-4">
-            <div className="max-h-[520px] overflow-y-auto pr-1 space-y-4">
-              <div>
-                <div className="flex items-center justify-between mb-2">
-                  <p className="text-[11px] font-semibold text-foreground">Manual (fixed)</p>
-                  {!editingFixed && (
-                    <div className="flex items-center gap-2">
-                      {statement.manualRow && (
-                        <button type="button" onClick={clearFixed} disabled={saving} className="text-[11px] font-semibold text-red-500 hover:underline disabled:opacity-50">
-                          Clear all
-                        </button>
-                      )}
-                      <button type="button" onClick={() => setEditingFixed(true)} className="text-[11px] font-semibold text-primary hover:underline">
-                        Edit
-                      </button>
-                    </div>
-                  )}
-                </div>
-
-                {editingFixed ? (
-                  <div className="space-y-2">
-                    {fixedExpenses.map((f) => (
-                      <div key={f.key} className="grid grid-cols-[auto_1fr_140px_auto] items-center gap-3 px-3 py-2 rounded-md border border-primary/40 bg-primary/5">
-                        <f.icon size={16} className="text-muted-foreground flex-shrink-0" />
-                        <span className="text-xs text-foreground font-medium truncate">{f.label}</span>
-                        <Input
-                          type="number"
-                          min={0}
-                          value={draftFixed[f.key]}
-                          onChange={(e) => setDraftFixed((p) => ({ ...p, [f.key]: e.target.value }))}
-                          className="h-8 text-xs rounded tabular-nums"
-                        />
-                        <ExpenseImageControl
-                          path={f.image}
-                          contractId={contract.id}
-                          onUpload={(path) => setFixedImage(f.key, path)}
-                          onRemove={() => setFixedImage(f.key, null)}
-                          size="lg"
-                        />
-                      </div>
-                    ))}
-                    <div className="flex items-center justify-end gap-2 pt-1">
-                      <Button size="sm" variant="outline" className="h-8 rounded text-[11px]" onClick={() => setEditingFixed(false)} disabled={saving}>Cancel</Button>
-                      <Button size="sm" className="h-8 rounded text-[11px]" onClick={saveFixed} disabled={saving} style={{ backgroundColor: BRAND }}>
-                        {saving ? <Loader2 size={11} className="animate-spin mr-1" /> : <Save size={11} className="mr-1" />}
-                        {saving ? 'Saving…' : 'Save'}
-                      </Button>
-                    </div>
-                  </div>
-                ) : (
-                  <div className="space-y-2">
-                    {fixedExpenses.map((f) => (
-                      <div key={f.key} className="grid grid-cols-[auto_1fr_auto_auto] items-center gap-3 px-3 py-2 rounded-md border border-border bg-background">
-                        <f.icon size={16} className="text-muted-foreground flex-shrink-0" />
-                        <span className="text-xs text-foreground font-medium truncate">{f.label}</span>
-                        <span className="tabular-nums font-semibold text-foreground text-base">{formatMoney(f.value)}</span>
-                        <ExpenseImageControl
-                          path={f.image}
-                          contractId={contract.id}
-                          onUpload={(path) => setFixedImage(f.key, path)}
-                          onRemove={() => setFixedImage(f.key, null)}
-                          size="lg"
-                        />
-                      </div>
-                    ))}
-                  </div>
-                )}
-              </div>
-
-              <div className="pt-3 border-t border-border">
-                <div className="flex items-center justify-between mb-2">
-                  <p className="text-[11px] font-semibold text-foreground">Custom · {statement.customItems.length}</p>
-                  <button type="button" onClick={() => setAddOpen(true)} className="inline-flex items-center gap-1 text-[11px] font-semibold text-primary hover:underline">
-                    <Plus size={11} /> Add
-                  </button>
-                </div>
-                {statement.customItems.length === 0 ? (
-                  <p className="text-[11px] text-muted-foreground italic py-1">No custom expenses this month</p>
-                ) : (
-                  <div className="space-y-1.5">
-                    {statement.customItems.map((item) => (
-                      <CustomItemRow
-                        key={item.id}
-                        item={item}
-                        contractId={contract.id}
-                        onUpdate={updateCustomItem}
-                        onRemove={removeCustomItem}
-                      />
-                    ))}
-                  </div>
-                )}
-              </div>
-            </div>
+      {/* Totals and the split of where it went */}
+      <div className="px-5 py-4 border-b border-border space-y-4">
+        <div className="grid grid-cols-2 lg:grid-cols-4 gap-x-6 gap-y-4">
+          <SummaryStat label="Total expenses" value={formatMoney(total)}>
+            {gross > 0 ? `${Math.round((total / gross) * 100)}% of gross revenue` : 'No revenue this month'}
+          </SummaryStat>
+          <SummaryStat label="Auto-computed" value={formatMoney(autoComputed)}>
+            Commissions, cleaning, laundry
+          </SummaryStat>
+          <SummaryStat label="Entered by hand" value={formatMoney(manualTotal)}>
+            Bills and other expenses
+          </SummaryStat>
+          <div className="min-w-0">
+            <p className="text-[12px] font-medium text-foreground">Net profit</p>
+            <p className={cn('text-[24px] font-semibold tracking-tight leading-none tabular-nums mt-1.5', moneyTone(net))}>{formatMoney(net)}</p>
+            <p className="text-[11px] text-foreground mt-1.5 truncate">
+              {gross > 0 ? (
+                <><span className={cn('font-semibold', moneyTone(net))}>{Math.round((net / gross) * 100)}%</span> margin</>
+              ) : (
+                'Gross minus expenses'
+              )}
+            </p>
           </div>
         </div>
+        <ExpenseBreakdown parts={breakdown} total={total} />
+      </div>
 
-        <AddExpenseModal
-          open={addOpen}
-          onClose={() => setAddOpen(false)}
-          contractId={contract.id}
-          onSubmit={async (data) => {
-            try {
-              await addCustomItem(data)
-              toast.success('Expense added')
-              setAddOpen(false)
-            } catch (err) {
-              toast.error(err?.message || 'Failed to add')
-            }
-          }}
-        />
-      </CardBody>
-    </div>
+      <div className="grid grid-cols-1 lg:grid-cols-2 divide-y lg:divide-y-0 lg:divide-x divide-border">
+        {/* Worked out from bookings and cleanings */}
+        <div className="min-w-0">
+          <SectionBar icon={Lock} title="Auto-computed" />
+          <ExpenseRow icon={Wallet} label="Booking commission" hint={plural(liveBookings.length, 'booking', 'bookings')} amount={statement.bookingCommission} />
+          <ExpenseRow icon={Wallet} label="Affiliate commission" hint={withAffiliate ? `${plural(withAffiliate, 'booking', 'bookings')} via affiliates` : 'No affiliate bookings'} amount={statement.affiliateCommission} />
+          <ExpenseRow icon={Sparkles} label="Housekeeping" hint={plural(cleaningsCount, 'cleaning', 'cleanings')} amount={statement.housekeeping} />
+          <ExpenseRow icon={Sparkles} label="Laundry" hint={plural(cleaningsCount, 'cleaning', 'cleanings')} amount={statement.laundry} />
+          <SubtotalRow label="Auto-computed" value={autoComputed} />
+        </div>
+
+        {/* Entered by hand */}
+        <div className="min-w-0">
+          <SectionBar icon={Zap} title="Bills">
+            {editingFixed ? (
+              <>
+                <button type="button" onClick={() => setEditingFixed(false)} disabled={saving} className={smallButton}>
+                  Cancel
+                </button>
+                <button
+                  type="button"
+                  onClick={saveFixed}
+                  disabled={saving}
+                  className="inline-flex items-center gap-1 h-7 px-2.5 rounded-md text-[11px] font-semibold text-white bg-brand-solid hover:bg-brand-solid/90 disabled:opacity-50"
+                >
+                  {saving ? <Loader2 size={11} className="animate-spin" /> : <Save size={11} />}
+                  {saving ? 'Saving…' : 'Save'}
+                </button>
+              </>
+            ) : (
+              <>
+                {statement.manualRow && (
+                  <button
+                    type="button"
+                    onClick={clearFixed}
+                    disabled={saving}
+                    className="text-[11px] font-semibold text-red-600 dark:text-red-400 hover:underline underline-offset-2 disabled:opacity-50"
+                  >
+                    Clear all
+                  </button>
+                )}
+                <button type="button" onClick={() => setEditingFixed(true)} className={smallButton}>
+                  <Pencil size={11} /> Edit
+                </button>
+              </>
+            )}
+          </SectionBar>
+
+          {fixedExpenses.map((f) => (
+            <ExpenseRow
+              key={f.key}
+              icon={f.icon}
+              label={f.label}
+              hint={f.image ? 'Receipt attached' : 'No receipt'}
+              amount={editingFixed ? null : f.value}
+              editing={editingFixed}
+            >
+              <ExpenseImageControl
+                path={f.image}
+                contractId={contract.id}
+                onUpload={(path) => setFixedImage(f.key, path)}
+                onRemove={() => setFixedImage(f.key, null)}
+                size="sm"
+              />
+              {editingFixed && (
+                <Input
+                  type="number"
+                  min={0}
+                  value={draftFixed[f.key]}
+                  onChange={(e) => setDraftFixed((p) => ({ ...p, [f.key]: e.target.value }))}
+                  aria-label={`${f.label} amount`}
+                  className="h-8 w-[120px] text-xs text-right rounded-md tabular-nums"
+                />
+              )}
+            </ExpenseRow>
+          ))}
+
+          <SectionBar icon={Plus} title="Other expenses" count={statement.customItems.length}>
+            <button type="button" onClick={() => setAddOpen(true)} className={smallButton}>
+              <Plus size={11} /> Add
+            </button>
+          </SectionBar>
+          {statement.customItems.length === 0 ? (
+            <p className="px-5 py-3 text-[12px] text-foreground border-b border-border">
+              Nothing else this month. Add repairs, linen or supplies here.
+            </p>
+          ) : (
+            statement.customItems.map((item) => (
+              <CustomItemRow
+                key={item.id}
+                item={item}
+                contractId={contract.id}
+                onUpdate={updateCustomItem}
+                onRemove={removeCustomItem}
+              />
+            ))
+          )}
+          <SubtotalRow label="Entered by hand" value={manualTotal} />
+        </div>
+      </div>
+
+      <div className="flex items-center justify-between gap-3 px-5 py-3 border-t border-border">
+        <span className="text-[12px] font-semibold text-foreground">Total expenses</span>
+        <span className="text-[15px] font-bold tabular-nums text-foreground">{formatMoney(total)}</span>
+      </div>
+
+      <AddExpenseModal
+        open={addOpen}
+        onClose={() => setAddOpen(false)}
+        contractId={contract.id}
+        onSubmit={async (data) => {
+          try {
+            await addCustomItem(data)
+            toast.success('Expense added')
+            setAddOpen(false)
+          } catch (err) {
+            toast.error(err?.message || 'Failed to add')
+          }
+        }}
+      />
+    </Panel>
   )
 }
 
@@ -2291,6 +2465,28 @@ function monthKeyFromDate(iso) {
   const s = String(iso).slice(0, 10)
   if (!/^\d{4}-\d{2}-\d{2}$/.test(s)) return null
   return s.slice(0, 7)
+}
+
+// List row with a coloured bar matching the calendar: logo blue for
+// bookings, red for cancelled ones, green for cleanings.
+function ActivityRowShell({ barColor, isSelected, onClick, contextItems, children }) {
+  return (
+    // ContextMenu wraps each row in its own div, so the divider goes on that.
+    <ContextMenu items={contextItems} className="border-b border-border last:border-0">
+      <button
+        type="button"
+        onClick={onClick}
+        aria-pressed={isSelected}
+        className={cn(
+          'relative w-full text-left px-5 py-2.5 transition-colors cursor-pointer overflow-hidden',
+          isSelected ? 'bg-brand-solid/10 hover:bg-brand-solid/15' : 'hover:bg-muted/40',
+        )}
+      >
+        <span aria-hidden className="absolute top-2 bottom-2 left-0 w-[3px] rounded-r" style={{ backgroundColor: barColor }} />
+        {children}
+      </button>
+    </ContextMenu>
+  )
 }
 
 function AccountingBookingRow({ booking, isSelected, onClick }) {
@@ -2304,12 +2500,7 @@ function AccountingBookingRow({ booking, isSelected, onClick }) {
       label: 'Copy booking code',
       icon: Copy,
       hint: booking.booking_code,
-      onSelect: () => {
-        navigator.clipboard.writeText(booking.booking_code || '').then(
-          () => toast.success('Booking code copied'),
-          () => toast.error('Failed to copy'),
-        )
-      },
+      onSelect: () => copyText(booking.booking_code, 'Booking code copied'),
     },
   ]
 
@@ -2317,51 +2508,28 @@ function AccountingBookingRow({ booking, isSelected, onClick }) {
   const affiliateLabel = booking.affiliate_name || booking.affiliate_code || '—'
 
   return (
-    <ContextMenu items={contextItems}>
-      <button
-        type="button"
-        onClick={onClick}
-        className={cn(
-          'relative w-full text-left rounded-md border bg-background py-2.5 pl-5 pr-3 min-w-0 transition-colors overflow-hidden',
-          isSelected ? 'border-primary ring-1 ring-primary/30' : 'border-border hover:bg-muted/40',
-          isCancelled && 'opacity-70',
-        )}
-      >
-        <span
-          aria-hidden
-          className="absolute top-0 bottom-0 left-0 w-[4px]"
-          style={{ backgroundColor: isCancelled ? '#dc2626' : BRAND }}
-        />
-
-        <div className="flex items-center gap-2 min-w-0">
-          <span className="font-mono text-[11px] text-foreground flex-shrink-0">{booking.booking_code}</span>
-          {isCancelled && (
-            <span className="text-[9px] font-bold uppercase tracking-wider text-red-600 dark:text-red-400 flex-shrink-0">
-              Cancelled
-            </span>
-          )}
-          <span className="text-xs font-semibold tabular-nums text-foreground ml-auto flex-shrink-0">
-            {formatMoney(booking.total_amount)}
-          </span>
-        </div>
-
-        <div className={cn('mt-1 text-[11px] text-muted-foreground tabular-nums truncate', isCancelled && 'line-through')}>
-          {booking.check_in ? formatDateShort(booking.check_in) : '—'} → {booking.check_out ? formatDateShort(booking.check_out) : '—'}
-        </div>
-
-        <div className="mt-1 flex items-center gap-2 text-[11px] text-muted-foreground min-w-0 flex-wrap">
-          <span className="truncate">Booker <span className="text-foreground font-semibold">{bookerLabel}</span></span>
-          <span className="text-muted-foreground/50">·</span>
-          <span className="truncate">Affiliate <span className="text-foreground font-semibold">{affiliateLabel}</span></span>
-        </div>
-
-        <div className="mt-1 flex items-center gap-2 text-[11px] text-muted-foreground min-w-0 flex-wrap">
-          <span className="tabular-nums">Booker comm. <span className="text-foreground font-semibold">{formatMoney(booking.booker_commission || 0)}</span></span>
-          <span className="text-muted-foreground/50">·</span>
-          <span className="tabular-nums">Affiliate comm. <span className="text-foreground font-semibold">{formatMoney(booking.affiliate_commission || 0)}</span></span>
-        </div>
-      </button>
-    </ContextMenu>
+    <ActivityRowShell
+      barColor={isCancelled ? CANCELLED_COLOR : BRAND}
+      isSelected={isSelected}
+      onClick={onClick}
+      contextItems={contextItems}
+    >
+      <div className="flex items-center gap-2 min-w-0">
+        <span className="text-[12px] font-semibold text-foreground truncate flex-1">{booking.guest_name || '—'}</span>
+        {isCancelled && <span className="text-[11px] font-semibold text-red-600 dark:text-red-400 flex-shrink-0">Cancelled</span>}
+        <span className="text-[12px] font-semibold tabular-nums text-foreground flex-shrink-0">{formatMoney(booking.total_amount)}</span>
+      </div>
+      <div className="mt-0.5 flex items-center justify-between gap-2 text-[11px] text-foreground">
+        <span className="font-mono truncate">{booking.booking_code}</span>
+        <span className={cn('text-[10px] tabular-nums flex-shrink-0', isCancelled && 'line-through')}>
+          {formatDateShort(booking.check_in)} → {formatDateShort(booking.check_out)}
+        </span>
+      </div>
+      <div className="mt-0.5 flex flex-wrap gap-x-3 text-[11px] text-foreground tabular-nums">
+        <span className="truncate">Booker <span className="font-semibold">{bookerLabel}</span> {formatMoney(booking.booker_commission || 0)}</span>
+        <span className="truncate">Affiliate <span className="font-semibold">{affiliateLabel}</span> {formatMoney(booking.affiliate_commission || 0)}</span>
+      </div>
+    </ActivityRowShell>
   )
 }
 
@@ -2372,7 +2540,7 @@ function AccountingCleaningRow({ cleaning, isSelected, onClick }) {
   const booking = cleaning.bookings || null
 
   const contextItems = [
-    { label: 'See in Cleanings', icon: Sparkles, onSelect: () => navigate(`/admin?tab=housekeeping&cleaning=${cleaning.id}`) },
+    { label: 'See in Housekeeping', icon: Sparkles, onSelect: () => navigate(`/admin?tab=housekeeping&cleaning=${cleaning.id}`) },
     ...(booking?.id
       ? [{
           label: 'See in Bookings',
@@ -2385,103 +2553,71 @@ function AccountingCleaningRow({ cleaning, isSelected, onClick }) {
       label: 'Copy cleaning code',
       icon: Copy,
       hint: cleaning.cleaning_code,
-      onSelect: () => {
-        navigator.clipboard.writeText(cleaning.cleaning_code || '').then(
-          () => toast.success('Cleaning code copied'),
-          () => toast.error('Failed to copy'),
-        )
-      },
+      onSelect: () => copyText(cleaning.cleaning_code, 'Cleaning code copied'),
     },
     ...(booking?.booking_code
       ? [{
           label: 'Copy booking code',
           icon: Copy,
           hint: booking.booking_code,
-          onSelect: () => {
-            navigator.clipboard.writeText(booking.booking_code || '').then(
-              () => toast.success('Booking code copied'),
-              () => toast.error('Failed to copy'),
-            )
-          },
+          onSelect: () => copyText(booking.booking_code, 'Booking code copied'),
         }]
       : []),
   ]
 
   return (
-    <ContextMenu items={contextItems}>
-      <button
-        type="button"
-        onClick={onClick}
-        className={cn(
-          'relative w-full text-left rounded-md border bg-background py-2.5 pl-5 pr-3 min-w-0 transition-colors overflow-hidden',
-          isSelected ? 'border-primary ring-1 ring-primary/30' : 'border-border hover:bg-muted/40',
+    <ActivityRowShell barColor={CLEAN_COLOR} isSelected={isSelected} onClick={onClick} contextItems={contextItems}>
+      <div className="flex items-center gap-2 min-w-0">
+        <span className="text-[12px] font-semibold capitalize text-foreground truncate flex-1">{cleaning.type || 'Cleaning'}</span>
+        <span className="text-[10px] tabular-nums text-foreground flex-shrink-0">{formatDateShort(cleaning.scheduled_date)}</span>
+      </div>
+      <div className="mt-0.5 text-[11px] text-foreground truncate">
+        <span className="font-mono">{cleaning.cleaning_code || '—'}</span>
+        {' · '}
+        {booking?.booking_code ? (
+          <>
+            <span className="font-mono">{booking.booking_code}</span>
+            {booking.guest_name && <> · {booking.guest_name}</>}
+          </>
+        ) : (
+          'Standalone'
         )}
-      >
-        <span aria-hidden className="absolute top-0 bottom-0 left-0 w-[4px]" style={{ backgroundColor: '#10b981' }} />
-
-        <div className="flex items-center gap-2 min-w-0">
-          <span className="font-mono text-[11px] text-foreground flex-shrink-0">{cleaning.cleaning_code || '—'}</span>
-          <span className="text-xs font-semibold capitalize text-foreground truncate flex-1">{cleaning.type || '—'}</span>
-        </div>
-
-        <div className="mt-0.5 text-[10px] text-muted-foreground truncate">
-          {booking?.booking_code ? (
-            <>
-              <span className="font-mono">{booking.booking_code}</span>
-              {booking.guest_name && (
-                <>
-                  <span className="mx-1 text-muted-foreground/50">·</span>
-                  <span>{booking.guest_name}</span>
-                </>
-              )}
-            </>
-          ) : (
-            <span className="italic">Standalone</span>
-          )}
-        </div>
-
-        <div className="mt-1 flex items-center gap-2 text-[11px] text-muted-foreground min-w-0 flex-wrap">
-          <span className="tabular-nums">Housekeeper <span className="text-foreground font-semibold">{formatMoney(hk)}</span></span>
-          <span className="text-muted-foreground/50">·</span>
-          <span className="tabular-nums">Laundry <span className="text-foreground font-semibold">{formatMoney(laundry)}</span></span>
-        </div>
-      </button>
-    </ContextMenu>
+      </div>
+      <div className="mt-0.5 flex flex-wrap gap-x-3 text-[11px] text-foreground tabular-nums">
+        <span>Housekeeper <span className="font-semibold">{formatMoney(hk)}</span></span>
+        <span>Laundry <span className="font-semibold">{formatMoney(laundry)}</span></span>
+      </div>
+    </ActivityRowShell>
   )
 }
 
 // ─── Specific month section ────────────────────────────────
-function MiniStat({ label, value }) {
+function monthLabelLong(key) {
+  return monthKeyToDate(key).toLocaleDateString('en-PH', { month: 'long', year: 'numeric', timeZone: 'UTC' })
+}
+
+function DetailLine({ label, children, strong = false }) {
   return (
-    <motion.div
-      variants={{ hidden: { opacity: 0, y: 8 }, visible: { opacity: 1, y: 0, transition: { duration: 0.3 } } }}
-      className="rounded-md bg-card border border-border shadow-sm p-3"
-    >
-      <p className="text-[11px] font-bold uppercase tracking-wider text-foreground mb-1 truncate">{label}</p>
-      <p className="text-base font-bold tabular-nums text-foreground truncate">{formatMoney(value)}</p>
-    </motion.div>
+    <div className="flex items-baseline justify-between gap-4 py-0.5 text-[12px] min-w-0">
+      <span className="text-foreground flex-shrink-0">{label}</span>
+      <span className={cn('text-foreground tabular-nums truncate', strong ? 'font-bold' : 'font-semibold')}>{children}</span>
+    </div>
   )
 }
 
-function MiniSplitStat({ label, owner, company }) {
+function CloseButton({ onClick, label = 'Close' }) {
   return (
-    <motion.div
-      variants={{ hidden: { opacity: 0, y: 8 }, visible: { opacity: 1, y: 0, transition: { duration: 0.3 } } }}
-      className="rounded-md bg-card border border-border shadow-sm p-3"
-    >
-      <p className="text-[11px] font-bold uppercase tracking-wider text-foreground mb-1">{label}</p>
-      <div className="space-y-0.5">
-        <div className="flex items-center justify-between gap-2">
-          <span className="text-[11px] text-foreground">Owner</span>
-          <span className="text-xs font-bold tabular-nums text-foreground">{formatMoney(owner)}</span>
-        </div>
-        <div className="flex items-center justify-between gap-2">
-          <span className="text-[11px] text-foreground">Company</span>
-          <span className="text-xs font-bold tabular-nums text-foreground">{formatMoney(company)}</span>
-        </div>
-      </div>
-    </motion.div>
+    <button type="button" onClick={onClick} aria-label={label} title={label} className="p-1.5 rounded-md text-foreground hover:bg-muted/60 flex-shrink-0">
+      <X size={14} />
+    </button>
   )
+}
+
+const FOCUS_MOTION = {
+  initial: { opacity: 0, y: 8 },
+  animate: { opacity: 1, y: 0 },
+  exit: { opacity: 0, y: 8 },
+  transition: { duration: 0.2 },
 }
 
 function MonthlySection({
@@ -2489,7 +2625,6 @@ function MonthlySection({
   selectedMonth,
   onSelectMonth,
   contract,
-  cleanings,
   monthlyExpenses,
   onChanged,
   onStatementPatched,
@@ -2513,6 +2648,27 @@ function MonthlySection({
     const { nights, daysInMonth } = nightsInMonthFromBookings(statement.bookingsList, y, m, contract)
     return { pct: daysInMonth > 0 ? nights / daysInMonth : 0, nights, daysInMonth }
   }, [statement, contract])
+
+  const monthCounts = useMemo(() => {
+    if (!statement) return { bookings: 0, cancelled: 0, cleanings: 0 }
+    const cancelled = statement.bookingsList.filter((b) => b.cancelled_at).length
+    return {
+      bookings: statement.bookingsList.length - cancelled,
+      cancelled,
+      cleanings: statement.cleaningsList.length,
+    }
+  }, [statement])
+
+  // Trend lines over the six months up to this one; growth against the month before.
+  const monthTrend = useMemo(() => {
+    const idx = statements.findIndex((s) => s.month === selectedMonth)
+    if (idx < 0) return null
+    const pick = (s) => ({ gross: s.grossRevenue, expenses: s.totalExpenses, net: s.netProfit })
+    const recent = statements.slice(Math.max(0, idx - 5), idx + 1).map(pick)
+    const prev = idx > 0 ? statements[idx - 1] : null
+    const prevLabel = prev ? MONTHS_SHORT[Number(prev.month.split('-')[1]) - 1] : ''
+    return buildTrend(recent, pick(statements[idx]), prev ? pick(prev) : null, prevLabel)
+  }, [statements, selectedMonth])
 
   const defaultMonthKey = useMemo(() => {
     if (statements.length === 0) return selectedMonth
@@ -2611,110 +2767,88 @@ function MonthlySection({
     return allCleaningsSorted.find((c) => c.id === selectedCalendarId.id) || null
   }, [selectedCalendarId, allCleaningsSorted])
 
+  // One line under the month name that says what happened in it.
+  const monthSummary = statement
+    ? [
+        plural(monthCounts.bookings, 'booking', 'bookings'),
+        plural(monthCounts.cleanings, 'cleaning', 'cleanings'),
+        monthOccupancy && `${Math.round(monthOccupancy.pct * 100)}% occupied`,
+      ].filter(Boolean).join(' · ')
+    : 'Pick a month in the ledger or with the arrows'
+
+  const calendarSubtitle = (
+    <>
+      {plural(monthCounts.bookings, 'booking', 'bookings')} · {plural(monthCounts.cleanings, 'cleaning', 'cleanings')}
+      {monthCounts.cancelled > 0 && (
+        <> · <span className="font-semibold text-red-600 dark:text-red-400">{monthCounts.cancelled} cancelled</span></>
+      )}
+    </>
+  )
+
   return (
     <div className="space-y-4">
-      <MonthSelector options={options} selectedMonth={selectedMonth} onSelectMonth={onSelectMonth} />
+      <div className="flex flex-wrap items-end justify-between gap-3 pt-2">
+        <div className="min-w-0">
+          <h2 className="text-[18px] font-semibold text-foreground tracking-tight leading-tight">
+            {statement ? monthLabelLong(statement.month) : 'Month'}
+          </h2>
+          <p className="text-[12.5px] text-foreground mt-1 truncate">
+            {monthSummary}
+            {monthCounts.cancelled > 0 && (
+              <> · <span className="font-semibold text-red-600 dark:text-red-400">{monthCounts.cancelled} cancelled</span></>
+            )}
+          </p>
+        </div>
+        <MonthSelector options={options} selectedMonth={selectedMonth} onSelectMonth={onSelectMonth} />
+      </div>
 
       {!statement ? (
-        <CardBody><div className="p-4 text-xs text-muted-foreground italic">Select a month to view details</div></CardBody>
+        <Panel>
+          <EmptyState icon={CalendarDays} title="No month selected" hint="Pick a month in the ledger or with the arrows." />
+        </Panel>
       ) : (
         <>
-          <motion.div
-            initial="hidden"
-            animate="visible"
-            variants={{ hidden: {}, visible: { transition: { staggerChildren: 0.05 } } }}
-            className="grid grid-cols-2 lg:grid-cols-5 gap-3 pt-1 pb-2"
-          >
-            <MiniStat label="Gross Revenue" value={statement.grossRevenue} />
-            <MiniStat label="Total Expenses" value={statement.totalExpenses} />
-            <MiniStat label="Net Profit" value={statement.netProfit} />
-            <MiniStat label="PM Payout" value={Number(statement.pmShare) || 0} />
-            <MiniSplitStat label="Owner · Company" owner={statement.ownerShare} company={statement.companyShare} />
-          </motion.div>
+          <MoneyStrip
+            totals={{
+              gross: statement.grossRevenue,
+              expenses: statement.totalExpenses,
+              net: statement.netProfit,
+              owner: statement.ownerShare,
+              company: statement.companyShare,
+              pm: Number(statement.pmShare) || 0,
+            }}
+            grossSub={`${plural(monthCounts.bookings, 'booking', 'bookings')} this month`}
+            pmSub={statement.pmName ? `${statement.pmName} was active` : 'No PM this month'}
+            trend={monthTrend}
+          />
 
-          {statement.pmName && (
-            <div className="rounded-md bg-card border border-border shadow-sm p-3 flex items-center gap-3">
-              <User size={14} className="text-muted-foreground flex-shrink-0" />
-              <p className="text-xs text-foreground flex-1 truncate">
-                Property Manager <span className="font-semibold">{statement.pmName}</span> was active this month
-              </p>
-              <span className="text-xs font-semibold tabular-nums flex-shrink-0 text-foreground">
-                {formatMoney(statement.pmShare)}
-              </span>
-            </div>
-          )}
-
-          <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 items-stretch">
-            <div className="flex flex-col">
-              <div className="flex items-center gap-2 mb-2">
-                <Home size={16} className="text-foreground flex-shrink-0" />
-                <h3 className="text-base font-semibold text-foreground truncate">Month Occupancy</h3>
-              </div>
-              <CardBody className="flex-1">
-                <div className="p-3 h-full flex flex-col items-center justify-center gap-4">
-                  <HalfGauge
-                    pct={monthOccupancy?.pct || 0}
-                    sublabel={monthOccupancy ? `${monthOccupancy.nights} of ${monthOccupancy.daysInMonth} nights` : '—'}
-                  />
-                </div>
-              </CardBody>
-            </div>
-
-            <div className="grid grid-rows-2 gap-3">
-              <motion.div
-                initial={{ opacity: 0, y: 8 }}
-                animate={{ opacity: 1, y: 0 }}
-                transition={{ duration: 0.3 }}
-                className="rounded-md bg-card border border-border shadow-sm p-4 flex flex-col justify-between"
-              >
-                <div className="flex items-center gap-2 mb-2">
-                  <Home size={14} className="text-muted-foreground" />
-                  <span className="text-[11px] font-bold uppercase tracking-wider text-foreground">Total Bookings</span>
-                </div>
-                <div>
-                  <p className="text-3xl font-bold tabular-nums text-foreground">{statement.bookingsList.filter((b) => !b.cancelled_at).length}</p>
-                  <p className="text-[11px] text-muted-foreground mt-1">{formatMoney(statement.grossRevenue)} gross</p>
-                </div>
-              </motion.div>
-
-              <motion.div
-                initial={{ opacity: 0, y: 8 }}
-                animate={{ opacity: 1, y: 0 }}
-                transition={{ duration: 0.3, delay: 0.05 }}
-                className="rounded-md bg-card border border-border shadow-sm p-4 flex flex-col justify-between"
-              >
-                <div className="flex items-center gap-2 mb-2">
-                  <Sparkles size={14} className="text-muted-foreground" />
-                  <span className="text-[11px] font-bold uppercase tracking-wider text-foreground">Total Cleanings</span>
-                </div>
-                <div>
-                  <p className="text-3xl font-bold tabular-nums text-foreground">{statement.cleaningsList.length}</p>
-                  <p className="text-[11px] text-muted-foreground mt-1">
+          <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
+            <Panel>
+              <PanelHeader icon={Home} title="Month occupancy" subtitle={`${monthLabel(statement.month)} · nights booked`} />
+              <div className="flex-1 p-5 flex flex-col items-center justify-center gap-5">
+                <HalfGauge
+                  pct={monthOccupancy?.pct || 0}
+                  sublabel={monthOccupancy ? `${monthOccupancy.nights} of ${monthOccupancy.daysInMonth} nights` : '—'}
+                />
+                <div className="w-full grid grid-cols-2 gap-4 pt-4 border-t border-border">
+                  <SummaryStat label="Bookings" value={monthCounts.bookings}>
+                    {formatMoney(statement.grossRevenue)} gross
+                  </SummaryStat>
+                  <SummaryStat label="Cleanings" value={monthCounts.cleanings}>
                     {formatMoney(statement.housekeeping + statement.laundry)} paid
-                  </p>
+                  </SummaryStat>
                 </div>
-              </motion.div>
-            </div>
-          </div>
-
-          <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 items-stretch">
+              </div>
+            </Panel>
             <WeeklyOccupancyChart statement={statement} contract={contract} />
             <WeeklyCumulativeChart statement={statement} monthlyExpenses={monthlyExpenses} contract={contract} />
           </div>
 
-          <div className="grid grid-cols-1 lg:grid-cols-[2fr_1fr] gap-4">
-            <div ref={calendarRef} className="space-y-4 scroll-mt-4">
-              <div className="flex items-center justify-between gap-2 mb-2">
-                <h3 className="text-sm font-semibold text-foreground truncate">{monthLabel(statement.month)} Calendar</h3>
-                <span className="text-[11px] text-foreground tabular-nums">
-                  {statement.bookingsList.filter((b) => !b.cancelled_at).length} booking{statement.bookingsList.filter((b) => !b.cancelled_at).length === 1 ? '' : 's'} · {statement.cleaningsList.length} cleaning{statement.cleaningsList.length === 1 ? '' : 's'}
-                  {statement.bookingsList.filter((b) => b.cancelled_at).length > 0 && (
-                    <> · <span className="text-red-600 dark:text-red-400">{statement.bookingsList.filter((b) => b.cancelled_at).length} cancelled</span></>
-                  )}
-                </span>
-              </div>
-
+          <div className="grid grid-cols-1 lg:grid-cols-[minmax(0,2fr)_minmax(0,1fr)] gap-4">
+            <div ref={calendarRef} className="scroll-mt-4 min-w-0">
               <BookingCalendar
+                title={`${monthLabel(statement.month)} calendar`}
+                subtitle={calendarSubtitle}
                 month={statement.month}
                 bookings={statement.bookingsList}
                 cleanings={statement.cleaningsList}
@@ -2731,151 +2865,114 @@ function MonthlySection({
               />
             </div>
 
-            <div className="space-y-3">
-              <StatusTabs
-                tabs={[{ id: 'bookings', label: 'Bookings' }, { id: 'cleanings', label: 'Cleanings' }]}
-                value={listTab}
-                onChange={setListTab}
-                counts={{ bookings: allBookingsSorted.length, cleanings: allCleaningsSorted.length }}
-                label="Show bookings or cleanings"
-              />
-
-              {listTab === 'bookings' ? (
-                allBookingsSorted.length === 0 ? (
-                  <CardBody><div className="p-3 text-xs text-muted-foreground italic">No bookings on this contract</div></CardBody>
-                ) : (
-                  <div className="space-y-1.5 max-h-[520px] overflow-y-auto overscroll-contain pr-1">
-                    {allBookingsSorted.map((b) => {
-                      const isSelected = selectedCalendarId?.type === 'booking' && selectedCalendarId.id === b.id
-                      return (
+            <Panel>
+              <PanelHeader icon={CalendarRange} title="Bookings and cleanings" subtitle="Everything on this unit · click one to find it" />
+              <div className="px-5 py-3 border-b border-border">
+                <StatusTabs
+                  tabs={[{ id: 'bookings', label: 'Bookings' }, { id: 'cleanings', label: 'Cleanings' }]}
+                  value={listTab}
+                  onChange={setListTab}
+                  counts={{ bookings: allBookingsSorted.length, cleanings: allCleaningsSorted.length }}
+                  label="Show bookings or cleanings"
+                  fill
+                />
+              </div>
+              <div className="relative flex-1 min-h-[320px]">
+                <div className="max-h-[520px] lg:max-h-none lg:absolute lg:inset-0 overflow-y-auto overscroll-contain flex flex-col">
+                  {listTab === 'bookings' ? (
+                    allBookingsSorted.length === 0 ? (
+                      <EmptyState icon={Calendar} title="No bookings yet" hint="Bookings on this unit show here." />
+                    ) : (
+                      allBookingsSorted.map((b) => (
                         <AccountingBookingRow
                           key={b.id}
                           booking={b}
-                          isSelected={isSelected}
+                          isSelected={selectedCalendarId?.type === 'booking' && selectedCalendarId.id === b.id}
                           onClick={() => focusBooking(b)}
                         />
-                      )
-                    })}
-                  </div>
-                )
-              ) : (
-                allCleaningsSorted.length === 0 ? (
-                  <CardBody><div className="p-3 text-xs text-muted-foreground italic">No cleanings on this contract</div></CardBody>
-                ) : (
-                  <div className="space-y-1.5 max-h-[520px] overflow-y-auto overscroll-contain pr-1">
-                    {allCleaningsSorted.map((c) => {
-                      const isSelected = selectedCalendarId?.type === 'cleaning' && selectedCalendarId.id === c.id
-                      return (
-                        <AccountingCleaningRow
-                          key={c.id}
-                          cleaning={c}
-                          isSelected={isSelected}
-                          onClick={() => focusCleaning(c)}
-                        />
-                      )
-                    })}
-                  </div>
-                )
-              )}
-            </div>
+                      ))
+                    )
+                  ) : allCleaningsSorted.length === 0 ? (
+                    <EmptyState icon={Sparkles} title="No cleanings yet" hint="Cleanings on this unit show here." />
+                  ) : (
+                    allCleaningsSorted.map((c) => (
+                      <AccountingCleaningRow
+                        key={c.id}
+                        cleaning={c}
+                        isSelected={selectedCalendarId?.type === 'cleaning' && selectedCalendarId.id === c.id}
+                        onClick={() => focusCleaning(c)}
+                      />
+                    ))
+                  )}
+                </div>
+              </div>
+            </Panel>
           </div>
 
           <AnimatePresence initial={false}>
             {focusedBooking && (
-              <motion.div
-                key={`booking-${focusedBooking.id}`}
-                initial={{ opacity: 0, y: 8 }}
-                animate={{ opacity: 1, y: 0 }}
-                exit={{ opacity: 0, y: 8 }}
-                transition={{ duration: 0.2 }}
-                className="rounded-md bg-card border border-border shadow-sm p-3"
-              >
-                <div className="flex items-center justify-between gap-2 mb-2">
-                  <div className="min-w-0">
-                    <p className="font-mono text-xs font-bold text-foreground truncate">{focusedBooking.booking_code}</p>
-                    <p className="text-[11px] text-muted-foreground truncate">{focusedBooking.guest_name}</p>
-                  </div>
-                  <button type="button" onClick={clearFocus} className="p-1 rounded hover:bg-muted text-muted-foreground flex-shrink-0">
-                    <X size={12} />
-                  </button>
-                </div>
-
-                {focusedBooking.cancelled_at && (
-                  <div className="mb-2 rounded-md bg-red-500/10 border border-red-500/30 p-2">
-                    <p className="text-[10px] font-bold uppercase tracking-wider text-red-600 dark:text-red-400">
-                      Cancelled
+              <motion.div key={`booking-${focusedBooking.id}`} {...FOCUS_MOTION}>
+                <Panel>
+                  <PanelHeader
+                    icon={Calendar}
+                    title={focusedBooking.guest_name || focusedBooking.booking_code}
+                    subtitle={<span className="font-mono">{focusedBooking.booking_code}</span>}
+                    action={<CloseButton onClick={clearFocus} />}
+                  />
+                  {focusedBooking.cancelled_at && (
+                    <p className="px-5 pt-3 text-[12px] text-foreground break-words">
+                      <span className="font-semibold text-red-600 dark:text-red-400">Cancelled</span>
+                      {focusedBooking.cancelled_reason && <> · {focusedBooking.cancelled_reason}</>}
                     </p>
-                    {focusedBooking.cancelled_reason && (
-                      <p className="text-[10px] text-red-700/80 dark:text-red-400/80 mt-0.5 break-words">
-                        {focusedBooking.cancelled_reason}
-                      </p>
+                  )}
+                  <div className="px-5 py-3 grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-x-10">
+                    <DetailLine label="Check-in">{formatDateLong(focusedBooking.check_in)}</DetailLine>
+                    <DetailLine label="Check-out">{formatDateLong(focusedBooking.check_out)}</DetailLine>
+                    <DetailLine label="Guests">{focusedBooking.guests || 1}</DetailLine>
+                    <DetailLine label="Total">{formatMoney(focusedBooking.total_amount)}</DetailLine>
+                    <DetailLine label="Payment"><span className="capitalize">{focusedBooking.payment_status || '—'}</span></DetailLine>
+                    {Number(focusedBooking.booker_commission || 0) > 0 && (
+                      <DetailLine label="Booker commission">{formatMoney(focusedBooking.booker_commission)}</DetailLine>
+                    )}
+                    {Number(focusedBooking.affiliate_commission || 0) > 0 && (
+                      <DetailLine label="Affiliate commission">{formatMoney(focusedBooking.affiliate_commission)}</DetailLine>
                     )}
                   </div>
-                )}
-
-                <div className="space-y-0.5">
-                  <div className="flex justify-between text-[11px]"><span className="text-foreground">Check-in</span><span className="tabular-nums text-foreground font-semibold">{focusedBooking.check_in}</span></div>
-                  <div className="flex justify-between text-[11px]"><span className="text-foreground">Check-out</span><span className="tabular-nums text-foreground font-semibold">{focusedBooking.check_out}</span></div>
-                  <div className="flex justify-between text-[11px]"><span className="text-foreground">Total</span><span className="tabular-nums text-foreground font-semibold">{formatMoney(focusedBooking.total_amount)}</span></div>
-                  <div className="flex justify-between text-[11px]"><span className="text-foreground">Guests</span><span className="tabular-nums text-foreground font-semibold">{focusedBooking.guests || 1}</span></div>
-                  <div className="flex justify-between text-[11px]"><span className="text-foreground">Payment</span><span className="text-foreground font-semibold capitalize">{focusedBooking.payment_status || '—'}</span></div>
-                  {Number(focusedBooking.booker_commission || 0) > 0 && (
-                    <div className="flex justify-between text-[11px]"><span className="text-foreground">Booker commission</span><span className="tabular-nums text-foreground font-semibold">{formatMoney(focusedBooking.booker_commission)}</span></div>
-                  )}
-                  {Number(focusedBooking.affiliate_commission || 0) > 0 && (
-                    <div className="flex justify-between text-[11px]"><span className="text-foreground">Affiliate commission</span><span className="tabular-nums text-foreground font-semibold">{formatMoney(focusedBooking.affiliate_commission)}</span></div>
-                  )}
-                </div>
+                </Panel>
               </motion.div>
             )}
 
             {focusedCleaning && (
-              <motion.div
-                key={`cleaning-${focusedCleaning.id}`}
-                initial={{ opacity: 0, y: 8 }}
-                animate={{ opacity: 1, y: 0 }}
-                exit={{ opacity: 0, y: 8 }}
-                transition={{ duration: 0.2 }}
-                className="rounded-md bg-card border border-border shadow-sm p-3"
-              >
-                <div className="flex items-center justify-between gap-2 mb-2">
-                  <div className="min-w-0">
-                    <p className="font-mono text-xs font-bold text-foreground truncate">{focusedCleaning.cleaning_code || '—'}</p>
-                    <p className="text-[11px] text-muted-foreground capitalize truncate">{focusedCleaning.type || 'cleaning'}</p>
-                  </div>
-                  <button type="button" onClick={clearFocus} className="p-1 rounded hover:bg-muted text-muted-foreground flex-shrink-0">
-                    <X size={12} />
-                  </button>
-                </div>
-
-                {focusedCleaning.bookings?.booking_code && (
-                  <div className="mb-2 text-[10px] text-muted-foreground truncate">
-                    From booking{' '}
-                    <span className="font-mono font-semibold text-foreground">
-                      {focusedCleaning.bookings.booking_code}
-                    </span>
-                    {focusedCleaning.bookings.guest_name && (
+              <motion.div key={`cleaning-${focusedCleaning.id}`} {...FOCUS_MOTION}>
+                <Panel>
+                  <PanelHeader
+                    icon={Sparkles}
+                    title={<span className="capitalize">{focusedCleaning.type || 'Cleaning'}</span>}
+                    subtitle={
                       <>
-                        <span className="mx-1 text-muted-foreground/50">·</span>
-                        <span>{focusedCleaning.bookings.guest_name}</span>
+                        <span className="font-mono">{focusedCleaning.cleaning_code || '—'}</span>
+                        {focusedCleaning.bookings?.booking_code && (
+                          <>
+                            {' · from '}
+                            <span className="font-mono">{focusedCleaning.bookings.booking_code}</span>
+                            {focusedCleaning.bookings.guest_name && <> · {focusedCleaning.bookings.guest_name}</>}
+                          </>
+                        )}
                       </>
-                    )}
-                  </div>
-                )}
-
-                <div className="space-y-0.5">
-                  <div className="flex justify-between text-[11px]"><span className="text-foreground">Scheduled</span><span className="tabular-nums text-foreground font-semibold">{focusedCleaning.scheduled_date}</span></div>
-                  <div className="flex justify-between text-[11px]"><span className="text-foreground">Window</span><span className="text-foreground font-semibold">{CLEANING_WINDOW.label}</span></div>
-                  <div className="flex justify-between text-[11px]"><span className="text-foreground">Status</span><span className="text-foreground font-semibold capitalize">{focusedCleaning.status || '—'}</span></div>
-                  <div className="flex justify-between text-[11px]"><span className="text-foreground">Housekeeper</span><span className="text-foreground font-semibold tabular-nums">{formatMoney(focusedCleaning.payment_amount || 0)}</span></div>
-                  <div className="flex justify-between text-[11px]"><span className="text-foreground">Laundry</span><span className="text-foreground font-semibold tabular-nums">{formatMoney(focusedCleaning.laundry_payment_amount || 0)}</span></div>
-                  <div className="flex justify-between text-[11px] pt-1 border-t border-border mt-1">
-                    <span className="text-foreground font-semibold">Total cost</span>
-                    <span className="text-foreground font-bold tabular-nums">
+                    }
+                    action={<CloseButton onClick={clearFocus} />}
+                  />
+                  <div className="px-5 py-3 grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-x-10">
+                    <DetailLine label="Scheduled">{formatDateLong(focusedCleaning.scheduled_date)}</DetailLine>
+                    <DetailLine label="Window">{CLEANING_WINDOW.label}</DetailLine>
+                    <DetailLine label="Status"><span className="capitalize">{focusedCleaning.status || '—'}</span></DetailLine>
+                    <DetailLine label="Housekeeper">{formatMoney(focusedCleaning.payment_amount || 0)}</DetailLine>
+                    <DetailLine label="Laundry">{formatMoney(focusedCleaning.laundry_payment_amount || 0)}</DetailLine>
+                    <DetailLine label="Total cost" strong>
                       {formatMoney((focusedCleaning.payment_amount || 0) + (focusedCleaning.laundry_payment_amount || 0))}
-                    </span>
+                    </DetailLine>
                   </div>
-                </div>
+                </Panel>
               </motion.div>
             )}
           </AnimatePresence>
@@ -2893,7 +2990,7 @@ function MonthlySection({
 }
 
 // ─── Contract detail ────────────────────────────────────────
-const ContractDetail = memo(function ContractDetail({ contract, onBack, onChanged }) {
+const ContractDetail = memo(function ContractDetail({ contract, terms = [], lifetimeMap, onSelectContract, onBack, onChanged }) {
   const [bookings, setBookings] = useState([])
   const [cleanings, setCleanings] = useState([])
   const [monthlyExpenses, setMonthlyExpenses] = useState([])
@@ -3173,72 +3270,58 @@ const ContractDetail = memo(function ContractDetail({ contract, onBack, onChange
     }
   }, [onChanged])
 
+  const header = (
+    <>
+      <DetailHeader contract={contract} terms={terms} onSelectContract={onSelectContract} onBack={onBack} />
+      {terms.length > 1 && (
+        <AllTermsCard terms={terms} currentId={contract.id} lifetimeMap={lifetimeMap} onSelectContract={onSelectContract} />
+      )}
+    </>
+  )
+
   if ((loading || statementsLoading) && statements.length === 0) {
     return (
-      <div className="h-full flex flex-col lg:flex-row min-h-0 overflow-hidden">
-        <div className="h-full overflow-y-auto flex-shrink-0">
-          <ContractSidebar contract={contract} onBack={onBack} />
-        </div>
-        <div className="flex-1 min-h-0 flex items-center justify-center">
-          <Loader2 size={28} className="animate-spin text-primary" />
+      <div className="h-full overflow-y-auto">
+        <div className={PAGE}>
+          {header}
+          <div className="py-24 flex items-center justify-center">
+            <Loader2 size={24} className="animate-spin text-foreground" />
+          </div>
         </div>
       </div>
     )
   }
 
   return (
-    <div className="h-full flex flex-col lg:flex-row min-h-0 overflow-hidden">
-      <div className="h-full overflow-y-auto flex-shrink-0">
-        <ContractSidebar contract={contract} onBack={onBack} />
-      </div>
+    <div className="h-full overflow-y-auto">
+      <div className={PAGE}>
+        {header}
 
-      <div className="flex-1 min-h-0 overflow-y-auto p-4 space-y-5">
-        <section>
-          <div className="flex items-center gap-2 mb-2">
-            <BarChart3 size={16} className="text-foreground flex-shrink-0" />
-            <h2 className="text-sm font-bold text-foreground uppercase tracking-wide">General Statistics</h2>
-          </div>
-          <div className="flex items-center justify-center mb-3">
-            <YearNav
-              yearSections={yearSections}
-              selectedYear={selectedYear}
-              onSelectYear={setSelectedYear}
-            />
-          </div>
-          <GeneralStatistics
-            lifetime={lifetime}
-            statements={statements}
-            yearSections={yearSections}
-            selectedYear={selectedYear}
-            onSelectYear={setSelectedYear}
-            contract={contract}
-            bookings={bookings}
-          />
-        </section>
+        <GeneralStatistics
+          lifetime={lifetime}
+          statements={statements}
+          yearSections={yearSections}
+          selectedYear={selectedYear}
+          onSelectYear={setSelectedYear}
+          contract={contract}
+          bookings={bookings}
+        />
 
-        <section>
-          <SectionHeader icon={Calendar} title="Monthly Ledger" />
-          <MonthlyLedger
-            statements={statements}
-            selectedMonth={selectedMonth}
-            onSelectMonth={handleJumpToMonth}
-          />
-        </section>
+        <MonthlyLedger
+          statements={statements}
+          selectedMonth={selectedMonth}
+          onSelectMonth={handleJumpToMonth}
+        />
 
         <section ref={monthSectionRef} className="scroll-mt-4">
-          <SectionHeader icon={Calendar} title="Specific Month" />
           <MonthlySection
             statements={statements}
             selectedMonth={selectedMonth}
             onSelectMonth={setSelectedMonth}
             contract={contract}
-            cleanings={cleanings}
             monthlyExpenses={monthlyExpenses}
             onChanged={handleChanged}
             onStatementPatched={handleStatementPatched}
-            yearSections={yearSections}
-            selectedYear={selectedYear}
-            onSelectYear={setSelectedYear}
             allBookings={bookings}
             allCleanings={cleanings}
           />
@@ -3248,195 +3331,286 @@ const ContractDetail = memo(function ContractDetail({ contract, onBack, onChange
   )
 })
 
-// ─── Pagination ─────────────────────────────────────────────
-function Pagination({ page, totalPages, onPageChange }) {
-  if (totalPages <= 1) return null
-  const pages = []
-  const maxVisible = 5
-  let start = Math.max(1, page - Math.floor(maxVisible / 2))
-  let end = Math.min(totalPages, start + maxVisible - 1)
-  if (end - start < maxVisible - 1) start = Math.max(1, end - maxVisible + 1)
-  for (let i = start; i <= end; i++) pages.push(i)
+// Back button, unit and status, with the contract's facts on one line —
+// laid out like the Dashboard's greeting.
+function DetailHeader({ contract, terms = [], onSelectContract, onBack }) {
+  const navigate = useNavigate()
+  const termIndex = terms.findIndex((t) => t.id === contract.id)
+  const previousTerm = termIndex > 0 ? terms[termIndex - 1] : null
+  const nextTerm = termIndex >= 0 && termIndex < terms.length - 1 ? terms[termIndex + 1] : null
+  const facts = [
+    contract.units?.building,
+    contract.contract_code,
+    contract.owners?.name || 'No owner',
+    `${formatDateShort(contract.effective_date)} → ${contract.expiry_date ? formatDateShort(contract.expiry_date) : 'open-ended'}`,
+  ].filter(Boolean).join(' · ')
   return (
-    <div className="flex items-center justify-center gap-1 pt-3">
-      <button
-        type="button"
-        onClick={() => onPageChange(Math.max(1, page - 1))}
-        disabled={page === 1}
-        className={cn('p-1.5 rounded border border-border', page === 1 ? 'opacity-40 cursor-not-allowed' : 'hover:bg-muted text-foreground')}
-      >
-        <ChevronLeft size={13} />
-      </button>
-      {start > 1 && (
-        <>
-          <button
-            type="button"
-            onClick={() => onPageChange(1)}
-            className="px-3 py-1 rounded text-xs font-semibold text-foreground hover:bg-muted"
-          >
-            1
-          </button>
-          {start > 2 && <span className="text-xs text-muted-foreground px-1">…</span>}
-        </>
-      )}
-      {pages.map((p) => (
+    <div className="flex flex-wrap items-end justify-between gap-3">
+      <div className="flex items-start gap-3 min-w-0">
         <button
-          key={p}
           type="button"
-          onClick={() => onPageChange(p)}
-          className={cn(
-            'min-w-[32px] px-2.5 py-1 rounded text-xs font-semibold tabular-nums transition-colors',
-            p === page ? 'text-white' : 'text-foreground hover:bg-muted',
-          )}
-          style={p === page ? { backgroundColor: BRAND } : undefined}
+          onClick={onBack}
+          aria-label="Back to all contracts"
+          title="Back to all contracts"
+          className="mt-0.5 inline-flex items-center justify-center w-8 h-8 rounded-md border border-border bg-card text-foreground shadow-sm hover:bg-muted/50 transition-colors flex-shrink-0"
         >
-          {p}
+          <ChevronLeft size={16} />
         </button>
-      ))}
-      {end < totalPages && (
-        <>
-          {end < totalPages - 1 && <span className="text-xs text-muted-foreground px-1">…</span>}
-          <button
-            type="button"
-            onClick={() => onPageChange(totalPages)}
-            className="px-3 py-1 rounded text-xs font-semibold text-foreground hover:bg-muted"
-          >
-            {totalPages}
-          </button>
-        </>
-      )}
-      <button
-        type="button"
-        onClick={() => onPageChange(Math.min(totalPages, page + 1))}
-        disabled={page === totalPages}
-        className={cn('p-1.5 rounded border border-border', page === totalPages ? 'opacity-40 cursor-not-allowed' : 'hover:bg-muted text-foreground')}
-      >
-        <ChevronRight size={13} />
-      </button>
+        <div className="min-w-0">
+          <div className="flex items-center gap-3 flex-wrap">
+            <h1 className="text-[22px] font-semibold text-foreground tracking-tight leading-tight">{contract.units?.unit_code || '—'}</h1>
+            <StatusText status={deriveContractStatus(contract)} className="text-[12px]" />
+            {terms.length > 1 && termIndex >= 0 && (
+              <span className="text-[12px] font-medium text-foreground">Term {termIndex + 1} of {terms.length}</span>
+            )}
+          </div>
+          <p className="text-[12.5px] text-foreground mt-1 truncate">{facts}</p>
+        </div>
+      </div>
+      <div className="flex flex-wrap items-center gap-2">
+        {terms.length > 1 && (
+          <PeriodStepper
+            label={`Term ${termIndex + 1}`}
+            canPrev={!!previousTerm}
+            canNext={!!nextTerm}
+            onPrev={() => previousTerm && onSelectContract?.(previousTerm.id)}
+            onNext={() => nextTerm && onSelectContract?.(nextTerm.id)}
+            prevLabel="Previous term"
+            nextLabel="Next term"
+            minWidth={60}
+          />
+        )}
+        <button
+          type="button"
+          onClick={() => navigate(`/admin?tab=contracts&contract=${contract.id}`)}
+          className="inline-flex items-center gap-1.5 h-8 px-3 rounded-md border border-border bg-card text-[12px] font-medium text-foreground shadow-sm hover:bg-muted/50 transition-colors"
+          title="Open this contract, its PDF and notes"
+        >
+          <FileText size={13} />
+          See in Contracts
+        </button>
+        <StatementActions key={contract.id} contract={contract} compact />
+      </div>
     </div>
   )
 }
 
-// ─── Multi-metric analytics chart ───────────────────────────
-const MultiMetricChart = memo(function MultiMetricChart({
-  title,
-  icon: Icon,
-  data,
-  loading,
-  solidKey,
-  secondaryKeys,
-}) {
-  const chartData = useMemo(
-    () =>
-      (data || []).map((r) => ({
-        label: MONTHS_SHORT[new Date(`${r.month_start}T00:00:00Z`).getUTCMonth()],
-        gross: Number(r.gross || 0),
-        expenses: Number(r.expenses || 0),
-        net: Number(r.net || 0),
-      })),
-    [data],
-  )
+// Every term of a renewed contract, with each term's lifetime figures and the
+// total across them. Each term keeps its own figures; this only adds them up.
+const TERMS_ROW = 'grid grid-cols-[64px_minmax(0,1.3fr)_minmax(0,1.2fr)_minmax(0,1fr)_minmax(0,1fr)_minmax(0,1fr)_84px] gap-4 items-center'
 
-  const gradientId = `gradient-${solidKey}`
+function AllTermsCard({ terms, currentId, lifetimeMap, onSelectContract }) {
+  const figures = (t) => lifetimeMap?.get(t.id) || { gross: 0, expenses: 0, net: 0 }
+  const total = terms.reduce((acc, t) => {
+    const f = figures(t)
+    return { gross: acc.gross + Number(f.gross || 0), expenses: acc.expenses + Number(f.expenses || 0), net: acc.net + Number(f.net || 0) }
+  }, { gross: 0, expenses: 0, net: 0 })
+  return (
+    <Panel>
+      <PanelHeader
+        icon={History}
+        title="All terms"
+        subtitle={`${terms.length} contracts on this unit, renewed one after another · ${formatDateShort(terms[0].effective_date)} → ${terms[terms.length - 1].expiry_date ? formatDateShort(terms[terms.length - 1].expiry_date) : 'open-ended'}`}
+        count={terms.length}
+      />
+      <div className="overflow-x-auto">
+        <div className="min-w-[720px]">
+          <div className={cn(TERMS_ROW, 'px-5 py-2.5 border-b border-border text-[11px] font-semibold text-foreground')}>
+            <span>Term</span>
+            <span>Contract</span>
+            <span>Dates</span>
+            <span className="text-right">Gross</span>
+            <span className="text-right">Expenses</span>
+            <span className="text-right">Net</span>
+            <span className="text-right">Status</span>
+          </div>
+          {terms.map((t, i) => {
+            const f = figures(t)
+            const isCurrent = t.id === currentId
+            return (
+              <button
+                key={t.id}
+                type="button"
+                onClick={() => !isCurrent && onSelectContract?.(t.id)}
+                aria-current={isCurrent ? 'true' : undefined}
+                className={cn(
+                  TERMS_ROW,
+                  'w-full text-left px-5 py-2.5 border-b border-border text-[12px] tabular-nums transition-colors',
+                  isCurrent ? 'bg-brand-solid/10' : 'hover:bg-muted/40 cursor-pointer',
+                )}
+              >
+                <span className={cn('font-semibold', isCurrent ? 'text-brand' : 'text-foreground')}>Term {i + 1}</span>
+                <span className="font-mono font-semibold text-foreground truncate">{t.contract_code || '—'}</span>
+                <span className="text-foreground truncate">{formatDateShort(t.effective_date)} → {t.expiry_date ? formatDateShort(t.expiry_date) : 'open'}</span>
+                <span className="text-right text-foreground">{formatMoney(f.gross)}</span>
+                <span className="text-right text-foreground">{formatMoney(f.expenses)}</span>
+                <span className={cn('text-right font-semibold', moneyTone(f.net))}>{formatMoney(f.net)}</span>
+                <span className="flex justify-end"><StatusText status={deriveContractStatus(t)} /></span>
+              </button>
+            )
+          })}
+          <div className={cn(TERMS_ROW, 'px-5 py-2.5 text-[12px] font-semibold tabular-nums text-foreground')}>
+            <span>All terms</span>
+            <span />
+            <span />
+            <span className="text-right">{formatMoney(total.gross)}</span>
+            <span className="text-right">{formatMoney(total.expenses)}</span>
+            <span className={cn('text-right', moneyTone(total.net))}>{formatMoney(total.net)}</span>
+            <span />
+          </div>
+        </div>
+      </div>
+    </Panel>
+  )
+}
+
+// ─── Year performance (list page) ───────────────────────────
+const METRICS = {
+  gross:    { label: 'Gross',    note: 'Booking revenue by month' },
+  expenses: { label: 'Expenses', note: 'Commissions, cleaning and bills by month' },
+  net:      { label: 'Net',      note: 'Gross minus expenses by month' },
+}
+
+// RPC rows → Jan..Dec, with numbers (months without activity are zero).
+function toYearMonths(rows) {
+  const out = MONTHS_SHORT.map((label, i) => ({ month: i, label, gross: 0, expenses: 0, net: 0, pm: 0 }))
+  for (const r of rows || []) {
+    const i = new Date(`${String(r.month_start).slice(0, 10)}T00:00:00Z`).getUTCMonth()
+    if (!Number.isFinite(i) || !out[i]) continue
+    out[i] = {
+      ...out[i],
+      gross: Number(r.gross || 0),
+      expenses: Number(r.expenses || 0),
+      net: Number(r.net || 0),
+      pm: Number(r.pm_share || 0),
+    }
+  }
+  return out
+}
+
+// The table twin of the chart — every value readable without hovering.
+function YearTable({ data }) {
+  const totals = data.reduce(
+    (t, r) => ({ gross: t.gross + r.gross, expenses: t.expenses + r.expenses, net: t.net + r.net, pm: t.pm + r.pm }),
+    { gross: 0, expenses: 0, net: 0, pm: 0 },
+  )
+  return (
+    <div className="overflow-x-auto">
+      <table className="w-full text-[12px]">
+        <thead>
+          <tr className="text-left text-foreground border-b border-border">
+            <th className="font-medium py-2 pr-4">Month</th>
+            <th className="font-medium py-2 pr-4 text-right">Gross</th>
+            <th className="font-medium py-2 pr-4 text-right">Expenses</th>
+            <th className="font-medium py-2 pr-4 text-right">Net</th>
+            <th className="font-medium py-2 text-right">PM payout</th>
+          </tr>
+        </thead>
+        <tbody className="tabular-nums">
+          {data.map((r) => (
+            <tr key={r.month} className="border-b border-border/60 last:border-0 text-foreground">
+              <td className="py-1.5 pr-4">{r.label}</td>
+              <td className="py-1.5 pr-4 text-right">{formatMoney(r.gross)}</td>
+              <td className="py-1.5 pr-4 text-right">{formatMoney(r.expenses)}</td>
+              <td className={cn('py-1.5 pr-4 text-right', moneyTone(r.net))}>{formatMoney(r.net)}</td>
+              <td className="py-1.5 text-right">{r.pm > 0 ? formatMoney(r.pm) : '—'}</td>
+            </tr>
+          ))}
+        </tbody>
+        <tfoot className="tabular-nums">
+          <tr className="border-t border-border font-semibold text-foreground">
+            <td className="py-2 pr-4">Total</td>
+            <td className="py-2 pr-4 text-right">{formatMoney(totals.gross)}</td>
+            <td className="py-2 pr-4 text-right">{formatMoney(totals.expenses)}</td>
+            <td className={cn('py-2 pr-4 text-right', moneyTone(totals.net))}>{formatMoney(totals.net)}</td>
+            <td className="py-2 text-right">{totals.pm > 0 ? formatMoney(totals.pm) : '—'}</td>
+          </tr>
+        </tfoot>
+      </table>
+    </div>
+  )
+}
+
+function YearPerformanceCard({ year, rows, loading, error, onRetry }) {
+  const [metric, setMetric] = useState('gross')
+  const [view, setView] = useState('chart')
+  const data = useMemo(() => toYearMonths(rows), [rows])
+  // First load shows a skeleton; later refetches hold the old render, dimmed.
+  const firstLoad = loading && rows.length === 0
 
   return (
-    <section className="flex flex-col min-h-0">
-      <div className="flex items-center gap-2 mb-2">
-        {Icon && <Icon size={13} className="text-foreground flex-shrink-0" />}
-        <h3 className="text-[11px] font-semibold uppercase tracking-wider text-foreground truncate">{title}</h3>
-      </div>
-      <div className="rounded-md bg-card border border-border shadow-sm overflow-hidden flex-1 min-h-0">
-        <div className="h-[260px] p-3">
-          {loading ? (
-            <div className="h-full w-full rounded bg-muted/50 animate-pulse" />
-          ) : chartData.length === 0 ? (
-            <div className="h-full flex items-center justify-center text-xs text-muted-foreground italic">No data</div>
-          ) : (
-            <LazyChart minHeight={236}>
-              <ResponsiveContainer width="100%" height={236} debounce={100}>
-                <AreaChart data={chartData} margin={{ top: 6, right: 6, left: -12, bottom: 0 }}>
-                  <defs>
-                    <linearGradient id={gradientId} x1="0" y1="0" x2="0" y2="1">
-                      <stop offset="0%" stopColor={CHART} stopOpacity={0.4} />
-                      <stop offset="60%" stopColor={CHART} stopOpacity={0.12} />
-                      <stop offset="100%" stopColor={CHART} stopOpacity={0} />
-                    </linearGradient>
-                  </defs>
-                  <CartesianGrid strokeDasharray="3 3" stroke="currentColor" strokeOpacity={0.1} vertical={false} />
-                  <XAxis dataKey="label" tick={{ fontSize: 10 }} stroke="currentColor" strokeOpacity={0.4} tickLine={false} axisLine={false} interval={0} />
-                  <YAxis
-                    tick={{ fontSize: 10 }}
-                    tickFormatter={formatMoneyCompact}
-                    stroke="currentColor"
-                    strokeOpacity={0.4}
-                    tickLine={false}
-                    axisLine={false}
-                    width={56}
-                  />
-                  <Tooltip content={<ChartTooltip />} animationDuration={0} cursor={{ stroke: CHART, strokeOpacity: 0.2 }} />
-                  <Area
-                    type="monotone"
-                    dataKey={solidKey}
-                    stroke={CHART}
-                    strokeWidth={2.5}
-                    fill={`url(#${gradientId})`}
-                    dot={false}
-                    activeDot={{ r: 4, fill: CHART }}
-                    isAnimationActive={false}
-                  />
-                  {secondaryKeys.map((k) => (
-                    <Area
-                      key={k}
-                      type="monotone"
-                      dataKey={k}
-                      stroke={CHART}
-                      strokeWidth={1.5}
-                      strokeDasharray="4 4"
-                      strokeOpacity={0.55}
-                      fill="transparent"
-                      fillOpacity={0}
-                      dot={false}
-                      activeDot={false}
-                      isAnimationActive={false}
+    <Panel>
+      <CardHead icon={BarChart3} title="Performance" subtitle={`${year} · all contracts`}>
+        <StatusTabs
+          tabs={Object.entries(METRICS).map(([id, m]) => ({ id, label: m.label }))}
+          value={metric}
+          onChange={setMetric}
+          label="Chart metric"
+        />
+        <ViewToggle view={view} onChange={setView} />
+      </CardHead>
+
+      {error ? (
+        <div className="flex-1 flex flex-col items-center justify-center py-12 px-4 text-center">
+          <AlertTriangle size={22} strokeWidth={1.75} className="text-foreground mb-2" />
+          <p className="text-[12px] font-semibold text-foreground">Couldn't load {year}'s figures</p>
+          <p className="text-[11px] text-foreground mt-0.5 max-w-sm break-words">{error}</p>
+          <button
+            type="button"
+            onClick={onRetry}
+            className="mt-3 inline-flex items-center gap-1.5 h-8 px-3 rounded-md text-xs font-semibold text-white bg-brand-solid hover:bg-brand-solid/90"
+          >
+            <RefreshCw size={13} /> Try again
+          </button>
+        </div>
+      ) : firstLoad ? (
+        <div className="p-5">
+          <div className="h-[278px] rounded-md bg-muted/60 animate-pulse" />
+        </div>
+      ) : (
+        <div className={cn('p-5 transition-opacity', loading && 'opacity-50')}>
+          <p className="text-[12px] font-medium text-foreground">
+            {view === 'chart' ? METRICS[metric].label : 'Monthly breakdown'}
+            <span className="font-normal"> · {view === 'chart' ? METRICS[metric].note : year}</span>
+          </p>
+          {view === 'chart' ? (
+            <div className="h-[260px] mt-3 -ml-2 text-foreground">
+              <LazyChart minHeight={260}>
+                <ResponsiveContainer width="100%" height={260} debounce={100}>
+                  <BarChart data={data} margin={{ top: 8, right: 8, left: 0, bottom: 0 }} barCategoryGap="30%">
+                    <CartesianGrid {...GRID} />
+                    <XAxis dataKey="label" {...X_AXIS} interval={0} />
+                    <YAxis
+                      {...Y_AXIS}
+                      width={56}
+                      tickFormatter={formatMoneyCompact}
+                      domain={[(dataMin) => Math.min(0, dataMin), 'auto']}
                     />
-                  ))}
-                </AreaChart>
-              </ResponsiveContainer>
-            </LazyChart>
+                    <Tooltip content={<ChartTooltip highlight={metric} />} animationDuration={0} cursor={{ fill: 'currentColor', fillOpacity: 0.04 }} />
+                    <Bar dataKey={metric} fill={CHART} radius={[4, 4, 0, 0]} maxBarSize={24} isAnimationActive={false}>
+                      {/* Net bars show profit in green and loss in red. */}
+                      {metric === 'net' && data.map((d) => (
+                        <Cell key={d.month} fill={d.net < 0 ? LOSS_COLOR : PROFIT_COLOR} />
+                      ))}
+                    </Bar>
+                  </BarChart>
+                </ResponsiveContainer>
+              </LazyChart>
+            </div>
+          ) : (
+            <div className="mt-3">
+              <YearTable data={data} />
+            </div>
           )}
         </div>
-      </div>
-    </section>
-  )
-})
-
-function AccountingAnalyticsPanels({ data, loading, collapsed, error, onRetry }) {
-  return (
-    <div className={cn(
-      'flex-shrink-0 flex flex-col gap-3 transition-all duration-300 ease-out overflow-hidden',
-      collapsed ? 'max-h-0 opacity-0' : 'max-h-[420px] opacity-100',
-    )}>
-      {error && (
-        <div className="rounded-md border border-red-200 dark:border-red-900/40 bg-red-50 dark:bg-red-950/20 p-3 flex items-center justify-between gap-3">
-          <div className="min-w-0">
-            <p className="text-xs font-semibold text-red-700 dark:text-red-400">Failed to load analytics</p>
-            <p className="text-[11px] text-red-600/80 dark:text-red-400/80 truncate">{error}</p>
-          </div>
-          <Button size="sm" variant="outline" className="h-7 rounded text-[11px] shrink-0" onClick={onRetry}>
-            Retry
-          </Button>
-        </div>
       )}
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 pt-1 pb-2">
-        <MultiMetricChart title="Gross"    icon={TrendingUp} data={data} loading={loading} solidKey="gross"    secondaryKeys={['expenses', 'net']} />
-        <MultiMetricChart title="Expenses" icon={Wallet}     data={data} loading={loading} solidKey="expenses" secondaryKeys={['gross', 'net']} />
-        <MultiMetricChart title="Net"      icon={TrendingUp} data={data} loading={loading} solidKey="net"      secondaryKeys={['gross', 'expenses']} />
-      </div>
-    </div>
+    </Panel>
   )
 }
 
 // ─── Contract list ─────────────────────────────────────────
+const YEAR_SPAN = 3
+
 function ContractList({
   contracts,
   lifetimeMap,
@@ -3448,40 +3622,49 @@ function ContractList({
   setSearch,
   statusFilter,
   setStatusFilter,
-  sortBy,
-  setSortBy,
+  sort,
+  setSort,
   counts,
+  selectedYear,
+  setSelectedYear,
 }) {
-  const [debouncedSearch, setDebouncedSearch] = useState('')
-  const [page, setPage] = useState(1)
-
-  const [selectedYear, setSelectedYear] = useState(() => new Date().getUTCFullYear())
+  const [debouncedSearch, setDebouncedSearch] = useState(search)
   const [analyticsData, setAnalyticsData] = useState([])
+  const [analyticsPrev, setAnalyticsPrev] = useState([])
   const [analyticsLoading, setAnalyticsLoading] = useState(true)
   const [analyticsError, setAnalyticsError] = useState(null)
 
-  const yearRange = useMemo(() => {
+  // "/" jumps to the search box.
+  const searchRef = useRef(null)
+  useListShortcuts({ searchRef, onEscape: null })
+
+  const yearSections = useMemo(() => {
     const cy = new Date().getUTCFullYear()
     const years = []
-    for (let y = cy - 3; y <= cy + 3; y++) years.push(y)
+    for (let y = cy - YEAR_SPAN; y <= cy + YEAR_SPAN; y++) years.push({ year: y })
     return years
   }, [])
 
-  const yearSections = useMemo(() => yearRange.map((y) => ({ year: y })), [yearRange])
-
+  // The selected year and the one before it, for growth on the KPI tiles.
   const loadAnalytics = useCallback(async (signal) => {
     setAnalyticsLoading(true)
     setAnalyticsError(null)
     try {
-      const { data: monthly, error } = await supabase.rpc('accounting_analytics_by_year', { p_year: selectedYear })
+      const [cur, prev] = await Promise.all([
+        supabase.rpc('accounting_analytics_by_year', { p_year: selectedYear }),
+        supabase.rpc('accounting_analytics_by_year', { p_year: selectedYear - 1 }),
+      ])
       if (signal?.aborted) return
-      if (error) throw error
-      setAnalyticsData(monthly || [])
+      if (cur.error) throw cur.error
+      if (prev.error) console.error('Previous-year analytics failed:', prev.error)
+      setAnalyticsData(cur.data || [])
+      setAnalyticsPrev(prev.data || [])
     } catch (err) {
       if (err?.name === 'AbortError') return
       console.error('Analytics load failed:', err)
       setAnalyticsError(err?.message || 'Unknown error')
       setAnalyticsData([])
+      setAnalyticsPrev([])
     } finally {
       if (!signal?.aborted) setAnalyticsLoading(false)
     }
@@ -3493,6 +3676,7 @@ function ContractList({
     return () => ac.abort()
   }, [loadAnalytics])
 
+  // Company share is the full 25%; the PM is paid out of it.
   const yearTotals = useMemo(() => {
     const acc = { gross: 0, expenses: 0, net: 0, owner: 0, company: 0, pm: 0 }
     for (const r of analyticsData) {
@@ -3502,18 +3686,36 @@ function ContractList({
       acc.pm       += Number(r.pm_share || 0)
     }
     acc.owner   = Math.round(acc.net * (OWNER_SPLIT_PCT / 100) * 100) / 100
-    acc.company = Math.round((acc.net * (COMPANY_SPLIT_PCT / 100) - acc.pm) * 100) / 100
+    acc.company = Math.round(acc.net * (COMPANY_SPLIT_PCT / 100) * 100) / 100
     return acc
   }, [analyticsData])
+
+  // Trend lines run Jan → this month for the current year (all twelve months
+  // for other years), and growth compares the same months of the year before.
+  const yearTrend = useMemo(() => {
+    const now = new Date()
+    const lastMonth = selectedYear === now.getUTCFullYear() ? now.getUTCMonth() : 11
+    const cur = toYearMonths(analyticsData).slice(0, lastMonth + 1)
+    const prev = toYearMonths(analyticsPrev).slice(0, lastMonth + 1)
+    const sum = (rows) => rows.reduce(
+      (t, r) => ({ gross: t.gross + r.gross, expenses: t.expenses + r.expenses, net: t.net + r.net }),
+      { gross: 0, expenses: 0, net: 0 },
+    )
+    const hasPrev = prev.some((r) => r.gross || r.expenses || r.net)
+    const vs = lastMonth === 11
+      ? String(selectedYear - 1)
+      : lastMonth === 0
+        ? `Jan ${selectedYear - 1}`
+        : `Jan–${MONTHS_SHORT[lastMonth]} ${selectedYear - 1}`
+    return buildTrend(cur, sum(cur), hasPrev ? sum(prev) : null, vs)
+  }, [analyticsData, analyticsPrev, selectedYear])
 
   useEffect(() => {
     const t = setTimeout(() => setDebouncedSearch(search), 300)
     return () => clearTimeout(t)
   }, [search])
 
-  useEffect(() => { setPage(1) }, [debouncedSearch, statusFilter, sortBy])
-
-  const filteredSorted = useMemo(() => {
+  const filtered = useMemo(() => {
     const q = debouncedSearch.trim().toLowerCase()
     const tokens = q ? q.split(/\s+/).filter(Boolean) : []
     let list = contracts.map((c) => ({
@@ -3535,134 +3737,152 @@ function ContractList({
         return tokens.every((tok) => haystack.includes(tok))
       })
     }
+    return list
+  }, [contracts, lifetimeMap, debouncedSearch, statusFilter])
 
-    const sorted = [...list]
-    switch (sortBy) {
-      case 'date_desc':
-        sorted.sort((a, b) => (b.contract.effective_date ?? '').localeCompare(a.contract.effective_date ?? ''))
-        break
-      case 'date_asc':
-        sorted.sort((a, b) => (a.contract.effective_date ?? '').localeCompare(b.contract.effective_date ?? ''))
-        break
-      case 'net_desc':
-        sorted.sort((a, b) => (b.lifetime.net || 0) - (a.lifetime.net || 0))
-        break
-      case 'net_asc':
-        sorted.sort((a, b) => (a.lifetime.net || 0) - (b.lifetime.net || 0))
-        break
-      case 'unit_asc':
-      default:
-        sorted.sort((a, b) => (a.contract.units?.unit_code ?? '').localeCompare(b.contract.units?.unit_code ?? ''))
-    }
-    return sorted
-  }, [contracts, lifetimeMap, debouncedSearch, statusFilter, sortBy])
+  // Column sorting; unit A→Z by default, ties broken by unit.
+  const onSort = (key) => setSort((prev) => nextSort(prev, key, SORT_DEFAULTS))
+  const sorted = useMemo(() => {
+    const value = CONTRACT_SORT_VALUE[sort.key] || CONTRACT_SORT_VALUE.unit
+    const dir = sort.dir === 'asc' ? 1 : -1
+    const byUnit = (a, b) => String(a.contract.units?.unit_code || '').localeCompare(String(b.contract.units?.unit_code || ''), undefined, { numeric: true, sensitivity: 'base' })
+    return [...filtered].sort((a, b) => {
+      const av = value(a), bv = value(b)
+      const cmp = typeof av === 'number' && typeof bv === 'number'
+        ? av - bv
+        : String(av).localeCompare(String(bv), undefined, { numeric: true, sensitivity: 'base' })
+      return cmp * dir || byUnit(a, b)
+    })
+  }, [filtered, sort])
 
-  const totalPages = Math.max(1, Math.ceil(filteredSorted.length / PAGE_SIZE))
+  const clearAllFilters = () => { setStatusFilter('all'); setSearch('') }
+  const filterChips = [
+    statusFilter !== 'all' && { key: 'status', label: STATUS_PILLS.find((p) => p.id === statusFilter)?.label || statusFilter, onRemove: () => setStatusFilter('all') },
+    debouncedSearch.trim() && { key: 'search', label: `"${debouncedSearch.trim()}"`, onRemove: () => setSearch('') },
+  ].filter(Boolean)
 
-  useEffect(() => {
-    if (page > totalPages) setPage(totalPages)
-  }, [page, totalPages])
-
-  const pageItems = useMemo(
-    () => filteredSorted.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE),
-    [filteredSorted, page],
-  )
+  // One line under the title that says what needs attention.
+  const summary = isFirstLoad
+    ? 'Loading contracts…'
+    : [
+        plural(counts.all, 'contract', 'contracts'),
+        counts.expiring > 0 && `${counts.expiring} expiring soon`,
+        counts.expired > 0 && `${counts.expired} for renewal`,
+      ].filter(Boolean).join(' · ')
 
   return (
-    <div className="h-full min-h-0 overflow-y-auto">
-      <div className="p-3 flex flex-col gap-2.5">
-        <div className="flex-shrink-0 relative flex items-center justify-center py-1">
-          <span className="absolute left-0 text-[11px] font-bold uppercase tracking-wider text-muted-foreground">
-            Year Overview
-          </span>
-          <YearNav
-            yearSections={yearSections}
-            selectedYear={selectedYear}
-            onSelectYear={setSelectedYear}
+    <div className="h-full overflow-y-auto">
+      <div className={PAGE}>
+
+        {/* Header */}
+        <div className="flex flex-wrap items-end justify-between gap-3">
+          <div className="min-w-0">
+            <h1 className="text-[22px] font-semibold text-foreground tracking-tight leading-tight">{selectedYear} overview</h1>
+            <p className="text-[12.5px] text-foreground mt-1 truncate">{summary}</p>
+          </div>
+          <div className="flex flex-wrap items-center gap-2">
+            <YearNav yearSections={yearSections} selectedYear={selectedYear} onSelectYear={setSelectedYear} />
+            <button
+              type="button"
+              onClick={() => { onRefresh(); loadAnalytics() }}
+              disabled={isRefreshing}
+              className="inline-flex items-center gap-1.5 h-8 px-3 rounded-md border border-border bg-card text-[12px] font-medium text-foreground hover:bg-muted/50 transition-colors disabled:opacity-50 shadow-sm"
+            >
+              <RefreshCw size={13} className={cn((isRefreshing || analyticsLoading) && 'animate-spin')} />
+              Refresh
+            </button>
+          </div>
+        </div>
+
+        {/* Year KPIs (dimmed while another year loads) */}
+        <div className={cn('transition-opacity', analyticsLoading && analyticsData.length > 0 && 'opacity-50')}>
+          <MoneyStrip
+            totals={yearTotals}
+            loading={analyticsLoading && analyticsData.length === 0}
+            grossSub={`All contracts in ${selectedYear}`}
+            pmSub={yearTotals.pm > 0 ? `${PM_SHARE_OF_COMPANY_PCT}% of the company share` : 'No PM payouts'}
+            trend={analyticsError ? null : yearTrend}
           />
         </div>
 
-        <div className="flex-shrink-0 pt-1 pb-2">
-          <SummaryCards totals={yearTotals} />
-        </div>
-
-        <AccountingAnalyticsPanels
-          data={analyticsData}
+        <YearPerformanceCard
+          year={selectedYear}
+          rows={analyticsData}
           loading={analyticsLoading}
-          collapsed={false}
           error={analyticsError}
           onRetry={() => loadAnalytics()}
         />
 
-        <div className="flex-shrink-0 flex items-center gap-2">
-          <div className="relative flex-1 min-w-0">
-            <Search size={13} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-muted-foreground" />
+        {/* Contracts */}
+        <div className="flex flex-wrap items-center gap-2 pt-2">
+          <div className="relative flex-1 min-w-[220px]">
+            <Search size={13} className="absolute left-3 top-1/2 -translate-y-1/2 text-foreground pointer-events-none" />
             <Input
+              ref={searchRef}
               placeholder="Search contract code, unit, owner…"
               value={search}
               onChange={(e) => setSearch(e.target.value)}
-              className="pl-8 h-8 text-xs rounded"
+              className="pl-9 pr-9 h-9 text-xs rounded-md"
             />
+            {!search && <SearchKeyHint />}
           </div>
-
-          <div className="relative">
-            <select
-              value={sortBy}
-              onChange={(e) => setSortBy(e.target.value)}
-              className="h-8 text-xs rounded border border-border bg-background px-2 pr-7 appearance-none focus:outline-none focus:ring-2 focus:ring-primary/30 tabular-nums"
-            >
-              {SORT_OPTIONS.map((o) => <option key={o.id} value={o.id}>{o.label}</option>)}
-            </select>
-            <ChevronDown size={12} className="absolute right-2 top-1/2 -translate-y-1/2 pointer-events-none text-muted-foreground" />
-          </div>
-
-          <Button variant="outline" size="sm" onClick={onRefresh} disabled={isRefreshing} className="h-8 rounded">
-            <RefreshCw size={13} className={cn(isRefreshing && 'animate-spin')} />
-          </Button>
-        </div>
-
-        <div className="flex-shrink-0 flex items-center justify-between gap-3 flex-wrap">
           <StatusTabs tabs={STATUS_PILLS} value={statusFilter} onChange={setStatusFilter} counts={counts} label="Filter contracts by status" />
-          <span className="text-[11px] text-muted-foreground tabular-nums">
-            {filteredSorted.length} contract{filteredSorted.length === 1 ? '' : 's'} · Page {page} of {totalPages}
-          </span>
         </div>
 
-        <div className="flex-shrink-0 rounded border border-border shadow-sm overflow-hidden flex flex-col bg-card h-[420px]">
-          <div className="flex-1 min-h-0 overflow-y-auto" style={{ scrollbarGutter: 'stable' }}>
-            <div className={cn('sticky top-0 z-10 px-4 py-2 border-b border-border bg-card', ROW_GRID)}>
-              <span className="text-[11px] font-bold text-foreground truncate">Unit</span>
-              <span className="text-[11px] font-bold text-foreground truncate">Owner / Contract</span>
-              <span className="text-[11px] font-bold text-foreground truncate">Dates</span>
-              <span className="text-[11px] font-bold text-foreground truncate">Gross · Net</span>
-              <span className="text-[11px] font-bold text-foreground text-right truncate">Status</span>
-            </div>
-            {isFirstLoad ? (
-              <div className="space-y-2 p-3">{[...Array(8)].map((_, i) => <Skeleton key={i} className="h-14 w-full" />)}</div>
-            ) : pageItems.length === 0 ? (
-              <div className="h-full flex items-center justify-center text-center py-12">
-                <div>
-                  <TrendingUp size={36} className="text-muted-foreground/40 mx-auto mb-3" />
-                  <p className="text-sm text-foreground font-semibold">No contracts to display</p>
-                  <p className="text-xs text-muted-foreground mt-1">Create contracts in the Contracts page first</p>
-                </div>
+        {!isFirstLoad && (
+          <ResultsBar
+            shown={sorted.length}
+            total={contracts.length}
+            noun={contracts.length === 1 ? 'contract' : 'contracts'}
+            chips={filterChips}
+            onClearAll={clearAllFilters}
+            hint="Lifetime figures · Click a column to sort · Press / to search"
+          />
+        )}
+
+        <Panel>
+          <div className="overflow-x-auto">
+            <div className="min-w-[780px] max-h-[600px] overflow-y-auto" style={{ scrollbarGutter: 'stable' }}>
+              <div className={cn('sticky top-0 z-10 px-5 py-2.5 border-b border-border bg-card', ROW_GRID)}>
+                <SortHeader label="Unit" sortKey="unit" sort={sort} onSort={onSort} />
+                <SortHeader label="Owner" sortKey="owner" sort={sort} onSort={onSort} />
+                <SortHeader label="Term" sortKey="effective" sort={sort} onSort={onSort} />
+                <SortHeader label="Gross" sortKey="gross" sort={sort} onSort={onSort} align="right" />
+                <SortHeader label="Net" sortKey="net" sort={sort} onSort={onSort} align="right" />
+                <SortHeader label="Status" sortKey="status" sort={sort} onSort={onSort} align="right" />
               </div>
-            ) : (
-              pageItems.map(({ contract, lifetime }) => (
-                <ContractRow
-                  key={contract.id}
-                  contract={contract}
-                  lifetime={lifetime}
-                  onClick={() => onSelect(contract.id)}
-                />
-              ))
-            )}
-          </div>
 
-          <div className="flex-shrink-0 border-t border-border bg-card px-3 py-1">
-            <Pagination page={page} totalPages={totalPages} onPageChange={setPage} />
+              {isFirstLoad ? (
+                <div className="space-y-2 p-4">
+                  {[...Array(6)].map((_, i) => <Skeleton key={i} className="h-12 w-full" />)}
+                </div>
+              ) : contracts.length === 0 ? (
+                <EmptyState icon={FileText} title="No contracts yet" hint="Create contracts on the Contracts page first." />
+              ) : sorted.length === 0 ? (
+                <EmptyState icon={Search} title="No contracts match your filters" hint="Try another search or status.">
+                  {filterChips.length > 0 && (
+                    <button
+                      type="button"
+                      onClick={clearAllFilters}
+                      className="mt-4 inline-flex items-center h-8 px-3 rounded-md border border-border text-xs font-semibold text-foreground hover:bg-muted"
+                    >
+                      Clear filters
+                    </button>
+                  )}
+                </EmptyState>
+              ) : (
+                sorted.map(({ contract, lifetime }) => (
+                  <ContractRow
+                    key={contract.id}
+                    contract={contract}
+                    lifetime={lifetime}
+                    onClick={() => onSelect(contract.id)}
+                  />
+                ))
+              )}
+            </div>
           </div>
-        </div>
+        </Panel>
       </div>
     </div>
   )
@@ -3679,7 +3899,9 @@ export default function AccountingPage({ initialSelectedId }) {
   const [isRefreshing, setIsRefreshing] = useState(false)
   const [search, setSearch] = useState('')
   const [statusFilter, setStatusFilter] = useState('all')
-  const [sortBy, setSortBy] = useState('unit_asc')
+  // Kept here so they survive opening a contract and coming back.
+  const [sort, setSort] = useState({ key: 'unit', dir: 'asc' })
+  const [selectedYear, setSelectedYear] = useState(() => new Date().getUTCFullYear())
 
   const hasLoadedOnce = useRef(false)
   const realtimeDebounceRef = useRef(null)
@@ -3747,7 +3969,7 @@ export default function AccountingPage({ initialSelectedId }) {
   }, [initialSelectedId])
 
   const counts = useMemo(() => {
-    const c = { all: contracts.length, active: 0, expiring: 0, expired: 0 }
+    const c = { all: contracts.length, active: 0, expiring: 0, expired: 0, renewed: 0 }
     for (const contract of contracts) {
       const s = deriveContractStatus(contract)
       if (c[s] !== undefined) c[s]++
@@ -3758,6 +3980,12 @@ export default function AccountingPage({ initialSelectedId }) {
   const selectedContract = useMemo(
     () => contracts.find((c) => c.id === selectedContractId) || null,
     [contracts, selectedContractId],
+  )
+
+  // The selected contract's run of renewals (just itself if never renewed).
+  const selectedTerms = useMemo(
+    () => (selectedContract ? contractTerms(selectedContract, contracts) : []),
+    [selectedContract, contracts],
   )
 
   const handleSelectContract = useCallback((id) => setSelectedContractId(id), [])
@@ -3777,6 +4005,9 @@ export default function AccountingPage({ initialSelectedId }) {
           >
             <ContractDetail
               contract={selectedContract}
+              terms={selectedTerms}
+              lifetimeMap={lifetimeMap}
+              onSelectContract={handleSelectContract}
               onBack={handleBack}
               onChanged={fetchAll}
             />
@@ -3801,9 +4032,11 @@ export default function AccountingPage({ initialSelectedId }) {
               setSearch={setSearch}
               statusFilter={statusFilter}
               setStatusFilter={setStatusFilter}
-              sortBy={sortBy}
-              setSortBy={setSortBy}
+              sort={sort}
+              setSort={setSort}
               counts={counts}
+              selectedYear={selectedYear}
+              setSelectedYear={setSelectedYear}
             />
           </motion.div>
         )}

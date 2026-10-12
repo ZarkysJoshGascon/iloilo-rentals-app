@@ -75,7 +75,7 @@ const NAV_GROUPS = [
 ]
 
 const BADGE_HINTS = {
-  contracts: 'contracts expired or expiring within 30 days',
+  contracts: 'contracts for renewal or ending within 30 days',
   inquiries: 'new property inquiries',
   interior: 'new design inquiries',
   housekeeping: 'cleanings waiting for review',

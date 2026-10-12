@@ -34,7 +34,7 @@ function toneFor(days) {
 }
 
 function relative(days) {
-  if (days < 0) return `Expired ${Math.abs(days)} day${days === -1 ? '' : 's'} ago`
+  if (days < 0) return `Ended ${Math.abs(days)} day${days === -1 ? '' : 's'} ago · for renewal`
   if (days === 0) return 'Expires today'
   if (days === 1) return 'Expires tomorrow'
   return `Expires in ${days} days`
@@ -54,7 +54,7 @@ export default function ContractAlertBar({ alerts, onOpenContract, onOpenContrac
   if (alerts.loading || alerts.total === 0 || dismissed === signature) return null
 
   const parts = [
-    alerts.expired > 0 && { text: `${alerts.expired} expired`, tone: 'text-red-600 dark:text-red-400' },
+    alerts.expired > 0 && { text: `${alerts.expired} ended, for renewal`, tone: 'text-red-600 dark:text-red-400' },
     alerts.urgent > 0 && { text: `${alerts.urgent} expire${alerts.urgent === 1 ? 's' : ''} within ${CONTRACT_URGENT_DAYS} days`, tone: 'text-amber-600 dark:text-amber-400' },
     alerts.soon > 0 && { text: `${alerts.soon} within ${CONTRACT_ALERT_DAYS} days`, tone: 'text-foreground' },
   ].filter(Boolean)
@@ -69,7 +69,7 @@ export default function ContractAlertBar({ alerts, onOpenContract, onOpenContrac
       <div className="flex items-center gap-3 px-5 h-10">
         <AlertTriangle size={15} strokeWidth={2} className="text-foreground flex-shrink-0" />
         <p className="flex-1 min-w-0 truncate text-[12.5px] text-foreground">
-          <span className="font-semibold">Contract renewals:</span>{' '}
+          <span className="font-semibold">Contracts:</span>{' '}
           {parts.map((p, i) => (
             <span key={p.text}>
               {i > 0 && <span className="text-foreground"> · </span>}

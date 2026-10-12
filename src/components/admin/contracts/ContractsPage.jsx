@@ -2,8 +2,12 @@
 //
 // Owner is REQUIRED to create a contract. Units without an owner
 // do not appear in the New Contract modal's unit dropdown.
-// Renewals are handled by editing an existing contract's expiry date,
-// not by stacking a second contract on the same unit.
+// A unit's first contract is made here; after that it continues by:
+//   - Extend: while the contract is running (active or nearing its end),
+//     push its end date out. Same contract; history in contract_extensions.
+//   - Renew: once it has ended ("For renewal") and the owner agrees, create
+//     the next term as a new contract linked through superseded_by.
+// Terms on a unit never overlap, so Accounting never counts a month twice.
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useSearchParams, useNavigate } from 'react-router-dom'
@@ -13,6 +17,7 @@ import {
   FileText, Calendar, ExternalLink, User,
   Upload, Eye, ChevronLeft, ChevronRight, Download,
   CheckCircle2, Clock, AlertTriangle, SlidersHorizontal,
+  CalendarPlus, RotateCcw, Info, ArrowRight, History,
 } from 'lucide-react'
 import { createPortal } from 'react-dom'
 import toast from 'react-hot-toast'
@@ -26,8 +31,13 @@ import {
 import { supabase } from '@/lib/supabase'
 import { logAudit } from '@/lib/auditLog'
 import { cn, sanitizeText, generateContractCode } from '@/lib/utils'
-import { deriveContractStatus, CONTRACT_STATUS_TEXT, EXPIRING_SOON_DAYS } from '@/lib/contracts'
+import {
+  deriveContractStatus, CONTRACT_STATUS_TEXT, EXPIRING_SOON_DAYS,
+  canExtendContract, canRenewContract, contractTerms, dayAfterISO, termEndISO,
+} from '@/lib/contracts'
 import { StatStrip, StatTile } from '@/components/admin/_shared/StatStrip'
+import { InitialsAvatar } from '@/components/admin/_shared/Panel'
+import { StatementActions } from '@/components/admin/_shared/StatementActions'
 import { SortHeader, nextSort, ResultsBar, SearchKeyHint, useListShortcuts } from '@/components/admin/_shared/listTools'
 import { StatusTabs } from '@/components/admin/_shared/StatusTabs'
 
@@ -389,7 +399,7 @@ function NewContractModal({ open, onClose, onCreated, units, owners, contracts }
           <div>
             <h2 className="text-sm font-bold text-foreground">New Contract</h2>
             <p className="text-[11px] text-foreground mt-0.5">
-              Only units without a contract and with an owner attached are listed.
+              Only units without a contract and with an owner attached are listed. To continue a unit's contract, open it and use Extend or Renew.
             </p>
           </div>
           <button onClick={onClose} className="p-1 rounded hover:bg-muted transition-colors"><X size={16} /></button>
@@ -410,8 +420,8 @@ function NewContractModal({ open, onClose, onCreated, units, owners, contracts }
               )}
               {onlyBlockedByContract && (
                 <p className="text-[11px] text-amber-700 dark:text-amber-400/90 leading-relaxed">
-                  Every unit already has a contract. To replace one, delete the existing
-                  contract first, or add a new unit in Registry.
+                  Every unit already has a contract. To continue one, open it and use
+                  Extend (before it ends) or Renew (after it ends), or add a new unit in Registry.
                 </p>
               )}
               {!onlyBlockedByNoOwner && !onlyBlockedByContract && (
@@ -545,31 +555,48 @@ function NewContractModal({ open, onClose, onCreated, units, owners, contracts }
 // KPI strip as on the Dashboard; each tile filters the list below.
 function SummaryCards({ contracts, active, onSelect }) {
   const stats = useMemo(() => {
-    let activeCount = 0, expiring = 0, expired = 0
+    let activeCount = 0, expiring = 0, expired = 0, renewed = 0
     for (const c of contracts) {
       const s = deriveContractStatus(c)
       if (s === 'active') activeCount++
       else if (s === 'expiring') expiring++
       else if (s === 'expired') expired++
+      else if (s === 'renewed') renewed++
     }
-    return { total: contracts.length, active: activeCount, expiring, expired }
+    return { total: contracts.length, active: activeCount, expiring, expired, renewed }
   }, [contracts])
 
   const pick = (id) => onSelect(active === id ? 'all' : id)
 
   return (
-    <StatStrip cols={4}>
-      <StatTile icon={FileText} label="Total contracts" value={stats.total} sub="All contracts on file" active={active === 'all'} onClick={() => onSelect('all')} />
+    <StatStrip cols={5}>
+      <StatTile icon={FileText} label="Total contracts" value={stats.total} sub="Every term on file" active={active === 'all'} onClick={() => onSelect('all')} />
       <StatTile icon={CheckCircle2} label="Active" value={stats.active} sub={`More than ${EXPIRING_SOON_DAYS} days left`} active={active === 'active'} onClick={() => pick('active')} />
-      <StatTile icon={Clock} label="Expiring soon" value={stats.expiring} sub={`Ends within ${EXPIRING_SOON_DAYS} days`} active={active === 'expiring'} onClick={() => pick('expiring')} />
+      <StatTile
+        icon={Clock}
+        label="Expiring soon"
+        value={stats.expiring}
+        sub={stats.expiring > 0 ? 'Extend these with the owner' : `None end within ${EXPIRING_SOON_DAYS} days`}
+        active={active === 'expiring'}
+        onClick={() => pick('expiring')}
+      />
       <StatTile
         icon={AlertTriangle}
-        label="Expired"
+        label="For renewal"
         value={stats.expired}
-        sub={stats.expired > 0 ? 'Renew or close these' : 'Nothing has expired'}
+        sub={stats.expired > 0 ? 'Ended; renew once the owner agrees' : 'Nothing has ended'}
         attention={stats.expired > 0}
         active={active === 'expired'}
         onClick={() => pick('expired')}
+      />
+      <StatTile
+        icon={History}
+        label="Renewed"
+        value={stats.renewed}
+        sub="Past terms with a newer contract"
+        active={active === 'renewed'}
+        onClick={() => pick('renewed')}
+        className="col-span-2 sm:col-span-1"
       />
     </StatStrip>
   )
@@ -579,7 +606,8 @@ const STATUS_PILLS = [
   { id: 'all', label: 'All' },
   { id: 'active', label: 'Active' },
   { id: 'expiring', label: 'Expiring' },
-  { id: 'expired', label: 'Expired' },
+  { id: 'expired', label: 'For renewal' },
+  { id: 'renewed', label: 'Renewed' },
 ]
 
 // ── Filter panel ────────────────────────────────────────────
@@ -700,9 +728,9 @@ function FilterPanel({
 // ── Row ─────────────────────────────────────────────────────
 const ROW_GRID = 'grid grid-cols-[1.3fr_1.5fr_1fr_1fr_140px] gap-4 items-center'
 
-// Sortable columns. "Status" puts expired contracts first, then ones ending
-// soon, then active ones.
-const STATUS_RANK = { expired: 0, expiring: 1, active: 2 }
+// Sortable columns. "Status" puts contracts waiting for renewal first, then
+// ones ending soon, then active ones, then past (renewed) terms.
+const STATUS_RANK = { expired: 0, expiring: 1, active: 2, renewed: 3 }
 const CONTRACT_SORT_VALUE = {
   contract:  (c) => c.contract_code || '',
   unit:      (c) => c.units?.unit_code || '',
@@ -1109,6 +1137,547 @@ function ContractPdfUploader({ contract, onSaved }) {
   )
 }
 
+// ── Extend & renew ──────────────────────────────────────────
+// Checks and uploads a signed contract or addendum to the contract-pdfs
+// bucket, under the contract's folder. Returns the storage path.
+async function uploadContractFile(file, contractId, prefix = '') {
+  if (file.size > PDF_MAX_BYTES) throw new Error(`File too large (max ${pdfBytesLabel(PDF_MAX_BYTES)})`)
+  const mime = await pdfSniffMime(file)
+  if (!mime || !PDF_ALLOWED_MIMES.has(mime)) throw new Error('Unsupported file. Use PDF, JPEG, PNG, or WebP.')
+  const ext = mime === 'application/pdf' ? 'pdf' : mime === 'image/png' ? 'png' : mime === 'image/webp' ? 'webp' : 'jpg'
+  const path = `${contractId}/${prefix}${pdfRandomId()}.${ext}`
+  const { error } = await supabase.storage.from(PDF_BUCKET).upload(path, file, {
+    cacheControl: '31536000',
+    upsert: false,
+    contentType: mime,
+  })
+  if (error) throw error
+  return path
+}
+
+// Another contract on the same unit whose dates touch [start, end].
+async function findOverlappingContract({ unitId, excludeId, start, end }) {
+  let q = supabase
+    .from('contracts')
+    .select('id, contract_code, effective_date, expiry_date')
+    .eq('unit_id', unitId)
+    .neq('id', excludeId)
+    .lte('effective_date', end)
+  q = q.or(`expiry_date.is.null,expiry_date.gte.${start}`)
+  const { data, error } = await q.limit(1)
+  if (error) {
+    console.warn('Overlap check failed:', error)
+    return null
+  }
+  return data?.[0] || null
+}
+
+function ModalShell({ title, subtitle, onClose, children, footer }) {
+  useEffect(() => {
+    const onKey = (e) => { if (e.key === 'Escape') onClose() }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [onClose])
+  return (
+    <div className="fixed inset-0 z-[9999] flex items-center justify-center p-4">
+      <div className="absolute inset-0 bg-black/50" onClick={onClose} />
+      <motion.div
+        initial={{ opacity: 0, scale: 0.98 }}
+        animate={{ opacity: 1, scale: 1 }}
+        transition={{ duration: 0.15 }}
+        role="dialog"
+        aria-modal="true"
+        className="relative bg-card rounded-md shadow-2xl max-w-lg w-full max-h-[92vh] flex flex-col overflow-hidden border border-border"
+      >
+        <div className="flex items-start justify-between gap-3 px-5 py-4 border-b border-border flex-shrink-0">
+          <div className="min-w-0">
+            <h2 className="text-[14px] font-semibold text-foreground">{title}</h2>
+            {subtitle && <p className="text-[12px] text-foreground mt-0.5">{subtitle}</p>}
+          </div>
+          <button type="button" onClick={onClose} aria-label="Close" className="p-1.5 rounded-md text-foreground hover:bg-muted/60 flex-shrink-0"><X size={15} /></button>
+        </div>
+        <div className="flex-1 overflow-y-auto px-5 py-4 space-y-4">{children}</div>
+        <div className="flex items-center justify-end gap-2 px-5 py-3 border-t border-border bg-card flex-shrink-0">{footer}</div>
+      </motion.div>
+    </div>
+  )
+}
+
+const FORM_LABEL = 'text-[11px] font-semibold text-foreground mb-1.5 block'
+
+// Quick lengths, as buttons; the selected one is in logo blue.
+function PresetButtons({ presets, value, onPick }) {
+  return (
+    <div className="flex flex-wrap gap-1.5">
+      {presets.map((p) => {
+        const active = value === p.value
+        return (
+          <button
+            key={p.label}
+            type="button"
+            onClick={() => onPick(p.value)}
+            aria-pressed={active}
+            className={cn(
+              'h-7 px-2.5 rounded-md border text-[12px] font-medium transition-colors',
+              active ? 'bg-brand-solid border-brand-solid text-white' : 'bg-card border-border text-foreground hover:bg-muted/50',
+            )}
+          >
+            {p.label}
+          </button>
+        )
+      })}
+    </div>
+  )
+}
+
+// Optional signed document picked before saving.
+function FilePick({ file, onFile, label }) {
+  const ref = useRef(null)
+  return (
+    <div>
+      <input
+        ref={ref}
+        type="file"
+        accept="application/pdf,image/jpeg,image/png,image/webp"
+        className="hidden"
+        onChange={(e) => { onFile(e.target.files?.[0] || null); if (ref.current) ref.current.value = '' }}
+      />
+      {file ? (
+        <div className="flex items-center gap-2 px-3 py-2 rounded-md border border-border">
+          <FileText size={14} className="text-foreground flex-shrink-0" />
+          <span className="text-[12px] text-foreground truncate flex-1">{file.name}</span>
+          <span className="text-[11px] text-foreground tabular-nums flex-shrink-0">{pdfBytesLabel(file.size)}</span>
+          <button type="button" onClick={() => onFile(null)} aria-label="Remove file" className="p-1 rounded-md hover:bg-muted text-foreground"><X size={12} /></button>
+        </div>
+      ) : (
+        <button
+          type="button"
+          onClick={() => ref.current?.click()}
+          className="w-full flex items-center justify-center gap-2 h-10 rounded-md border border-dashed border-border text-[12px] font-medium text-foreground hover:bg-muted/40 transition-colors"
+        >
+          <Upload size={13} /> {label}
+        </button>
+      )}
+      <p className="text-[11px] text-foreground mt-1">PDF, JPEG, PNG or WebP · up to {pdfBytesLabel(PDF_MAX_BYTES)}</p>
+    </div>
+  )
+}
+
+const EXTEND_PRESETS = [
+  { label: '+3 months', value: 3 },
+  { label: '+6 months', value: 6 },
+  { label: '+1 year', value: 12 },
+]
+
+// Extend: same contract, later end date. Accounting simply covers the
+// extra months under this contract.
+function ExtendContractModal({ contract, onClose, onExtended }) {
+  const current = contract.expiry_date
+  const firstNewDay = dayAfterISO(current)
+  const [months, setMonths] = useState(6)
+  const [newExpiry, setNewExpiry] = useState(() => termEndISO(firstNewDay, 6))
+  const [note, setNote] = useState('')
+  const [file, setFile] = useState(null)
+  const [saving, setSaving] = useState(false)
+
+  const pickMonths = (m) => { setMonths(m); setNewExpiry(termEndISO(firstNewDay, m)) }
+  const valid = !!newExpiry && newExpiry > current
+  const added = valid ? diffDaysISO(current, newExpiry) : 0
+  const daysLeft = diffDaysISO(todayISO(), current)
+
+  const save = async () => {
+    if (!valid || saving) return
+    setSaving(true)
+    try {
+      const clash = await findOverlappingContract({ unitId: contract.unit_id, excludeId: contract.id, start: firstNewDay, end: newExpiry })
+      if (clash) {
+        toast.error(`That would overlap ${clash.contract_code || 'another contract'} (from ${formatDate(clash.effective_date)}).`)
+        return
+      }
+
+      const documentPath = file ? await uploadContractFile(file, contract.id, 'extension-') : null
+
+      const { error } = await supabase.from('contracts').update({ expiry_date: newExpiry }).eq('id', contract.id)
+      if (error) throw error
+
+      const { error: historyError } = await supabase.from('contract_extensions').insert({
+        contract_id: contract.id,
+        previous_expiry: current,
+        new_expiry: newExpiry,
+        note: sanitizeText(note, { max: 1000, allowNewlines: true }) || null,
+        document_path: documentPath,
+      })
+      if (historyError) {
+        console.error('Extension history not saved:', historyError)
+        toast('Extended, but the history could not be saved. Run the contract_extensions migration in Supabase.', { icon: '⚠️', duration: 7000 })
+      }
+
+      logAudit('EXTEND_CONTRACT', 'contracts', contract.id, {
+        contract_code: contract.contract_code, from: current, to: newExpiry, document_path: documentPath,
+      }).catch(() => {})
+
+      toast.success(`Extended to ${formatDate(newExpiry)}`)
+      onExtended()
+      onClose()
+    } catch (err) {
+      console.error(err)
+      toast.error(err?.message || 'Failed to extend')
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  return (
+    <ModalShell
+      title="Extend contract"
+      subtitle={`${contract.contract_code || 'Contract'} · ${contract.units?.unit_code || '—'} · ${contract.owners?.name || 'No owner'}`}
+      onClose={onClose}
+      footer={(
+        <>
+          <Button variant="outline" size="sm" className="h-9 rounded-md text-xs" onClick={onClose} disabled={saving}>Cancel</Button>
+          <Button size="sm" className="h-9 rounded-md text-xs text-white" onClick={save} disabled={!valid || saving} style={{ backgroundColor: BRAND }}>
+            {saving ? <Loader2 size={12} className="mr-1.5 animate-spin" /> : <CalendarPlus size={12} className="mr-1.5" />}
+            {saving ? 'Extending…' : 'Extend'}
+          </Button>
+        </>
+      )}
+    >
+      <div className="flex items-baseline justify-between gap-3 text-[12px] text-foreground">
+        <span>Currently ends</span>
+        <span className="font-semibold tabular-nums">
+          {formatDate(current)}
+          <span className={cn('ml-1.5 font-semibold', daysLeft <= 30 ? 'text-red-600 dark:text-red-400' : 'text-amber-600 dark:text-amber-400')}>
+            · {daysLeft === 0 ? 'today' : `${daysLeft} day${daysLeft === 1 ? '' : 's'} left`}
+          </span>
+        </span>
+      </div>
+
+      <div>
+        <label className={FORM_LABEL}>Extend by</label>
+        <PresetButtons presets={EXTEND_PRESETS} value={months} onPick={pickMonths} />
+      </div>
+
+      <div>
+        <label className={FORM_LABEL}>New end date *</label>
+        <DateFieldPicker
+          value={newExpiry}
+          onChange={(v) => { setNewExpiry(v); setMonths(null) }}
+          placeholder="Pick the new end date"
+          minDate={firstNewDay}
+        />
+        <p className="text-[12px] text-foreground mt-1.5">
+          {valid
+            ? <>Adds <span className="font-semibold">{added} day{added === 1 ? '' : 's'}</span> · runs to {formatDate(newExpiry)}</>
+            : <span className="text-red-600 dark:text-red-400 font-semibold">Pick a date after {formatDate(current)}</span>}
+        </p>
+      </div>
+
+      <div>
+        <label className={FORM_LABEL}>Signed addendum (optional)</label>
+        <FilePick file={file} onFile={setFile} label="Attach the signed extension" />
+      </div>
+
+      <div>
+        <label className={FORM_LABEL}>Note (optional)</label>
+        <Textarea value={note} onChange={(e) => setNote(e.target.value)} rows={2} maxLength={1000} placeholder="e.g. Owner agreed by phone on Oct 10" className="text-xs rounded-md resize-none" />
+      </div>
+
+      <div className="flex items-start gap-2 rounded-md border border-border p-3">
+        <Info size={13} className="text-foreground flex-shrink-0 mt-0.5" />
+        <p className="text-[12px] text-foreground leading-relaxed">
+          Same contract, later end date. Accounting adds the extra months to this contract's figures.
+        </p>
+      </div>
+    </ModalShell>
+  )
+}
+
+const RENEW_PRESETS = [
+  { label: '6 months', value: 6 },
+  { label: '1 year', value: 12 },
+  { label: '2 years', value: 24 },
+]
+
+// Renew: a new contract for the next term, linked to the one that ended.
+function RenewContractModal({ contract, termNumber, unitOwner, onClose, onRenewed }) {
+  const minStart = dayAfterISO(contract.expiry_date)
+  const [start, setStart] = useState(minStart)
+  const [months, setMonths] = useState(12)
+  const [end, setEnd] = useState(() => termEndISO(minStart, 12))
+  const [notes, setNotes] = useState('')
+  const [file, setFile] = useState(null)
+  const [saving, setSaving] = useState(false)
+  const [gapBookings, setGapBookings] = useState(0)
+
+  const owner = unitOwner || contract.owners || null
+  const ownerChanged = unitOwner && contract.owner_id && unitOwner.id !== contract.owner_id
+
+  // Bookings that would fall between the old term and a later start.
+  useEffect(() => {
+    let cancelled = false
+    if (!start || start <= minStart) { setGapBookings(0); return }
+    supabase
+      .from('bookings')
+      .select('id', { count: 'exact', head: true })
+      .eq('unit_id', contract.unit_id)
+      .is('deleted_at', null)
+      .is('cancelled_at', null)
+      .gte('check_in', minStart)
+      .lt('check_in', start)
+      .then(({ count, error }) => { if (!cancelled && !error) setGapBookings(count || 0) })
+    return () => { cancelled = true }
+  }, [start, minStart, contract.unit_id])
+
+  const pickMonths = (m) => { setMonths(m); setEnd(termEndISO(start, m)) }
+  const valid = !!owner && !!start && start >= minStart && !!end && end > start
+  const days = valid ? diffDaysISO(start, end) + 1 : 0
+
+  const save = async () => {
+    if (!valid || saving) return
+    setSaving(true)
+    try {
+      const clash = await findOverlappingContract({ unitId: contract.unit_id, excludeId: contract.id, start, end })
+      if (clash) {
+        toast.error(`That would overlap ${clash.contract_code || 'another contract'} (from ${formatDate(clash.effective_date)}).`)
+        return
+      }
+
+      const { data: created, error } = await supabase
+        .from('contracts')
+        .insert({
+          unit_id: contract.unit_id,
+          owner_id: owner.id,
+          contract_code: generateContractCode(),
+          effective_date: start,
+          expiry_date: end,
+          notes: sanitizeText(notes, { max: 2000, allowNewlines: true }) || null,
+        })
+        .select('id, contract_code')
+        .single()
+      if (error) throw error
+
+      // Link the old term to the new one; undo the new contract if that fails.
+      const { error: linkError } = await supabase.from('contracts').update({ superseded_by: created.id }).eq('id', contract.id)
+      if (linkError) {
+        await supabase.from('contracts').delete().eq('id', created.id)
+        throw linkError
+      }
+
+      const { error: unitError } = await supabase.from('units').update({ current_contract_id: created.id }).eq('id', contract.unit_id)
+      if (unitError) console.warn('Could not point the unit at its new contract:', unitError)
+      // A unit marked "For renewal" in Registry takes bookings again.
+      const { error: statusError } = await supabase.from('units').update({ status: 'ACTIVE' }).eq('id', contract.unit_id).eq('status', 'FOR_RENEWAL')
+      if (statusError) console.warn('Could not set the unit back to active:', statusError)
+
+      if (file) {
+        try {
+          const path = await uploadContractFile(file, created.id)
+          const { data: signed } = await supabase.storage.from(PDF_BUCKET).createSignedUrl(path, 3600)
+          await supabase.from('contracts').update({ contract_pdf_path: path, contract_pdf_url: signed?.signedUrl || null }).eq('id', created.id)
+        } catch (uploadErr) {
+          console.error(uploadErr)
+          toast.error('Renewed, but the file did not upload. Add it from the new contract.')
+        }
+      }
+
+      logAudit('RENEW_CONTRACT', 'contracts', created.id, {
+        renews: contract.id, previous_code: contract.contract_code, contract_code: created.contract_code,
+        effective_date: start, expiry_date: end, owner_id: owner.id,
+      }).catch(() => {})
+
+      toast.success(`Renewed as ${created.contract_code}`)
+      onRenewed(created.id)
+      onClose()
+    } catch (err) {
+      console.error(err)
+      toast.error(err?.message || 'Failed to renew')
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  return (
+    <ModalShell
+      title="Renew contract"
+      subtitle={`${contract.contract_code || 'Contract'} ended ${formatDate(contract.expiry_date)} · ${contract.units?.unit_code || '—'}`}
+      onClose={onClose}
+      footer={(
+        <>
+          <Button variant="outline" size="sm" className="h-9 rounded-md text-xs" onClick={onClose} disabled={saving}>Cancel</Button>
+          <Button size="sm" className="h-9 rounded-md text-xs text-white" onClick={save} disabled={!valid || saving} style={{ backgroundColor: BRAND }}>
+            {saving ? <Loader2 size={12} className="mr-1.5 animate-spin" /> : <RotateCcw size={12} className="mr-1.5" />}
+            {saving ? 'Renewing…' : `Renew as term ${termNumber + 1}`}
+          </Button>
+        </>
+      )}
+    >
+      <div>
+        <label className={FORM_LABEL}>Owner</label>
+        {owner ? (
+          <div className="flex items-center gap-2.5 px-3 py-2 rounded-md border border-border">
+            <InitialsAvatar name={owner.name} size="sm" />
+            <div className="min-w-0">
+              <p className="text-[12px] font-semibold text-foreground truncate">{owner.name}</p>
+              <p className="text-[11px] text-foreground truncate">{owner.email || 'No email'}</p>
+            </div>
+          </div>
+        ) : (
+          <p className="text-[12px] font-semibold text-red-600 dark:text-red-400">This unit has no owner. Attach one in Registry first.</p>
+        )}
+        {ownerChanged && (
+          <p className="text-[11px] text-amber-700 dark:text-amber-400 mt-1">The unit's owner has changed since the last term; the new term goes to {owner.name}.</p>
+        )}
+      </div>
+
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+        <div>
+          <label className={FORM_LABEL}>Starts *</label>
+          <DateFieldPicker
+            value={start}
+            onChange={(v) => { setStart(v); if (months) setEnd(termEndISO(v, months)); else if (end <= v) setEnd(termEndISO(v, 12)) }}
+            placeholder="Pick start date"
+            minDate={minStart}
+          />
+        </div>
+        <div>
+          <label className={FORM_LABEL}>Ends *</label>
+          <DateFieldPicker
+            value={end}
+            onChange={(v) => { setEnd(v); setMonths(null) }}
+            placeholder="Pick end date"
+            minDate={start ? dayAfterISO(start) : undefined}
+          />
+        </div>
+      </div>
+
+      <div>
+        <label className={FORM_LABEL}>Term length</label>
+        <PresetButtons presets={RENEW_PRESETS} value={months} onPick={pickMonths} />
+      </div>
+
+      <p className="text-[12px] text-foreground">
+        {valid
+          ? <><span className="font-semibold">{days} days</span> · {formatDate(start)} → {formatDate(end)}</>
+          : <span className="text-red-600 dark:text-red-400 font-semibold">The end must be after the start</span>}
+      </p>
+
+      {start > minStart && (
+        <p className="text-[12px] text-foreground">
+          <span className="font-semibold text-amber-700 dark:text-amber-400">Gap from {formatDate(minStart)} to {formatDate(addDaysISO(start, -1))}.</span>{' '}
+          {gapBookings > 0
+            ? `${gapBookings} booking${gapBookings === 1 ? '' : 's'} in that gap won't count in Accounting.`
+            : 'No bookings fall in the gap.'}
+        </p>
+      )}
+
+      <div>
+        <label className={FORM_LABEL}>Signed contract (optional)</label>
+        <FilePick file={file} onFile={setFile} label="Attach the signed renewal" />
+      </div>
+
+      <div>
+        <label className={FORM_LABEL}>Notes (optional)</label>
+        <Textarea value={notes} onChange={(e) => setNotes(e.target.value)} rows={2} maxLength={2000} placeholder="Any changed terms or context…" className="text-xs rounded-md resize-none" />
+      </div>
+
+      <div className="flex items-start gap-2 rounded-md border border-border p-3">
+        <Info size={13} className="text-foreground flex-shrink-0 mt-0.5" />
+        <p className="text-[12px] text-foreground leading-relaxed">
+          This creates term {termNumber + 1} as a new contract and marks {contract.contract_code || 'this one'} as renewed.
+          Accounting keeps each term's figures separate and adds them up across terms.
+        </p>
+      </div>
+    </ModalShell>
+  )
+}
+
+// Past extensions of a contract, newest first. Hidden until there are any
+// (or if the contract_extensions table hasn't been created yet).
+function ExtensionHistory({ contractId, refreshKey }) {
+  const [rows, setRows] = useState([])
+
+  useEffect(() => {
+    let cancelled = false
+    supabase
+      .from('contract_extensions')
+      .select('id, previous_expiry, new_expiry, note, document_path, created_at')
+      .eq('contract_id', contractId)
+      .order('created_at', { ascending: false })
+      .then(({ data, error }) => {
+        if (cancelled) return
+        if (error) { console.warn('Extension history unavailable:', error.message); setRows([]); return }
+        setRows(data || [])
+      })
+    return () => { cancelled = true }
+  }, [contractId, refreshKey])
+
+  const openDocument = async (path) => {
+    const { data, error } = await supabase.storage.from(PDF_BUCKET).createSignedUrl(path, 3600)
+    if (error || !data?.signedUrl) { toast.error('Could not open the file'); return }
+    window.open(data.signedUrl, '_blank', 'noopener,noreferrer')
+  }
+
+  if (rows.length === 0) return null
+
+  return (
+    <DetailSection title={`Extensions · ${rows.length}`}>
+      <div>
+        {rows.map((r) => (
+          <div key={r.id} className="px-3 py-2.5 border-b border-border last:border-0">
+            <div className="flex items-baseline justify-between gap-2">
+              <p className="text-[12px] text-foreground">
+                <span className="tabular-nums">{formatDate(r.previous_expiry)}</span>
+                {' → '}
+                <span className="font-semibold tabular-nums">{formatDate(r.new_expiry)}</span>
+              </p>
+              <span className="text-[11px] text-foreground tabular-nums flex-shrink-0">{formatDate(String(r.created_at).slice(0, 10))}</span>
+            </div>
+            {r.note && <p className="text-[11px] text-foreground mt-0.5 whitespace-pre-wrap break-words">{r.note}</p>}
+            {r.document_path && (
+              <button type="button" onClick={() => openDocument(r.document_path)} className="mt-1 inline-flex items-center gap-1 text-[11px] font-semibold text-foreground hover:underline underline-offset-2">
+                <FileText size={11} /> Addendum
+              </button>
+            )}
+          </div>
+        ))}
+      </div>
+    </DetailSection>
+  )
+}
+
+// Every term of this unit's run of renewals; the open one is highlighted.
+function TermsList({ terms, currentId, onSelect }) {
+  if (terms.length < 2) return null
+  return (
+    <DetailSection title={`Terms · ${terms.length}`}>
+      <div>
+        {terms.map((t, i) => {
+          const isCurrent = t.id === currentId
+          return (
+            <button
+              key={t.id}
+              type="button"
+              onClick={() => !isCurrent && onSelect(t.id)}
+              aria-current={isCurrent ? 'true' : undefined}
+              className={cn(
+                'w-full text-left px-3 py-2.5 border-b border-border last:border-0 flex items-center gap-3 transition-colors',
+                isCurrent ? 'bg-brand-solid/10' : 'hover:bg-muted/40',
+              )}
+            >
+              <span className="text-[11px] font-semibold text-foreground w-12 flex-shrink-0">Term {i + 1}</span>
+              <span className="min-w-0 flex-1">
+                <span className="block font-mono text-[12px] font-semibold text-foreground truncate">{t.contract_code || '—'}</span>
+                <span className="block text-[11px] text-foreground tabular-nums truncate">{formatDate(t.effective_date)} → {formatDate(t.expiry_date)}</span>
+              </span>
+              <StatusText contract={t} />
+            </button>
+          )
+        })}
+      </div>
+    </DetailSection>
+  )
+}
+
 // ── Detail section ──────────────────────────────────────────
 function DetailSection({ title, action, className, children }) {
   return (
@@ -1125,9 +1694,24 @@ function DetailSection({ title, action, className, children }) {
 }
 
 // ── Detail panel ────────────────────────────────────────────
-function ContractDetailPanel({ contract, onClose, onChanged, onDelete }) {
+function ContractDetailPanel({ contract, contracts, units, owners, onClose, onChanged, onDelete, onSelect }) {
   const status = deriveContractStatus(contract)
   const statusConfig = STATUS_TEXT[status] || STATUS_TEXT.incomplete
+  const [extendOpen, setExtendOpen] = useState(false)
+  const [renewOpen, setRenewOpen] = useState(false)
+  const [historyKey, setHistoryKey] = useState(0)
+
+  // This contract's run of renewals, and where it sits in it.
+  const terms = useMemo(() => contractTerms(contract, contracts), [contract, contracts])
+  const termIndex = Math.max(0, terms.findIndex((t) => t.id === contract.id))
+  const previousTerm = termIndex > 0 ? terms[termIndex - 1] : null
+  const nextTerm = termIndex < terms.length - 1 ? terms[termIndex + 1] : null
+
+  // A renewal goes to whoever owns the unit now.
+  const unitOwner = useMemo(() => {
+    const u = (units || []).find((x) => x.id === contract.unit_id)
+    return u?.owner_id ? (owners || []).find((o) => o.id === u.owner_id) || null : null
+  }, [units, owners, contract.unit_id])
 
   const updateField = async (field, value) => {
     if (field === 'effective_date' || field === 'expiry_date') {
@@ -1202,18 +1786,59 @@ function ContractDetailPanel({ contract, onClose, onChanged, onDelete }) {
                     <span className={cn('text-[11px] font-semibold', statusConfig.className)}>
                       {statusConfig.label}
                     </span>
+                    {terms.length > 1 && (
+                      <span className="text-[11px] text-foreground">· Term {termIndex + 1} of {terms.length}</span>
+                    )}
                   </div>
+                  {status === 'expired' && (
+                    <p className="text-[11px] text-foreground mt-1">
+                      Ended {formatDate(contract.expiry_date)}. Renew once the owner agrees.
+                    </p>
+                  )}
+                  {status === 'expiring' && (
+                    <p className="text-[11px] text-foreground mt-1">
+                      Ends {formatDate(contract.expiry_date)}. Extend it if the owner wants to stay on.
+                    </p>
+                  )}
                 </div>
-                <button onClick={onClose} className="p-1 rounded hover:bg-muted text-foreground flex-shrink-0"><X size={16} /></button>
+                <button type="button" onClick={onClose} aria-label="Close" className="p-1 rounded hover:bg-muted text-foreground flex-shrink-0"><X size={16} /></button>
               </div>
-              <div className="flex items-center gap-2 mt-3">
-                <Button variant="outline" size="sm" className="h-7 rounded text-[11px] gap-1.5" onClick={onDelete}>
+              <div className="flex items-center gap-2 mt-3 flex-wrap">
+                {canExtendContract(contract) && (
+                  <Button size="sm" className="h-7 rounded-md text-[11px] gap-1.5 text-white" style={{ backgroundColor: BRAND }} onClick={() => setExtendOpen(true)}>
+                    <CalendarPlus size={11} /> Extend
+                  </Button>
+                )}
+                {canRenewContract(contract) && (
+                  <Button size="sm" className="h-7 rounded-md text-[11px] gap-1.5 text-white" style={{ backgroundColor: BRAND }} onClick={() => setRenewOpen(true)}>
+                    <RotateCcw size={11} /> Renew
+                  </Button>
+                )}
+                {previousTerm && (
+                  <Button variant="outline" size="sm" className="h-7 rounded-md text-[11px] gap-1.5" onClick={() => onSelect(previousTerm.id)}>
+                    <ChevronLeft size={11} /> Term {termIndex}
+                  </Button>
+                )}
+                {nextTerm && (
+                  <Button variant="outline" size="sm" className="h-7 rounded-md text-[11px] gap-1.5" onClick={() => onSelect(nextTerm.id)}>
+                    Renewed as {nextTerm.contract_code || `term ${termIndex + 2}`} <ArrowRight size={11} />
+                  </Button>
+                )}
+                <Button variant="outline" size="sm" className="h-7 rounded-md text-[11px] gap-1.5 ml-auto" onClick={onDelete}>
                   <Trash2 size={11} /> Delete
                 </Button>
               </div>
             </div>
 
             <div className="flex-1 overflow-y-auto p-4 space-y-4">
+              <TermsList terms={terms} currentId={contract.id} onSelect={onSelect} />
+              <ExtensionHistory contractId={contract.id} refreshKey={`${historyKey}-${contract.expiry_date}`} />
+
+              <DetailSection title="Owner statement">
+                <div className="p-3">
+                  <StatementActions key={contract.id} contract={contract} />
+                </div>
+              </DetailSection>
               <DetailSection title="Owner">
                 <div className="p-3">
                   <div className="flex items-center gap-2.5 pb-2 mb-2 border-b border-border">
@@ -1309,6 +1934,25 @@ function ContractDetailPanel({ contract, onClose, onChanged, onDelete }) {
           </motion.div>
         </AnimatePresence>
       </div>
+
+      {extendOpen && createPortal(
+        <ExtendContractModal
+          contract={contract}
+          onClose={() => setExtendOpen(false)}
+          onExtended={() => { setHistoryKey((k) => k + 1); onChanged() }}
+        />,
+        document.body,
+      )}
+      {renewOpen && createPortal(
+        <RenewContractModal
+          contract={contract}
+          termNumber={termIndex + 1}
+          unitOwner={unitOwner}
+          onClose={() => setRenewOpen(false)}
+          onRenewed={(newId) => { onChanged(); onSelect(newId) }}
+        />,
+        document.body,
+      )}
     </motion.div>
   )
 }
@@ -1414,7 +2058,7 @@ export default function ContractsPage() {
           return tokens.every((tok) => haystack.includes(tok))
         })
 
-    const c = { all: scoped.length, active: 0, expiring: 0, expired: 0 }
+    const c = { all: scoped.length, active: 0, expiring: 0, expired: 0, renewed: 0 }
     for (const x of scoped) {
       const s = deriveContractStatus(x)
       if (c[s] !== undefined) c[s]++
@@ -1523,11 +2167,21 @@ export default function ContractsPage() {
   const handleSelect = (contract) => setSelectedId((prev) => (prev === contract.id ? null : contract.id))
 
   const handleDelete = async (contract) => {
+    // Deleting a renewal puts the term before it back to "For renewal".
+    const previousTerm = contracts.find((c) => c.superseded_by === contract.id) || null
     const confirmed = window.confirm(
-      `Delete this contract?\n\nCode: ${contract.contract_code || '—'}\nUnit: ${contract.units?.unit_code || '—'}\nEffective: ${formatDate(contract.effective_date)}\nExpiry: ${formatDate(contract.expiry_date)}\n\nThis cannot be undone.`,
+      `Delete this contract?\n\nCode: ${contract.contract_code || '—'}\nUnit: ${contract.units?.unit_code || '—'}\nEffective: ${formatDate(contract.effective_date)}\nExpiry: ${formatDate(contract.expiry_date)}\n\n` +
+      (previousTerm ? `${previousTerm.contract_code || 'The previous term'} will go back to "For renewal".\n\n` : '') +
+      'This cannot be undone.',
     )
     if (!confirmed) return
     try {
+      if (previousTerm) {
+        const { error: unlinkError } = await supabase.from('contracts').update({ superseded_by: null }).eq('id', previousTerm.id)
+        if (unlinkError) throw unlinkError
+        const { error: unitError } = await supabase.from('units').update({ current_contract_id: previousTerm.id }).eq('id', contract.unit_id)
+        if (unitError) console.warn('Could not point the unit back at the previous term:', unitError)
+      }
       if (contract.contract_pdf_path) {
         supabase.storage.from(PDF_BUCKET).remove([contract.contract_pdf_path]).catch((err) => {
           console.warn('Failed to remove contract pdf:', err)
@@ -1673,9 +2327,13 @@ export default function ContractsPage() {
         {selected && (
           <ContractDetailPanel
             contract={selected}
+            contracts={contracts}
+            units={units}
+            owners={owners}
             onClose={() => setSelectedId(null)}
             onChanged={fetchData}
             onDelete={() => handleDelete(selected)}
+            onSelect={setSelectedId}
           />
         )}
       </AnimatePresence>
