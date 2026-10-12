@@ -72,7 +72,7 @@ export default function ContractAlertBar({ alerts, onOpenContract, onOpenContrac
           <span className="font-semibold">Contract renewals:</span>{' '}
           {parts.map((p, i) => (
             <span key={p.text}>
-              {i > 0 && <span className="text-foreground/40"> · </span>}
+              {i > 0 && <span className="text-foreground"> · </span>}
               <span className={cn('font-semibold', p.tone)}>{p.text}</span>
             </span>
           ))}
@@ -98,7 +98,7 @@ export default function ContractAlertBar({ alerts, onOpenContract, onOpenContrac
           onClick={dismiss}
           title="Hide until something new comes up (or tomorrow)"
           aria-label="Dismiss contract warning"
-          className="p-1.5 rounded-md text-foreground/70 hover:text-foreground hover:bg-black/[0.05] dark:hover:bg-white/[0.08]"
+          className="p-1.5 rounded-md text-foreground hover:text-foreground hover:bg-black/[0.05] dark:hover:bg-white/[0.08]"
         >
           <X size={14} />
         </button>
@@ -123,10 +123,10 @@ export default function ContractAlertBar({ alerts, onOpenContract, onOpenContrac
                   >
                     <span className="min-w-0 truncate text-[12.5px] text-foreground">
                       <span className="font-mono font-bold">{c.unitCode || '—'}</span>
-                      {c.building && <span className="text-foreground/75"> · {c.building}</span>}
+                      {c.building && <span className="text-foreground"> · {c.building}</span>}
                     </span>
-                    <span className="min-w-0 truncate text-[12.5px] text-foreground/80">{c.owner || 'No owner'}</span>
-                    <span className="text-[12px] tabular-nums text-foreground/80">{formatDate(c.expiry)}</span>
+                    <span className="min-w-0 truncate text-[12.5px] text-foreground">{c.owner || 'No owner'}</span>
+                    <span className="text-[12px] tabular-nums text-foreground">{formatDate(c.expiry)}</span>
                     <span className={cn('text-[12px] font-semibold tabular-nums text-right min-w-[150px]', toneFor(c.days))}>
                       {relative(c.days)}
                     </span>

@@ -413,10 +413,10 @@ export default function AdminDashboardPage() {
                 <h2 className="text-[15px] font-semibold text-foreground truncate tracking-tight">
                   {title}
                 </h2>
-                <span className="hidden md:inline text-[11px] text-muted-foreground tabular-nums whitespace-nowrap ml-1">
-                  <span className="mx-1.5 text-muted-foreground/40">·</span>
+                <span className="hidden md:inline text-[11px] text-foreground tabular-nums whitespace-nowrap ml-1">
+                  <span className="mx-1.5 text-foreground">·</span>
                   {formatClockDate(now)}
-                  <span className="mx-1.5 text-muted-foreground/40">·</span>
+                  <span className="mx-1.5 text-foreground">·</span>
                   {formatClockTime(now)}
                 </span>
               </motion.div>
