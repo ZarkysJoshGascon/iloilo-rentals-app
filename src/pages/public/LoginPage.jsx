@@ -3,6 +3,7 @@ import { useNavigate, useSearchParams } from 'react-router-dom'
 import { motion } from 'framer-motion'
 import { supabase } from "../../lib/supabase";
 import { useAuth } from "../../context/AuthContext";
+import { GOOGLE_CLIENT_ID, loadGoogleIdentity, createNonce } from '../../lib/googleSignIn'
 import { Loader2, ExternalLink, Copy, Check } from 'lucide-react'
 import toast from 'react-hot-toast'
 
@@ -43,6 +44,14 @@ export default function LoginPage() {
   const warningChecked = useRef(false)
   const redirectHandled = useRef(false)
   const urlInputRef = useRef(null)
+
+  // Google's own sign-in button (see lib/googleSignIn). Falls back to the
+  // redirect sign-in below when there's no client ID or Google's script fails.
+  const googleButtonRef = useRef(null)
+  const nonceRef = useRef(null)
+  const [googleButtonReady, setGoogleButtonReady] = useState(false)
+  const [googleButtonFailed, setGoogleButtonFailed] = useState(false)
+  const showGoogleButton = !!GOOGLE_CLIENT_ID && !googleButtonFailed && !showWarning
 
   // ------------------------------------------------------------
   // Post-login redirect
@@ -93,6 +102,66 @@ export default function LoginPage() {
       setIsLoading(false)
     }
   }
+
+  // ------------------------------------------------------------
+  // Google's sign-in button: the ID token goes straight to Supabase, so the
+  // account picker shows this site instead of the Supabase project domain.
+  // ------------------------------------------------------------
+  useEffect(() => {
+    if (!GOOGLE_CLIENT_ID || showWarning) return
+    let cancelled = false
+
+    const onCredential = async (response) => {
+      setIsLoading(true)
+      try {
+        const { error } = await supabase.auth.signInWithIdToken({
+          provider: 'google',
+          token: response.credential,
+          nonce: nonceRef.current,
+        })
+        if (error) throw error
+        // AuthContext picks up the session and the post-login effect redirects.
+      } catch (error) {
+        console.error('Login error:', error)
+        toast.error('Login failed. Please try again.')
+        setIsLoading(false)
+      }
+    }
+
+    ;(async () => {
+      try {
+        const [google, nonce] = await Promise.all([loadGoogleIdentity(), createNonce()])
+        const target = googleButtonRef.current
+        if (cancelled || !target) return
+        nonceRef.current = nonce.raw
+        google.accounts.id.initialize({
+          client_id: GOOGLE_CLIENT_ID,
+          nonce: nonce.hashed,
+          callback: onCredential,
+          ux_mode: 'popup',
+          context: 'signin',
+          auto_select: false,
+          cancel_on_tap_outside: true,
+        })
+        google.accounts.id.renderButton(target, {
+          type: 'standard',
+          theme: 'outline',
+          size: 'large',
+          text: 'signin_with',
+          shape: 'rectangular',
+          logo_alignment: 'center',
+          // Google draws the button 200–400px wide.
+          width: Math.min(400, Math.max(200, Math.round(target.offsetWidth))),
+        })
+        setGoogleButtonReady(true)
+      } catch (err) {
+        console.warn('Google sign-in button unavailable; using redirect sign-in instead.', err)
+        if (!cancelled) setGoogleButtonFailed(true)
+      }
+    })()
+
+    return () => { cancelled = true }
+  }, [showWarning])
 
   // ------------------------------------------------------------
   // Copy current URL to clipboard (external-browser escape hatch)
@@ -340,6 +409,22 @@ export default function LoginPage() {
         </div>
 
         {/* Google Sign-In */}
+        {showGoogleButton ? (
+          <motion.div
+            variants={buttonVariants}
+            initial="hidden"
+            animate="visible"
+            className="relative w-full min-h-[44px] flex justify-center"
+          >
+            <div ref={googleButtonRef} className={`w-full flex justify-center ${googleButtonReady ? '' : 'invisible'}`} />
+            {(!googleButtonReady || isLoading) && (
+              <div className="absolute inset-0 flex items-center justify-center gap-2 rounded-md border border-gray-200 bg-white text-sm font-medium text-gray-700">
+                <Loader2 className="w-4 h-4 animate-spin" />
+                {isLoading ? 'Signing in…' : 'Loading Google sign-in…'}
+              </div>
+            )}
+          </motion.div>
+        ) : (
         <motion.button
           variants={buttonVariants}
           initial="hidden"
@@ -398,6 +483,7 @@ export default function LoginPage() {
             </>
           )}
         </motion.button>
+        )}
 
         {/* Feature row */}
         <motion.div
