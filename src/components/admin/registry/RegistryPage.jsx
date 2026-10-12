@@ -4,7 +4,7 @@ import { motion, AnimatePresence } from 'framer-motion'
 import {
   Check, Loader2, Mail, Phone,
   Plus, RefreshCw, Search, X, Pencil,
-  CheckCircle2, AlertTriangle, Trash2, PhoneCall,
+  CheckCircle2, AlertTriangle, Trash2, PhoneCall, Building2, Ban,
 } from 'lucide-react'
 import { useNavigate } from 'react-router-dom'
 import toast from 'react-hot-toast'
@@ -23,6 +23,9 @@ import {
 import { logAudit } from '@/lib/auditLog'
 import { cn, sanitizeText, sanitizeEmail } from '@/lib/utils'
 import { searchProfiles, isEmailRegistered } from '@/lib/staff'
+import { InitialsAvatar } from '@/components/admin/_shared/Panel'
+import { StatStrip, StatTile } from '@/components/admin/_shared/StatStrip'
+import { SortHeader, nextSort, ResultsBar, SearchKeyHint, useListShortcuts } from '@/components/admin/_shared/listTools'
 
 const BRAND = '#2d568e'
 const SOFT_SHADOW = '0 20px 40px -16px rgba(15,23,42,0.24), 0 6px 16px -6px rgba(15,23,42,0.10)'
@@ -154,7 +157,7 @@ function ProfileEmailCombobox({
           )}
         />
         {verifying && (
-          <Loader2 size={12} className="absolute right-2.5 top-1/2 -translate-y-1/2 text-muted-foreground animate-spin" />
+          <Loader2 size={12} className="absolute right-2.5 top-1/2 -translate-y-1/2 text-foreground animate-spin" />
         )}
         {!verifying && verifiedProfile && (
           <Check size={12} className="absolute right-2.5 top-1/2 -translate-y-1/2 text-emerald-500" />
@@ -187,9 +190,9 @@ function ProfileEmailCombobox({
             className="absolute z-30 left-0 right-0 mt-1 bg-popover border border-border shadow-lg max-h-[280px] overflow-y-auto"
           >
             {loading && results.length === 0 ? (
-              <div className="px-3 py-2 text-[11px] text-muted-foreground italic">Searching…</div>
+              <div className="px-3 py-2 text-[11px] text-foreground italic">Searching…</div>
             ) : results.length === 0 && query.trim().length >= 2 ? (
-              <div className="px-3 py-3 text-[11px] text-muted-foreground italic">
+              <div className="px-3 py-3 text-[11px] text-foreground italic">
                 No registered user matches.
                 <div className="mt-1 text-[10px]">
                   Ask them to log in at Iloilo Rentals first, then come back.
@@ -218,7 +221,7 @@ function ProfileEmailCombobox({
                     {r.full_name && (
                       <p className="text-[11px] font-semibold text-foreground truncate">{r.full_name}</p>
                     )}
-                    <p className="text-[10px] text-muted-foreground truncate font-mono">{r.email}</p>
+                    <p className="text-[10px] text-foreground truncate font-mono">{r.email}</p>
                   </div>
                 </button>
               ))
@@ -258,10 +261,10 @@ function PillBar({ tabs, active, onChange, counts, className }) {
   }, [active, counts, tabs])
 
   return (
-    <div className={cn('inline-flex items-center p-1 rounded-full bg-muted/60 border border-border/60', className)}>
+    <div className={cn('inline-flex items-center p-0.5 rounded-md bg-card border border-border', className)}>
       <div ref={containerRef} className="relative inline-flex items-center gap-1">
         <motion.div
-          className="absolute top-0 bottom-0 rounded-full bg-card shadow-sm border border-border z-0"
+          className="absolute top-0 bottom-0 rounded-md bg-foreground z-0"
           animate={{ left: indicator.left, width: indicator.width }}
           transition={{ type: 'spring', stiffness: 350, damping: 28 }}
         />
@@ -275,13 +278,13 @@ function PillBar({ tabs, active, onChange, counts, className }) {
               data-active={isActive}
               onClick={() => onChange(tab.id)}
               className={cn(
-                'relative z-10 px-3.5 py-1.5 rounded-full text-[11px] font-semibold transition-colors whitespace-nowrap',
-                isActive ? 'text-foreground' : 'text-muted-foreground hover:text-foreground',
+                'relative z-10 px-3 h-7 rounded-md text-[12px] font-medium transition-colors whitespace-nowrap',
+                isActive ? 'text-background' : 'text-foreground',
               )}
             >
               {tab.label}
               {count !== null && (
-                <span className={cn('ml-1 tabular-nums', isActive ? 'opacity-90' : 'opacity-60')}>
+                <span className="ml-1 tabular-nums font-semibold">
                   {count}
                 </span>
               )}
@@ -376,18 +379,18 @@ function DateRangeFilter({ from, to, onFromChange, onToChange, onClear }) {
             style={BTN_RADIUS}
             className="absolute right-0 z-30 mt-1 w-[280px] bg-popover border border-border shadow-xl p-3"
           >
-            <p className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground mb-2">
+            <p className="text-[10px] font-bold uppercase tracking-wider text-foreground mb-2">
               Contract expiry range
             </p>
             <div className="space-y-2">
               <div>
-                <label className="text-[10px] uppercase tracking-wider text-muted-foreground font-semibold mb-1 block">From</label>
+                <label className="text-[10px] uppercase tracking-wider text-foreground font-semibold mb-1 block">From</label>
                 <input type="date" value={localFrom} onChange={(e) => setLocalFrom(e.target.value)} max={localTo || undefined}
                   style={BTN_RADIUS}
                   className="w-full h-8 text-xs border border-border bg-background px-2 focus:outline-none focus:ring-2 focus:ring-ring/30" />
               </div>
               <div>
-                <label className="text-[10px] uppercase tracking-wider text-muted-foreground font-semibold mb-1 block">To</label>
+                <label className="text-[10px] uppercase tracking-wider text-foreground font-semibold mb-1 block">To</label>
                 <input type="date" value={localTo} onChange={(e) => setLocalTo(e.target.value)} min={localFrom || undefined}
                   style={BTN_RADIUS}
                   className="w-full h-8 border border-border bg-background px-2 text-xs focus:outline-none focus:ring-2 focus:ring-ring/30" />
@@ -395,7 +398,7 @@ function DateRangeFilter({ from, to, onFromChange, onToChange, onClear }) {
             </div>
             <div className="flex items-center justify-between pt-3 mt-3 border-t border-border">
               <button type="button" onClick={clear} disabled={!localFrom && !localTo}
-                className="text-[11px] font-semibold text-muted-foreground hover:text-foreground disabled:opacity-40">
+                className="text-[11px] font-semibold text-foreground hover:text-foreground disabled:opacity-40">
                 Clear
               </button>
               <button type="button" onClick={apply}
@@ -418,7 +421,7 @@ function DateRangeFilter({ from, to, onFromChange, onToChange, onClear }) {
 const DERIVED_STATUS_TEXT = {
   ACTIVE:      { label: 'Active',      className: 'text-emerald-600 dark:text-emerald-400' },
   FOR_RENEWAL: { label: 'For Renewal', className: 'text-red-600 dark:text-red-400' },
-  INACTIVE:    { label: 'Inactive',    className: 'text-gray-500 dark:text-gray-400' },
+  INACTIVE:    { label: 'Inactive',    className: 'text-foreground' },
 }
 
 const UNIT_TYPES = ['Studio', '1-Bedroom', '2-Bedroom', 'Executive Studio', 'STOCKROOM']
@@ -436,6 +439,20 @@ const DEFAULT_CHANNELS = [
   'Airbnb', 'Booking.com', 'Agoda', 'Hosteeva', 'Your Rentals',
   'Trip.com', 'Expedia', 'Vrbo', 'Facebook Marketplace',
 ]
+
+// Sortable columns. "Status" puts expired contracts first, then ones ending
+// soon, then active, then units without a contract.
+const UNIT_SORT_VALUE = {
+  building: (u) => u.building || '',
+  unit:     (u) => u.unit_code || '',
+  owner:    (u) => u.owner_name || '',
+  status:   (u) => {
+    const d = deriveUnitStatus(u)
+    if (d.status === 'FOR_RENEWAL') return 0
+    if (d.status === 'ACTIVE') return d.warning ? 1 : 2
+    return 3
+  },
+}
 
 const ROW_GRID = 'grid grid-cols-[1.4fr_1fr_1.6fr_220px] gap-4 items-center'
 const PANEL_WIDTH = 448
@@ -508,67 +525,41 @@ function DerivedStatusText({ unit }) {
   return <span className={cn('text-[11px] font-semibold', config.className)}>{config.label}</span>
 }
 
-const AVATAR_COLORS = [
-  ['bg-blue-100', 'text-blue-700', 'dark:bg-blue-900/40', 'dark:text-blue-300'],
-  ['bg-emerald-100', 'text-emerald-700', 'dark:bg-emerald-900/40', 'dark:text-emerald-300'],
-  ['bg-orange-100', 'text-orange-700', 'dark:bg-orange-900/40', 'dark:text-orange-300'],
-  ['bg-purple-100', 'text-purple-700', 'dark:bg-purple-900/40', 'dark:text-purple-300'],
-  ['bg-rose-100', 'text-rose-700', 'dark:bg-rose-900/40', 'dark:text-rose-300'],
-  ['bg-cyan-100', 'text-cyan-700', 'dark:bg-cyan-900/40', 'dark:text-cyan-300'],
-  ['bg-amber-100', 'text-amber-700', 'dark:bg-amber-900/40', 'dark:text-amber-300'],
-  ['bg-indigo-100', 'text-indigo-700', 'dark:bg-indigo-900/40', 'dark:text-indigo-300'],
-]
-function avatarColor(seed) {
-  if (!seed) return AVATAR_COLORS[0]
-  let hash = 0
-  for (let i = 0; i < seed.length; i++) { hash = ((hash << 5) - hash) + seed.charCodeAt(i); hash = hash & hash }
-  return AVATAR_COLORS[Math.abs(hash) % AVATAR_COLORS.length]
-}
-function OwnerAvatar({ name, email, size = 'md' }) {
-  const [bg, text, dbg, dtext] = avatarColor(email || name)
-  const sizeClasses = size === 'lg' ? 'w-12 h-12 text-base' : size === 'sm' ? 'w-8 h-8 text-[11px]' : 'w-10 h-10 text-sm'
-  return (
-    <div className={cn('rounded-full flex items-center justify-center font-semibold flex-shrink-0', sizeClasses, bg, text, dbg, dtext)}>
-      {initials(name)}
-    </div>
-  )
+// Plain initials on white, as on the Dashboard.
+function OwnerAvatar({ name, size = 'md' }) {
+  return <InitialsAvatar name={name} size={size === 'lg' ? 'lg' : size === 'sm' ? 'sm' : 'md'} />
 }
 
-function SummaryCards({ units }) {
+// KPI strip as on the Dashboard; each tile filters the list below.
+function SummaryCards({ units, active, onSelect }) {
   const stats = useMemo(() => {
-    let active = 0, inactive = 0, forRenewal = 0
+    let activeUnits = 0, inactive = 0, forRenewal = 0
     for (const u of units) {
       const d = deriveUnitStatus(u).status
-      if (d === 'ACTIVE') active++
+      if (d === 'ACTIVE') activeUnits++
       else if (d === 'FOR_RENEWAL') forRenewal++
       else inactive++
     }
-    return { total: units.length, active, inactive, forRenewal }
+    return { total: units.length, active: activeUnits, inactive, forRenewal }
   }, [units])
 
-  const cards = [
-    { label: 'Total Units', value: stats.total,      icon: CheckCircle2  },
-    { label: 'Active',      value: stats.active,     icon: CheckCircle2  },
-    { label: 'For Renewal', value: stats.forRenewal, icon: AlertTriangle },
-    { label: 'Inactive',    value: stats.inactive,   icon: X             },
-  ]
+  const pick = (id) => onSelect(active === id ? 'all' : id)
 
   return (
-    <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-      {cards.map((card, i) => (
-        <motion.div key={card.label}
-          initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }}
-          transition={{ delay: i * 0.05, duration: 0.25 }}
-          style={BTN_RADIUS}
-          className="bg-card border border-border shadow-sm p-4">
-          <div className="flex items-center gap-2 mb-2">
-            <card.icon size={15} className="text-foreground" />
-            <span className="text-[11px] font-bold uppercase tracking-wider text-foreground">{card.label}</span>
-          </div>
-          <p className="text-3xl font-bold text-foreground tabular-nums">{card.value}</p>
-        </motion.div>
-      ))}
-    </div>
+    <StatStrip cols={4}>
+      <StatTile icon={Building2} label="Total units" value={stats.total} sub="All units in the registry" active={active === 'all'} onClick={() => onSelect('all')} />
+      <StatTile icon={CheckCircle2} label="Active" value={stats.active} sub="Under a current contract" active={active === 'ACTIVE'} onClick={() => pick('ACTIVE')} />
+      <StatTile
+        icon={AlertTriangle}
+        label="For renewal"
+        value={stats.forRenewal}
+        sub={stats.forRenewal > 0 ? 'Contract has expired' : 'Nothing to renew'}
+        attention={stats.forRenewal > 0}
+        active={active === 'FOR_RENEWAL'}
+        onClick={() => pick('FOR_RENEWAL')}
+      />
+      <StatTile icon={Ban} label="Inactive" value={stats.inactive} sub="No contract yet" active={active === 'INACTIVE'} onClick={() => pick('INACTIVE')} />
+    </StatStrip>
   )
 }
 
@@ -614,7 +605,7 @@ function EditableField({ label, value, type = 'text', options, onSave, actionHre
 
   return (
     <div className="flex items-center gap-2 py-0.5">
-      <span className="text-[10px] uppercase tracking-wider text-muted-foreground font-semibold min-w-[72px] flex-shrink-0">{label}</span>
+      <span className="text-[10px] uppercase tracking-wider text-foreground font-semibold min-w-[72px] flex-shrink-0">{label}</span>
       <div className="flex items-center gap-1 flex-1 min-w-0">
         {options ? (
           <Select value={draft || ''} onValueChange={async (v) => {
@@ -644,7 +635,7 @@ function EditableField({ label, value, type = 'text', options, onSave, actionHre
         {status === 'saved' && <Check size={11} className="flex-shrink-0 text-emerald-500" />}
       </div>
       {actionHref && ActionIcon && value && (
-        <Button variant="ghost" size="icon" className="h-7 w-7 flex-shrink-0 text-muted-foreground hover:text-primary" style={BTN_RADIUS} asChild>
+        <Button variant="ghost" size="icon" className="h-7 w-7 flex-shrink-0 text-foreground hover:text-primary" style={BTN_RADIUS} asChild>
           <a href={actionHref} title={actionTitle || 'Open'}><ActionIcon size={12} /></a>
         </Button>
       )}
@@ -705,12 +696,12 @@ function OtaEditor({ unit, onSave, channelOptions = [] }) {
 
   return (
     <div className="space-y-1.5">
-      {listings.length === 0 && !drafting && <p className="text-xs text-muted-foreground italic py-1">No channels yet</p>}
+      {listings.length === 0 && !drafting && <p className="text-xs text-foreground italic py-1">No channels yet</p>}
       {listings.map((item, i) => {
         const isDupe = dupes.some((d) => d.toLowerCase() === item.channel.toLowerCase())
         return (
-          <div key={`${item.channel}-${i}`} style={BTN_RADIUS} className={cn('flex items-center gap-2 px-2 py-1.5 bg-muted/50 group/ota', isDupe && 'ring-1 ring-red-400')}>
-            <span className="text-[10px] uppercase tracking-wider font-bold text-muted-foreground min-w-[72px] flex-shrink-0 truncate">{item.channel}</span>
+          <div key={`${item.channel}-${i}`} style={BTN_RADIUS} className={cn('flex items-center gap-2 px-2 py-1.5 bg-card group/ota', isDupe && 'ring-1 ring-red-400')}>
+            <span className="text-[10px] uppercase tracking-wider font-bold text-foreground min-w-[72px] flex-shrink-0 truncate">{item.channel}</span>
             {editingIndex === i ? (
               <div className="flex-1 min-w-0 flex flex-col gap-0.5">
                 <Input value={editDraft} onChange={(e) => { setEditDraft(e.target.value); if (editError) setEditError('') }}
@@ -724,17 +715,17 @@ function OtaEditor({ unit, onSave, channelOptions = [] }) {
               <button type="button" onClick={() => { setEditingIndex(i); setEditDraft(item.name); setEditError('') }}
                 className="text-xs text-left flex-1 min-w-0 truncate hover:text-primary transition-colors flex items-center gap-1">
                 <span className={cn('truncate', !item.name && 'italic text-red-500')}>{item.name || 'Empty'}</span>
-                <Pencil size={10} className="flex-shrink-0 text-muted-foreground/0 group-hover/ota:text-muted-foreground/60 transition-colors" />
+                <Pencil size={10} className="flex-shrink-0 text-foreground group-hover/ota:text-muted-foreground/60 transition-colors" />
               </button>
             )}
-            <button type="button" onClick={() => removeAt(i)} style={BTN_RADIUS} className="p-1 hover:bg-red-500/10 text-muted-foreground hover:text-red-500 transition-colors flex-shrink-0">
+            <button type="button" onClick={() => removeAt(i)} style={BTN_RADIUS} className="p-1 hover:bg-red-500/10 text-foreground hover:text-red-500 transition-colors flex-shrink-0">
               <Trash2 size={11} />
             </button>
           </div>
         )
       })}
       {drafting ? (
-        <div style={BTN_RADIUS} className="flex flex-col gap-1 px-2 py-2 bg-muted/50 border border-primary/40">
+        <div style={BTN_RADIUS} className="flex flex-col gap-1 px-2 py-2 bg-card border border-primary/40">
           <div className="flex items-center gap-2">
             <Input value={draftChannel} onChange={(e) => { setDraftChannel(e.target.value); if (draftErrors.channel) setDraftErrors((p) => ({ ...p, channel: '' })) }}
               placeholder="Channel name" list="ota-channel-options" style={BTN_RADIUS} className={cn('h-8 text-xs flex-1', draftErrors.channel && 'border-red-400')} />
@@ -745,7 +736,7 @@ function OtaEditor({ unit, onSave, channelOptions = [] }) {
             <Button size="icon" className="h-8 w-8 flex-shrink-0" style={BTN_RADIUS} onClick={handleAdd} disabled={saving}>
               {saving ? <Loader2 size={11} className="animate-spin" /> : <Check size={11} />}
             </Button>
-            <button type="button" onClick={() => { setDrafting(false); setDraftChannel(''); setDraftName(''); setDraftErrors({ channel: '', name: '' }) }} style={BTN_RADIUS} className="p-1 hover:bg-muted text-muted-foreground">
+            <button type="button" onClick={() => { setDrafting(false); setDraftChannel(''); setDraftName(''); setDraftErrors({ channel: '', name: '' }) }} style={BTN_RADIUS} className="p-1 hover:bg-muted text-foreground">
               <X size={12} />
             </button>
           </div>
@@ -757,7 +748,7 @@ function OtaEditor({ unit, onSave, channelOptions = [] }) {
           )}
         </div>
       ) : (
-        <button type="button" onClick={() => setDrafting(true)} style={BTN_RADIUS} className="flex items-center gap-1.5 text-xs font-semibold text-muted-foreground hover:text-primary py-1.5 px-2 transition-colors">
+        <button type="button" onClick={() => setDrafting(true)} style={BTN_RADIUS} className="flex items-center gap-1.5 text-xs font-semibold text-foreground hover:text-primary py-1.5 px-2 transition-colors">
           <Plus size={11} /> Add Channel
         </button>
       )}
@@ -774,7 +765,7 @@ function WarningChip({ icon: Icon, label, count, active, onClick, children }) {
           active ? 'bg-foreground text-background border-foreground' : 'bg-card text-foreground border-border hover:bg-muted')}>
         <Icon size={13} className={active ? 'opacity-90' : 'opacity-60'} />
         <span>{label}</span>
-        <span className={cn('min-w-[20px] h-[18px] inline-flex items-center justify-center px-1.5 rounded-full text-[10px] font-semibold tabular-nums', active ? 'bg-background/20' : 'bg-muted')}>{count}</span>
+        <span className={cn('min-w-[20px] h-[18px] inline-flex items-center justify-center px-1.5 rounded-full text-[10px] font-semibold tabular-nums', active ? 'bg-background/20' : 'border border-border')}>{count}</span>
       </button>
       {children}
     </div>
@@ -789,9 +780,9 @@ function DropdownPanel({ title, subtitle, onClose, children }) {
       <div className="flex items-start justify-between gap-3 px-4 py-3 border-b border-border">
         <div className="min-w-0">
           <p className="text-xs font-semibold text-foreground">{title}</p>
-          <p className="text-[10px] text-muted-foreground mt-0.5">{subtitle}</p>
+          <p className="text-[10px] text-foreground mt-0.5">{subtitle}</p>
         </div>
-        <button type="button" onClick={onClose} style={BTN_RADIUS} className="p-1 -m-1 hover:bg-muted text-muted-foreground"><X size={12} /></button>
+        <button type="button" onClick={onClose} style={BTN_RADIUS} className="p-1 -m-1 hover:bg-muted text-foreground"><X size={12} /></button>
       </div>
       <div className="flex-1 overflow-y-auto">{children}</div>
     </motion.div>
@@ -826,8 +817,8 @@ function WarningsStrip({ missingUnits, onSelectUnit }) {
                   className="w-full text-left px-4 py-3 border-b border-border last:border-0 hover:bg-muted/40 transition-colors group">
                   <div className="flex items-baseline gap-2 mb-2">
                     <span className="font-mono text-xs font-semibold text-foreground">{unit.unit_code}</span>
-                    <span className="text-[11px] text-muted-foreground truncate">{unit.building}</span>
-                    <span className="ml-auto text-[10px] text-muted-foreground tabular-nums">{missing.total}</span>
+                    <span className="text-[11px] text-foreground truncate">{unit.building}</span>
+                    <span className="ml-auto text-[10px] text-foreground tabular-nums">{missing.total}</span>
                   </div>
                   <div className="flex flex-wrap gap-1">
                     {missing.warnings.map((f) => (
@@ -903,36 +894,36 @@ function LogCallModal({ open, onClose, unit, onSaved }) {
         <div className="flex items-center justify-between px-5 py-3 border-b border-border">
           <div>
             <h3 id="log-call-title" className="text-sm font-bold text-foreground">Log Interaction</h3>
-            <p className="text-xs text-muted-foreground">{unit.unit_code} · {unit.owner_name || 'No owner'}</p>
+            <p className="text-xs text-foreground">{unit.unit_code} · {unit.owner_name || 'No owner'}</p>
           </div>
           <button onClick={onClose} style={BTN_RADIUS} className="p-1 hover:bg-muted"><X size={14} /></button>
         </div>
         <div className="p-5 space-y-3">
           <div>
-            <label className="text-[10px] uppercase tracking-wider text-muted-foreground font-semibold mb-1.5 block">Type</label>
+            <label className="text-[10px] uppercase tracking-wider text-foreground font-semibold mb-1.5 block">Type</label>
             <Select value={type} onValueChange={setType}>
               <SelectTrigger style={BTN_RADIUS} className="h-9 text-xs"><SelectValue /></SelectTrigger>
               <SelectContent>{INTERACTION_TYPES.map((t) => <SelectItem key={t} value={t} className="text-xs">{t}</SelectItem>)}</SelectContent>
             </Select>
           </div>
           <div>
-            <label className="text-[10px] uppercase tracking-wider text-muted-foreground font-semibold mb-1.5 block">Outcome</label>
+            <label className="text-[10px] uppercase tracking-wider text-foreground font-semibold mb-1.5 block">Outcome</label>
             <Select value={outcome} onValueChange={setOutcome}>
               <SelectTrigger style={BTN_RADIUS} className="h-9 text-xs"><SelectValue /></SelectTrigger>
               <SelectContent>{OUTCOME_OPTIONS.map((o) => <SelectItem key={o} value={o} className="text-xs">{o}</SelectItem>)}</SelectContent>
             </Select>
           </div>
           <div>
-            <label className="text-[10px] uppercase tracking-wider text-muted-foreground font-semibold mb-1.5 block">Notes</label>
+            <label className="text-[10px] uppercase tracking-wider text-foreground font-semibold mb-1.5 block">Notes</label>
             <Textarea value={content} onChange={(e) => setContent(e.target.value)} rows={3}
               placeholder="What was discussed?" style={BTN_RADIUS} className="text-xs resize-none" />
           </div>
           <div>
-            <label className="text-[10px] uppercase tracking-wider text-muted-foreground font-semibold mb-1.5 block">Next Follow-up (optional)</label>
+            <label className="text-[10px] uppercase tracking-wider text-foreground font-semibold mb-1.5 block">Next Follow-up (optional)</label>
             <Input type="date" value={nextDate} onChange={(e) => setNextDate(e.target.value)} placeholder="Select date" style={BTN_RADIUS} className="h-9 text-xs" />
           </div>
         </div>
-        <div className="flex items-center justify-end gap-2 px-5 py-3 border-t border-border bg-muted/30">
+        <div className="flex items-center justify-end gap-2 px-5 py-3 border-t border-border bg-card">
           <Button variant="outline" size="sm" className="h-9 text-xs" style={BTN_RADIUS} onClick={onClose} disabled={saving}>Cancel</Button>
           <Button size="sm" className="h-9 text-xs" style={{ backgroundColor: BRAND, ...BTN_RADIUS }} onClick={handleSave} disabled={saving}>
             {saving ? <Loader2 size={12} className="mr-1.5 animate-spin" /> : <PhoneCall size={12} className="mr-1.5" />}
@@ -1039,13 +1030,13 @@ function InteractionRow({ record, onUpdated, onDeleted }) {
   return (
     <div style={BTN_RADIUS} className="group flex items-start gap-2 px-3 py-2 border border-border bg-card hover:bg-muted/40 transition-colors">
       <div className="flex flex-col gap-1 pt-0.5 flex-shrink-0 w-[86px]">
-        <span className="text-[10px] uppercase tracking-wider font-bold text-muted-foreground">{record.type}</span>
+        <span className="text-[10px] uppercase tracking-wider font-bold text-foreground">{record.type}</span>
         <span className={cn('inline-flex items-center justify-center px-2.5 py-0.5 rounded-full text-[11px] font-semibold', outcomeClasses)}>{record.outcome}</span>
       </div>
       <div className="min-w-0 flex-1">
         <p className="text-xs text-foreground whitespace-pre-wrap break-words">{record.content}</p>
         <div className="flex items-center gap-3 mt-1 flex-wrap">
-          <span className="text-[10px] text-muted-foreground tabular-nums">{formatDate(record.created_at)}</span>
+          <span className="text-[10px] text-foreground tabular-nums">{formatDate(record.created_at)}</span>
           {record.next_follow_up_date && (
             <span className="text-[10px] text-primary dark:text-blue-400 font-medium tabular-nums">
               Next follow-up: {formatDate(record.next_follow_up_date)}
@@ -1054,8 +1045,8 @@ function InteractionRow({ record, onUpdated, onDeleted }) {
         </div>
       </div>
       <div className="flex items-center gap-1 flex-shrink-0 opacity-0 group-hover:opacity-100 transition-opacity">
-        <button type="button" onClick={() => setEditing(true)} style={BTN_RADIUS} className="p-1.5 hover:bg-muted text-muted-foreground hover:text-foreground transition-colors" title="Edit"><Pencil size={12} /></button>
-        <button type="button" onClick={handleDelete} disabled={deleting} style={BTN_RADIUS} className="p-1.5 hover:bg-red-500/10 text-muted-foreground hover:text-red-500 transition-colors disabled:opacity-40" title="Delete">
+        <button type="button" onClick={() => setEditing(true)} style={BTN_RADIUS} className="p-1.5 hover:bg-muted text-foreground hover:text-foreground transition-colors" title="Edit"><Pencil size={12} /></button>
+        <button type="button" onClick={handleDelete} disabled={deleting} style={BTN_RADIUS} className="p-1.5 hover:bg-red-500/10 text-foreground hover:text-red-500 transition-colors disabled:opacity-40" title="Delete">
           {deleting ? <Loader2 size={12} className="animate-spin" /> : <Trash2 size={12} />}
         </button>
       </div>
@@ -1094,9 +1085,9 @@ function InteractionsSection({ unit, onLogCall, refreshKey = 0 }) {
     >
       <div className="p-2 space-y-1.5 max-h-[320px] overflow-y-auto">
         {loading ? (
-          <div className="py-4 text-center text-xs text-muted-foreground">Loading…</div>
+          <div className="py-4 text-center text-xs text-foreground">Loading…</div>
         ) : items.length === 0 ? (
-          <div className="py-4 text-center text-xs text-muted-foreground">No interactions yet</div>
+          <div className="py-4 text-center text-xs text-foreground">No interactions yet</div>
         ) : (
           items.map((rec) => (
             <InteractionRow key={rec.id} record={rec} onUpdated={handleUpdated} onDeleted={handleDeleted} />
@@ -1124,8 +1115,8 @@ function ContractSection({ unit, contract, loading, onNavigateToContracts }) {
     return (
       <DetailSection title="Contract">
         <div className="p-3 space-y-1">
-          <span className="text-xs text-muted-foreground italic">No contract</span>
-          <p className="text-[10px] text-muted-foreground pt-1">Create one in the Contracts page.</p>
+          <span className="text-xs text-foreground italic">No contract</span>
+          <p className="text-[10px] text-foreground pt-1">Create one in the Contracts page.</p>
           <Button size="sm" variant="outline" className="h-8 text-[11px] gap-1.5 mt-2" style={BTN_RADIUS} onClick={onNavigateToContracts}>
             Open Contracts page
           </Button>
@@ -1138,35 +1129,35 @@ function ContractSection({ unit, contract, loading, onNavigateToContracts }) {
   const statusLabel = derived.warning ? derived.warning.text : DERIVED_STATUS_TEXT[derived.status]?.label || '—'
   const statusClass = derived.warning
     ? (derived.warning.tone === 'red' ? 'text-red-600 dark:text-red-400' : 'text-amber-600 dark:text-amber-400')
-    : DERIVED_STATUS_TEXT[derived.status]?.className || 'text-gray-500 dark:text-gray-400'
+    : DERIVED_STATUS_TEXT[derived.status]?.className || 'text-foreground'
 
   return (
     <DetailSection title="Contract">
       <div className="p-3 space-y-0.5">
         <div className="flex items-center justify-between gap-2 py-0.5">
-          <span className="text-[10px] uppercase tracking-wider text-muted-foreground font-semibold">Code</span>
+          <span className="text-[10px] uppercase tracking-wider text-foreground font-semibold">Code</span>
           <span className="text-xs font-mono text-foreground">{contract.contract_code || '—'}</span>
         </div>
         <div className="flex items-center justify-between gap-2 py-0.5">
-          <span className="text-[10px] uppercase tracking-wider text-muted-foreground font-semibold">Status</span>
+          <span className="text-[10px] uppercase tracking-wider text-foreground font-semibold">Status</span>
           <span className={cn('text-[10px] font-semibold', statusClass)}>{statusLabel}</span>
         </div>
         <div className="flex items-center justify-between gap-2 py-0.5">
-          <span className="text-[10px] uppercase tracking-wider text-muted-foreground font-semibold">Effective</span>
+          <span className="text-[10px] uppercase tracking-wider text-foreground font-semibold">Effective</span>
           <span className="text-xs tabular-nums text-foreground">{contract.effective_date || '—'}</span>
         </div>
         <div className="flex items-center justify-between gap-2 py-0.5">
-          <span className="text-[10px] uppercase tracking-wider text-muted-foreground font-semibold">Expiry</span>
+          <span className="text-[10px] uppercase tracking-wider text-foreground font-semibold">Expiry</span>
           <span className="text-xs tabular-nums text-foreground">
-            {contract.expiry_date || <span className="italic text-muted-foreground">Open-ended</span>}
+            {contract.expiry_date || <span className="italic text-foreground">Open-ended</span>}
           </span>
         </div>
-        <p className="pt-2 mt-2 border-t border-border text-[10px] text-muted-foreground italic">
+        <p className="pt-2 mt-2 border-t border-border text-[10px] text-foreground italic">
           Contract PDF opens from the Contracts page.
         </p>
         <div className="pt-2 mt-2 border-t border-border">
           <button type="button" onClick={onNavigateToContracts}
-            className="inline-flex items-center gap-1.5 text-[11px] font-semibold text-muted-foreground hover:text-primary transition-colors">
+            className="inline-flex items-center gap-1.5 text-[11px] font-semibold text-foreground hover:text-primary transition-colors">
             Edit in Contracts →
           </button>
         </div>
@@ -1216,17 +1207,17 @@ function RegistryDetailPanel({
               <div className="flex items-start gap-3">
                 <div className="min-w-0 flex-1">
                   <p className="text-base font-bold text-foreground truncate">{unit.unit_code}</p>
-                  <p className="text-[11px] text-muted-foreground truncate">{unit.building}</p>
+                  <p className="text-[11px] text-foreground truncate">{unit.building}</p>
                   <div className="flex items-center gap-2 mt-2 flex-wrap">
                     <DerivedStatusText unit={unit} />
                     {unit.unit_type && (
-                      <span className="inline-flex items-center px-2 py-0.5 rounded text-[10px] font-semibold bg-muted text-muted-foreground uppercase">
+                      <span className="inline-flex items-center px-2 py-0.5 rounded text-[10px] font-semibold bg-muted text-foreground uppercase">
                         {unit.unit_type}
                       </span>
                     )}
                   </div>
                 </div>
-                <button onClick={onClose} style={BTN_RADIUS} className="p-1 hover:bg-muted text-muted-foreground flex-shrink-0"><X size={16} /></button>
+                <button onClick={onClose} style={BTN_RADIUS} className="p-1 hover:bg-muted text-foreground flex-shrink-0"><X size={16} /></button>
               </div>
             </div>
 
@@ -1257,7 +1248,7 @@ function RegistryDetailPanel({
                     <OwnerAvatar name={unit.owner_name} email={unit.owner_email} size="lg" />
                     <div className="min-w-0 flex-1">
                       <p className="text-sm font-semibold truncate">{unit.owner_name || 'No owner'}</p>
-                      <p className="text-[11px] text-muted-foreground truncate">{unit.owner_email || 'No email'}</p>
+                      <p className="text-[11px] text-foreground truncate">{unit.owner_email || 'No email'}</p>
                     </div>
                   </div>
                   <EditableField label="Email" value={unit.owner_email} type="email" onSave={(v) => handleUnitField('owner_email', v)}
@@ -1407,7 +1398,7 @@ function AddUnitModal({ open, onClose, onCreated, existingBuildings = [], channe
   }
 
   if (!open) return null
-  const labelClass = 'text-[10px] uppercase tracking-wider text-muted-foreground font-semibold mb-1.5 block'
+  const labelClass = 'text-[10px] uppercase tracking-wider text-foreground font-semibold mb-1.5 block'
   const inputClass = 'h-9 text-xs'
 
   return (
@@ -1430,7 +1421,7 @@ function AddUnitModal({ open, onClose, onCreated, existingBuildings = [], channe
         </div>
         <div className="flex-1 overflow-y-auto px-5 py-4 space-y-4">
           <div>
-            <h3 className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground mb-2 pb-1.5 border-b border-border">Unit</h3>
+            <h3 className="text-[10px] font-bold uppercase tracking-wider text-foreground mb-2 pb-1.5 border-b border-border">Unit</h3>
             <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
               <div><label className={labelClass}>Unit Code *</label>
                 <Input value={form.unit_code} onChange={(e) => setField('unit_code', e.target.value)} placeholder="e.g., P S1 503" style={BTN_RADIUS} className={inputClass} autoFocus /></div>
@@ -1460,7 +1451,7 @@ function AddUnitModal({ open, onClose, onCreated, existingBuildings = [], channe
             </div>
           </div>
           <div>
-            <h3 className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground mb-2 pb-1.5 border-b border-border">Owner</h3>
+            <h3 className="text-[10px] font-bold uppercase tracking-wider text-foreground mb-2 pb-1.5 border-b border-border">Owner</h3>
             <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
               <div className="md:col-span-2">
                 <label className={labelClass}>Owner (registered user)</label>
@@ -1479,7 +1470,7 @@ function AddUnitModal({ open, onClose, onCreated, existingBuildings = [], channe
                   }}
                   placeholder="Start typing an email…"
                 />
-                <p className="text-[10px] text-muted-foreground mt-1">
+                <p className="text-[10px] text-foreground mt-1">
                   Must be a registered Iloilo Rentals user. They log in with Google first.
                 </p>
               </div>
@@ -1492,43 +1483,43 @@ function AddUnitModal({ open, onClose, onCreated, existingBuildings = [], channe
             </div>
           </div>
           <div>
-            <h3 className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground mb-2 pb-1.5 border-b border-border">Marketing</h3>
+            <h3 className="text-[10px] font-bold uppercase tracking-wider text-foreground mb-2 pb-1.5 border-b border-border">Marketing</h3>
             <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
               <div><label className={labelClass}>Marketing Title</label><Input value={form.marketing_title} onChange={(e) => setField('marketing_title', e.target.value)} placeholder="Public listing title" style={BTN_RADIUS} className={inputClass} /></div>
               <div><label className={labelClass}>Inventory List</label><Input value={form.inventory_list} onChange={(e) => setField('inventory_list', e.target.value)} placeholder="Furniture, appliances…" style={BTN_RADIUS} className={inputClass} /></div>
             </div>
           </div>
           <div>
-            <h3 className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground mb-2 pb-1.5 border-b border-border">OTA Channels</h3>
+            <h3 className="text-[10px] font-bold uppercase tracking-wider text-foreground mb-2 pb-1.5 border-b border-border">OTA Channels</h3>
             <div className="space-y-1.5">
-              {otaListings.length === 0 && !drafting && <p className="text-xs text-muted-foreground italic">No channels added yet</p>}
+              {otaListings.length === 0 && !drafting && <p className="text-xs text-foreground italic">No channels added yet</p>}
               {otaListings.map((item, i) => (
-                <div key={`${item.channel}-${i}`} style={BTN_RADIUS} className="flex items-center gap-2 px-2 py-1.5 bg-muted/50">
-                  <span className="text-[10px] uppercase tracking-wider font-bold text-muted-foreground min-w-[72px] flex-shrink-0">{item.channel}</span>
+                <div key={`${item.channel}-${i}`} style={BTN_RADIUS} className="flex items-center gap-2 px-2 py-1.5 bg-card">
+                  <span className="text-[10px] uppercase tracking-wider font-bold text-foreground min-w-[72px] flex-shrink-0">{item.channel}</span>
                   <span className="text-xs flex-1 min-w-0 truncate">{item.name}</span>
                   <button type="button" onClick={() => setOtaListings(otaListings.filter((_, x) => x !== i))}
-                    style={BTN_RADIUS} className="p-1 hover:bg-red-500/10 text-muted-foreground hover:text-red-500 transition-colors"><Trash2 size={11} /></button>
+                    style={BTN_RADIUS} className="p-1 hover:bg-red-500/10 text-foreground hover:text-red-500 transition-colors"><Trash2 size={11} /></button>
                 </div>
               ))}
               {drafting ? (
-                <div style={BTN_RADIUS} className="flex items-center gap-2 px-2 py-2 bg-muted/50 border border-primary/40">
+                <div style={BTN_RADIUS} className="flex items-center gap-2 px-2 py-2 bg-card border border-primary/40">
                   <Input value={draftChannel} onChange={(e) => setDraftChannel(e.target.value)} placeholder="Channel name" list="ota-channel-options-add" style={BTN_RADIUS} className="h-8 text-xs flex-1" />
                   <datalist id="ota-channel-options-add">{allChannelOptions.map((opt) => <option key={opt} value={opt} />)}</datalist>
                   <Input value={draftName} onChange={(e) => setDraftName(e.target.value)}
                     onKeyDown={(e) => { if (e.key === 'Enter') addChannel(); if (e.key === 'Escape') { setDrafting(false); setDraftChannel(''); setDraftName('') } }}
                     placeholder="Listing name" style={BTN_RADIUS} className="h-8 text-xs flex-1" />
                   <Button size="icon" className="h-8 w-8 flex-shrink-0" style={BTN_RADIUS} onClick={addChannel}><Check size={11} /></Button>
-                  <button type="button" onClick={() => { setDrafting(false); setDraftChannel(''); setDraftName('') }} style={BTN_RADIUS} className="p-1 hover:bg-muted text-muted-foreground"><X size={12} /></button>
+                  <button type="button" onClick={() => { setDrafting(false); setDraftChannel(''); setDraftName('') }} style={BTN_RADIUS} className="p-1 hover:bg-muted text-foreground"><X size={12} /></button>
                 </div>
               ) : (
-                <button type="button" onClick={() => setDrafting(true)} style={BTN_RADIUS} className="flex items-center gap-1.5 text-xs font-semibold text-muted-foreground hover:text-primary py-1.5 px-2 transition-colors">
+                <button type="button" onClick={() => setDrafting(true)} style={BTN_RADIUS} className="flex items-center gap-1.5 text-xs font-semibold text-foreground hover:text-primary py-1.5 px-2 transition-colors">
                   <Plus size={11} /> Add Channel
                 </button>
               )}
             </div>
           </div>
         </div>
-        <div className="flex items-center justify-end gap-2 px-5 py-3 border-t border-border bg-muted/30">
+        <div className="flex items-center justify-end gap-2 px-5 py-3 border-t border-border bg-card">
           <Button variant="outline" size="sm" className="h-9 text-xs" style={BTN_RADIUS} onClick={onClose} disabled={saving}>Cancel</Button>
           <Button size="sm" className="h-9 text-xs" style={{ backgroundColor: BRAND, ...BTN_RADIUS }} onClick={handleSubmit} disabled={saving}>
             {saving ? <Loader2 size={12} className="mr-1.5 animate-spin" /> : <Plus size={12} className="mr-1.5" />}
@@ -1554,7 +1545,7 @@ function UnitListRow({ unit, selected, onClick }) {
     >
       <span className="text-sm font-semibold text-foreground truncate">{unit.building || '—'}</span>
       <span className="font-mono text-sm font-bold text-foreground truncate">{unit.unit_code || '—'}</span>
-      <span className="text-xs text-muted-foreground truncate">{unit.owner_name || '—'}</span>
+      <span className="text-xs text-foreground truncate">{unit.owner_name || '—'}</span>
       <div className="flex items-center gap-2 justify-end flex-shrink-0">
         <DerivedStatusText unit={unit} />
       </div>
@@ -1686,17 +1677,32 @@ export default function RegistryPage() {
     })
   }, [allUnits, statusFilter, debouncedSearch, dateFrom, dateTo])
 
+  // Column sorting; unit code A→Z by default.
+  const [sort, setSort] = useState({ key: 'unit', dir: 'asc' })
+  const onSort = (key) => setSort((prev) => nextSort(prev, key))
   const sorted = useMemo(() => {
-    const copy = [...filteredUnits]
-    copy.sort((a, b) => {
-      const av = a.unit_code ?? ''
-      const bv = b.unit_code ?? ''
-      if (av < bv) return -1
-      if (av > bv) return 1
-      return 0
+    const value = UNIT_SORT_VALUE[sort.key] || UNIT_SORT_VALUE.unit
+    const dir = sort.dir === 'asc' ? 1 : -1
+    return [...filteredUnits].sort((a, b) => {
+      const av = value(a), bv = value(b)
+      const cmp = typeof av === 'number' && typeof bv === 'number'
+        ? av - bv
+        : String(av).localeCompare(String(bv), undefined, { numeric: true, sensitivity: 'base' })
+      return cmp * dir || String(a.unit_code || '').localeCompare(String(b.unit_code || ''), undefined, { numeric: true })
     })
-    return copy
-  }, [filteredUnits])
+  }, [filteredUnits, sort])
+
+  // Keyboard: "/" jumps to search, Esc closes the open unit.
+  const searchRef = useRef(null)
+  const closePanel = useCallback(() => setSelectedId(null), [])
+  useListShortcuts({ searchRef, onEscape: selectedId ? closePanel : null })
+
+  const clearAllFilters = () => { setStatusFilter('all'); setSearch(''); setDateFrom(''); setDateTo('') }
+  const filterChips = [
+    statusFilter !== 'all' && { key: 'status', label: STATUS_PILLS.find((p) => p.id === statusFilter)?.label || statusFilter, onRemove: () => setStatusFilter('all') },
+    debouncedSearch.trim() && { key: 'search', label: `"${debouncedSearch.trim()}"`, onRemove: () => setSearch('') },
+    (dateFrom || dateTo) && { key: 'dates', label: `Contract ends ${dateFrom ? fmtDateShort(dateFrom) : '…'} → ${dateTo ? fmtDateShort(dateTo) : '…'}`, onRemove: () => { setDateFrom(''); setDateTo('') } },
+  ].filter(Boolean)
 
   const selected = useMemo(() => sorted.find((u) => u.id === selectedId) || null, [sorted, selectedId])
 
@@ -1740,22 +1746,24 @@ export default function RegistryPage() {
   return (
     <div className="h-full flex min-h-0">
       <div className="flex-1 min-h-0 flex flex-col overflow-hidden">
-        <div className="p-3 flex-1 min-h-0 flex flex-col gap-3">
+        <div className="px-6 py-5 md:px-8 md:py-6 flex-1 min-h-0 flex flex-col gap-4">
 
-          <div className="flex-shrink-0 pt-1 pb-2">
-            <SummaryCards units={allUnits} />
+          <div className="flex-shrink-0">
+            <SummaryCards units={allUnits} active={statusFilter} onSelect={setStatusFilter} />
           </div>
 
           <div ref={headerRef} className="flex-shrink-0 flex items-center gap-2 flex-wrap">
             <div className="relative flex-1 min-w-0">
-              <Search size={13} className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground pointer-events-none" />
+              <Search size={13} className="absolute left-3 top-1/2 -translate-y-1/2 text-foreground pointer-events-none" />
               <Input
+                ref={searchRef}
                 placeholder="Search unit, owner, email, phone, building..."
                 value={search}
                 onChange={(e) => setSearch(e.target.value)}
                 style={BTN_RADIUS}
-                className="pl-9 h-9 text-xs"
+                className="pl-9 pr-9 h-9 text-xs"
               />
+              {!search && <SearchKeyHint />}
             </div>
             <Button size="sm" className="h-9 text-xs text-white transition-all duration-150 active:scale-[0.98]" style={{ backgroundColor: BRAND, ...BTN_RADIUS }} onClick={() => setAddUnitOpen(true)}>
               <Plus size={13} />
@@ -1775,13 +1783,24 @@ export default function RegistryPage() {
             <PillBar tabs={STATUS_PILLS} active={statusFilter} onChange={setStatusFilter} counts={counts} />
           </div>
 
+          {!isFirstLoad && (
+            <ResultsBar
+              shown={sorted.length}
+              total={allUnits.length}
+              noun={allUnits.length === 1 ? 'unit' : 'units'}
+              chips={filterChips}
+              onClearAll={clearAllFilters}
+              hint="Click a column to sort · Press / to search"
+            />
+          )}
+
           <div style={BTN_RADIUS} className="flex-1 min-h-0 border border-border shadow-sm overflow-hidden bg-card">
             <div className="h-full overflow-y-auto" style={{ scrollbarGutter: 'stable' }}>
               <div className={cn('sticky top-0 z-10 px-4 py-2.5 border-b border-border bg-card', ROW_GRID)}>
-                <span className="text-[10px] font-bold uppercase tracking-wider text-foreground truncate">Building</span>
-                <span className="text-[10px] font-bold uppercase tracking-wider text-foreground truncate">Unit</span>
-                <span className="text-[10px] font-bold uppercase tracking-wider text-foreground truncate">Owner</span>
-                <span className="text-[10px] font-bold uppercase tracking-wider text-foreground text-right truncate">Status</span>
+                <SortHeader label="Building" sortKey="building" sort={sort} onSort={onSort} />
+                <SortHeader label="Unit" sortKey="unit" sort={sort} onSort={onSort} />
+                <SortHeader label="Owner" sortKey="owner" sort={sort} onSort={onSort} />
+                <SortHeader label="Status" sortKey="status" sort={sort} onSort={onSort} align="right" />
               </div>
 
               {isFirstLoad ? (
@@ -1789,8 +1808,13 @@ export default function RegistryPage() {
               ) : sorted.length === 0 ? (
                 <div className="h-full flex items-center justify-center text-center py-12">
                   <div>
-                    <p className="text-sm text-muted-foreground font-semibold">No units match your filters</p>
-                    <p className="text-xs text-muted-foreground mt-1">Try clearing filters or adding a new unit</p>
+                    <p className="text-sm text-foreground font-semibold">No units match your filters</p>
+                    <p className="text-xs text-foreground mt-1">Try clearing the filters, or add a new unit.</p>
+                    {filterChips.length > 0 && (
+                      <button type="button" onClick={clearAllFilters} className="mt-4 inline-flex items-center h-8 px-3 rounded-md border border-border text-xs font-semibold text-foreground hover:bg-muted">
+                        Clear filters
+                      </button>
+                    )}
                   </div>
                 </div>
               ) : (

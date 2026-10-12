@@ -12,6 +12,7 @@ import {
   Plus, Search, RefreshCw, X, Check, Loader2, Trash2,
   FileText, Calendar, ExternalLink, User,
   Upload, Eye, ChevronLeft, ChevronRight, Download,
+  CheckCircle2, Clock, AlertTriangle, SlidersHorizontal,
 } from 'lucide-react'
 import { createPortal } from 'react-dom'
 import toast from 'react-hot-toast'
@@ -25,7 +26,9 @@ import {
 import { supabase } from '@/lib/supabase'
 import { logAudit } from '@/lib/auditLog'
 import { cn, sanitizeText, generateContractCode } from '@/lib/utils'
-import { deriveContractStatus, CONTRACT_STATUS_TEXT } from '@/lib/contracts'
+import { deriveContractStatus, CONTRACT_STATUS_TEXT, EXPIRING_SOON_DAYS } from '@/lib/contracts'
+import { StatStrip, StatTile } from '@/components/admin/_shared/StatStrip'
+import { SortHeader, nextSort, ResultsBar, SearchKeyHint, useListShortcuts } from '@/components/admin/_shared/listTools'
 
 const BRAND = '#2d568e'
 
@@ -166,10 +169,10 @@ function DateFieldPicker({ value, onChange, placeholder, minDate, maxDate }) {
           open ? 'border-primary ring-2 ring-primary/30' : 'border-input hover:bg-muted/50',
         )}
       >
-        <span className={cn('truncate', !displayValue && 'text-muted-foreground')}>
+        <span className={cn('truncate', !displayValue && 'text-foreground')}>
           {displayValue || placeholder}
         </span>
-        <Calendar size={13} className="text-muted-foreground flex-shrink-0" />
+        <Calendar size={13} className="text-foreground flex-shrink-0" />
       </button>
 
       <AnimatePresence>
@@ -182,18 +185,18 @@ function DateFieldPicker({ value, onChange, placeholder, minDate, maxDate }) {
             className="absolute z-30 mt-1 w-[300px] rounded-lg border border-border bg-popover shadow-lg p-3"
           >
             <div className="flex items-center justify-between mb-3">
-              <button type="button" onClick={goPrev} className="p-1.5 rounded hover:bg-muted text-muted-foreground">
+              <button type="button" onClick={goPrev} className="p-1.5 rounded hover:bg-muted text-foreground">
                 <ChevronLeft size={14} />
               </button>
               <span className="text-sm font-bold text-foreground">{monthLabel}</span>
-              <button type="button" onClick={goNext} className="p-1.5 rounded hover:bg-muted text-muted-foreground">
+              <button type="button" onClick={goNext} className="p-1.5 rounded hover:bg-muted text-foreground">
                 <ChevronRight size={14} />
               </button>
             </div>
 
             <div className="grid grid-cols-7 mb-1">
               {DOW.map((d) => (
-                <div key={d} className="text-[10px] font-semibold text-muted-foreground text-center py-1">{d}</div>
+                <div key={d} className="text-[10px] font-semibold text-foreground text-center py-1">{d}</div>
               ))}
             </div>
 
@@ -229,7 +232,7 @@ function DateFieldPicker({ value, onChange, placeholder, minDate, maxDate }) {
               <button
                 type="button"
                 onClick={() => { onChange(''); setOpen(false) }}
-                className="text-[10px] font-semibold text-muted-foreground hover:text-foreground"
+                className="text-[10px] font-semibold text-foreground hover:text-foreground"
               >
                 Clear
               </button>
@@ -365,7 +368,7 @@ function NewContractModal({ open, onClose, onCreated, units, owners, contracts }
     }
   }
 
-  const labelClass = 'text-[10px] uppercase tracking-wider text-muted-foreground font-semibold mb-1.5 block'
+  const labelClass = 'text-[10px] uppercase tracking-wider text-foreground font-semibold mb-1.5 block'
   const inputClass = 'h-9 text-xs rounded-md'
 
   const noEligible = eligibleUnits.length === 0
@@ -384,7 +387,7 @@ function NewContractModal({ open, onClose, onCreated, units, owners, contracts }
         <div className="flex items-center justify-between px-5 py-3 border-b border-border flex-shrink-0">
           <div>
             <h2 className="text-sm font-bold text-foreground">New Contract</h2>
-            <p className="text-[11px] text-muted-foreground mt-0.5">
+            <p className="text-[11px] text-foreground mt-0.5">
               Only units without a contract and with an owner attached are listed.
             </p>
           </div>
@@ -452,11 +455,11 @@ function NewContractModal({ open, onClose, onCreated, units, owners, contracts }
           {selectedUnit && unitOwner && (
             <div>
               <label className={labelClass}>Owner</label>
-              <div className="flex items-center gap-2 px-3 py-2 rounded-md border border-border bg-muted/30">
-                <User size={13} className="text-muted-foreground flex-shrink-0" />
+              <div className="flex items-center gap-2 px-3 py-2 rounded-md border border-border bg-card">
+                <User size={13} className="text-foreground flex-shrink-0" />
                 <div className="min-w-0">
                   <p className="text-xs font-semibold text-foreground truncate">{unitOwner.name}</p>
-                  <p className="text-[10px] text-muted-foreground truncate">{unitOwner.email || 'No email'}</p>
+                  <p className="text-[10px] text-foreground truncate">{unitOwner.email || 'No email'}</p>
                 </div>
               </div>
             </div>
@@ -488,7 +491,7 @@ function NewContractModal({ open, onClose, onCreated, units, owners, contracts }
           </div>
 
           {rangeInfo && (
-            <div className="text-[11px] text-muted-foreground">
+            <div className="text-[11px] text-foreground">
               {rangeInfo.valid ? (
                 <>
                   <span className="font-semibold text-foreground">
@@ -517,7 +520,7 @@ function NewContractModal({ open, onClose, onCreated, units, owners, contracts }
           </div>
         </div>
 
-        <div className="flex items-center justify-end gap-2 px-5 py-3 border-t border-border bg-muted/30 flex-shrink-0">
+        <div className="flex items-center justify-end gap-2 px-5 py-3 border-t border-border bg-card flex-shrink-0">
           <Button variant="outline" size="sm" className="h-9 rounded text-xs" onClick={onClose} disabled={saving}>
             Cancel
           </Button>
@@ -538,45 +541,36 @@ function NewContractModal({ open, onClose, onCreated, units, owners, contracts }
 }
 
 // ── Summary cards ───────────────────────────────────────────
-function SummaryCards({ contracts }) {
+// KPI strip as on the Dashboard; each tile filters the list below.
+function SummaryCards({ contracts, active, onSelect }) {
   const stats = useMemo(() => {
-    let active = 0, expiring = 0, expired = 0
+    let activeCount = 0, expiring = 0, expired = 0
     for (const c of contracts) {
       const s = deriveContractStatus(c)
-      if (s === 'active') active++
+      if (s === 'active') activeCount++
       else if (s === 'expiring') expiring++
       else if (s === 'expired') expired++
     }
-    return { total: contracts.length, active, expiring, expired }
+    return { total: contracts.length, active: activeCount, expiring, expired }
   }, [contracts])
 
-  const cards = [
-    { label: 'Total Contracts', value: stats.total,    icon: FileText },
-    { label: 'Active',          value: stats.active,   icon: Check },
-    { label: 'Expiring Soon',   value: stats.expiring, icon: Calendar },
-    { label: 'Expired',         value: stats.expired,  icon: X },
-  ]
+  const pick = (id) => onSelect(active === id ? 'all' : id)
 
   return (
-    <div className="grid grid-cols-2 md:grid-cols-2 lg:grid-cols-4 gap-3">
-      {cards.map((card, i) => (
-        <motion.div
-          key={card.label}
-          initial={{ opacity: 0, y: 8 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ delay: i * 0.05, duration: 0.25 }}
-          className="rounded-md bg-card border border-border shadow-sm p-4"
-        >
-          <div className="flex items-center gap-2 mb-2">
-            <card.icon size={15} className="text-muted-foreground" />
-            <span className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
-              {card.label}
-            </span>
-          </div>
-          <p className="text-3xl font-bold text-foreground tabular-nums">{card.value}</p>
-        </motion.div>
-      ))}
-    </div>
+    <StatStrip cols={4}>
+      <StatTile icon={FileText} label="Total contracts" value={stats.total} sub="All contracts on file" active={active === 'all'} onClick={() => onSelect('all')} />
+      <StatTile icon={CheckCircle2} label="Active" value={stats.active} sub={`More than ${EXPIRING_SOON_DAYS} days left`} active={active === 'active'} onClick={() => pick('active')} />
+      <StatTile icon={Clock} label="Expiring soon" value={stats.expiring} sub={`Ends within ${EXPIRING_SOON_DAYS} days`} active={active === 'expiring'} onClick={() => pick('expiring')} />
+      <StatTile
+        icon={AlertTriangle}
+        label="Expired"
+        value={stats.expired}
+        sub={stats.expired > 0 ? 'Renew or close these' : 'Nothing has expired'}
+        attention={stats.expired > 0}
+        active={active === 'expired'}
+        onClick={() => pick('expired')}
+      />
+    </StatStrip>
   )
 }
 
@@ -587,52 +581,58 @@ const STATUS_PILLS = [
   { id: 'expired', label: 'Expired' },
 ]
 
-const PILL_TEXT_ACTIVE = {
-  all: 'text-foreground',
-  active: 'text-emerald-700 dark:text-emerald-400',
-  expiring: 'text-amber-700 dark:text-amber-400',
-  expired: 'text-red-700 dark:text-red-400',
-}
-
 function StatusPills({ statusFilter, onStatusFilter, counts }) {
   const containerRef = useRef(null)
   const [indicator, setIndicator] = useState({ left: 0, width: 0 })
 
   useEffect(() => {
-    if (!containerRef.current) return
-    const active = containerRef.current.querySelector('[data-active="true"]')
-    if (!active) return
-    const cRect = containerRef.current.getBoundingClientRect()
-    const aRect = active.getBoundingClientRect()
-    setIndicator({ left: aRect.left - cRect.left, width: aRect.width })
+    const node = containerRef.current
+    if (!node) return
+    const measure = () => {
+      const active = node.querySelector('[data-active="true"]')
+      if (!active) { setIndicator({ left: 0, width: 0 }); return }
+      const cRect = node.getBoundingClientRect()
+      const aRect = active.getBoundingClientRect()
+      setIndicator({ left: aRect.left - cRect.left, width: aRect.width })
+    }
+    measure()
+    const ro = typeof ResizeObserver !== 'undefined' ? new ResizeObserver(measure) : null
+    if (ro) ro.observe(node)
+    window.addEventListener('resize', measure)
+    return () => {
+      if (ro) ro.disconnect()
+      window.removeEventListener('resize', measure)
+    }
   }, [statusFilter, counts])
 
   return (
-    <div ref={containerRef} className="relative inline-flex items-center gap-1 bg-muted/60 rounded-full p-1">
-      <motion.div
-        className="absolute top-1 bottom-1 rounded-full shadow-sm z-0 bg-card border border-border"
-        animate={{ left: indicator.left, width: indicator.width }}
-        transition={{ type: 'spring', stiffness: 350, damping: 28 }}
-      />
-      {STATUS_PILLS.map((tab) => {
-        const isActive = statusFilter === tab.id
-        const count = counts[tab.id] ?? 0
-        return (
-          <button
-            key={tab.id}
-            type="button"
-            data-active={isActive}
-            onClick={() => onStatusFilter(tab.id)}
-            className={cn(
-              'relative z-10 px-3 py-1 rounded-full text-[11px] font-semibold transition-colors duration-200 whitespace-nowrap',
-              isActive ? (PILL_TEXT_ACTIVE[tab.id] || 'text-foreground') : 'text-muted-foreground hover:text-foreground',
-            )}
-          >
-            {tab.label}
-            <span className={cn('ml-1', isActive ? 'opacity-90' : 'opacity-60')}>{count}</span>
-          </button>
-        )
-      })}
+    <div className="inline-flex items-center p-0.5 rounded-md bg-card border border-border">
+      <div ref={containerRef} className="relative inline-flex items-center gap-1">
+        <motion.div
+          className="absolute top-0 bottom-0 rounded-md bg-foreground z-0"
+          animate={{ left: indicator.left, width: indicator.width }}
+          transition={{ type: 'spring', stiffness: 350, damping: 28 }}
+        />
+        {STATUS_PILLS.map((tab) => {
+          const isActive = statusFilter === tab.id
+          const count = counts[tab.id] ?? 0
+          return (
+            <button
+              key={tab.id}
+              type="button"
+              data-active={isActive}
+              onClick={() => onStatusFilter(tab.id)}
+              className={cn(
+                'relative z-10 px-3 h-7 rounded-md text-[12px] font-medium transition-colors duration-200 whitespace-nowrap',
+                isActive ? 'text-background' : 'text-foreground',
+              )}
+            >
+              {tab.label}
+              <span className="ml-1 font-semibold tabular-nums">{count}</span>
+            </button>
+          )
+        })}
+      </div>
     </div>
   )
 }
@@ -690,7 +690,7 @@ function FilterPanel({
           </div>
           <div className="p-4 space-y-3 max-h-[460px] overflow-y-auto">
             <div>
-              <p className="text-[10px] uppercase tracking-wider text-muted-foreground font-semibold mb-1.5">Building</p>
+              <p className="text-[10px] uppercase tracking-wider text-foreground font-semibold mb-1.5">Building</p>
               <Select value={building} onValueChange={setBuilding}>
                 <SelectTrigger className="h-8 text-xs rounded"><SelectValue placeholder="All buildings" /></SelectTrigger>
                 <SelectContent>
@@ -700,7 +700,7 @@ function FilterPanel({
               </Select>
             </div>
             <div>
-              <p className="text-[10px] uppercase tracking-wider text-muted-foreground font-semibold mb-1.5">Owner</p>
+              <p className="text-[10px] uppercase tracking-wider text-foreground font-semibold mb-1.5">Owner</p>
               <Select value={ownerId} onValueChange={setOwnerId}>
                 <SelectTrigger className="h-8 text-xs rounded"><SelectValue placeholder="All owners" /></SelectTrigger>
                 <SelectContent>
@@ -710,7 +710,7 @@ function FilterPanel({
               </Select>
             </div>
             <div>
-              <p className="text-[10px] uppercase tracking-wider text-muted-foreground font-semibold mb-1.5">Unit</p>
+              <p className="text-[10px] uppercase tracking-wider text-foreground font-semibold mb-1.5">Unit</p>
               <Select value={unitId} onValueChange={setUnitId}>
                 <SelectTrigger className="h-8 text-xs rounded"><SelectValue placeholder="All units" /></SelectTrigger>
                 <SelectContent>
@@ -724,25 +724,25 @@ function FilterPanel({
               </Select>
             </div>
             <div>
-              <p className="text-[10px] uppercase tracking-wider text-muted-foreground font-semibold mb-1.5">
+              <p className="text-[10px] uppercase tracking-wider text-foreground font-semibold mb-1.5">
                 Active within date range
               </p>
               <div className="grid grid-cols-2 gap-2">
                 <div>
-                  <label className="text-[10px] uppercase tracking-wider text-muted-foreground font-semibold mb-1 block">From</label>
+                  <label className="text-[10px] uppercase tracking-wider text-foreground font-semibold mb-1 block">From</label>
                   <Input type="date" value={rangeFrom} onChange={(e) => setRangeFrom(e.target.value)} className="h-8 text-xs rounded" />
                 </div>
                 <div>
-                  <label className="text-[10px] uppercase tracking-wider text-muted-foreground font-semibold mb-1 block">To</label>
+                  <label className="text-[10px] uppercase tracking-wider text-foreground font-semibold mb-1 block">To</label>
                   <Input type="date" value={rangeTo} onChange={(e) => setRangeTo(e.target.value)} className="h-8 text-xs rounded" />
                 </div>
               </div>
-              <p className="text-[10px] text-muted-foreground mt-1.5">
+              <p className="text-[10px] text-foreground mt-1.5">
                 Shows contracts whose active period overlaps this range.
               </p>
             </div>
           </div>
-          <div className="flex items-center justify-between px-4 py-2.5 border-t border-border bg-muted/30">
+          <div className="flex items-center justify-between px-4 py-2.5 border-t border-border">
             <Button variant="ghost" size="sm" onClick={onClear} disabled={activeCount === 0} className="text-xs h-7 rounded">Clear all</Button>
             <Button size="sm" onClick={onClose} className="text-xs h-7 rounded"><Check size={11} className="mr-1" />Done</Button>
           </div>
@@ -754,6 +754,19 @@ function FilterPanel({
 
 // ── Row ─────────────────────────────────────────────────────
 const ROW_GRID = 'grid grid-cols-[1.3fr_1.5fr_1fr_1fr_140px] gap-4 items-center'
+
+// Sortable columns. "Status" puts expired contracts first, then ones ending
+// soon, then active ones.
+const STATUS_RANK = { expired: 0, expiring: 1, active: 2 }
+const CONTRACT_SORT_VALUE = {
+  contract:  (c) => c.contract_code || '',
+  unit:      (c) => c.units?.unit_code || '',
+  effective: (c) => c.effective_date || '',
+  expiry:    (c) => c.expiry_date || '',
+  status:    (c) => STATUS_RANK[deriveContractStatus(c)] ?? 3,
+}
+// Newest start date first; everything else starts A→Z / soonest first.
+const SORT_DEFAULTS = { effective: 'desc' }
 const PANEL_WIDTH = 480
 
 function ContractRow({ contract, selected, onClick }) {
@@ -772,7 +785,7 @@ function ContractRow({ contract, selected, onClick }) {
         <span className="font-mono text-xs font-bold text-foreground truncate block">
           {contract.contract_code || '—'}
         </span>
-        <span className="text-[10px] text-muted-foreground truncate block">
+        <span className="text-[10px] text-foreground truncate block">
           {contract.owners?.name || 'No owner'}
         </span>
       </div>
@@ -780,14 +793,14 @@ function ContractRow({ contract, selected, onClick }) {
         <span className="font-mono text-xs font-bold text-foreground truncate block">
           {contract.units?.unit_code || '—'}
         </span>
-        <span className="text-[10px] text-muted-foreground truncate block">
+        <span className="text-[10px] text-foreground truncate block">
           {contract.units?.building || '—'}
         </span>
       </div>
-      <div className="text-[11px] tabular-nums text-muted-foreground min-w-0">
+      <div className="text-[11px] tabular-nums text-foreground min-w-0">
         <div className="truncate">{formatDate(contract.effective_date)}</div>
       </div>
-      <div className="text-[11px] tabular-nums text-muted-foreground min-w-0">
+      <div className="text-[11px] tabular-nums text-foreground min-w-0">
         <div className="truncate">{formatDate(contract.expiry_date)}</div>
       </div>
       <div className="flex items-center justify-end flex-shrink-0">
@@ -827,7 +840,7 @@ function EditableField({ label, value, type = 'text', options, onSave, auditTag,
 
   return (
     <div className="flex items-center gap-2 py-0.5">
-      <span className="text-[10px] uppercase tracking-wider text-muted-foreground font-semibold min-w-[72px] flex-shrink-0">{label}</span>
+      <span className="text-[10px] uppercase tracking-wider text-foreground font-semibold min-w-[72px] flex-shrink-0">{label}</span>
       <div className="flex items-center gap-1 flex-1 min-w-0">
         {options ? (
           <Select
@@ -1020,23 +1033,23 @@ function ContractPdfUploader({ contract, onSaved }) {
         <div className="space-y-2">
           <div className="flex items-center gap-3 p-2.5 rounded-md border border-border bg-background">
             <div className="w-10 h-10 rounded-md bg-muted flex items-center justify-center flex-shrink-0">
-              <FileText size={18} className="text-muted-foreground" />
+              <FileText size={18} className="text-foreground" />
             </div>
             <div className="min-w-0 flex-1">
               <p className="text-xs font-semibold text-foreground truncate">Contract document</p>
-              <p className="text-[10px] text-muted-foreground font-mono truncate">
+              <p className="text-[10px] text-foreground font-mono truncate">
                 {path || existingUrl || '—'}
               </p>
             </div>
             <div className="flex items-center gap-1 flex-shrink-0">
               {loadingUrl ? (
-                <Loader2 size={12} className="animate-spin text-muted-foreground" />
+                <Loader2 size={12} className="animate-spin text-foreground" />
               ) : displayUrl ? (
                 <>
                   <button
                     type="button"
                     onClick={() => setLightboxOpen(true)}
-                    className="p-1.5 rounded hover:bg-muted text-muted-foreground hover:text-foreground transition-colors"
+                    className="p-1.5 rounded hover:bg-muted text-foreground hover:text-foreground transition-colors"
                     title="Preview"
                   >
                     <Eye size={12} />
@@ -1044,7 +1057,7 @@ function ContractPdfUploader({ contract, onSaved }) {
                   <a
                     href={displayUrl}
                     download
-                    className="p-1.5 rounded hover:bg-muted text-muted-foreground hover:text-foreground transition-colors"
+                    className="p-1.5 rounded hover:bg-muted text-foreground hover:text-foreground transition-colors"
                     title="Download"
                   >
                     <Download size={12} />
@@ -1053,7 +1066,7 @@ function ContractPdfUploader({ contract, onSaved }) {
                     href={displayUrl}
                     target="_blank"
                     rel="noopener noreferrer"
-                    className="p-1.5 rounded hover:bg-muted text-muted-foreground hover:text-foreground transition-colors"
+                    className="p-1.5 rounded hover:bg-muted text-foreground hover:text-foreground transition-colors"
                     title="Open in new tab"
                   >
                     <ExternalLink size={12} />
@@ -1091,7 +1104,7 @@ function ContractPdfUploader({ contract, onSaved }) {
           type="button"
           onClick={() => inputRef.current?.click()}
           disabled={uploading}
-          className="w-full flex flex-col items-center justify-center gap-1.5 py-5 rounded-md border-2 border-dashed border-border text-muted-foreground hover:bg-muted/40 active:bg-muted/60 transition-colors disabled:opacity-50"
+          className="w-full flex flex-col items-center justify-center gap-1.5 py-5 rounded-md border-2 border-dashed border-border text-foreground hover:bg-muted/40 active:bg-muted/60 transition-colors disabled:opacity-50"
         >
           {uploading ? <Loader2 size={16} className="animate-spin" /> : <Upload size={16} />}
           <span className="text-[11px] font-semibold">
@@ -1233,11 +1246,11 @@ function ContractDetailPanel({ contract, onClose, onChanged, onDelete }) {
             <div className="flex-shrink-0 px-5 py-4 border-b border-border">
               <div className="flex items-start gap-3">
                 <div className="w-12 h-12 rounded-md bg-muted flex items-center justify-center flex-shrink-0">
-                  <FileText size={20} className="text-muted-foreground" />
+                  <FileText size={20} className="text-foreground" />
                 </div>
                 <div className="min-w-0 flex-1">
                   <p className="text-base font-bold text-foreground font-mono truncate">{contract.contract_code || '—'}</p>
-                  <p className="text-[11px] text-muted-foreground truncate">
+                  <p className="text-[11px] text-foreground truncate">
                     {unit?.unit_code || '—'} · {unit?.building || '—'}
                   </p>
                   <div className="flex items-center gap-2 mt-2 flex-wrap">
@@ -1246,7 +1259,7 @@ function ContractDetailPanel({ contract, onClose, onChanged, onDelete }) {
                     </span>
                   </div>
                 </div>
-                <button onClick={onClose} className="p-1 rounded hover:bg-muted text-muted-foreground flex-shrink-0"><X size={16} /></button>
+                <button onClick={onClose} className="p-1 rounded hover:bg-muted text-foreground flex-shrink-0"><X size={16} /></button>
               </div>
               <div className="flex items-center gap-2 mt-3">
                 <Button variant="outline" size="sm" className="h-7 rounded text-[11px] gap-1.5" onClick={onDelete}>
@@ -1259,17 +1272,17 @@ function ContractDetailPanel({ contract, onClose, onChanged, onDelete }) {
               <DetailSection title="Owner">
                 <div className="p-3">
                   <div className="flex items-center gap-2.5 pb-2 mb-2 border-b border-border">
-                    <div className="w-10 h-10 rounded-full bg-muted flex items-center justify-center flex-shrink-0 text-muted-foreground">
+                    <div className="w-10 h-10 rounded-full bg-muted flex items-center justify-center flex-shrink-0 text-foreground">
                       <User size={16} />
                     </div>
                     <div className="min-w-0 flex-1">
                       <p className="text-sm font-semibold truncate">{owner?.name || '—'}</p>
-                      <p className="text-[11px] text-muted-foreground truncate">{owner?.email || 'No email'}</p>
+                      <p className="text-[11px] text-foreground truncate">{owner?.email || 'No email'}</p>
                     </div>
                   </div>
                   {owner?.phone && (
                     <div className="flex items-center gap-2 py-0.5">
-                      <span className="text-[10px] uppercase tracking-wider text-muted-foreground font-semibold min-w-[72px]">Phone</span>
+                      <span className="text-[10px] uppercase tracking-wider text-foreground font-semibold min-w-[72px]">Phone</span>
                       <span className="text-xs text-foreground">{owner.phone}</span>
                     </div>
                   )}
@@ -1279,11 +1292,11 @@ function ContractDetailPanel({ contract, onClose, onChanged, onDelete }) {
               <DetailSection title="Unit">
                 <div className="p-3 space-y-0.5">
                   <div className="flex items-center gap-2 py-0.5">
-                    <span className="text-[10px] uppercase tracking-wider text-muted-foreground font-semibold min-w-[72px]">Code</span>
+                    <span className="text-[10px] uppercase tracking-wider text-foreground font-semibold min-w-[72px]">Code</span>
                     <span className="text-xs font-mono text-foreground">{unit?.unit_code || '—'}</span>
                   </div>
                   <div className="flex items-center gap-2 py-0.5">
-                    <span className="text-[10px] uppercase tracking-wider text-muted-foreground font-semibold min-w-[72px]">Building</span>
+                    <span className="text-[10px] uppercase tracking-wider text-foreground font-semibold min-w-[72px]">Building</span>
                     <span className="text-xs text-foreground">{unit?.building || '—'}</span>
                   </div>
                 </div>
@@ -1518,17 +1531,43 @@ export default function ContractsPage() {
     })
   }, [contracts, filterUnitId, statusFilter, building, ownerId, unitId, rangeFrom, rangeTo, debouncedSearch])
 
+  // Column sorting; newest effective date first by default.
+  const [sort, setSort] = useState({ key: 'effective', dir: 'desc' })
+  const onSort = (key) => setSort((prev) => nextSort(prev, key, SORT_DEFAULTS))
   const sorted = useMemo(() => {
-    const copy = [...filtered]
-    copy.sort((a, b) => {
-      const av = a.effective_date ?? ''
-      const bv = b.effective_date ?? ''
-      if (av > bv) return -1
-      if (av < bv) return 1
-      return 0
+    const value = CONTRACT_SORT_VALUE[sort.key] || CONTRACT_SORT_VALUE.effective
+    const dir = sort.dir === 'asc' ? 1 : -1
+    return [...filtered].sort((a, b) => {
+      const av = value(a), bv = value(b)
+      const cmp = typeof av === 'number' && typeof bv === 'number'
+        ? av - bv
+        : String(av).localeCompare(String(bv), undefined, { numeric: true, sensitivity: 'base' })
+      return cmp * dir || String(b.effective_date || '').localeCompare(String(a.effective_date || ''))
     })
-    return copy
-  }, [filtered])
+  }, [filtered, sort])
+
+  // Keyboard: "/" jumps to search, Esc closes the open contract
+  // (the filter panel handles its own Esc while it is open).
+  const searchRef = useRef(null)
+  const closePanel = useCallback(() => setSelectedId(null), [])
+  useListShortcuts({ searchRef, onEscape: selectedId && !filterOpen ? closePanel : null })
+
+  const clearUnitParam = () => {
+    const next = new URLSearchParams(searchParams)
+    next.delete('unit')
+    setSearchParams(next, { replace: true })
+  }
+  const clearAllFilters = () => { clearFilters(); setStatusFilter('all'); setSearch('') }
+  const unitLabel = (id) => units.find((u) => u.id === id)?.unit_code || 'Unit'
+  const filterChips = [
+    statusFilter !== 'all' && { key: 'status', label: STATUS_PILLS.find((p) => p.id === statusFilter)?.label || statusFilter, onRemove: () => setStatusFilter('all') },
+    debouncedSearch.trim() && { key: 'search', label: `"${debouncedSearch.trim()}"`, onRemove: () => setSearch('') },
+    filterUnitId && { key: 'unit-link', label: `Unit ${unitLabel(filterUnitId)}`, onRemove: clearUnitParam },
+    building !== 'all' && { key: 'building', label: building, onRemove: () => setBuilding('all') },
+    ownerId !== 'all' && { key: 'owner', label: owners.find((o) => o.id === ownerId)?.name || 'Owner', onRemove: () => setOwnerId('all') },
+    unitId !== 'all' && { key: 'unit', label: `Unit ${unitLabel(unitId)}`, onRemove: () => setUnitId('all') },
+    (rangeFrom || rangeTo) && { key: 'range', label: `Active ${rangeFrom ? formatDate(rangeFrom) : '…'} → ${rangeTo ? formatDate(rangeTo) : '…'}`, onRemove: () => { setRangeFrom(''); setRangeTo('') } },
+  ].filter(Boolean)
 
   const selected = useMemo(() => {
     const fromSorted = sorted.find((c) => c.id === selectedId)
@@ -1564,24 +1603,26 @@ export default function ContractsPage() {
   return (
     <div className="h-full flex min-h-0">
       <div className="flex-1 min-h-0 flex flex-col overflow-hidden">
-        <div className="p-3 flex-1 min-h-0 flex flex-col gap-2.5">
-          <div className="flex-shrink-0 pt-1 pb-2">
-            <SummaryCards contracts={contracts} />
+        <div className="px-6 py-5 md:px-8 md:py-6 flex-1 min-h-0 flex flex-col gap-4">
+          <div className="flex-shrink-0">
+            <SummaryCards contracts={contracts} active={statusFilter} onSelect={setStatusFilter} />
           </div>
 
           <div className="flex-shrink-0 flex items-center gap-2">
             <div className="relative flex-1 min-w-0">
-              <Search size={13} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-muted-foreground" />
+              <Search size={13} className="absolute left-3 top-1/2 -translate-y-1/2 text-foreground pointer-events-none" />
               <Input
+                ref={searchRef}
                 placeholder="Search contract code, unit, owner, email..."
                 value={search}
                 onChange={(e) => setSearch(e.target.value)}
-                className="pl-8 h-8 text-xs rounded"
+                className="pl-9 pr-9 h-9 text-xs rounded-md"
               />
+              {!search && <SearchKeyHint />}
             </div>
             <Button
               size="sm"
-              className="h-8 rounded text-xs text-white transition-all duration-150 active:scale-[0.98]"
+              className="h-9 rounded-md text-xs text-white transition-all duration-150 active:scale-[0.98]"
               style={{ backgroundColor: BRAND }}
               onClick={() => setNewModalOpen(true)}
             >
@@ -1592,13 +1633,13 @@ export default function ContractsPage() {
               <Button
                 variant={activeFilterCount > 0 ? 'default' : 'outline'}
                 size="sm"
-                className="h-8 rounded text-xs transition-all duration-150"
+                className="h-9 rounded-md text-xs transition-all duration-150"
                 onClick={() => setFilterOpen((v) => !v)}
               >
-                <FileText size={13} />
+                <SlidersHorizontal size={13} />
                 <span className="hidden sm:inline ml-1">Filter</span>
                 {activeFilterCount > 0 && (
-                  <span className="ml-1 px-1.5 py-0.5 rounded-full bg-white/20 text-[10px] font-bold">{activeFilterCount}</span>
+                  <span className="ml-1 px-1.5 py-0.5 rounded-md bg-background/20 text-[10px] font-bold">{activeFilterCount}</span>
                 )}
               </Button>
               <FilterPanel
@@ -1621,44 +1662,34 @@ export default function ContractsPage() {
                 onClear={clearFilters}
               />
             </div>
-            <Button variant="outline" size="sm" onClick={fetchData} disabled={isRefreshing} className="h-8 rounded transition-all duration-150">
+            <Button variant="outline" size="sm" onClick={fetchData} disabled={isRefreshing} className="h-9 rounded-md transition-all duration-150" title="Refresh">
               <RefreshCw size={13} className={cn(isRefreshing && 'animate-spin')} />
             </Button>
           </div>
-
-          {filterUnitId && (
-            <div className="flex-shrink-0 flex items-center gap-2 px-3 py-1.5 rounded bg-muted/40 border border-border">
-              <span className="text-[11px] text-muted-foreground">
-                Showing contracts for unit:
-              </span>
-              <span className="text-[11px] font-mono font-semibold text-foreground">
-                {units.find((u) => u.id === filterUnitId)?.unit_code || filterUnitId}
-              </span>
-              <button
-                onClick={() => {
-                  const next = new URLSearchParams(searchParams)
-                  next.delete('unit')
-                  setSearchParams(next, { replace: true })
-                }}
-                className="ml-auto p-1 rounded hover:bg-muted text-muted-foreground"
-              >
-                <X size={11} />
-              </button>
-            </div>
-          )}
 
           <div className="flex-shrink-0 flex items-center justify-between gap-3 flex-wrap">
             <StatusPills statusFilter={statusFilter} onStatusFilter={setStatusFilter} counts={counts} />
           </div>
 
-          <div className="flex-1 min-h-0 rounded border border-border shadow-sm overflow-hidden bg-card">
+          {!isFirstLoad && (
+            <ResultsBar
+              shown={sorted.length}
+              total={contracts.length}
+              noun={contracts.length === 1 ? 'contract' : 'contracts'}
+              chips={filterChips}
+              onClearAll={clearAllFilters}
+              hint="Click a column to sort · Press / to search"
+            />
+          )}
+
+          <div className="flex-1 min-h-0 rounded-md border border-border shadow-sm overflow-hidden bg-card">
             <div className="h-full overflow-y-auto" style={{ scrollbarGutter: 'stable' }}>
-              <div className={cn('sticky top-0 z-10 px-4 py-2 border-b border-border bg-card', ROW_GRID)}>
-                <span className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground truncate">Contract</span>
-                <span className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground truncate">Unit</span>
-                <span className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground truncate">Effective</span>
-                <span className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground truncate">Expiry</span>
-                <span className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground text-right truncate">Status</span>
+              <div className={cn('sticky top-0 z-10 px-4 py-2.5 border-b border-border bg-card', ROW_GRID)}>
+                <SortHeader label="Contract" sortKey="contract" sort={sort} onSort={onSort} />
+                <SortHeader label="Unit" sortKey="unit" sort={sort} onSort={onSort} />
+                <SortHeader label="Effective" sortKey="effective" sort={sort} onSort={onSort} />
+                <SortHeader label="Expiry" sortKey="expiry" sort={sort} onSort={onSort} />
+                <SortHeader label="Status" sortKey="status" sort={sort} onSort={onSort} align="right" />
               </div>
 
               {isFirstLoad ? (
@@ -1668,9 +1699,14 @@ export default function ContractsPage() {
               ) : sorted.length === 0 ? (
                 <div className="h-full flex items-center justify-center text-center py-12">
                   <div>
-                    <FileText size={36} className="text-muted-foreground/40 mx-auto mb-3" />
-                    <p className="text-sm text-muted-foreground font-semibold">No contracts match your filters</p>
-                    <p className="text-xs text-muted-foreground mt-1">Try clearing filters or creating a new contract</p>
+                    <FileText size={32} strokeWidth={1.5} className="text-foreground mx-auto mb-3" />
+                    <p className="text-sm text-foreground font-semibold">No contracts match your filters</p>
+                    <p className="text-xs text-foreground mt-1">Try clearing the filters, or add a new contract.</p>
+                    {filterChips.length > 0 && (
+                      <button type="button" onClick={clearAllFilters} className="mt-4 inline-flex items-center h-8 px-3 rounded-md border border-border text-xs font-semibold text-foreground hover:bg-muted">
+                        Clear filters
+                      </button>
+                    )}
                   </div>
                 </div>
               ) : (
