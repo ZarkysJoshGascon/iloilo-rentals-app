@@ -187,7 +187,8 @@ async function getAccessToken(): Promise<string> {
   const exp = iat + 3600
   const claim = {
     iss: sa.client_email,
-    scope: 'https://www.googleapis.com/auth/spreadsheets',
+    // Sheets to write the backup; Drive to share the sheet with the CRM's admins.
+    scope: 'https://www.googleapis.com/auth/spreadsheets https://www.googleapis.com/auth/drive',
     aud: 'https://oauth2.googleapis.com/token',
     iat, exp,
   }
@@ -1600,6 +1601,9 @@ serve(async (req) => {
       }
     }
 
+    // Every CRM admin can open the sheet from the Dashboard without asking.
+    const sharing = await shareSheetWithAdmins(supabase, accessToken)
+
     const finishedAt = new Date().toISOString()
     const durationMs = Date.now() - startedAt
     const status = errors.length === 0
@@ -1643,7 +1647,7 @@ serve(async (req) => {
 
     return json({
       ok: true, status, duration_ms: durationMs,
-      row_counts: rowCounts, errors,
+      row_counts: rowCounts, errors, sharing,
       sheet_url: `https://docs.google.com/spreadsheets/d/${SHEET_ID}`,
     })
   } catch (err) {
@@ -1663,4 +1667,58 @@ function json(body: unknown, status = 200) {
     status,
     headers: { ...corsHeaders, 'Content-Type': 'application/json' },
   })
+}
+
+// ════════════════════════════════════════════════════════════════
+// Sheet access for admins
+// ════════════════════════════════════════════════════════════════
+// Gives every CRM admin view access to the backup sheet (no email is sent),
+// so the Dashboard's "Open sheet" button opens it instead of Google's
+// "Request access" page. It only ever adds access; it never removes anyone
+// (the sheet's owner manages that in Google Sheets). Never fails the backup:
+// problems come back in the result instead.
+async function shareSheetWithAdmins(
+  supabase: ReturnType<typeof createClient>,
+  token: string,
+): Promise<{ added: string[]; already: number; failed: string[] }> {
+  const result = { added: [] as string[], already: 0, failed: [] as string[] }
+  if (!SHEET_ID) return result
+  try {
+    const { data: admins, error } = await supabase.from('admin_users').select('user_id')
+    if (error) throw error
+    const emails: string[] = []
+    for (const a of admins || []) {
+      const { data } = await supabase.auth.admin.getUserById(a.user_id)
+      const email = data?.user?.email?.toLowerCase()
+      if (email) emails.push(email)
+    }
+
+    const base = `https://www.googleapis.com/drive/v3/files/${SHEET_ID}/permissions`
+    const listRes = await fetch(`${base}?fields=permissions(emailAddress,role)&supportsAllDrives=true`, {
+      headers: { Authorization: `Bearer ${token}` },
+    })
+    const listBody = await listRes.json().catch(() => ({}))
+    if (!listRes.ok) throw new Error(listBody?.error?.message || `Drive permissions list failed (${listRes.status})`)
+    const haveAccess = new Set(
+      (listBody.permissions || []).map((p: { emailAddress?: string }) => (p.emailAddress || '').toLowerCase()),
+    )
+
+    for (const email of emails) {
+      if (haveAccess.has(email)) { result.already++; continue }
+      const res = await fetch(`${base}?sendNotificationEmail=false&supportsAllDrives=true`, {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ type: 'user', role: 'reader', emailAddress: email }),
+      })
+      if (res.ok) result.added.push(email)
+      else {
+        const body = await res.json().catch(() => ({}))
+        result.failed.push(`${email}: ${body?.error?.message || res.status}`)
+      }
+    }
+  } catch (err) {
+    result.failed.push((err as Error).message || 'Sharing failed')
+  }
+  if (result.added.length || result.failed.length) console.log('Sheet sharing:', JSON.stringify(result))
+  return result
 }
