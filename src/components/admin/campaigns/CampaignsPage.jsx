@@ -4,7 +4,7 @@ import { motion, AnimatePresence } from 'framer-motion'
 import {
   Megaphone, Search, RefreshCw, X, Send, Image as ImageIcon,
   Loader2, Check, AlertTriangle, Users, History,
-  Mail, ChevronLeft, ChevronRight, Info, Trash2,
+  Mail, ChevronLeft, ChevronRight, Info, Trash2, MailCheck,
 } from 'lucide-react'
 import toast from 'react-hot-toast'
 import { Button } from '@/components/ui/button'
@@ -20,6 +20,10 @@ import {
   uploadCampaignImage,
 } from '@/lib/email'
 import { StatusTabs } from '@/components/admin/_shared/StatusTabs'
+import { StatStrip, StatTile } from '@/components/admin/_shared/StatStrip'
+import { Panel, PanelHeader, InitialsAvatar } from '@/components/admin/_shared/Panel'
+import { SearchKeyHint, useListShortcuts } from '@/components/admin/_shared/listTools'
+import { DateRangeFilter } from '@/components/admin/_shared/DateRangeFilter'
 
 const BRAND = 'var(--brand-solid)'
 const SOFT_SHADOW = '0 20px 40px -16px rgba(15,23,42,0.24), 0 6px 16px -6px rgba(15,23,42,0.10)'
@@ -35,101 +39,67 @@ function fmtDate(iso) {
   if (Number.isNaN(d.getTime())) return '—'
   return d.toLocaleDateString('en-PH', { month: 'short', day: 'numeric', year: 'numeric' })
 }
-function fmtDateShort(iso) {
-  if (!iso) return null
-  const d = new Date(iso + 'T00:00:00Z')
-  if (Number.isNaN(d.getTime())) return null
-  return d.toLocaleDateString('en-PH', { month: 'short', day: 'numeric', year: '2-digit', timeZone: 'UTC' })
-}
 function fmtDateTime(iso) {
   if (!iso) return '—'
   const d = new Date(iso)
   if (Number.isNaN(d.getTime())) return '—'
   return d.toLocaleString('en-PH', { month: 'short', day: 'numeric', year: 'numeric', hour: 'numeric', minute: '2-digit' })
 }
-function initials(name) {
-  if (!name) return '?'
-  return name.trim().split(/\s+/).slice(0, 2).map((p) => p[0]?.toUpperCase() || '').join('') || '?'
-}
-const AVATAR_COLORS = [
-  ['bg-blue-100', 'text-blue-700', 'dark:bg-blue-900/40', 'dark:text-blue-300'],
-  ['bg-emerald-100', 'text-emerald-700', 'dark:bg-emerald-900/40', 'dark:text-emerald-300'],
-  ['bg-orange-100', 'text-orange-700', 'dark:bg-orange-900/40', 'dark:text-orange-300'],
-  ['bg-purple-100', 'text-purple-700', 'dark:bg-purple-900/40', 'dark:text-purple-300'],
-  ['bg-rose-100', 'text-rose-700', 'dark:bg-rose-900/40', 'dark:text-rose-300'],
-  ['bg-cyan-100', 'text-cyan-700', 'dark:bg-cyan-900/40', 'dark:text-cyan-300'],
-  ['bg-amber-100', 'text-amber-700', 'dark:bg-amber-900/40', 'dark:text-amber-300'],
-  ['bg-indigo-100', 'text-indigo-700', 'dark:bg-indigo-900/40', 'dark:text-indigo-300'],
-]
-function avatarColor(seed) {
-  if (!seed) return AVATAR_COLORS[0]
-  let hash = 0
-  for (let i = 0; i < seed.length; i++) { hash = ((hash << 5) - hash) + seed.charCodeAt(i); hash = hash & hash }
-  return AVATAR_COLORS[Math.abs(hash) % AVATAR_COLORS.length]
-}
-function GuestAvatar({ name, size = 'md' }) {
-  const [bg, text, dbg, dtext] = avatarColor(name)
-  const sizeClasses = size === 'sm' ? 'w-8 h-8 text-[11px]' : 'w-10 h-10 text-sm'
-  return (
-    <div className={cn('rounded-full flex items-center justify-center font-semibold flex-shrink-0', sizeClasses, bg, text, dbg, dtext)}>
-      {initials(name)}
-    </div>
-  )
-}
 
 const STATUS_TEXT = {
-  drafting: { label: 'Drafting', className: 'text-gray-500 dark:text-gray-400' },
+  drafting: { label: 'Drafting', className: 'text-foreground' },
   sending:  { label: 'Sending',  className: 'text-amber-600 dark:text-amber-400' },
   sent:     { label: 'Sent',     className: 'text-emerald-600 dark:text-emerald-400' },
   failed:   { label: 'Failed',   className: 'text-red-600 dark:text-red-400' },
 }
-function CampaignStatusPill({ status }) {
+function CampaignStatusText({ status }) {
   const config = STATUS_TEXT[status] || STATUS_TEXT.drafting
-  return <span className={cn('text-[11px] font-semibold', config.className)}>{config.label}</span>
+  return <span className={cn('text-[11.5px] font-semibold whitespace-nowrap', config.className)}>{config.label}</span>
 }
 
-function SectionHeader({ icon: Icon, title, subtitle, action }) {
-  return (
-    <div className="flex items-center gap-2 mb-2 px-0.5">
-      {Icon ? <Icon size={14} className="text-foreground flex-shrink-0" /> : null}
-      <h3 className="text-[11px] font-semibold uppercase tracking-wider text-foreground truncate">{title}</h3>
-      {subtitle && <span className="text-[11px] text-muted-foreground tabular-nums truncate">{subtitle}</span>}
-      {action && <div className="ml-auto flex items-center gap-1">{action}</div>}
-    </div>
-  )
+// The {{guest_name}} placeholder, shown as code.
+function Placeholder() {
+  return <code className="font-mono text-[10.5px] border border-border bg-card px-1 rounded">{'{{guest_name}}'}</code>
 }
 
-function SummaryCards({ guests, campaigns }) {
+// KPI strip as on the Dashboard; the tiles switch between compose and history.
+function SummaryCards({ guests, campaigns, view, onView }) {
   const stats = useMemo(() => {
-    const totalGuests = guests.length
-    const sentCampaigns = campaigns.filter((c) => c.status === 'sent').length
-    const totalDelivered = campaigns.reduce((s, c) => s + (c.sent_count || 0), 0)
-    const totalFailed = campaigns.reduce((s, c) => s + (c.failed_count || 0), 0)
-    return { totalGuests, sentCampaigns, totalDelivered, totalFailed }
+    const sent = campaigns.filter((c) => c.status === 'sent')
+    const delivered = campaigns.reduce((s, c) => s + (c.sent_count || 0), 0)
+    const failed = campaigns.reduce((s, c) => s + (c.failed_count || 0), 0)
+    const lastSent = sent
+      .map((c) => c.sent_at || c.created_at)
+      .filter(Boolean)
+      .sort()
+      .pop()
+    return { guests: guests.length, sent: sent.length, delivered, failed, lastSent }
   }, [guests, campaigns])
 
-  const cards = [
-    { label: 'Eligible Guests',  value: stats.totalGuests,     icon: Users },
-    { label: 'Campaigns Sent',   value: stats.sentCampaigns,   icon: Megaphone },
-    { label: 'Emails Delivered', value: stats.totalDelivered,  icon: Mail },
-    { label: 'Emails Failed',    value: stats.totalFailed,     icon: AlertTriangle },
-  ]
+  const attempted = stats.delivered + stats.failed
+  const rate = attempted > 0 ? Math.round((stats.delivered / attempted) * 100) : null
 
   return (
-    <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-      {cards.map((card, i) => (
-        <motion.div key={card.label}
-          initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }}
-          transition={{ delay: i * 0.05, duration: 0.25 }}
-          className="rounded-lg bg-card border border-border shadow-sm p-4">
-          <div className="flex items-center gap-2 mb-2">
-            <card.icon size={15} className="text-foreground" />
-            <span className="text-[11px] font-bold uppercase tracking-wider text-foreground">{card.label}</span>
-          </div>
-          <p className="text-3xl font-bold text-foreground tabular-nums">{card.value}</p>
-        </motion.div>
-      ))}
-    </div>
+    <StatStrip cols={4}>
+      <StatTile icon={Users} label="Eligible guests" value={stats.guests} sub="Past guests you can email" active={view === 'compose'} onClick={() => onView('compose')} />
+      <StatTile
+        icon={Megaphone}
+        label="Campaigns sent"
+        value={stats.sent}
+        sub={stats.lastSent ? `Last on ${fmtDate(stats.lastSent)}` : 'Nothing sent yet'}
+        active={view === 'history'}
+        onClick={() => onView('history')}
+      />
+      <StatTile icon={MailCheck} label="Emails delivered" value={stats.delivered.toLocaleString('en-PH')} sub={rate == null ? 'No emails sent yet' : `${rate}% delivered`} onClick={() => onView('history')} />
+      <StatTile
+        icon={AlertTriangle}
+        label="Emails failed"
+        value={stats.failed.toLocaleString('en-PH')}
+        sub={stats.failed > 0 ? 'See the history for details' : 'None failed'}
+        attention={stats.failed > 0}
+        onClick={() => onView('history')}
+      />
+    </StatStrip>
   )
 }
 
@@ -145,26 +115,26 @@ function RecipientRow({ guest, checked, onToggle, disabled }) {
   }, [guest.last_check_out])
 
   return (
-    <button type="button" disabled={disabled} onClick={onToggle}
+    <button type="button" disabled={disabled} onClick={onToggle} aria-pressed={checked}
       className={cn(
-        'w-full text-left px-4 py-3 border-b border-border last:border-0 transition-colors flex items-center gap-3',
-        disabled ? 'opacity-50 cursor-not-allowed' : 'hover:bg-muted/40',
+        'w-full text-left px-5 py-3 border-b border-border last:border-0 transition-colors flex items-center gap-3',
+        disabled ? 'opacity-50 cursor-not-allowed' : checked ? 'bg-brand-solid/5 hover:bg-brand-solid/10' : 'hover:bg-muted/40',
       )}>
-      <input type="checkbox" checked={checked} readOnly
-        className="rounded border-border flex-shrink-0 pointer-events-none w-4 h-4" />
-      <GuestAvatar name={guest.name} size="sm" />
+      <input type="checkbox" checked={checked} readOnly tabIndex={-1}
+        className="rounded border-border flex-shrink-0 pointer-events-none w-4 h-4 accent-[var(--brand-solid)]" />
+      <InitialsAvatar name={guest.name} size="sm" />
       <div className="min-w-0 flex-1">
         <div className="flex items-baseline gap-2 min-w-0">
-          <span className="text-[13px] font-medium text-foreground truncate">{guest.name || 'Guest'}</span>
+          <span className="text-[13px] font-semibold text-foreground truncate">{guest.name || 'Guest'}</span>
           {guest.last_unit && (
-            <span className="text-[10px] text-muted-foreground font-mono truncate flex-shrink-0">{guest.last_unit}</span>
+            <span className="text-[11px] text-foreground font-mono truncate flex-shrink-0">{guest.last_unit}</span>
           )}
         </div>
-        <div className="text-[11px] text-muted-foreground truncate mt-0.5">{guest.email}</div>
+        <div className="text-[11px] text-foreground truncate mt-0.5">{guest.email}</div>
       </div>
       <div className="text-right flex-shrink-0">
-        <div className="text-[11px] text-foreground tabular-nums">{fmtDate(guest.last_check_out)}</div>
-        <div className="text-[10px] text-muted-foreground">{staysAgo}</div>
+        <div className="text-[12px] text-foreground tabular-nums">{fmtDate(guest.last_check_out)}</div>
+        <div className="text-[11px] text-foreground">{staysAgo}</div>
       </div>
     </button>
   )
@@ -176,121 +146,6 @@ const TIME_FILTERS = [
   { id: '12',  label: 'Last 12 months' },
   { id: '24',  label: 'Last 2 years' },
 ]
-
-// ─────────────────────────────────────────────────────────────
-// PillBar — matches shared shape
-// ─────────────────────────────────────────────────────────────
-// ─────────────────────────────────────────────────────────────
-// DateRangeFilter — matches BookingsPage shape
-// ─────────────────────────────────────────────────────────────
-function DateRangeFilter({ from, to, onFromChange, onToChange, onClear }) {
-  const [open, setOpen] = useState(false)
-  const wrapRef = useRef(null)
-  const [localFrom, setLocalFrom] = useState(from || '')
-  const [localTo, setLocalTo] = useState(to || '')
-
-  useEffect(() => { setLocalFrom(from || ''); setLocalTo(to || '') }, [from, to])
-
-  useEffect(() => {
-    if (!open) return
-    const onDown = (e) => { if (wrapRef.current && !wrapRef.current.contains(e.target)) setOpen(false) }
-    const onKey = (e) => { if (e.key === 'Escape') setOpen(false) }
-    document.addEventListener('mousedown', onDown)
-    window.addEventListener('keydown', onKey)
-    return () => {
-      document.removeEventListener('mousedown', onDown)
-      window.removeEventListener('keydown', onKey)
-    }
-  }, [open])
-
-  const hasAny = !!from || !!to
-  const summary = hasAny
-    ? `${from ? fmtDateShort(from) : '…'} → ${to ? fmtDateShort(to) : '…'}`
-    : 'Filter by date'
-
-  const apply = () => {
-    if (localFrom && localTo && localTo < localFrom) return
-    onFromChange(localFrom); onToChange(localTo); setOpen(false)
-  }
-  const clear = () => {
-    setLocalFrom(''); setLocalTo(''); onClear?.(); setOpen(false)
-  }
-
-  return (
-    <div className="relative flex-shrink-0" ref={wrapRef}>
-      <button
-        type="button"
-        onClick={() => setOpen((v) => !v)}
-        className={cn(
-          'inline-flex items-center gap-2 h-9 px-3 rounded-lg text-xs font-semibold transition-colors border',
-          hasAny
-            ? 'bg-brand-solid text-white border-brand-solid'
-            : 'bg-card text-foreground border-border hover:bg-muted',
-        )}
-        title={hasAny ? summary : 'Filter by date range'}
-      >
-        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={hasAny ? 'opacity-90' : 'opacity-60'}>
-          <rect x="3" y="4" width="18" height="18" rx="2" ry="2" />
-          <line x1="16" y1="2" x2="16" y2="6" />
-          <line x1="8" y1="2" x2="8" y2="6" />
-          <line x1="3" y1="10" x2="21" y2="10" />
-        </svg>
-        <span className="hidden sm:inline truncate max-w-[140px]">{summary}</span>
-        {hasAny && (
-          <span
-            role="button"
-            tabIndex={0}
-            onClick={(e) => { e.stopPropagation(); clear() }}
-            onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.stopPropagation(); clear() } }}
-            className="ml-1 inline-flex items-center justify-center w-4 h-4 rounded-full bg-background/20 hover:bg-background/30 cursor-pointer"
-            aria-label="Clear date filter"
-          >
-            <X size={10} />
-          </span>
-        )}
-      </button>
-
-      <AnimatePresence>
-        {open && (
-          <motion.div
-            initial={{ opacity: 0, y: -4 }}
-            animate={{ opacity: 1, y: 0 }}
-            exit={{ opacity: 0, y: -4 }}
-            transition={{ duration: 0.12 }}
-            className="absolute right-0 z-30 mt-1 w-[280px] rounded-xl bg-popover border border-border shadow-xl p-3"
-          >
-            <p className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground mb-2">
-              Date range
-            </p>
-            <div className="space-y-2">
-              <div>
-                <label className="text-[10px] uppercase tracking-wider text-muted-foreground font-semibold mb-1 block">From</label>
-                <input type="date" value={localFrom} onChange={(e) => setLocalFrom(e.target.value)} max={localTo || undefined}
-                  className="w-full h-8 text-xs rounded border border-border bg-background px-2 focus:outline-none focus:ring-2 focus:ring-ring/30" />
-              </div>
-              <div>
-                <label className="text-[10px] uppercase tracking-wider text-muted-foreground font-semibold mb-1 block">To</label>
-                <input type="date" value={localTo} onChange={(e) => setLocalTo(e.target.value)} min={localFrom || undefined}
-                  className="w-full h-8 text-xs rounded border border-border bg-background px-2 focus:outline-none focus:ring-2 focus:ring-ring/30" />
-              </div>
-            </div>
-            <div className="flex items-center justify-between pt-3 mt-3 border-t border-border">
-              <button type="button" onClick={clear} disabled={!localFrom && !localTo}
-                className="text-[11px] font-semibold text-muted-foreground hover:text-foreground disabled:opacity-40">
-                Clear
-              </button>
-              <button type="button" onClick={apply}
-                className="inline-flex items-center gap-1 h-7 px-3 rounded-lg bg-brand-solid text-white text-[11px] font-semibold hover:bg-brand-solid/90">
-                <Check size={11} />
-                Apply
-              </button>
-            </div>
-          </motion.div>
-        )}
-      </AnimatePresence>
-    </div>
-  )
-}
 
 export default function CampaignsPage() {
   const [guests, setGuests] = useState([])
@@ -325,6 +180,10 @@ export default function CampaignsPage() {
 
   const imageInputRef = useRef(null)
   const hasLoadedOnce = useRef(false)
+
+  // "/" jumps to the search box.
+  const searchRef = useRef(null)
+  useListShortcuts({ searchRef, onEscape: null })
 
   useEffect(() => {
     const t = setTimeout(() => setDebouncedSearch(search), 300)
@@ -532,33 +391,36 @@ export default function CampaignsPage() {
 
   return (
     <div className="h-full flex min-h-0">
-      <div className="flex-1 min-h-0 flex flex-col p-3 gap-3">
-        <div className="flex-shrink-0 pt-1 pb-2">
-          <SummaryCards guests={guests} campaigns={campaigns} />
+      <div className="flex-1 min-h-0 flex flex-col px-6 py-5 md:px-8 md:py-6 gap-4">
+        <div className="flex-shrink-0">
+          <SummaryCards guests={guests} campaigns={campaigns} view={view} onView={handleViewChange} />
         </div>
 
         <div className="flex-shrink-0 flex items-center gap-2 flex-wrap">
           <StatusTabs tabs={viewTabs} value={view} onChange={handleViewChange} label="Compose or history" />
 
-          <div className="relative flex-1 min-w-0">
-            <Search size={13} className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground pointer-events-none" />
+          <div className="relative flex-1 min-w-[200px]">
+            <Search size={13} className="absolute left-3 top-1/2 -translate-y-1/2 text-foreground pointer-events-none" />
             <Input
+              ref={searchRef}
               placeholder={view === 'compose' ? 'Search guests by name, email, unit…' : 'Search campaigns by name or subject…'}
               value={search}
               onChange={(e) => setSearch(e.target.value)}
-              className="pl-9 h-9 text-xs rounded-lg"
+              className="pl-9 pr-9 h-9 text-xs rounded-md"
             />
+            {!search && <SearchKeyHint />}
           </div>
-
-          <Button variant="outline" size="sm" onClick={fetchData} disabled={refreshing} className="h-9 rounded-lg flex-shrink-0" title="Refresh">
-            <RefreshCw size={13} className={cn(refreshing && 'animate-spin')} />
-          </Button>
 
           <DateRangeFilter
             from={dateFrom} to={dateTo}
             onFromChange={setDateFrom} onToChange={setDateTo}
             onClear={() => { setDateFrom(''); setDateTo('') }}
+            title={view === 'compose' ? 'Last stay between' : 'Created between'}
           />
+
+          <Button variant="outline" size="sm" onClick={() => fetchData()} disabled={refreshing} className="h-9 rounded-md flex-shrink-0" title="Refresh">
+            <RefreshCw size={13} className={cn(refreshing && 'animate-spin')} />
+          </Button>
         </div>
 
         {view === 'compose' ? (
@@ -619,178 +481,175 @@ function ComposeView({
   heroImage, setHeroImage, imageInputRef, uploadingImage, handleImagePick,
   sending, sendProgress, onSend,
 }) {
-  const labelClass = 'text-[10px] uppercase tracking-wider text-muted-foreground font-semibold mb-1.5 block'
+  const labelClass = 'text-[11px] font-semibold text-foreground mb-1.5 block'
+  const helpClass = 'text-[11px] text-foreground mt-1'
+  const pagerButton = (disabled) => cn(
+    'p-1.5 rounded-md border border-border text-foreground',
+    disabled ? 'opacity-40 cursor-not-allowed' : 'hover:bg-muted/50',
+  )
 
   return (
     <div className="flex-1 min-h-0 grid grid-cols-1 lg:grid-cols-[1fr_1.2fr] gap-4">
-      <div className="flex flex-col min-h-0">
-        <SectionHeader
+      <Panel className="min-h-0">
+        <PanelHeader
           icon={Users}
           title="Recipients"
-          subtitle={`· ${selectedCount} selected of ${filteredGuests.length} (max ${MAX_RECIPIENTS})`}
+          subtitle={`${selectedCount} selected of ${filteredGuests.length} · up to ${MAX_RECIPIENTS} per campaign`}
           action={selectedCount > 0 && (
-            <button type="button" onClick={clearSelection} className="text-[10px] font-semibold text-muted-foreground hover:text-red-600 transition-colors">
-              Clear all
+            <button type="button" onClick={clearSelection} className="text-[11px] font-semibold text-foreground hover:text-red-600 hover:underline underline-offset-2 transition-colors flex-shrink-0">
+              Clear selection
             </button>
           )}
         />
 
-        <div className="flex-1 min-h-0 flex flex-col rounded-lg border border-border shadow-sm overflow-hidden bg-card">
-          <div className="flex-shrink-0 px-3 py-2 border-b border-border space-y-2">
-            <StatusTabs tabs={TIME_FILTERS} value={timeFilter} onChange={setTimeFilter} label="Last stay" />
-            <div className="flex items-center justify-between gap-2">
-              <button type="button" onClick={toggleAllVisible} disabled={pageItems.length === 0}
-                className="text-[11px] font-semibold text-foreground hover:underline disabled:opacity-50">
-                {allVisibleSelected ? 'Deselect page' : 'Select page'}
+        <div className="flex-shrink-0 px-5 py-3 border-b border-border flex flex-wrap items-center justify-between gap-2">
+          <StatusTabs tabs={TIME_FILTERS} value={timeFilter} onChange={setTimeFilter} label="Last stay" />
+          <button type="button" onClick={toggleAllVisible} disabled={pageItems.length === 0}
+            className="text-[11px] font-semibold text-foreground hover:underline underline-offset-2 disabled:opacity-50">
+            {allVisibleSelected ? 'Deselect this page' : 'Select this page'}
+          </button>
+        </div>
+
+        <div className="flex-1 min-h-0 overflow-y-auto">
+          {loading ? (
+            <div className="space-y-2 p-3">{[...Array(6)].map((_, i) => <Skeleton key={i} className="h-12 w-full" />)}</div>
+          ) : pageItems.length === 0 ? (
+            <div className="h-full flex items-center justify-center text-center py-8">
+              <div>
+                <Users size={24} strokeWidth={1.5} className="text-foreground mx-auto mb-2" />
+                <p className="text-[12px] text-foreground font-semibold">No eligible guests</p>
+                <p className="text-[11px] text-foreground mt-1">
+                  {filteredGuests.length === 0 ? 'Try clearing the search or time filter.' : 'Nothing on this page.'}
+                </p>
+              </div>
+            </div>
+          ) : (
+            pageItems.map((guest) => (
+              <RecipientRow key={guest.email} guest={guest}
+                checked={selected.has(guest.email)} onToggle={() => toggleOne(guest.email)} disabled={sending} />
+            ))
+          )}
+        </div>
+
+        {totalPages > 1 && (
+          <div className="flex-shrink-0 border-t border-border px-5 py-2 flex items-center justify-between gap-2">
+            <span className="text-[11px] text-foreground tabular-nums">Page {page} of {totalPages}</span>
+            <div className="flex items-center gap-1">
+              <button type="button" onClick={() => setPage((p) => Math.max(1, p - 1))} disabled={page === 1} className={pagerButton(page === 1)} aria-label="Previous page">
+                <ChevronLeft size={12} />
+              </button>
+              <button type="button" onClick={() => setPage((p) => Math.min(totalPages, p + 1))} disabled={page === totalPages} className={pagerButton(page === totalPages)} aria-label="Next page">
+                <ChevronRight size={12} />
               </button>
             </div>
           </div>
+        )}
+      </Panel>
 
-          <div className="flex-1 min-h-0 overflow-y-auto">
-            {loading ? (
-              <div className="space-y-2 p-3">{[...Array(6)].map((_, i) => <Skeleton key={i} className="h-12 w-full" />)}</div>
-            ) : pageItems.length === 0 ? (
-              <div className="h-full flex items-center justify-center text-center py-8">
-                <div>
-                  <Users size={28} className="text-muted-foreground/40 mx-auto mb-2" />
-                  <p className="text-xs text-foreground font-semibold">No eligible guests</p>
-                  <p className="text-[10px] text-muted-foreground mt-1">
-                    {filteredGuests.length === 0 ? 'Try clearing the search or time filter' : 'Nothing on this page'}
-                  </p>
-                </div>
+      <Panel className="min-h-0">
+        <PanelHeader
+          icon={Mail}
+          title="Compose email"
+          subtitle={selectedCount > 0
+            ? `Going to ${selectedCount} guest${selectedCount === 1 ? '' : 's'}`
+            : 'Pick recipients on the left first'}
+        />
+
+        <div className="flex-1 min-h-0 overflow-y-auto p-5 space-y-4">
+          <div>
+            <label className={labelClass}>Campaign name *</label>
+            <Input value={campaignName} onChange={(e) => setCampaignName(e.target.value)}
+              placeholder="e.g. Valentine's 2026" maxLength={120} className="h-9 text-xs rounded-md" disabled={sending} />
+            <p className={helpClass}>Only you see this. It names the campaign in the history.</p>
+          </div>
+
+          <div>
+            <label className={labelClass}>Subject *</label>
+            <Input value={subject} onChange={(e) => setSubject(e.target.value)}
+              placeholder="e.g. A special Valentine's offer from us" maxLength={200} className="h-9 text-xs rounded-md" disabled={sending} />
+          </div>
+
+          <div>
+            <label className={labelClass}>Greeting *</label>
+            <Input value={greeting} onChange={(e) => setGreeting(e.target.value)}
+              placeholder="Hi {{guest_name}}," maxLength={300} className="h-9 text-xs rounded-md" disabled={sending} />
+            <p className={helpClass}>
+              <Placeholder /> is replaced with each guest's name.
+            </p>
+          </div>
+
+          <div>
+            <label className={labelClass}>Message *</label>
+            <Textarea value={body} onChange={(e) => setBody(e.target.value)}
+              placeholder={`This February, we're offering 15% off any stay booked before the 20th.\n\nJust reply to this email to claim it.`}
+              rows={8} maxLength={20000} className="text-xs rounded-md resize-none" disabled={sending} />
+            <p className={cn(helpClass, 'text-right tabular-nums')}>
+              {body.length.toLocaleString()} / 20,000
+            </p>
+          </div>
+
+          <div>
+            <label className={labelClass}>Hero image (optional)</label>
+            <input ref={imageInputRef} type="file" accept="image/jpeg,image/png,image/webp" className="hidden"
+              onChange={handleImagePick} disabled={uploadingImage || sending} />
+            {heroImage ? (
+              <div className="relative rounded-md overflow-hidden border border-border bg-card">
+                <img src={heroImage.url} alt="" className="w-full h-auto max-h-64 object-cover" />
+                <button type="button" onClick={() => setHeroImage(null)} disabled={sending}
+                  className="absolute top-2 right-2 w-7 h-7 rounded-full bg-black/60 text-white flex items-center justify-center hover:bg-black/80 disabled:opacity-50" title="Remove" aria-label="Remove image">
+                  <X size={13} />
+                </button>
               </div>
             ) : (
-              pageItems.map((guest) => (
-                <RecipientRow key={guest.email} guest={guest}
-                  checked={selected.has(guest.email)} onToggle={() => toggleOne(guest.email)} disabled={sending} />
-              ))
+              <button type="button" onClick={() => imageInputRef.current?.click()} disabled={uploadingImage || sending}
+                className="w-full flex flex-col items-center justify-center gap-1.5 py-5 rounded-md border-2 border-dashed border-border text-foreground hover:bg-muted/40 transition-colors disabled:opacity-50">
+                {uploadingImage ? <Loader2 size={16} className="animate-spin" /> : <ImageIcon size={16} />}
+                <span className="text-[12px] font-semibold">{uploadingImage ? 'Uploading…' : 'Add a hero image'}</span>
+                <span className="text-[11px]">JPEG, PNG or WebP · up to 5 MB</span>
+              </button>
             )}
           </div>
 
-          {totalPages > 1 && (
-            <div className="flex-shrink-0 border-t border-border bg-card px-3 py-2 flex items-center justify-between gap-2">
-              <span className="text-[10px] text-muted-foreground tabular-nums">Page {page} of {totalPages}</span>
-              <div className="flex items-center gap-1">
-                <button type="button" onClick={() => setPage((p) => Math.max(1, p - 1))} disabled={page === 1}
-                  className={cn('p-1 rounded-lg border border-border', page === 1 ? 'opacity-40 cursor-not-allowed' : 'hover:bg-muted')}>
-                  <ChevronLeft size={12} />
-                </button>
-                <button type="button" onClick={() => setPage((p) => Math.min(totalPages, p + 1))} disabled={page === totalPages}
-                  className={cn('p-1 rounded-lg border border-border', page === totalPages ? 'opacity-40 cursor-not-allowed' : 'hover:bg-muted')}>
-                  <ChevronRight size={12} />
-                </button>
-              </div>
-            </div>
-          )}
-        </div>
-      </div>
-
-      <div className="flex flex-col min-h-0">
-        <SectionHeader
-          icon={Mail}
-          title="Compose Email"
-          subtitle={selectedCount > 0
-            ? `· ${selectedCount} recipient${selectedCount === 1 ? '' : 's'} (max ${MAX_RECIPIENTS})`
-            : '· No recipients selected'}
-        />
-
-        <div className="flex-1 min-h-0 flex flex-col rounded-lg border border-border shadow-sm overflow-hidden bg-card">
-          <div className="flex-1 min-h-0 overflow-y-auto p-4 space-y-4">
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
             <div>
-              <label className={labelClass}>Campaign name *</label>
-              <Input value={campaignName} onChange={(e) => setCampaignName(e.target.value)}
-                placeholder="e.g. Valentine's 2026" maxLength={120} className="h-9 text-xs rounded-lg" disabled={sending} />
-              <p className="text-[10px] text-muted-foreground mt-1">Only you see this. Used to identify the campaign in history.</p>
+              <label className={labelClass}>Sign-off line 1</label>
+              <Input value={signoff1} onChange={(e) => setSignoff1(e.target.value)} placeholder="Warm regards," maxLength={200} className="h-9 text-xs rounded-md" disabled={sending} />
             </div>
-
             <div>
-              <label className={labelClass}>Subject *</label>
-              <Input value={subject} onChange={(e) => setSubject(e.target.value)}
-                placeholder="e.g. A special Valentine's offer from us" maxLength={200} className="h-9 text-xs rounded-lg" disabled={sending} />
-            </div>
-
-            <div>
-              <label className={labelClass}>Greeting *</label>
-              <Input value={greeting} onChange={(e) => setGreeting(e.target.value)}
-                placeholder="Hi {{guest_name}}," maxLength={300} className="h-9 text-xs rounded-lg" disabled={sending} />
-              <p className="text-[10px] text-muted-foreground mt-1">
-                Use <code className="font-mono bg-muted px-1 rounded">{'{{guest_name}}'}</code> — replaced automatically per recipient
-              </p>
-            </div>
-
-            <div>
-              <label className={labelClass}>Message *</label>
-              <Textarea value={body} onChange={(e) => setBody(e.target.value)}
-                placeholder={`This February, we're offering 15% off any stay booked before the 20th.\n\nJust reply to this email to claim it.`}
-                rows={8} maxLength={20000} className="text-xs rounded-lg resize-none" disabled={sending} />
-              <p className="text-[10px] text-muted-foreground mt-1 text-right tabular-nums">
-                {body.length.toLocaleString()} / 20,000
-              </p>
-            </div>
-
-            <div>
-              <label className={labelClass}>Hero image (optional)</label>
-              <input ref={imageInputRef} type="file" accept="image/jpeg,image/png,image/webp" className="hidden"
-                onChange={handleImagePick} disabled={uploadingImage || sending} />
-              {heroImage ? (
-                <div className="relative rounded-lg overflow-hidden border border-border bg-muted">
-                  <img src={heroImage.url} alt="" className="w-full h-auto max-h-64 object-cover" />
-                  <button type="button" onClick={() => setHeroImage(null)} disabled={sending}
-                    className="absolute top-2 right-2 w-7 h-7 rounded-full bg-black/60 text-white flex items-center justify-center hover:bg-black/80 disabled:opacity-50" title="Remove">
-                    <X size={13} />
-                  </button>
-                </div>
-              ) : (
-                <button type="button" onClick={() => imageInputRef.current?.click()} disabled={uploadingImage || sending}
-                  className="w-full flex flex-col items-center justify-center gap-1.5 py-5 rounded-lg border-2 border-dashed border-border text-muted-foreground hover:bg-muted/40 transition-colors disabled:opacity-50">
-                  {uploadingImage ? <Loader2 size={16} className="animate-spin" /> : <ImageIcon size={16} />}
-                  <span className="text-[11px] font-semibold">{uploadingImage ? 'Uploading…' : 'Add a hero image'}</span>
-                  <span className="text-[10px]">JPEG, PNG, or WebP · max 5 MB</span>
-                </button>
-              )}
-            </div>
-
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-              <div>
-                <label className={labelClass}>Sign-off line 1</label>
-                <Input value={signoff1} onChange={(e) => setSignoff1(e.target.value)} placeholder="Warm regards," maxLength={200} className="h-9 text-xs rounded-lg" disabled={sending} />
-              </div>
-              <div>
-                <label className={labelClass}>Sign-off line 2</label>
-                <Input value={signoff2} onChange={(e) => setSignoff2(e.target.value)} placeholder="Iloilo Rentals" maxLength={200} className="h-9 text-xs rounded-lg" disabled={sending} />
-              </div>
-            </div>
-
-            <div>
-              <label className={labelClass}>Reply-to (optional)</label>
-              <Input type="email" value={replyTo} onChange={(e) => setReplyTo(e.target.value)}
-                placeholder="Leave blank to use your default support address" maxLength={254} className="h-9 text-xs rounded-lg" disabled={sending} />
-            </div>
-
-            <div className="rounded-lg bg-muted/40 border border-border p-3 flex items-start gap-2">
-              <Info size={12} className="text-muted-foreground flex-shrink-0 mt-0.5" />
-              <p className="text-[11px] text-muted-foreground leading-relaxed">
-                Each guest gets a personalized email with <code className="font-mono bg-background px-1 rounded">{'{{guest_name}}'}</code> replaced, plus an unsubscribe link. Guests who unsubscribe won't receive future campaigns.
-              </p>
+              <label className={labelClass}>Sign-off line 2</label>
+              <Input value={signoff2} onChange={(e) => setSignoff2(e.target.value)} placeholder="Iloilo Rentals" maxLength={200} className="h-9 text-xs rounded-md" disabled={sending} />
             </div>
           </div>
 
-          <div className="flex-shrink-0 border-t border-border bg-muted/30 px-4 py-3 flex items-center justify-between gap-2">
-            <p className="text-[10px] text-muted-foreground hidden sm:block truncate">
-              {sendProgress ? `Sending… ${sendProgress.current} of ${sendProgress.total}`
-                : selectedCount > 0 ? `Ready to send to ${selectedCount} guest${selectedCount === 1 ? '' : 's'}`
-                : 'Select recipients on the left to continue'}
+          <div>
+            <label className={labelClass}>Reply-to (optional)</label>
+            <Input type="email" value={replyTo} onChange={(e) => setReplyTo(e.target.value)}
+              placeholder="Leave blank to use your default support address" maxLength={254} className="h-9 text-xs rounded-md" disabled={sending} />
+          </div>
+
+          <div className="rounded-md border border-border p-3 flex items-start gap-2">
+            <Info size={13} className="text-foreground flex-shrink-0 mt-0.5" />
+            <p className="text-[11px] text-foreground leading-relaxed">
+              Each guest gets their own email with <Placeholder /> filled in, plus an unsubscribe link. Guests who unsubscribe won't get future campaigns.
             </p>
-            <div className="flex items-center gap-2 ml-auto flex-shrink-0">
-              <Button size="sm" className="h-9 rounded-lg text-xs gap-1.5 text-white" style={{ backgroundColor: BRAND }}
-                onClick={onSend} disabled={sending || selectedCount === 0}>
-                {sending ? <Loader2 size={12} className="animate-spin" /> : <Send size={12} />}
-                {sending ? 'Sending…' : `Send to ${selectedCount}`}
-              </Button>
-            </div>
           </div>
         </div>
-      </div>
+
+        <div className="flex-shrink-0 border-t border-border px-5 py-3 flex items-center justify-between gap-2">
+          <p className="text-[12px] text-foreground hidden sm:block truncate">
+            {sendProgress ? `Sending… ${sendProgress.current} of ${sendProgress.total}`
+              : selectedCount > 0 ? `Ready to send to ${selectedCount} guest${selectedCount === 1 ? '' : 's'}`
+              : 'Select recipients on the left to continue'}
+          </p>
+          <div className="flex items-center gap-2 ml-auto flex-shrink-0">
+            <Button size="sm" className="h-9 rounded-md text-xs gap-1.5 text-white" style={{ backgroundColor: BRAND }}
+              onClick={onSend} disabled={sending || selectedCount === 0}>
+              {sending ? <Loader2 size={12} className="animate-spin" /> : <Send size={12} />}
+              {sending ? 'Sending…' : `Send to ${selectedCount}`}
+            </Button>
+          </div>
+        </div>
+      </Panel>
     </div>
   )
 }
@@ -800,8 +659,8 @@ function HistoryView({ campaigns, totalCampaigns, loading, onDeleted }) {
   const [clearingAll, setClearingAll] = useState(false)
 
   const showingLabel = totalCampaigns === campaigns.length
-    ? `${totalCampaigns}`
-    : `${campaigns.length} of ${totalCampaigns}`
+    ? `${totalCampaigns} campaign${totalCampaigns === 1 ? '' : 's'}`
+    : `Showing ${campaigns.length} of ${totalCampaigns}`
 
   const handleDeleteOne = async (campaign) => {
     const ok = window.confirm(
@@ -840,70 +699,70 @@ function HistoryView({ campaigns, totalCampaigns, loading, onDeleted }) {
     } finally { setClearingAll(false) }
   }
 
+  const busy = clearingAll || deletingId !== null
+
   return (
-    <div className="flex-1 min-h-0 flex flex-col">
-      <SectionHeader
+    <Panel className="flex-1 min-h-0">
+      <PanelHeader
         icon={History}
-        title="Campaign History"
-        subtitle={`· ${showingLabel}`}
+        title="Campaign history"
+        subtitle={showingLabel}
         action={totalCampaigns > 0 && (
-          <button type="button" onClick={handleClearAll} disabled={clearingAll || deletingId !== null}
-            className={cn('text-[10px] font-semibold transition-colors',
-              clearingAll || deletingId !== null ? 'opacity-50 cursor-not-allowed text-muted-foreground' : 'text-muted-foreground hover:text-red-600')}>
+          <button type="button" onClick={handleClearAll} disabled={busy}
+            className={cn('text-[11px] font-semibold transition-colors flex-shrink-0',
+              busy ? 'opacity-50 cursor-not-allowed text-foreground' : 'text-red-600 dark:text-red-400 hover:underline underline-offset-2')}>
             {clearingAll ? 'Clearing…' : 'Clear all'}
           </button>
         )}
       />
 
-      <div className="flex-1 min-h-0 rounded-lg border border-border shadow-sm overflow-hidden bg-card flex flex-col">
-        <div className="flex-1 min-h-0 overflow-y-auto">
-          {loading ? (
-            <div className="space-y-2 p-3">{[...Array(5)].map((_, i) => <Skeleton key={i} className="h-16 w-full" />)}</div>
-          ) : campaigns.length === 0 ? (
-            <div className="h-full flex items-center justify-center text-center py-12">
-              <div>
-                <Megaphone size={28} className="text-muted-foreground/40 mx-auto mb-2" />
-                <p className="text-xs text-foreground font-semibold">No campaigns yet</p>
-                <p className="text-[10px] text-muted-foreground mt-1">Compose your first campaign and it will appear here</p>
-              </div>
+      <div className="flex-1 min-h-0 overflow-y-auto">
+        {loading ? (
+          <div className="space-y-2 p-3">{[...Array(5)].map((_, i) => <Skeleton key={i} className="h-16 w-full" />)}</div>
+        ) : campaigns.length === 0 ? (
+          <div className="h-full flex items-center justify-center text-center py-12">
+            <div>
+              <Megaphone size={24} strokeWidth={1.5} className="text-foreground mx-auto mb-2" />
+              <p className="text-[12px] text-foreground font-semibold">No campaigns yet</p>
+              <p className="text-[11px] text-foreground mt-1">Compose your first campaign and it will show up here.</p>
             </div>
-          ) : (
-            campaigns.map((c) => {
-              const isDeleting = deletingId === c.id
-              const hasFailures = (c.failed_count || 0) > 0
-              return (
-                <div key={c.id}
-                  className={cn('group/history px-4 py-3 border-b border-border last:border-0 transition-colors flex items-start gap-3',
-                    isDeleting ? 'opacity-50' : 'hover:bg-muted/30')}>
-                  <div className="min-w-0 flex-1">
-                    <div className="flex items-start justify-between gap-3 mb-1.5">
-                      <div className="min-w-0 flex-1">
-                        <p className="text-[13px] font-semibold text-foreground truncate">{c.name}</p>
-                        <p className="text-[11px] text-muted-foreground truncate mt-0.5">{c.subject}</p>
-                      </div>
-                      <CampaignStatusPill status={c.status} />
+          </div>
+        ) : (
+          campaigns.map((c) => {
+            const isDeleting = deletingId === c.id
+            const hasFailures = (c.failed_count || 0) > 0
+            return (
+              <div key={c.id}
+                className={cn('group/history px-5 py-3 border-b border-border last:border-0 transition-colors flex items-start gap-3',
+                  isDeleting ? 'opacity-50' : 'hover:bg-muted/40')}>
+                <div className="min-w-0 flex-1">
+                  <div className="flex items-start justify-between gap-3 mb-1.5">
+                    <div className="min-w-0 flex-1">
+                      <p className="text-[13px] font-semibold text-foreground truncate">{c.name}</p>
+                      <p className="text-[11px] text-foreground truncate mt-0.5">{c.subject}</p>
                     </div>
-                    <div className="flex items-center gap-3 text-[11px] text-muted-foreground tabular-nums flex-wrap">
-                      <span className="inline-flex items-center gap-1"><Users size={10} /> {c.recipient_count} recipient{c.recipient_count === 1 ? '' : 's'}</span>
-                      <span className="inline-flex items-center gap-1 text-emerald-600 dark:text-emerald-400"><Check size={10} /> {c.sent_count} sent</span>
-                      {hasFailures && <span className="inline-flex items-center gap-1 text-red-600 dark:text-red-400"><AlertTriangle size={10} /> {c.failed_count} failed</span>}
-                      <span className="ml-auto">{fmtDateTime(c.sent_at || c.created_at)}</span>
-                    </div>
+                    <CampaignStatusText status={c.status} />
                   </div>
-                  <button type="button" onClick={() => handleDeleteOne(c)} disabled={isDeleting || clearingAll}
-                    className={cn('flex-shrink-0 p-1.5 rounded-lg transition-all opacity-0 group-hover/history:opacity-100',
-                      'text-muted-foreground hover:text-red-600 hover:bg-red-500/10',
-                      (isDeleting || clearingAll) && 'opacity-50 cursor-not-allowed')}
-                    title="Delete campaign">
-                    {isDeleting ? <Loader2 size={13} className="animate-spin" /> : <Trash2 size={13} />}
-                  </button>
+                  <div className="flex items-center gap-3 text-[11px] text-foreground tabular-nums flex-wrap">
+                    <span className="inline-flex items-center gap-1"><Users size={11} /> {c.recipient_count} recipient{c.recipient_count === 1 ? '' : 's'}</span>
+                    <span className="inline-flex items-center gap-1 font-semibold text-emerald-600 dark:text-emerald-400"><Check size={11} /> {c.sent_count} sent</span>
+                    {hasFailures && <span className="inline-flex items-center gap-1 font-semibold text-red-600 dark:text-red-400"><AlertTriangle size={11} /> {c.failed_count} failed</span>}
+                    <span className="ml-auto">{fmtDateTime(c.sent_at || c.created_at)}</span>
+                  </div>
                 </div>
-              )
-            })
-          )}
-        </div>
+                <button type="button" onClick={() => handleDeleteOne(c)} disabled={isDeleting || clearingAll}
+                  className={cn('flex-shrink-0 p-1.5 rounded-md transition-all opacity-0 group-hover/history:opacity-100 focus-visible:opacity-100',
+                    'text-foreground hover:text-red-600 hover:bg-muted',
+                    (isDeleting || clearingAll) && 'opacity-50 cursor-not-allowed')}
+                  title="Delete campaign" aria-label={`Delete campaign ${c.name}`}>
+                  {isDeleting ? <Loader2 size={13} className="animate-spin" /> : <Trash2 size={13} />}
+                </button>
+              </div>
+            )
+          })
+        )}
       </div>
-    </div>
+    </Panel>
   )
 }
 
@@ -937,47 +796,47 @@ function ConfirmSendDialog({ recipientCount, subject, greeting, body, heroImage,
         role="dialog"
         aria-modal="true"
         aria-labelledby="confirm-send-title"
-        className="relative bg-card rounded-lg max-w-md w-full border border-border overflow-hidden flex flex-col max-h-[92vh]"
+        className="relative bg-card rounded-md max-w-md w-full border border-border overflow-hidden flex flex-col max-h-[92vh]"
         style={{ boxShadow: SOFT_SHADOW }}
       >
         <div className="flex items-center justify-between px-5 py-3 border-b border-border">
-          <h3 id="confirm-send-title" className="text-sm font-bold text-foreground">Confirm send</h3>
-          <button onClick={onCancel} className="p-1 rounded-lg hover:bg-muted"><X size={14} /></button>
+          <h3 id="confirm-send-title" className="text-[14px] font-semibold text-foreground">Confirm send</h3>
+          <button type="button" onClick={onCancel} aria-label="Close" className="p-1.5 rounded-md text-foreground hover:bg-muted/60"><X size={14} /></button>
         </div>
 
         <div className="p-5 space-y-4 overflow-y-auto">
-          <div className="flex items-start gap-2 rounded-lg bg-amber-500/10 border border-amber-500/30 p-3">
+          <div className="flex items-start gap-2">
             <AlertTriangle size={14} className="text-amber-600 dark:text-amber-400 flex-shrink-0 mt-0.5" />
-            <p className="text-[11px] text-amber-700 dark:text-amber-400 leading-relaxed">
-              <strong>This cannot be undone.</strong> Once sent, emails cannot be recalled or edited.
-              Each guest will receive a personalized email with their name substituted for <code className="font-mono bg-amber-100 dark:bg-amber-900/40 px-1 rounded">{'{{guest_name}}'}</code>.
+            <p className="text-[12px] text-foreground leading-relaxed">
+              <strong className="text-amber-700 dark:text-amber-400">This can't be undone.</strong> Sent emails can't be recalled or edited.
+              Each guest gets their own email with <Placeholder /> replaced by their name.
             </p>
           </div>
 
           <div className="space-y-2 text-xs">
             <div className="flex justify-between gap-3">
-              <span className="text-muted-foreground">Recipients</span>
+              <span className="text-foreground">Recipients</span>
               <span className="font-semibold text-foreground tabular-nums">{recipientCount} guest{recipientCount === 1 ? '' : 's'}</span>
             </div>
             <div className="flex justify-between gap-3">
-              <span className="text-muted-foreground flex-shrink-0">Subject</span>
+              <span className="text-foreground flex-shrink-0">Subject</span>
               <span className="font-semibold text-foreground text-right break-words">{subject}</span>
             </div>
           </div>
 
-          <div className="rounded-lg border border-border bg-muted/30 p-3 space-y-2">
-            <p className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground">Preview</p>
+          <div className="rounded-md border border-border p-3 space-y-2">
+            <p className="text-[11px] font-semibold uppercase tracking-wider text-foreground">Preview</p>
             {heroImage && (
               <img src={heroImage.url} alt="" className="w-full h-auto max-h-32 object-cover rounded border border-border" />
             )}
             <p className="text-xs font-semibold text-foreground break-words">{greeting || 'Hi {{guest_name}},'}</p>
-            <p className="text-[11px] text-muted-foreground leading-relaxed whitespace-pre-wrap break-words">{bodyPreview}</p>
+            <p className="text-[12px] text-foreground leading-relaxed whitespace-pre-wrap break-words">{bodyPreview}</p>
           </div>
         </div>
 
-        <div className="flex items-center justify-end gap-2 px-5 py-3 border-t border-border bg-muted/30">
-          <Button variant="outline" size="sm" className="h-9 rounded-lg text-xs" onClick={onCancel}>Cancel</Button>
-          <Button size="sm" className="h-9 rounded-lg text-xs gap-1.5 text-white" style={{ backgroundColor: BRAND }} onClick={onConfirm}>
+        <div className="flex items-center justify-end gap-2 px-5 py-3 border-t border-border bg-card">
+          <Button variant="outline" size="sm" className="h-9 rounded-md text-xs" onClick={onCancel}>Cancel</Button>
+          <Button size="sm" className="h-9 rounded-md text-xs gap-1.5 text-white" style={{ backgroundColor: BRAND }} onClick={onConfirm}>
             <Send size={12} /> Send to {recipientCount}
           </Button>
         </div>

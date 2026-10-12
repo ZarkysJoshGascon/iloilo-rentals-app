@@ -28,9 +28,11 @@ export function StatStrip({ cols = 5, children, className }) {
  * icon      lucide icon (black)
  * attention shows a warning icon and turns `sub` into amber status text
  * active    marks the tile whose filter is applied (dark bar along the bottom)
+ * valueClassName  overrides the number size (e.g. smaller for long peso amounts)
+ * trend     optional small chart (e.g. a Sparkline) shown between the number and `sub`
  */
 export function StatTile({
-  icon: Icon, label, value, sub, attention = false, loading = false, active = false, onClick, className,
+  icon: Icon, label, value, sub, attention = false, loading = false, active = false, onClick, className, valueClassName, trend,
 }) {
   return (
     <button
@@ -70,8 +72,9 @@ export function StatTile({
         {loading ? (
           <span className="block h-7 w-14 rounded-md bg-muted animate-pulse" />
         ) : (
-          <p className="text-[28px] font-semibold text-foreground leading-none tracking-tight tabular-nums">{value}</p>
+          <p className={cn('text-[28px] font-semibold text-foreground leading-none tracking-tight tabular-nums', valueClassName)}>{value}</p>
         )}
+        {trend && <div className="mt-2.5">{loading ? <span className="block h-7 rounded-md bg-muted animate-pulse" /> : trend}</div>}
         {sub && (
           <p className={cn('text-[11px] mt-1.5 truncate', attention ? 'font-semibold text-amber-600 dark:text-amber-400' : 'text-foreground')}>
             {loading ? ' ' : sub}

@@ -4,8 +4,8 @@ import { motion, AnimatePresence } from 'framer-motion'
 import { createPortal } from 'react-dom'
 import {
   Plus, Search, RefreshCw, X, Check, Loader2, Trash2,
-  UserPlus, Users, Award, TrendingUp, Mail, Phone, Edit2, User,
-  Calendar, ChevronLeft, ChevronRight, Building2,
+  UserPlus, Users, Award, Mail, Phone, Edit2, User,
+  Calendar, Building2,
   AlertTriangle, Pencil, Wallet, FileText, Eye, Upload, ExternalLink,
   Lock,
 } from 'lucide-react'
@@ -26,10 +26,11 @@ import {
   validateStaffEmail, createStaffMember, updateStaffMember,
 } from '@/lib/staff'
 import { StatusTabs } from '@/components/admin/_shared/StatusTabs'
+import { StatStrip, StatTile } from '@/components/admin/_shared/StatStrip'
+import { ResultsBar, SearchKeyHint, useListShortcuts } from '@/components/admin/_shared/listTools'
 
 const BRAND = 'var(--brand-solid)'
 const SOFT_SHADOW = '0 20px 40px -16px rgba(15,23,42,0.24), 0 6px 16px -6px rgba(15,23,42,0.10)'
-const PAGE_SIZE = 9
 const PM_SHARE_OF_COMPANY_PCT = 35
 const PM_PDF_BUCKET = 'contract-pdfs'
 const PM_PDF_MAX_BYTES = 15 * 1024 * 1024
@@ -48,23 +49,6 @@ const TABS = [
 function initials(name) {
   if (!name) return '?'
   return name.trim().split(/\s+/).slice(0, 2).map((p) => p[0]?.toUpperCase() || '').join('') || '?'
-}
-
-const AVATAR_COLORS = [
-  ['bg-blue-100', 'text-blue-700', 'dark:bg-blue-900/40', 'dark:text-blue-300'],
-  ['bg-emerald-100', 'text-emerald-700', 'dark:bg-emerald-900/40', 'dark:text-emerald-300'],
-  ['bg-orange-100', 'text-orange-700', 'dark:bg-orange-900/40', 'dark:text-orange-300'],
-  ['bg-purple-100', 'text-purple-700', 'dark:bg-purple-900/40', 'dark:text-purple-300'],
-  ['bg-rose-100', 'text-rose-700', 'dark:bg-rose-900/40', 'dark:text-rose-300'],
-  ['bg-cyan-100', 'text-cyan-700', 'dark:bg-cyan-900/40', 'dark:text-cyan-300'],
-  ['bg-amber-100', 'text-amber-700', 'dark:bg-amber-900/40', 'dark:text-amber-300'],
-  ['bg-indigo-100', 'text-indigo-700', 'dark:bg-indigo-900/40', 'dark:text-indigo-300'],
-]
-function avatarColor(seed) {
-  if (!seed) return AVATAR_COLORS[0]
-  let hash = 0
-  for (let i = 0; i < seed.length; i++) { hash = ((hash << 5) - hash) + seed.charCodeAt(i); hash = hash & hash }
-  return AVATAR_COLORS[Math.abs(hash) % AVATAR_COLORS.length]
 }
 
 function formatDate(d) {
@@ -125,9 +109,9 @@ function deriveBookingStatus(b) {
 const BOOKING_STATUS_TEXT = {
   upcoming:          { label: 'Upcoming',        className: 'text-blue-600 dark:text-blue-400' },
   'in-house':        { label: 'In-House',        className: 'text-emerald-600 dark:text-emerald-400' },
-  'checked-out':     { label: 'Checked Out',     className: 'text-gray-500 dark:text-gray-400' },
+  'checked-out':     { label: 'Checked Out',     className: 'text-foreground' },
   'needs-attention': { label: 'Needs Attention', className: 'text-amber-600 dark:text-amber-400' },
-  completed:         { label: 'Done',            className: 'text-gray-500 dark:text-gray-400' },
+  completed:         { label: 'Done',            className: 'text-foreground' },
 }
 
 const CLEANING_STATUS_TEXT = {
@@ -157,25 +141,18 @@ function pmPdfRandomId() {
 // ============================================================
 // AVATARS
 // ============================================================
+// Plain initials on white with a hairline, as on the Dashboard.
+const PLAIN_AVATAR = 'rounded-full bg-card ring-1 ring-border text-foreground flex items-center justify-center font-semibold flex-shrink-0'
+
 function GuestAvatar({ name, size = 'sm' }) {
-  const [bg, text, dbg, dtext] = avatarColor(name)
   const sizeClasses = size === 'md' ? 'w-9 h-9 text-xs' : 'w-8 h-8 text-[11px]'
-  return (
-    <div className={cn('rounded-full flex items-center justify-center font-semibold flex-shrink-0', sizeClasses, bg, text, dbg, dtext)}>
-      {initials(name)}
-    </div>
-  )
+  return <div className={cn(PLAIN_AVATAR, sizeClasses)}>{initials(name)}</div>
 }
 
 function WorkerAvatar({ name, photo_url, size = 'md' }) {
-  const [bg, text, dbg, dtext] = avatarColor(name)
   const sizeClasses = size === 'xl' ? 'w-20 h-20 text-2xl' : size === 'lg' ? 'w-16 h-16 text-lg' : size === 'sm' ? 'w-8 h-8 text-[11px]' : 'w-10 h-10 text-sm'
   if (photo_url) return <img src={photo_url} alt={name} className={cn('rounded-full object-cover flex-shrink-0', sizeClasses)} />
-  return (
-    <div className={cn('rounded-full flex items-center justify-center font-semibold flex-shrink-0', sizeClasses, bg, text, dbg, dtext)}>
-      {initials(name)}
-    </div>
-  )
+  return <div className={cn(PLAIN_AVATAR, sizeClasses)}>{initials(name)}</div>
 }
 
 // ============================================================
@@ -206,7 +183,7 @@ function RoleBadge({ role, size = 'sm' }) {
   const label = meta?.label || '—'
   const sizeClass = size === 'lg' ? 'px-3 py-1 text-xs' : 'px-2.5 py-0.5 text-[10px]'
   return (
-    <span className={cn('inline-flex items-center rounded-md font-bold uppercase tracking-wide', sizeClass, 'bg-muted text-muted-foreground')}>
+    <span className={cn('inline-flex items-center rounded-md font-bold uppercase tracking-wide', sizeClass, 'border border-border text-foreground')}>
       {label}
     </span>
   )
@@ -312,7 +289,7 @@ function StaffEmailCombobox({ value, onChange, disabled, placeholder = 'user@exa
           )}
         />
         {verifying && (
-          <Loader2 size={12} className="absolute right-2.5 top-1/2 -translate-y-1/2 text-muted-foreground animate-spin" />
+          <Loader2 size={12} className="absolute right-2.5 top-1/2 -translate-y-1/2 text-foreground animate-spin" />
         )}
         {!verifying && verifiedProfile && (
           <Check size={12} className="absolute right-2.5 top-1/2 -translate-y-1/2 text-emerald-500" />
@@ -320,11 +297,11 @@ function StaffEmailCombobox({ value, onChange, disabled, placeholder = 'user@exa
       </div>
 
       {verifiedProfile && (
-        <div className="mt-1 flex items-center gap-2 text-[10px] text-emerald-700 dark:text-emerald-400">
+        <div className="mt-1 flex items-center gap-2 text-[11px] text-emerald-700 dark:text-emerald-400">
           {verifiedProfile.avatar_url ? (
             <img src={verifiedProfile.avatar_url} alt="" className="w-4 h-4 rounded-full object-cover flex-shrink-0" />
           ) : (
-            <div className="w-4 h-4 rounded-full bg-emerald-500/20 flex items-center justify-center text-[8px] font-bold flex-shrink-0">
+            <div className="w-4 h-4 rounded-full bg-card ring-1 ring-border text-foreground flex items-center justify-center text-[8px] font-bold flex-shrink-0">
               {initials(verifiedProfile.full_name || verifiedProfile.email)}
             </div>
           )}
@@ -344,11 +321,11 @@ function StaffEmailCombobox({ value, onChange, disabled, placeholder = 'user@exa
             className="absolute z-30 left-0 right-0 mt-1 bg-popover border border-border rounded-lg shadow-lg max-h-[280px] overflow-y-auto"
           >
             {loading && results.length === 0 ? (
-              <div className="px-3 py-2 text-[11px] text-muted-foreground italic">Searching…</div>
+              <div className="px-3 py-2 text-[11px] text-foreground italic">Searching…</div>
             ) : results.length === 0 && query.trim().length >= 2 ? (
-              <div className="px-3 py-3 text-[11px] text-muted-foreground italic">
+              <div className="px-3 py-3 text-[11px] text-foreground italic">
                 No registered user matches.
-                <div className="mt-1 text-[10px]">
+                <div className="mt-1 text-[11px]">
                   Ask them to log in at Iloilo Rentals first, then come back.
                 </div>
               </div>
@@ -367,7 +344,7 @@ function StaffEmailCombobox({ value, onChange, disabled, placeholder = 'user@exa
                   {r.avatar_url ? (
                     <img src={r.avatar_url} alt="" className="w-6 h-6 rounded-full object-cover flex-shrink-0" />
                   ) : (
-                    <div className="w-6 h-6 rounded-full bg-muted flex items-center justify-center text-[9px] font-bold flex-shrink-0">
+                    <div className="w-6 h-6 rounded-full bg-card ring-1 ring-border text-foreground flex items-center justify-center text-[9px] font-bold flex-shrink-0">
                       {initials(r.full_name || r.email)}
                     </div>
                   )}
@@ -375,7 +352,7 @@ function StaffEmailCombobox({ value, onChange, disabled, placeholder = 'user@exa
                     {r.full_name && (
                       <p className="text-[11px] font-semibold text-foreground truncate">{r.full_name}</p>
                     )}
-                    <p className="text-[10px] text-muted-foreground truncate font-mono">{r.email}</p>
+                    <p className="text-[11px] text-foreground truncate font-mono">{r.email}</p>
                   </div>
                 </button>
               ))
@@ -393,17 +370,17 @@ function StaffEmailCombobox({ value, onChange, disabled, placeholder = 'user@exa
 function ReadOnlyCodeField({ code, isEditing }) {
   if (isEditing && code) {
     return (
-      <div className="flex items-center gap-2 h-9 px-3 rounded-lg border border-border bg-muted/50">
-        <Lock size={11} className="text-muted-foreground flex-shrink-0" />
+      <div className="flex items-center gap-2 h-9 px-3 rounded-lg border border-border bg-card">
+        <Lock size={11} className="text-foreground flex-shrink-0" />
         <span className="font-mono text-xs font-semibold text-foreground truncate">{code}</span>
-        <span className="ml-auto text-[10px] text-muted-foreground whitespace-nowrap">Locked</span>
+        <span className="ml-auto text-[11px] text-foreground whitespace-nowrap">Locked</span>
       </div>
     )
   }
   return (
-    <div className="flex items-center gap-2 h-9 px-3 rounded-lg border border-dashed border-border bg-muted/30">
-      <Lock size={11} className="text-muted-foreground flex-shrink-0" />
-      <span className="text-xs text-muted-foreground italic">Auto-generated on save</span>
+    <div className="flex items-center gap-2 h-9 px-3 rounded-lg border border-dashed border-border bg-card">
+      <Lock size={11} className="text-foreground flex-shrink-0" />
+      <span className="text-xs text-foreground italic">Auto-generated on save</span>
     </div>
   )
 }
@@ -411,73 +388,45 @@ function ReadOnlyCodeField({ code, isEditing }) {
 // ============================================================
 // SUMMARY CARDS
 // ============================================================
-function SummaryCards({ data, teamTotals, activeTab }) {
-  const stats = useMemo(() => ({
-    totalSpecialists: (data.specialists || []).length,
-    totalAffiliates: (data.affiliates || []).length,
-    totalHousekeepers: (data.housekeepers || []).length,
-  }), [data])
+// KPI strip as on the Dashboard: one tile per group (clicking switches to it)
+// and the money paid to the selected group.
+const PAYOUT_TILE = {
+  specialists:       { label: 'Specialist commissions', key: 'specialistCommission', sub: `Flat ${SPECIALIST_FLAT_RATE}% of each booking` },
+  affiliates:        { label: 'Affiliate commissions',  key: 'affiliateCommission',  sub: 'By tier, on completed bookings' },
+  housekeepers:      { label: 'Housekeeper payouts',    key: 'housekeeperPayout',    sub: 'Cleaning and laundry pay' },
+  property_managers: { label: 'PM earnings',            key: 'pmEarnings',           sub: `${PM_SHARE_OF_COMPANY_PCT}% of the company share` },
+}
 
-  const fourthCard = useMemo(() => {
-    switch (activeTab) {
-      case 'specialists':
-        return { label: 'Specialist Commissions', value: formatMoney(teamTotals?.specialistCommission || 0), isMoney: true }
-      case 'affiliates':
-        return { label: 'Affiliate Commissions', value: formatMoney(teamTotals?.affiliateCommission || 0), isMoney: true }
-      case 'housekeepers':
-        return { label: 'Housekeeper Payouts', value: formatMoney(teamTotals?.housekeeperPayout || 0), isMoney: true }
-      case 'property_managers':
-        return { label: 'PM Earnings', value: formatMoney(teamTotals?.pmEarnings || 0), isMoney: true }
-      default:
-        return {
-          label: 'Commissions Paid',
-          value: formatMoney((teamTotals?.specialistCommission || 0) + (teamTotals?.affiliateCommission || 0)),
-          isMoney: true,
-        }
-    }
-  }, [activeTab, teamTotals])
-
-  const cards = [
-    { label: 'Booking Specialists', value: stats.totalSpecialists, icon: UserPlus },
-    { label: 'Affiliates',          value: stats.totalAffiliates,  icon: Award },
-    { label: 'Housekeepers',        value: stats.totalHousekeepers, icon: Users },
-    { label: fourthCard.label,      value: fourthCard.value,       icon: TrendingUp, isMoney: true },
-  ]
-
+function SummaryCards({ data, pmCount, teamTotals, activeTab, onSelect, loading }) {
+  const payout = PAYOUT_TILE[activeTab] || PAYOUT_TILE.specialists
+  const tile = (id, icon, label, value, sub) => (
+    <StatTile icon={icon} label={label} value={value} sub={sub} loading={loading} active={activeTab === id} onClick={() => onSelect(id)} />
+  )
   return (
-    <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
-      {cards.map((card, i) => (
-        <motion.div
-          key={`${card.label}-${i}`}
-          initial={{ opacity: 0, y: 8 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ delay: i * 0.04, duration: 0.22 }}
-          className="rounded-lg bg-card border border-border shadow-sm p-4"
-        >
-          <div className="flex items-center gap-2 mb-2">
-            <card.icon size={14} className="text-foreground" />
-            <span className="text-[11px] font-bold uppercase tracking-wider text-foreground truncate">
-              {card.label}
-            </span>
-          </div>
-          <p className={cn('font-bold text-foreground tabular-nums leading-none', card.isMoney ? 'text-xl' : 'text-2xl')}>
-            {card.value}
-          </p>
-        </motion.div>
-      ))}
-    </div>
+    <StatStrip cols={5}>
+      {tile('specialists', UserPlus, 'Booking specialists', (data.specialists || []).length, 'Book stays for guests')}
+      {tile('affiliates', Award, 'Affiliates', (data.affiliates || []).length, 'Refer guests')}
+      {tile('housekeepers', Users, 'Housekeepers', (data.housekeepers || []).length, 'Clean between stays')}
+      {tile('property_managers', Building2, 'Property managers', pmCount, 'Look after units')}
+      <StatTile
+        icon={Wallet}
+        label={payout.label}
+        value={formatMoney(teamTotals?.[payout.key] || 0)}
+        sub={payout.sub}
+        loading={loading}
+        valueClassName="text-[22px] sm:text-[24px]"
+        className="col-span-2 sm:col-span-1"
+      />
+    </StatStrip>
   )
 }
 
-// ============================================================
-// TEAM TABS
-// ============================================================
 // ============================================================
 // SKELETON
 // ============================================================
 function WorkerCardSkeleton() {
   return (
-    <div className="rounded-xl bg-card border border-border shadow-sm overflow-hidden">
+    <div className="rounded-md bg-card border border-border shadow-sm overflow-hidden">
       <div className="p-5 space-y-3">
         <Skeleton className="w-16 h-16 rounded-full" />
         <Skeleton className="h-5 w-32" />
@@ -487,7 +436,7 @@ function WorkerCardSkeleton() {
           <Skeleton className="h-5 w-20 rounded-md" />
         </div>
       </div>
-      <div className="bg-muted/40 border-t border-border p-5 space-y-3">
+      <div className="bg-card border-t border-border p-5 space-y-3">
         <div className="grid grid-cols-2 gap-3">
           <div className="space-y-1"><Skeleton className="h-2.5 w-16" /><Skeleton className="h-3.5 w-10" /></div>
           <div className="space-y-1"><Skeleton className="h-2.5 w-12" /><Skeleton className="h-3.5 w-20" /></div>
@@ -522,7 +471,7 @@ function WorkerCard({ worker, role, liveCount, onClick }) {
       whileTap={{ scale: 0.99 }}
       transition={{ type: 'spring', stiffness: 400, damping: 30 }}
       className={cn(
-        'group/card relative w-full text-left rounded-xl bg-card border border-border overflow-hidden',
+        'group/card relative w-full text-left rounded-md bg-card border border-border overflow-hidden',
         'shadow-sm hover:shadow-lg hover:border-brand/40 transition-all duration-200 flex flex-col',
       )}
     >
@@ -530,23 +479,23 @@ function WorkerCard({ worker, role, liveCount, onClick }) {
         <WorkerAvatar name={worker.name} photo_url={worker.photo_url} size="lg" />
         <div className="mt-4">
           <p className="text-base font-bold text-foreground truncate leading-tight">{worker.name}</p>
-          <p className="text-[11px] font-mono text-muted-foreground mt-0.5 uppercase tracking-wide">{worker.code}</p>
+          <p className="text-[11px] font-mono text-foreground mt-0.5 uppercase tracking-wide">{worker.code}</p>
           <div className="mt-2 flex flex-wrap items-center gap-1.5">
             <RoleBadge role={role} />
             {!isHousekeeper && <CommissionBadge role={role} completedCount={liveCount} />}
           </div>
         </div>
       </div>
-      <div className="mt-auto bg-muted/40 dark:bg-muted/20 border-t border-border p-5 space-y-4">
+      <div className="mt-auto bg-card border-t border-border p-5 space-y-4">
         <div className="grid grid-cols-2 gap-3">
           {!isHousekeeper && (
             <>
               <div>
-                <p className="text-[10px] uppercase tracking-wider text-muted-foreground font-semibold">Completed</p>
+                <p className="text-[11px] font-medium text-foreground">Completed</p>
                 <p className="text-sm font-bold text-foreground tabular-nums mt-0.5">{liveCount}</p>
               </div>
               <div>
-                <p className="text-[10px] uppercase tracking-wider text-muted-foreground font-semibold">Hired</p>
+                <p className="text-[11px] font-medium text-foreground">Hired</p>
                 <p className="text-sm font-semibold text-foreground tabular-nums mt-0.5 truncate">
                   {worker.created_at ? formatDate(worker.created_at) : '—'}
                 </p>
@@ -556,13 +505,13 @@ function WorkerCard({ worker, role, liveCount, onClick }) {
           {isHousekeeper && (
             <>
               <div>
-                <p className="text-[10px] uppercase tracking-wider text-muted-foreground font-semibold">Hired</p>
+                <p className="text-[11px] font-medium text-foreground">Hired</p>
                 <p className="text-sm font-semibold text-foreground tabular-nums mt-0.5 truncate">
                   {worker.created_at ? formatDate(worker.created_at) : '—'}
                 </p>
               </div>
               <div>
-                <p className="text-[10px] uppercase tracking-wider text-muted-foreground font-semibold">Completed</p>
+                <p className="text-[11px] font-medium text-foreground">Completed</p>
                 <p className="text-sm font-bold text-foreground tabular-nums mt-0.5">—</p>
               </div>
             </>
@@ -570,12 +519,12 @@ function WorkerCard({ worker, role, liveCount, onClick }) {
         </div>
         <div className="space-y-2">
           <div className="flex items-center gap-2 text-[11px] min-w-0">
-            <Mail size={12} className="text-muted-foreground flex-shrink-0" />
-            {worker.email ? <span className="text-foreground truncate">{worker.email}</span> : <span className="text-muted-foreground italic">No email</span>}
+            <Mail size={12} className="text-foreground flex-shrink-0" />
+            {worker.email ? <span className="text-foreground truncate">{worker.email}</span> : <span className="text-foreground italic">No email</span>}
           </div>
           <div className="flex items-center gap-2 text-[11px] min-w-0">
-            <Phone size={12} className="text-muted-foreground flex-shrink-0" />
-            {worker.phone ? <span className="text-foreground truncate">{worker.phone}</span> : <span className="text-muted-foreground italic">No phone</span>}
+            <Phone size={12} className="text-foreground flex-shrink-0" />
+            {worker.phone ? <span className="text-foreground truncate">{worker.phone}</span> : <span className="text-foreground italic">No phone</span>}
           </div>
         </div>
       </div>
@@ -625,28 +574,11 @@ function resolveRange(preset, customFrom, customTo) {
 function DateFilterBar({ preset, setPreset, customFrom, setCustomFrom, customTo, setCustomTo }) {
   return (
     <div className="flex items-center gap-2 flex-wrap">
-      <div className="inline-flex items-center gap-1 bg-muted/60 rounded-md p-0.5">
-        {DATE_PRESETS.map((p) => {
-          const isActive = preset === p.id
-          return (
-            <button
-              key={p.id}
-              type="button"
-              onClick={() => setPreset(p.id)}
-              className={cn(
-                'px-2.5 py-1 rounded-[5px] text-[11px] font-semibold transition-colors whitespace-nowrap',
-                isActive ? 'bg-card border border-border text-foreground shadow-sm' : 'text-muted-foreground hover:text-foreground',
-              )}
-            >
-              {p.label}
-            </button>
-          )
-        })}
-      </div>
+      <StatusTabs tabs={DATE_PRESETS} value={preset} onChange={setPreset} label="Period" />
       {preset === 'custom' && (
         <div className="flex items-center gap-1.5">
           <Input type="date" value={customFrom} onChange={(e) => setCustomFrom(e.target.value)} className="h-7 text-xs rounded w-[130px]" />
-          <span className="text-[11px] text-muted-foreground">→</span>
+          <span className="text-[11px] text-foreground">→</span>
           <Input type="date" value={customTo} onChange={(e) => setCustomTo(e.target.value)} className="h-7 rounded w-[130px] text-xs" />
         </div>
       )}
@@ -736,10 +668,10 @@ function WorkerActivitySection({ worker, role }) {
 
   return (
     <div className="space-y-3">
-      <div className="rounded-lg bg-muted/40 border border-border p-4">
+      <div className="rounded-lg bg-card border border-border p-4">
         <div className="flex items-center gap-2 mb-1">
-          <Wallet size={13} className="text-muted-foreground" />
-          <span className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground">
+          <Wallet size={13} className="text-foreground" />
+          <span className="text-[11px] font-bold uppercase tracking-wider text-foreground">
             Total Earnings {preset !== 'all' ? '· in range' : '· lifetime'}
           </span>
         </div>
@@ -749,7 +681,7 @@ function WorkerActivitySection({ worker, role }) {
           <p className="text-2xl font-bold tabular-nums text-foreground">{formatMoney(earnings)}</p>
         )}
         {!loading && (
-          <p className="text-[10px] text-muted-foreground mt-1">
+          <p className="text-[11px] text-foreground mt-1">
             From {isHousekeeper
               ? items.filter((c) => c.status === 'completed').length
               : items.length} completed {isHousekeeper ? 'cleaning' : 'booking'}{items.length === 1 ? '' : 's'}
@@ -759,7 +691,7 @@ function WorkerActivitySection({ worker, role }) {
 
       <div className="flex items-center justify-between gap-3 flex-wrap pr-12">
         <h3 className="text-[11px] font-bold uppercase tracking-wider text-foreground">
-          {title} {!loading && <span className="text-muted-foreground">· {items.length}</span>}
+          {title} {!loading && <span className="text-foreground">· {items.length}</span>}
         </h3>
         <DateFilterBar
           preset={preset} setPreset={setPreset}
@@ -786,7 +718,7 @@ function WorkerActivitySection({ worker, role }) {
           <div className="py-8 px-4 text-center"><p className="text-xs text-red-500">{error}</p></div>
         ) : items.length === 0 ? (
           <div className="py-10 px-4 text-center">
-            <p className="text-xs text-muted-foreground italic">
+            <p className="text-xs text-foreground italic">
               {isHousekeeper ? 'No completed cleanings in this range' : 'No completed bookings in this range'}
             </p>
           </div>
@@ -803,7 +735,7 @@ function WorkerActivitySection({ worker, role }) {
                         <span className="font-mono text-[11px] font-semibold text-foreground">{item.cleaning_code}</span>
                         <span className="text-[11px] text-foreground capitalize">{item.type}</span>
                       </div>
-                      <p className="text-[10px] text-muted-foreground mt-0.5 tabular-nums truncate">
+                      <p className="text-[11px] text-foreground mt-0.5 tabular-nums truncate">
                         {formatDateShort(item.scheduled_date)}
                         {item.units?.unit_code && ` · ${item.units.unit_code}`}
                         {item.units?.building && ` · ${item.units.building}`}
@@ -812,7 +744,7 @@ function WorkerActivitySection({ worker, role }) {
                     <div className="flex flex-col items-end gap-0.5 flex-shrink-0">
                       <span className={cn('text-[11px] font-semibold', config.className)}>{config.label}</span>
                       {status === 'completed' && (
-                        <span className="text-[10px] font-semibold tabular-nums text-foreground">
+                        <span className="text-[11px] font-semibold tabular-nums text-foreground">
                           {formatMoney(item.payment_amount || 0)}
                         </span>
                       )}
@@ -832,9 +764,9 @@ function WorkerActivitySection({ worker, role }) {
                   <div className="min-w-0 flex-1">
                     <div className="flex items-baseline gap-2 flex-wrap">
                       <span className="text-[12px] font-semibold text-foreground truncate">{item.guest_name}</span>
-                      <span className="font-mono text-[10px] text-muted-foreground truncate">{item.booking_code}</span>
+                      <span className="font-mono text-[11px] text-foreground truncate">{item.booking_code}</span>
                     </div>
-                    <p className="text-[10px] text-muted-foreground mt-0.5 tabular-nums truncate">
+                    <p className="text-[11px] text-foreground mt-0.5 tabular-nums truncate">
                       {formatDateShort(item.check_in)} → {formatDateShort(item.check_out)} · {nights} night{nights === 1 ? '' : 's'}
                       {item.units?.unit_code && ` · ${item.units.unit_code}`}
                       {item.units?.building && ` · ${item.units.building}`}
@@ -843,7 +775,7 @@ function WorkerActivitySection({ worker, role }) {
                   <div className="flex flex-col items-end gap-0.5 flex-shrink-0">
                     <span className={cn('text-[11px] font-semibold', config.className)}>{config.label}</span>
                     {earned > 0 && (
-                      <span className="text-[10px] font-semibold tabular-nums text-foreground">
+                      <span className="text-[11px] font-semibold tabular-nums text-foreground">
                         {formatMoney(earned)}
                       </span>
                     )}
@@ -915,45 +847,45 @@ function WorkerDetailModal({ worker, role, counts, onClose, onChanged, onEdit, o
         </button>
 
         <div className="flex-1 min-h-0 flex flex-col md:flex-row overflow-hidden">
-          <div className="flex-shrink-0 md:w-[300px] border-b md:border-b-0 md:border-r border-border bg-muted/20 flex flex-col overflow-y-auto">
+          <div className="flex-shrink-0 md:w-[300px] border-b md:border-b-0 md:border-r border-border bg-card flex flex-col overflow-y-auto">
             <div className="p-6 flex flex-col items-center text-center">
               <WorkerAvatar name={worker.name} photo_url={worker.photo_url} size="xl" />
               <p id="worker-detail-title" className="mt-4 text-lg font-bold text-foreground truncate w-full leading-tight">{worker.name}</p>
-              <p className="text-[11px] font-mono text-muted-foreground mt-1 uppercase tracking-wide">{worker.code}</p>
+              <p className="text-[11px] font-mono text-foreground mt-1 uppercase tracking-wide">{worker.code}</p>
               <div className="mt-4 flex flex-col items-center gap-2">
                 <RoleBadge role={role} size="lg" />
                 {!isHousekeeper && <CommissionBadge role={role} completedCount={liveCount} size="lg" />}
               </div>
               <div className="w-full mt-6 pt-5 border-t border-border space-y-3 text-left">
                 <div className="flex items-start gap-2 min-w-0">
-                  <Mail size={12} className="text-muted-foreground flex-shrink-0 mt-0.5" />
+                  <Mail size={12} className="text-foreground flex-shrink-0 mt-0.5" />
                   <div className="min-w-0 flex-1">
-                    <p className="text-[10px] uppercase tracking-wider text-muted-foreground font-semibold">Email</p>
-                    {worker.email ? <p className="text-xs text-foreground truncate mt-0.5">{worker.email}</p> : <p className="text-xs text-muted-foreground italic mt-0.5">No email</p>}
+                    <p className="text-[11px] uppercase tracking-wider text-foreground font-semibold">Email</p>
+                    {worker.email ? <p className="text-xs text-foreground truncate mt-0.5">{worker.email}</p> : <p className="text-xs text-foreground italic mt-0.5">No email</p>}
                   </div>
                 </div>
                 <div className="flex items-start gap-2 min-w-0">
-                  <Phone size={12} className="text-muted-foreground flex-shrink-0 mt-0.5" />
+                  <Phone size={12} className="text-foreground flex-shrink-0 mt-0.5" />
                   <div className="min-w-0 flex-1">
-                    <p className="text-[10px] uppercase tracking-wider text-muted-foreground font-semibold">Phone</p>
-                    {worker.phone ? <p className="text-xs text-foreground truncate mt-0.5">{worker.phone}</p> : <p className="text-xs text-muted-foreground italic mt-0.5">No phone</p>}
+                    <p className="text-[11px] uppercase tracking-wider text-foreground font-semibold">Phone</p>
+                    {worker.phone ? <p className="text-xs text-foreground truncate mt-0.5">{worker.phone}</p> : <p className="text-xs text-foreground italic mt-0.5">No phone</p>}
                   </div>
                 </div>
                 {!isHousekeeper && (
                   <div>
-                    <p className="text-[10px] uppercase tracking-wider text-muted-foreground font-semibold">Completed</p>
+                    <p className="text-[11px] font-medium text-foreground">Completed</p>
                     <p className="text-xs font-bold text-foreground tabular-nums mt-0.5">{liveCount}</p>
                   </div>
                 )}
                 <div>
-                  <p className="text-[10px] uppercase tracking-wider text-muted-foreground font-semibold">Hired</p>
+                  <p className="text-[11px] font-medium text-foreground">Hired</p>
                   <p className="text-xs font-semibold text-foreground tabular-nums mt-0.5">
                     {worker.created_at ? formatDate(worker.created_at) : '—'}
                   </p>
                 </div>
               </div>
             </div>
-            <div className="mt-auto p-4 border-t border-border bg-muted/30">
+            <div className="mt-auto p-4 border-t border-border bg-card">
               <div className="flex flex-col gap-2">
                 <Button variant="outline" size="sm" className="h-9 rounded-lg text-xs gap-2 w-full justify-start" onClick={onEdit}>
                   <Edit2 size={12} /> Edit
@@ -1081,7 +1013,7 @@ function WorkerFormModal({ open, onClose, onSaved, role, editing }) {
     }
   }
 
-  const labelClass = 'text-[10px] uppercase tracking-wider text-muted-foreground font-semibold mb-1 block'
+  const labelClass = 'text-[11px] uppercase tracking-wider text-foreground font-semibold mb-1 block'
   const inputClass = 'h-9 text-xs rounded-lg'
   const title = editing
     ? `Edit ${meta?.label || 'Staff'}`
@@ -1111,13 +1043,13 @@ function WorkerFormModal({ open, onClose, onSaved, role, editing }) {
             {form.photoUrl ? (
               <img src={form.photoUrl} alt="" className="w-16 h-16 rounded-full object-cover" />
             ) : (
-              <div className="w-16 h-16 rounded-full bg-muted flex items-center justify-center">
-                <User size={24} className="text-muted-foreground" />
+              <div className="w-16 h-16 rounded-full bg-card ring-1 ring-border flex items-center justify-center">
+                <User size={24} className="text-foreground" />
               </div>
             )}
             <div className="min-w-0">
               <p className="text-xs font-semibold text-foreground">Photo from Google account</p>
-              <p className="text-[10px] text-muted-foreground mt-0.5">
+              <p className="text-[11px] text-foreground mt-0.5">
                 {form.photoUrl
                   ? 'Shown here. Update it in their Google account to change.'
                   : 'They have no Google avatar, or none was picked yet.'}
@@ -1128,7 +1060,7 @@ function WorkerFormModal({ open, onClose, onSaved, role, editing }) {
           <div>
             <label className={labelClass}>Code</label>
             <ReadOnlyCodeField code={editing?.code || null} isEditing={!!editing} />
-            <p className="text-[10px] text-muted-foreground mt-1">
+            <p className="text-[11px] text-foreground mt-1">
               {editing
                 ? 'Codes are permanent and cannot be changed.'
                 : `A ${meta?.codePrefix || 'XX'}-XXXXXX code will be generated on save.`}
@@ -1145,7 +1077,7 @@ function WorkerFormModal({ open, onClose, onSaved, role, editing }) {
               disabled={saving}
               autoFocus={!editing}
             />
-            <p className="text-[10px] text-muted-foreground mt-1">
+            <p className="text-[11px] text-foreground mt-1">
               Must be a registered Iloilo Rentals user. They log in with Google first.
             </p>
           </div>
@@ -1183,7 +1115,7 @@ function WorkerFormModal({ open, onClose, onSaved, role, editing }) {
             />
           </div>
         </div>
-        <div className="flex items-center justify-end gap-2 px-5 py-3 border-t border-border bg-muted/30">
+        <div className="flex items-center justify-end gap-2 px-5 py-3 border-t border-border bg-card">
           <Button variant="outline" size="sm" className="h-9 rounded-lg text-xs" onClick={onClose} disabled={saving}>Cancel</Button>
           <Button size="sm" className="h-9 rounded-lg text-xs" onClick={handleSubmit} disabled={saving} style={{ backgroundColor: BRAND }}>
             {saving ? <Loader2 size={12} className="mr-1.5 animate-spin" /> : <Check size={12} className="mr-1.5" />}
@@ -1286,8 +1218,8 @@ function pmStatusLabel(pmc) {
   if (s === 'expiring')   return { label: 'Expiring',   className: 'text-amber-600 dark:text-amber-400' }
   if (s === 'ending')     return { label: 'Ending',     className: 'text-amber-600 dark:text-amber-400' }
   if (s === 'expired')    return { label: 'Expired',    className: 'text-red-600 dark:text-red-400' }
-  if (s === 'terminated') return { label: 'Terminated', className: 'text-gray-500 dark:text-gray-400' }
-  return { label: '—', className: 'text-muted-foreground' }
+  if (s === 'terminated') return { label: 'Terminated', className: 'text-foreground' }
+  return { label: '—', className: 'text-foreground' }
 }
 
 // ============================================================
@@ -1304,7 +1236,7 @@ function PMCard({ pm, onClick }) {
       whileTap={{ scale: 0.99 }}
       transition={{ type: 'spring', stiffness: 400, damping: 30 }}
       className={cn(
-        'group/card relative w-full text-left rounded-xl bg-card border border-border overflow-hidden',
+        'group/card relative w-full text-left rounded-md bg-card border border-border overflow-hidden',
         'shadow-sm hover:shadow-lg hover:border-brand/40 transition-all duration-200 flex flex-col',
       )}
     >
@@ -1312,28 +1244,28 @@ function PMCard({ pm, onClick }) {
         <WorkerAvatar name={pm.name} photo_url={pm.photo_url} size="lg" />
         <div className="mt-4">
           <p className="text-base font-bold text-foreground truncate leading-tight">{pm.name}</p>
-          <p className="text-[11px] font-mono text-muted-foreground mt-0.5 uppercase tracking-wide">{pm.code}</p>
+          <p className="text-[11px] font-mono text-foreground mt-0.5 uppercase tracking-wide">{pm.code}</p>
           <div className="mt-2 flex flex-wrap items-center gap-1.5">
             <RoleBadge role="property_managers" />
             <span className={cn(
-              'inline-flex items-center rounded-md font-bold uppercase tracking-wide px-2.5 py-0.5 text-[10px]',
-              pm.status === 'active' ? 'bg-emerald-600 text-white' : 'bg-gray-400 text-white',
+              'text-[11.5px] font-semibold capitalize',
+              (pm.status || 'active') === 'active' ? 'text-emerald-600 dark:text-emerald-400' : 'text-foreground',
             )}>
               {pm.status || 'active'}
             </span>
           </div>
         </div>
       </div>
-      <div className="mt-auto bg-muted/40 dark:bg-muted/20 border-t border-border p-5 space-y-4">
+      <div className="mt-auto bg-card border-t border-border p-5 space-y-4">
         <div className="grid grid-cols-2 gap-3">
           <div>
-            <p className="text-[10px] uppercase tracking-wider text-muted-foreground font-semibold">Managing</p>
+            <p className="text-[11px] font-medium text-foreground">Managing</p>
             <p className="text-sm font-bold text-foreground tabular-nums mt-0.5">
               {activeCount} unit{activeCount === 1 ? '' : 's'}
             </p>
           </div>
           <div>
-            <p className="text-[10px] uppercase tracking-wider text-muted-foreground font-semibold">Earnings</p>
+            <p className="text-[11px] font-medium text-foreground">Earnings</p>
             <p className="text-sm font-bold text-foreground tabular-nums mt-0.5 truncate">
               {totalEarnings > 0 ? formatMoney(totalEarnings) : '—'}
             </p>
@@ -1341,12 +1273,12 @@ function PMCard({ pm, onClick }) {
         </div>
         <div className="space-y-2">
           <div className="flex items-center gap-2 text-[11px] min-w-0">
-            <Mail size={12} className="text-muted-foreground flex-shrink-0" />
-            {pm.email ? <span className="text-foreground truncate">{pm.email}</span> : <span className="text-muted-foreground italic">No email</span>}
+            <Mail size={12} className="text-foreground flex-shrink-0" />
+            {pm.email ? <span className="text-foreground truncate">{pm.email}</span> : <span className="text-foreground italic">No email</span>}
           </div>
           <div className="flex items-center gap-2 text-[11px] min-w-0">
-            <Phone size={12} className="text-muted-foreground flex-shrink-0" />
-            {pm.phone ? <span className="text-foreground truncate">{pm.phone}</span> : <span className="text-muted-foreground italic">No phone</span>}
+            <Phone size={12} className="text-foreground flex-shrink-0" />
+            {pm.phone ? <span className="text-foreground truncate">{pm.phone}</span> : <span className="text-foreground italic">No phone</span>}
           </div>
         </div>
       </div>
@@ -1458,7 +1390,7 @@ function PMFormModal({ open, onClose, onSaved, editing }) {
     }
   }
 
-  const labelClass = 'text-[10px] uppercase tracking-wider text-muted-foreground font-semibold mb-1 block'
+  const labelClass = 'text-[11px] uppercase tracking-wider text-foreground font-semibold mb-1 block'
   const inputClass = 'h-9 text-xs rounded-lg'
 
   return (
@@ -1485,13 +1417,13 @@ function PMFormModal({ open, onClose, onSaved, editing }) {
             {form.photoUrl ? (
               <img src={form.photoUrl} alt="" className="w-16 h-16 rounded-full object-cover" />
             ) : (
-              <div className="w-16 h-16 rounded-full bg-muted flex items-center justify-center">
-                <User size={24} className="text-muted-foreground" />
+              <div className="w-16 h-16 rounded-full bg-card ring-1 ring-border flex items-center justify-center">
+                <User size={24} className="text-foreground" />
               </div>
             )}
             <div className="min-w-0">
               <p className="text-xs font-semibold text-foreground">Photo from Google account</p>
-              <p className="text-[10px] text-muted-foreground mt-0.5">
+              <p className="text-[11px] text-foreground mt-0.5">
                 {form.photoUrl
                   ? 'Shown here. Update it in their Google account to change.'
                   : 'They have no Google avatar, or none was picked yet.'}
@@ -1502,7 +1434,7 @@ function PMFormModal({ open, onClose, onSaved, editing }) {
           <div>
             <label className={labelClass}>Code</label>
             <ReadOnlyCodeField code={editing?.code || null} isEditing={!!editing} />
-            <p className="text-[10px] text-muted-foreground mt-1">
+            <p className="text-[11px] text-foreground mt-1">
               {editing
                 ? 'Codes are permanent and cannot be changed.'
                 : 'A PM-XXXXXX code will be generated on save.'}
@@ -1519,7 +1451,7 @@ function PMFormModal({ open, onClose, onSaved, editing }) {
               disabled={saving}
               autoFocus={!editing}
             />
-            <p className="text-[10px] text-muted-foreground mt-1">
+            <p className="text-[11px] text-foreground mt-1">
               Must be a registered Iloilo Rentals user.
             </p>
           </div>
@@ -1552,7 +1484,7 @@ function PMFormModal({ open, onClose, onSaved, editing }) {
             <Textarea value={form.notes} onChange={(e) => setField('notes', e.target.value)} rows={2} maxLength={2000} className="text-xs rounded-lg resize-none" />
           </div>
         </div>
-        <div className="flex items-center justify-end gap-2 px-5 py-3 border-t border-border bg-muted/30">
+        <div className="flex items-center justify-end gap-2 px-5 py-3 border-t border-border bg-card">
           <Button variant="outline" size="sm" className="h-9 rounded-lg text-xs" onClick={onClose} disabled={saving}>Cancel</Button>
           <Button size="sm" className="h-9 rounded-lg text-xs" onClick={handleSubmit} disabled={saving} style={{ backgroundColor: BRAND }}>
             {saving ? <Loader2 size={12} className="mr-1.5 animate-spin" /> : <Check size={12} className="mr-1.5" />}
@@ -1719,7 +1651,7 @@ function PMPdfUploader({ pmContract, onSaved }) {
             type="button"
             onClick={() => signedUrl && setLightboxOpen(true)}
             disabled={!signedUrl}
-            className="p-1.5 rounded hover:bg-muted text-muted-foreground hover:text-foreground transition-colors disabled:opacity-40"
+            className="p-1.5 rounded hover:bg-muted text-foreground hover:text-foreground transition-colors disabled:opacity-40"
             title="Preview"
           >
             {loadingUrl ? <Loader2 size={12} className="animate-spin" /> : <Eye size={12} />}
@@ -1727,7 +1659,7 @@ function PMPdfUploader({ pmContract, onSaved }) {
           <a
             href={signedUrl || '#'}
             download
-            className="p-1.5 rounded hover:bg-muted text-muted-foreground hover:text-foreground transition-colors"
+            className="p-1.5 rounded hover:bg-muted text-foreground hover:text-foreground transition-colors"
             title="Download"
           >
             <Upload size={12} style={{ transform: 'rotate(180deg)' }} />
@@ -1736,7 +1668,7 @@ function PMPdfUploader({ pmContract, onSaved }) {
             type="button"
             onClick={() => inputRef.current?.click()}
             disabled={uploading}
-            className="p-1.5 rounded hover:bg-muted text-muted-foreground hover:text-foreground transition-colors"
+            className="p-1.5 rounded hover:bg-muted text-foreground hover:text-foreground transition-colors"
             title="Replace"
           >
             {uploading ? <Loader2 size={12} className="animate-spin" /> : <Upload size={12} />}
@@ -1745,7 +1677,7 @@ function PMPdfUploader({ pmContract, onSaved }) {
             type="button"
             onClick={handleRemove}
             disabled={busyRemove}
-            className="p-1.5 rounded hover:bg-red-500/10 text-muted-foreground hover:text-red-500 transition-colors"
+            className="p-1.5 rounded hover:bg-red-500/10 text-foreground hover:text-red-500 transition-colors"
             title="Remove"
           >
             {busyRemove ? <Loader2 size={12} className="animate-spin" /> : <Trash2 size={12} />}
@@ -1756,7 +1688,7 @@ function PMPdfUploader({ pmContract, onSaved }) {
           type="button"
           onClick={() => inputRef.current?.click()}
           disabled={uploading}
-          className="inline-flex items-center gap-1 px-2 py-1 rounded text-[10px] font-semibold border border-dashed border-border text-muted-foreground hover:bg-muted/50 hover:border-primary/40 transition-colors disabled:opacity-50 flex-shrink-0"
+          className="inline-flex items-center gap-1 px-2 py-1 rounded text-[11px] font-semibold border border-dashed border-border text-foreground hover:bg-muted/50 hover:border-primary/40 transition-colors disabled:opacity-50 flex-shrink-0"
           title="Upload contract PDF"
         >
           {uploading ? <Loader2 size={11} className="animate-spin" /> : <FileText size={11} />}
@@ -1939,7 +1871,7 @@ function AssignUnitModal({ open, onClose, onSaved, pm, editingContract, units })
     }
   }
 
-  const labelClass = 'text-[10px] uppercase tracking-wider text-muted-foreground font-semibold mb-1 block'
+  const labelClass = 'text-[11px] uppercase tracking-wider text-foreground font-semibold mb-1 block'
   const inputClass = 'h-8 text-xs rounded'
 
   return (
@@ -1978,7 +1910,7 @@ function AssignUnitModal({ open, onClose, onSaved, pm, editingContract, units })
             <label className={labelClass}>Effective Date *</label>
             <Input type="date" value={form.effective_date} onChange={(e) => setField('effective_date', e.target.value)} className={inputClass} />
             {snappedEffective && snappedEffective !== form.effective_date && (
-              <p className="text-[10px] text-muted-foreground mt-1">
+              <p className="text-[11px] text-foreground mt-1">
                 Will be saved as <span className="font-mono text-foreground">{snappedEffective}</span> (start of month)
               </p>
             )}
@@ -1987,7 +1919,7 @@ function AssignUnitModal({ open, onClose, onSaved, pm, editingContract, units })
             <label className={labelClass}>Expiry Date *</label>
             <Input type="date" value={form.expiry_date} onChange={(e) => setField('expiry_date', e.target.value)} className={inputClass} />
             {snappedExpiry && snappedExpiry !== form.expiry_date && (
-              <p className="text-[10px] text-muted-foreground mt-1">
+              <p className="text-[11px] text-foreground mt-1">
                 Will be saved as <span className="font-mono text-foreground">{snappedExpiry}</span> (end of month)
               </p>
             )}
@@ -1997,7 +1929,7 @@ function AssignUnitModal({ open, onClose, onSaved, pm, editingContract, units })
             <Textarea value={form.notes} onChange={(e) => setField('notes', e.target.value)} rows={2} className="text-xs rounded resize-none" />
           </div>
         </div>
-        <div className="flex items-center justify-end gap-2 px-5 py-3 border-t border-border bg-muted/30 flex-shrink-0">
+        <div className="flex items-center justify-end gap-2 px-5 py-3 border-t border-border bg-card flex-shrink-0">
           <Button variant="outline" size="sm" className="h-8 rounded text-xs" onClick={onClose} disabled={saving}>Cancel</Button>
           <Button size="sm" className="h-8 rounded text-xs" onClick={handleSubmit} disabled={saving} style={{ backgroundColor: BRAND }}>
             {saving ? <Loader2 size={12} className="mr-1.5 animate-spin" /> : <Check size={12} className="mr-1.5" />}
@@ -2064,7 +1996,7 @@ function TerminateModal({ open, onClose, onTerminated, pmContract }) {
     }
   }
 
-  const labelClass = 'text-[10px] uppercase tracking-wider text-muted-foreground font-semibold mb-1 block'
+  const labelClass = 'text-[11px] uppercase tracking-wider text-foreground font-semibold mb-1 block'
 
   return (
     <div className="fixed inset-0 z-[10002] flex items-center justify-center p-4">
@@ -2085,21 +2017,21 @@ function TerminateModal({ open, onClose, onTerminated, pmContract }) {
           <button onClick={onClose} className="p-1 rounded hover:bg-muted"><X size={14} /></button>
         </div>
         <div className="p-5 space-y-3">
-          <div className="rounded-md bg-muted/40 border border-border p-3 text-xs space-y-1">
-            <div className="flex justify-between"><span className="text-muted-foreground">Contract</span><span className="font-mono font-semibold text-foreground">{pmContract.pm_contract_code || '—'}</span></div>
-            <div className="flex justify-between"><span className="text-muted-foreground">Unit</span><span className="font-semibold">{pmContract.units?.unit_code || '—'}</span></div>
-            <div className="flex justify-between"><span className="text-muted-foreground">Effective</span><span className="font-semibold">{formatDate(pmContract.effective_date)}</span></div>
+          <div className="rounded-md bg-card border border-border p-3 text-xs space-y-1">
+            <div className="flex justify-between"><span className="text-foreground">Contract</span><span className="font-mono font-semibold text-foreground">{pmContract.pm_contract_code || '—'}</span></div>
+            <div className="flex justify-between"><span className="text-foreground">Unit</span><span className="font-semibold">{pmContract.units?.unit_code || '—'}</span></div>
+            <div className="flex justify-between"><span className="text-foreground">Effective</span><span className="font-semibold">{formatDate(pmContract.effective_date)}</span></div>
           </div>
           <div>
             <label className={labelClass}>Decision Date *</label>
             <Input type="date" value={decisionDate} onChange={(e) => setDecisionDate(e.target.value)} className="h-8 text-xs rounded" />
-            <p className="text-[10px] text-muted-foreground mt-1">Termination is always effective on the last day of the month.</p>
+            <p className="text-[11px] text-foreground mt-1">Termination is always effective on the last day of the month.</p>
           </div>
           {effDate && (
-            <div className="flex items-start gap-2 px-3 py-2 rounded-md bg-amber-500/10 border border-amber-500/30">
+            <div className="flex items-start gap-2 px-3 py-2 rounded-md border border-border">
               <AlertTriangle size={12} className="text-amber-600 dark:text-amber-400 flex-shrink-0 mt-0.5" />
-              <div className="text-[11px] text-amber-700 dark:text-amber-400 leading-relaxed">
-                <p><strong>Effective: {formatDate(effDate)}</strong></p>
+              <div className="text-[11px] text-foreground leading-relaxed">
+                <p><strong className="text-amber-700 dark:text-amber-400">Effective: {formatDate(effDate)}</strong></p>
                 <p className="mt-0.5">The PM will continue to earn through this date.</p>
               </div>
             </div>
@@ -2113,7 +2045,7 @@ function TerminateModal({ open, onClose, onTerminated, pmContract }) {
             <span className="text-foreground">I understand the effective date above.</span>
           </label>
         </div>
-        <div className="flex items-center justify-end gap-2 px-5 py-3 border-t border-border bg-muted/30">
+        <div className="flex items-center justify-end gap-2 px-5 py-3 border-t border-border bg-card">
           <Button variant="outline" size="sm" className="h-8 rounded text-xs" onClick={onClose} disabled={saving}>Cancel</Button>
           <Button size="sm" className="h-8 rounded text-xs" onClick={handleSubmit} disabled={saving || !confirmed} style={{ backgroundColor: '#dc2626' }}>
             {saving ? <Loader2 size={12} className="mr-1.5 animate-spin" /> : <X size={12} className="mr-1.5" />}
@@ -2295,19 +2227,19 @@ function PMDetailModal({ pm, onClose, onChanged, units }) {
         </button>
 
         <div className="flex-1 min-h-0 flex flex-col md:flex-row overflow-hidden">
-          <div className="flex-shrink-0 md:w-[320px] border-b md:border-b-0 md:border-r border-border bg-muted/20 flex flex-col overflow-y-auto">
+          <div className="flex-shrink-0 md:w-[320px] border-b md:border-b-0 md:border-r border-border bg-card flex flex-col overflow-y-auto">
             <div className="p-6 flex flex-col items-center text-center">
               <WorkerAvatar name={pm.name} photo_url={pm.photo_url} size="xl" />
               <p id="pm-detail-title" className="mt-4 text-lg font-bold text-foreground truncate w-full leading-tight">{pm.name}</p>
-              <p className="text-[11px] font-mono text-muted-foreground mt-1 uppercase tracking-wide">{pm.code}</p>
+              <p className="text-[11px] font-mono text-foreground mt-1 uppercase tracking-wide">{pm.code}</p>
               <div className="mt-4 flex flex-col items-center gap-2">
                 <RoleBadge role="property_managers" size="lg" />
               </div>
 
               <div className="w-full mt-5 p-4 rounded-lg bg-background border border-border">
                 <div className="flex items-center gap-2 mb-1 justify-center">
-                  <Wallet size={13} className="text-muted-foreground" />
-                  <span className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground">
+                  <Wallet size={13} className="text-foreground" />
+                  <span className="text-[11px] font-bold uppercase tracking-wider text-foreground">
                     Total Earnings {preset !== 'all' ? '· in range' : '· lifetime'}
                   </span>
                 </div>
@@ -2318,35 +2250,35 @@ function PMDetailModal({ pm, onClose, onChanged, units }) {
                     {formatMoney(earningsTotal)}
                   </p>
                 )}
-                <p className="text-[10px] text-muted-foreground mt-1 text-center">
+                <p className="text-[11px] text-foreground mt-1 text-center">
                   {activeCount} active · {contracts.length} total assignment{contracts.length === 1 ? '' : 's'}
                 </p>
               </div>
 
               <div className="w-full mt-5 pt-5 border-t border-border space-y-3 text-left">
                 <div className="flex items-start gap-2 min-w-0">
-                  <Mail size={12} className="text-muted-foreground flex-shrink-0 mt-0.5" />
+                  <Mail size={12} className="text-foreground flex-shrink-0 mt-0.5" />
                   <div className="min-w-0 flex-1">
-                    <p className="text-[10px] uppercase tracking-wider text-muted-foreground font-semibold">Email</p>
-                    {pm.email ? <p className="text-xs text-foreground truncate mt-0.5">{pm.email}</p> : <p className="text-xs text-muted-foreground italic mt-0.5">No email</p>}
+                    <p className="text-[11px] uppercase tracking-wider text-foreground font-semibold">Email</p>
+                    {pm.email ? <p className="text-xs text-foreground truncate mt-0.5">{pm.email}</p> : <p className="text-xs text-foreground italic mt-0.5">No email</p>}
                   </div>
                 </div>
                 <div className="flex items-start gap-2 min-w-0">
-                  <Phone size={12} className="text-muted-foreground flex-shrink-0 mt-0.5" />
+                  <Phone size={12} className="text-foreground flex-shrink-0 mt-0.5" />
                   <div className="min-w-0 flex-1">
-                    <p className="text-[10px] uppercase tracking-wider text-muted-foreground font-semibold">Phone</p>
-                    {pm.phone ? <p className="text-xs text-foreground truncate mt-0.5">{pm.phone}</p> : <p className="text-xs text-muted-foreground italic mt-0.5">No phone</p>}
+                    <p className="text-[11px] uppercase tracking-wider text-foreground font-semibold">Phone</p>
+                    {pm.phone ? <p className="text-xs text-foreground truncate mt-0.5">{pm.phone}</p> : <p className="text-xs text-foreground italic mt-0.5">No phone</p>}
                   </div>
                 </div>
                 <div>
-                  <p className="text-[10px] uppercase tracking-wider text-muted-foreground font-semibold">Hired</p>
+                  <p className="text-[11px] font-medium text-foreground">Hired</p>
                   <p className="text-xs font-semibold text-foreground tabular-nums mt-0.5">
                     {pm.created_at ? formatDate(pm.created_at) : '—'}
                   </p>
                 </div>
               </div>
             </div>
-            <div className="mt-auto p-4 border-t border-border bg-muted/30">
+            <div className="mt-auto p-4 border-t border-border bg-card">
               <div className="flex flex-col gap-2">
                 <Button variant="outline" size="sm" className="h-9 rounded-lg text-xs gap-2 w-full justify-start" onClick={() => setEditPmOpen(true)}>
                   <Edit2 size={12} /> Edit PM
@@ -2364,9 +2296,9 @@ function PMDetailModal({ pm, onClose, onChanged, units }) {
             <div className="flex items-center justify-between gap-3 mb-3 flex-wrap pr-12">
               <div>
                 <h3 className="text-sm font-bold text-foreground">
-                  Unit Assignments {!loading && <span className="text-muted-foreground font-normal">· {contracts.length}</span>}
+                  Unit Assignments {!loading && <span className="text-foreground font-normal">· {contracts.length}</span>}
                 </h3>
-                <p className="text-[11px] text-muted-foreground mt-0.5">
+                <p className="text-[11px] text-foreground mt-0.5">
                   Every unit this PM has managed or is currently managing.
                 </p>
               </div>
@@ -2390,8 +2322,8 @@ function PMDetailModal({ pm, onClose, onChanged, units }) {
                 </div>
               ) : contracts.length === 0 ? (
                 <div className="py-12 px-4 text-center">
-                  <Building2 size={28} className="text-muted-foreground/40 mx-auto mb-2" />
-                  <p className="text-xs text-muted-foreground italic">No units assigned yet</p>
+                  <Building2 size={28} className="text-foreground mx-auto mb-2" />
+                  <p className="text-xs text-foreground italic">No units assigned yet</p>
                 </div>
               ) : (
                 <div className="divide-y divide-border">
@@ -2402,14 +2334,14 @@ function PMDetailModal({ pm, onClose, onChanged, units }) {
                         <div className="flex items-start justify-between gap-3 flex-wrap">
                           <div className="min-w-0 flex-1">
                             <div className="flex items-baseline gap-2 flex-wrap">
-                              <span className="font-mono text-[11px] font-bold text-muted-foreground">{c.pm_contract_code || '—'}</span>
+                              <span className="font-mono text-[11px] font-bold text-foreground">{c.pm_contract_code || '—'}</span>
                               <span className={cn('text-[11px] font-semibold', st.className)}>{st.label}</span>
                             </div>
                             <div className="flex items-baseline gap-2 mt-1 flex-wrap">
                               <span className="font-mono text-xs font-bold text-foreground">{c.units?.unit_code || '—'}</span>
-                              <span className="text-[11px] text-muted-foreground truncate">{c.units?.building || '—'}</span>
+                              <span className="text-[11px] text-foreground truncate">{c.units?.building || '—'}</span>
                             </div>
-                            <p className="text-[11px] text-muted-foreground mt-1 tabular-nums">
+                            <p className="text-[11px] text-foreground mt-1 tabular-nums">
                               <Calendar size={10} className="inline mr-1" />
                               {formatDate(c.effective_date)} → {formatDate(c.expiry_date)}
                               {c.termination_effective_date && (
@@ -2418,7 +2350,7 @@ function PMDetailModal({ pm, onClose, onChanged, units }) {
                                 </span>
                               )}
                             </p>
-                            <p className="text-[10px] text-muted-foreground mt-0.5">
+                            <p className="text-[11px] text-foreground mt-0.5">
                               {Number(c.pm_share_of_company_pct).toFixed(0)}% of company's 25% · PM earns {((25 * Number(c.pm_share_of_company_pct)) / 100).toFixed(2)}% of net
                             </p>
                           </div>
@@ -2432,17 +2364,17 @@ function PMDetailModal({ pm, onClose, onChanged, units }) {
                               </Button>
                             )}
                             <button type="button" onClick={() => { setEditingContract(c); setAssignOpen(true) }}
-                              className="p-1.5 rounded hover:bg-muted text-muted-foreground hover:text-foreground" title="Edit">
+                              className="p-1.5 rounded hover:bg-muted text-foreground hover:text-foreground" title="Edit">
                               <Pencil size={12} />
                             </button>
                             <button type="button" onClick={() => handleDeleteContract(c)}
-                              className="p-1.5 rounded hover:bg-red-500/10 text-muted-foreground hover:text-red-500" title="Delete record">
+                              className="p-1.5 rounded hover:bg-red-500/10 text-foreground hover:text-red-500" title="Delete record">
                               <Trash2 size={12} />
                             </button>
                           </div>
                         </div>
                         {c.notes && (
-                          <p className="text-[10px] text-muted-foreground italic mt-2 whitespace-pre-wrap break-words">{c.notes}</p>
+                          <p className="text-[11px] text-foreground italic mt-2 whitespace-pre-wrap break-words">{c.notes}</p>
                         )}
                       </div>
                     )
@@ -2493,7 +2425,6 @@ export default function TeamPage() {
   const [selected, setSelected] = useState(null)
   const [formOpen, setFormOpen] = useState(false)
   const [editing, setEditing] = useState(null)
-  const [page, setPage] = useState(1)
 
   const [pms, setPMs] = useState([])
   const [pmUnits, setPMUnits] = useState([])
@@ -2507,8 +2438,11 @@ export default function TeamPage() {
     return () => clearTimeout(t)
   }, [search])
 
-  useEffect(() => { setSelected(null); setPMSelected(null); setPage(1) }, [activeTab])
-  useEffect(() => { setPage(1) }, [debouncedSearch])
+  useEffect(() => { setSelected(null); setPMSelected(null) }, [activeTab])
+
+  // "/" jumps to the search box.
+  const searchRef = useRef(null)
+  useListShortcuts({ searchRef, onEscape: null })
 
   const fetchAll = useCallback(async (signal) => {
     if (!hasLoadedOnce.current) setLoading(true)
@@ -2644,15 +2578,6 @@ export default function TeamPage() {
     )
   }, [activeTab, activeList, pms, debouncedSearch])
 
-  const totalPages = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE))
-  const pageItems = useMemo(
-    () => filtered.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE),
-    [filtered, page],
-  )
-  useEffect(() => {
-    if (page > totalPages) setPage(totalPages)
-  }, [page, totalPages])
-
   const liveCountFor = (worker) => {
     if (activeTab === 'specialists') return counts.specialists[worker.code] || 0
     if (activeTab === 'affiliates') return counts.affiliates[worker.code] || 0
@@ -2688,18 +2613,31 @@ export default function TeamPage() {
   }
   const openEdit = (worker) => { setEditing(worker); setFormOpen(true) }
 
-  const showSkeleton = loading || refreshing
+  const showSkeleton = loading
   const isPMTab = activeTab === 'property_managers'
+
+  const groupLabel = TABS.find((t) => t.id === activeTab)?.label || 'people'
+  const totalInGroup = isPMTab ? pms.length : activeList.length
+  const searchChips = debouncedSearch.trim()
+    ? [{ key: 'search', label: `"${debouncedSearch.trim()}"`, onRemove: () => setSearch('') }]
+    : []
 
   return (
     <div className="h-full flex min-h-0">
-      <div className="flex-1 min-h-0 flex flex-col p-4 gap-3">
+      <div className="flex-1 min-h-0 flex flex-col px-6 py-5 md:px-8 md:py-6 gap-4">
 
-        <div className="flex-shrink-0 pt-1 pb-2">
-          <SummaryCards data={data} teamTotals={teamTotals} activeTab={activeTab} />
+        <div className="flex-shrink-0">
+          <SummaryCards
+            data={data}
+            pmCount={pms.length}
+            teamTotals={teamTotals}
+            activeTab={activeTab}
+            loading={loading}
+            onSelect={(tab) => { setActiveTab(tab); setSelected(null); setPMSelected(null) }}
+          />
         </div>
 
-        <div className="flex-shrink-0 flex justify-center">
+        <div className="flex-shrink-0 flex items-center gap-2 flex-wrap">
           <StatusTabs
             tabs={TABS}
             value={activeTab}
@@ -2712,82 +2650,79 @@ export default function TeamPage() {
               property_managers: pms.length,
             }}
           />
-        </div>
-
-        <div className="flex-shrink-0 flex items-center gap-2">
-          <div className="relative flex-1 min-w-0">
-            <Search size={13} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-muted-foreground" />
+          <div className="relative flex-1 min-w-[200px]">
+            <Search size={13} className="absolute left-3 top-1/2 -translate-y-1/2 text-foreground pointer-events-none" />
             <Input
-              placeholder="Search name, code, email..."
+              ref={searchRef}
+              placeholder="Search name, code, email…"
               value={search}
               onChange={(e) => setSearch(e.target.value)}
-              className="pl-8 h-9 text-xs rounded-lg"
+              className="pl-9 pr-9 h-9 text-xs rounded-md"
             />
+            {!search && <SearchKeyHint />}
           </div>
-          <Button size="sm" className="h-9 rounded-lg text-xs text-white" style={{ backgroundColor: BRAND }} onClick={openNew}>
+          <Button size="sm" className="h-9 rounded-md text-xs text-white" style={{ backgroundColor: BRAND }} onClick={openNew}>
             <Plus size={13} />
             <span className="hidden sm:inline ml-1">
               {isPMTab ? 'New PM' : 'New'}
             </span>
           </Button>
-          <Button variant="outline" size="sm" onClick={fetchAll} disabled={refreshing} className="h-9 rounded-lg">
+          <Button variant="outline" size="sm" onClick={() => fetchAll()} disabled={refreshing} className="h-9 rounded-md" title="Refresh">
             <RefreshCw size={13} className={cn(refreshing && 'animate-spin')} />
           </Button>
         </div>
 
-        <div className="flex-1 min-h-0 rounded border border-border shadow-sm overflow-hidden bg-card flex flex-col">
-          <div className="flex-1 min-h-0 overflow-y-auto p-4" style={{ scrollbarGutter: 'stable' }}>
-            {showSkeleton ? (
-              <WorkerCardSkeletonGrid count={PAGE_SIZE} />
-            ) : filtered.length === 0 ? (
-              <div className="h-full flex items-center justify-center text-center py-12">
-                <div>
-                  <Users size={36} className="text-muted-foreground/40 mx-auto mb-3" />
-                  <p className="text-sm text-muted-foreground font-semibold">
-                    {isPMTab ? 'No Property Managers yet' : 'No workers yet'}
-                  </p>
-                  <p className="text-xs text-muted-foreground mt-1">
-                    {isPMTab ? 'Click "New PM" to add the first one' : 'Click "New" to add your first one'}
-                  </p>
-                </div>
-              </div>
-            ) : (
-              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-                {isPMTab
-                  ? pageItems.map((pm) => (
-                      <PMCard key={pm.id} pm={pm} onClick={() => setPMSelected(pm)} />
-                    ))
-                  : pageItems.map((worker) => (
-                      <WorkerCard
-                        key={worker.id}
-                        worker={worker}
-                        role={activeTab}
-                        liveCount={liveCountFor(worker)}
-                        onClick={() => handleSelect(worker)}
-                      />
-                    ))}
-              </div>
-            )}
-          </div>
+        {!loading && (
+          <ResultsBar
+            shown={filtered.length}
+            total={totalInGroup}
+            noun={groupLabel.toLowerCase()}
+            chips={searchChips}
+            onClearAll={() => setSearch('')}
+            hint="Press / to search"
+          />
+        )}
 
-          {!showSkeleton && filtered.length > PAGE_SIZE && (
-            <div className="flex-shrink-0 border-t border-border bg-card px-3 py-2 flex items-center justify-between gap-3">
-              <span className="text-[11px] text-muted-foreground tabular-nums">
-                {filtered.length} {isPMTab ? 'PM' : 'worker'}{filtered.length === 1 ? '' : 's'} · Page {page} of {totalPages}
-              </span>
-              <div className="flex items-center gap-1">
-                <button type="button" onClick={() => setPage((p) => Math.max(1, p - 1))} disabled={page === 1}
-                  className={cn('p-1.5 rounded-md border border-border transition-colors',
-                    page === 1 ? 'opacity-40 cursor-not-allowed' : 'hover:bg-muted text-foreground')}>
-                  <ChevronLeft size={14} />
-                </button>
-                <span className="text-[11px] font-semibold text-foreground tabular-nums px-2">{page} / {totalPages}</span>
-                <button type="button" onClick={() => setPage((p) => Math.min(totalPages, p + 1))} disabled={page === totalPages}
-                  className={cn('p-1.5 rounded-md border border-border transition-colors',
-                    page === totalPages ? 'opacity-40 cursor-not-allowed' : 'hover:bg-muted text-foreground')}>
-                  <ChevronRight size={14} />
-                </button>
+        <div
+          className={cn('flex-1 min-h-0 overflow-y-auto -mx-1 px-1 pb-2 transition-opacity', refreshing && 'opacity-60')}
+          style={{ scrollbarGutter: 'stable' }}
+        >
+          {showSkeleton ? (
+            <WorkerCardSkeletonGrid count={6} />
+          ) : filtered.length === 0 ? (
+            <div className="h-full flex items-center justify-center text-center py-12">
+              <div>
+                <Users size={32} strokeWidth={1.5} className="text-foreground mx-auto mb-3" />
+                <p className="text-sm text-foreground font-semibold">
+                  {totalInGroup > 0 ? 'Nobody matches your search' : isPMTab ? 'No property managers yet' : 'Nobody here yet'}
+                </p>
+                <p className="text-xs text-foreground mt-1">
+                  {totalInGroup > 0
+                    ? 'Try another name, code or email.'
+                    : isPMTab ? 'Click "New PM" to add the first one.' : 'Click "New" to add the first one.'}
+                </p>
+                {totalInGroup > 0 && (
+                  <button type="button" onClick={() => setSearch('')} className="mt-4 inline-flex items-center h-8 px-3 rounded-md border border-border text-xs font-semibold text-foreground hover:bg-muted">
+                    Clear search
+                  </button>
+                )}
               </div>
+            </div>
+          ) : (
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 2xl:grid-cols-4 gap-4">
+              {isPMTab
+                ? filtered.map((pm) => (
+                    <PMCard key={pm.id} pm={pm} onClick={() => setPMSelected(pm)} />
+                  ))
+                : filtered.map((worker) => (
+                    <WorkerCard
+                      key={worker.id}
+                      worker={worker}
+                      role={activeTab}
+                      liveCount={liveCountFor(worker)}
+                      onClick={() => handleSelect(worker)}
+                    />
+                  ))}
             </div>
           )}
         </div>

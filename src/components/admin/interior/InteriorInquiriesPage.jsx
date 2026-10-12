@@ -3,8 +3,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import {
   Inbox, Search, RefreshCw, X, Mail, Phone,
-  Check, Trash2, AlertTriangle,
-  ExternalLink, ChevronLeft, ChevronRight,
+  Check, Trash2, ExternalLink, MessageSquare, CheckCircle2, Sparkles, Palette,
 } from 'lucide-react'
 import toast from 'react-hot-toast'
 import { Button } from '@/components/ui/button'
@@ -18,9 +17,13 @@ import {
   deleteInteriorInquiry,
 } from '@/lib/interiorDesign'
 import { StatusTabs } from '@/components/admin/_shared/StatusTabs'
+import { StatStrip, StatTile } from '@/components/admin/_shared/StatStrip'
+import { InitialsAvatar } from '@/components/admin/_shared/Panel'
+import { SortHeader, nextSort, ResultsBar, SearchKeyHint, useListShortcuts } from '@/components/admin/_shared/listTools'
+import { DateRangeFilter } from '@/components/admin/_shared/DateRangeFilter'
 
-const PAGE_SIZE = 25
-const SOFT_SHADOW = '0 20px 40px -16px rgba(15,23,42,0.24), 0 6px 16px -6px rgba(15,23,42,0.10)'
+const PANEL_WIDTH = 448
+const ROW_GRID = 'grid grid-cols-[minmax(0,1.6fr)_minmax(0,1.4fr)_minmax(0,1fr)_120px_110px] gap-4 items-center'
 
 function fmtDate(iso) {
   if (!iso) return '—'
@@ -56,48 +59,24 @@ function timeAgo(iso) {
   if (months < 12) return `${months}mo ago`
   return `${Math.floor(months / 12)}y ago`
 }
-function initials(name) {
-  if (!name) return '?'
-  return name.trim().split(/\s+/).slice(0, 2).map((p) => p[0]?.toUpperCase() || '').join('') || '?'
-}
-const AVATAR_COLORS = [
-  ['bg-blue-100', 'text-blue-700', 'dark:bg-blue-900/40', 'dark:text-blue-300'],
-  ['bg-emerald-100', 'text-emerald-700', 'dark:bg-emerald-900/40', 'dark:text-emerald-300'],
-  ['bg-orange-100', 'text-orange-700', 'dark:bg-orange-900/40', 'dark:text-orange-300'],
-  ['bg-purple-100', 'text-purple-700', 'dark:bg-purple-900/40', 'dark:text-purple-300'],
-  ['bg-rose-100', 'text-rose-700', 'dark:bg-rose-900/40', 'dark:text-rose-300'],
-  ['bg-cyan-100', 'text-cyan-700', 'dark:bg-cyan-900/40', 'dark:text-cyan-300'],
-  ['bg-amber-100', 'text-amber-700', 'dark:bg-amber-900/40', 'dark:text-amber-300'],
-  ['bg-indigo-100', 'text-indigo-700', 'dark:bg-indigo-900/40', 'dark:text-indigo-300'],
-]
-function avatarColor(seed) {
-  if (!seed) return AVATAR_COLORS[0]
-  let hash = 0
-  for (let i = 0; i < seed.length; i++) { hash = ((hash << 5) - hash) + seed.charCodeAt(i); hash = hash & hash }
-  return AVATAR_COLORS[Math.abs(hash) % AVATAR_COLORS.length]
-}
-function ClientAvatar({ name, size = 'md' }) {
-  const [bg, text, dbg, dtext] = avatarColor(name)
-  const sizeClasses = size === 'lg' ? 'w-12 h-12 text-base' : size === 'sm' ? 'w-8 h-8 text-[11px]' : 'w-10 h-10 text-sm'
-  return (
-    <div className={cn('rounded-full flex items-center justify-center font-semibold flex-shrink-0', sizeClasses, bg, text, dbg, dtext)}>
-      {initials(name)}
-    </div>
-  )
+function isWithinDays(iso, days) {
+  const t = new Date(iso).getTime()
+  return Number.isFinite(t) && Date.now() - t <= days * 86_400_000
 }
 
+// Status in font colour: new needs a reply, contacted is in progress, closed is done.
 const STATUS_META = {
-  new:       { label: 'New',       pill: 'bg-blue-500/10 text-blue-600 dark:text-blue-400 border-blue-500/20' },
-  contacted: { label: 'Contacted', pill: 'bg-amber-500/10 text-amber-600 dark:text-amber-400 border-amber-500/20' },
-  closed:    { label: 'Closed',    pill: 'bg-gray-500/10 text-gray-600 dark:text-gray-400 border-gray-500/20' },
+  new:       { label: 'New',       className: 'text-blue-600 dark:text-blue-400' },
+  contacted: { label: 'Contacted', className: 'text-amber-600 dark:text-amber-400' },
+  closed:    { label: 'Closed',    className: 'text-emerald-600 dark:text-emerald-400' },
 }
 const SERVICE_LABEL = {
-  full_design:  'Full Design', consultation: 'Consultation', renovation: 'Renovation',
-  furnishing:   'Furnishing',  not_sure:     'Not Sure',
+  full_design:  'Full design', consultation: 'Consultation', renovation: 'Renovation',
+  furnishing:   'Furnishing',  not_sure:     'Not sure',
 }
 const ROOM_SCOPE_LABEL = {
-  studio: 'Studio', '1br': '1 Bedroom', '2br': '2 Bedrooms',
-  '3br_plus': '3+ Bedrooms', whole_house: 'Whole House', multiple_rooms: 'Multiple Rooms',
+  studio: 'Studio', '1br': '1 bedroom', '2br': '2 bedrooms',
+  '3br_plus': '3+ bedrooms', whole_house: 'Whole house', multiple_rooms: 'Multiple rooms',
 }
 const BUDGET_LABEL = {
   under_50k: 'Under ₱50k', '50k_150k': '₱50k – ₱150k', '150k_300k': '₱150k – ₱300k',
@@ -107,173 +86,62 @@ const TIMELINE_LABEL = {
   asap: 'ASAP', '1_3_months': '1–3 months', '3_6_months': '3–6 months', exploring: 'Exploring',
 }
 
-function StatusBadge({ status }) {
+function StatusText({ status, className }) {
   const m = STATUS_META[status] || STATUS_META.new
-  return <span className={cn('inline-flex items-center text-[11px] font-semibold px-2 py-0.5 rounded-full border', m.pill)}>{m.label}</span>
+  return <span className={cn('text-[11.5px] font-semibold whitespace-nowrap', m.className, className)}>{m.label}</span>
 }
 
-function SummaryCards({ inquiries }) {
+const TABS = [
+  { id: 'all',       label: 'All' },
+  { id: 'new',       label: 'New' },
+  { id: 'contacted', label: 'Contacted' },
+  { id: 'closed',    label: 'Closed' },
+]
+
+// Sortable columns. "Status" puts new inquiries first.
+const STATUS_RANK = { new: 0, contacted: 1, closed: 2 }
+const SORT_VALUE = {
+  client:   (i) => i.client_name || '',
+  property: (i) => i.property_address || i.property_type || '',
+  service:  (i) => SERVICE_LABEL[i.service_type] || '',
+  received: (i) => i.created_at || '',
+  status:   (i) => STATUS_RANK[i.status] ?? 3,
+}
+// Newest first; everything else starts A→Z.
+const SORT_DEFAULTS = { received: 'desc' }
+
+// KPI strip as on the Dashboard; each tile filters the list below.
+function SummaryCards({ inquiries, active, onSelect }) {
   const stats = useMemo(() => ({
     total:     inquiries.length,
+    thisWeek:  inquiries.filter((i) => isWithinDays(i.created_at, 7)).length,
     new:       inquiries.filter((i) => i.status === 'new').length,
     contacted: inquiries.filter((i) => i.status === 'contacted').length,
     closed:    inquiries.filter((i) => i.status === 'closed').length,
   }), [inquiries])
 
-  const cards = [
-    { label: 'Total',     value: stats.total,     icon: Inbox },
-    { label: 'New',       value: stats.new,       icon: AlertTriangle },
-    { label: 'Contacted', value: stats.contacted, icon: Phone },
-    { label: 'Closed',    value: stats.closed,    icon: Check },
-  ]
+  const pick = (id) => onSelect(active === id ? 'all' : id)
 
   return (
-    <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-      {cards.map((card, i) => (
-        <motion.div key={card.label}
-          initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }}
-          transition={{ delay: i * 0.05, duration: 0.25 }}
-          className="rounded-lg bg-card border border-border shadow-sm p-4">
-          <div className="flex items-center gap-2 mb-2">
-            <card.icon size={15} className="text-foreground" />
-            <span className="text-[11px] font-bold uppercase tracking-wider text-foreground">{card.label}</span>
-          </div>
-          <p className="text-3xl font-bold text-foreground tabular-nums">{card.value}</p>
-        </motion.div>
-      ))}
-    </div>
-  )
-}
-
-function DateRangeFilter({ from, to, onFromChange, onToChange, onClear }) {
-  const [open, setOpen] = useState(false)
-  const wrapRef = useRef(null)
-  const [localFrom, setLocalFrom] = useState(from || '')
-  const [localTo, setLocalTo] = useState(to || '')
-
-  useEffect(() => { setLocalFrom(from || ''); setLocalTo(to || '') }, [from, to])
-
-  useEffect(() => {
-    if (!open) return
-    const onDown = (e) => { if (wrapRef.current && !wrapRef.current.contains(e.target)) setOpen(false) }
-    const onKey = (e) => { if (e.key === 'Escape') setOpen(false) }
-    document.addEventListener('mousedown', onDown)
-    window.addEventListener('keydown', onKey)
-    return () => {
-      document.removeEventListener('mousedown', onDown)
-      window.removeEventListener('keydown', onKey)
-    }
-  }, [open])
-
-  const hasAny = !!from || !!to
-  const summary = hasAny
-    ? `${from ? fmtDateShort(from) : '…'} → ${to ? fmtDateShort(to) : '…'}`
-    : 'Filter by date'
-
-  const apply = () => {
-    if (localFrom && localTo && localTo < localFrom) return
-    onFromChange(localFrom); onToChange(localTo); setOpen(false)
-  }
-  const clear = () => {
-    setLocalFrom(''); setLocalTo(''); onClear?.(); setOpen(false)
-  }
-
-  return (
-    <div className="relative" ref={wrapRef}>
-      <button
-        type="button"
-        onClick={() => setOpen((v) => !v)}
-        className={cn(
-          'inline-flex items-center gap-2 h-9 px-3 rounded-lg text-xs font-semibold transition-colors border',
-          hasAny
-            ? 'bg-brand-solid text-white border-brand-solid'
-            : 'bg-card text-foreground border-border hover:bg-muted',
-        )}
-        title={hasAny ? summary : 'Filter by date range'}
-      >
-        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={hasAny ? 'opacity-90' : 'opacity-60'}>
-          <rect x="3" y="4" width="18" height="18" rx="2" ry="2" />
-          <line x1="16" y1="2" x2="16" y2="6" />
-          <line x1="8" y1="2" x2="8" y2="6" />
-          <line x1="3" y1="10" x2="21" y2="10" />
-        </svg>
-        <span className="hidden sm:inline truncate max-w-[160px]">{summary}</span>
-        {hasAny && (
-          <span
-            role="button"
-            tabIndex={0}
-            onClick={(e) => { e.stopPropagation(); clear() }}
-            onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.stopPropagation(); clear() } }}
-            className="ml-1 inline-flex items-center justify-center w-4 h-4 rounded-full bg-background/20 hover:bg-background/30 cursor-pointer"
-            aria-label="Clear date filter"
-          >
-            <X size={10} />
-          </span>
-        )}
-      </button>
-
-      <AnimatePresence>
-        {open && (
-          <motion.div
-            initial={{ opacity: 0, y: -4 }}
-            animate={{ opacity: 1, y: 0 }}
-            exit={{ opacity: 0, y: -4 }}
-            transition={{ duration: 0.12 }}
-            className="absolute right-0 z-30 mt-1 w-[280px] rounded-xl bg-popover border border-border shadow-xl p-3"
-          >
-            <p className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground mb-2">
-              Received date range
-            </p>
-            <div className="space-y-2">
-              <div>
-                <label className="text-[10px] uppercase tracking-wider text-muted-foreground font-semibold mb-1 block">From</label>
-                <input
-                  type="date"
-                  value={localFrom}
-                  onChange={(e) => setLocalFrom(e.target.value)}
-                  max={localTo || undefined}
-                  className="w-full h-8 text-xs rounded border border-border bg-background px-2 focus:outline-none focus:ring-2 focus:ring-ring/30"
-                />
-              </div>
-              <div>
-                <label className="text-[10px] uppercase tracking-wider text-muted-foreground font-semibold mb-1 block">To</label>
-                <input
-                  type="date"
-                  value={localTo}
-                  onChange={(e) => setLocalTo(e.target.value)}
-                  min={localFrom || undefined}
-                  className="w-full h-8 text-xs rounded border border-border bg-background px-2 focus:outline-none focus:ring-2 focus:ring-ring/30"
-                />
-              </div>
-            </div>
-            <div className="flex items-center justify-between pt-3 mt-3 border-t border-border">
-              <button
-                type="button"
-                onClick={clear}
-                disabled={!localFrom && !localTo}
-                className="text-[11px] font-semibold text-muted-foreground hover:text-foreground disabled:opacity-40"
-              >
-                Clear
-              </button>
-              <button
-                type="button"
-                onClick={apply}
-                className="inline-flex items-center gap-1 h-7 px-3 rounded-lg bg-brand-solid text-white text-[11px] font-semibold hover:bg-brand-solid/90"
-              >
-                <Check size={11} />
-                Apply
-              </button>
-            </div>
-          </motion.div>
-        )}
-      </AnimatePresence>
-    </div>
+    <StatStrip cols={4}>
+      <StatTile icon={Palette} label="All design inquiries" value={stats.total} sub={`${stats.thisWeek} in the last 7 days`} active={active === 'all'} onClick={() => onSelect('all')} />
+      <StatTile
+        icon={Sparkles}
+        label="New"
+        value={stats.new}
+        sub={stats.new > 0 ? 'Waiting for a reply' : 'All caught up'}
+        attention={stats.new > 0}
+        active={active === 'new'}
+        onClick={() => pick('new')}
+      />
+      <StatTile icon={MessageSquare} label="Contacted" value={stats.contacted} sub="In conversation" active={active === 'contacted'} onClick={() => pick('contacted')} />
+      <StatTile icon={CheckCircle2} label="Closed" value={stats.closed} sub="Done" active={active === 'closed'} onClick={() => pick('closed')} />
+    </StatStrip>
   )
 }
 
 function InquiryRow({ inquiry, selected, onClick }) {
   const ago = timeAgo(inquiry.created_at)
-  const serviceLabel = SERVICE_LABEL[inquiry.service_type] || 'Design inquiry'
   return (
     <motion.button
       type="button"
@@ -282,40 +150,29 @@ function InquiryRow({ inquiry, selected, onClick }) {
       animate={{ backgroundColor: selected ? 'rgba(34, 81, 147, 0.10)' : 'rgba(34, 81, 147, 0)' }}
       transition={{ duration: 0.22 }}
       whileHover={{ backgroundColor: selected ? 'rgba(34, 81, 147, 0.14)' : 'rgba(34, 81, 147, 0.05)' }}
-      className="w-full text-left px-4 py-3 border-b border-border cursor-pointer select-none
-                 grid grid-cols-[1.6fr_1.4fr_1.2fr_120px_120px] gap-4 items-center"
+      className={cn('w-full text-left px-4 py-3 border-b border-border cursor-pointer select-none', ROW_GRID)}
     >
-      <div className="flex items-center gap-2 min-w-0">
-        <ClientAvatar name={inquiry.client_name} size="sm" />
+      <div className="flex items-center gap-2.5 min-w-0">
+        <InitialsAvatar name={inquiry.client_name} size="sm" />
         <div className="min-w-0 flex-1">
-          <p className="text-sm font-semibold text-foreground truncate">{inquiry.client_name}</p>
-          <p className="text-[10px] text-muted-foreground truncate">{inquiry.client_email}</p>
+          <p className="text-[13px] font-semibold text-foreground truncate">{inquiry.client_name}</p>
+          <p className="text-[11px] text-foreground truncate">{inquiry.client_email}</p>
         </div>
       </div>
       <div className="min-w-0">
-        <p className="text-[11px] text-foreground truncate">{inquiry.property_address || inquiry.property_type || '—'}</p>
-        <p className="text-[10px] text-muted-foreground truncate">{inquiry.property_type || 'Type TBD'}</p>
+        <p className="text-[12px] text-foreground truncate">{inquiry.property_address || inquiry.property_type || '—'}</p>
+        <p className="text-[11px] text-foreground truncate">{inquiry.property_type || 'Type TBD'}</p>
       </div>
       <div className="min-w-0">
-        <span className={cn(
-          'inline-flex items-center text-[10px] font-semibold px-2 py-0.5 rounded-full border',
-          inquiry.service_type === 'full_design'
-            ? 'bg-brand-solid/10 text-brand dark:text-blue-400 border-brand/20'
-            : inquiry.service_type === 'renovation'
-              ? 'bg-purple-500/10 text-purple-600 dark:text-purple-400 border-purple-500/20'
-              : inquiry.service_type === 'consultation'
-                ? 'bg-cyan-500/10 text-cyan-600 dark:text-cyan-400 border-cyan-500/20'
-                : 'bg-muted text-muted-foreground border-border',
-        )}>
-          {serviceLabel}
-        </span>
+        <p className="text-[12px] font-medium text-foreground truncate">{SERVICE_LABEL[inquiry.service_type] || 'Design inquiry'}</p>
+        {inquiry.budget_range && <p className="text-[11px] text-foreground truncate">{BUDGET_LABEL[inquiry.budget_range] || ''}</p>}
       </div>
-      <div className="text-[11px] tabular-nums text-foreground min-w-0">
+      <div className="text-[12px] tabular-nums text-foreground min-w-0">
         <div className="truncate">{fmtDate(inquiry.created_at)}</div>
-        <div className="text-[10px] text-muted-foreground truncate">{ago}</div>
+        <div className="text-[11px] truncate">{ago}</div>
       </div>
       <div className="flex items-center justify-end flex-shrink-0">
-        <StatusBadge status={inquiry.status} />
+        <StatusText status={inquiry.status} />
       </div>
     </motion.button>
   )
@@ -331,7 +188,6 @@ export default function InteriorInquiriesPage() {
   const [statusFilter, setStatusFilter] = useState('all')
   const [dateFrom, setDateFrom] = useState('')
   const [dateTo, setDateTo] = useState('')
-  const [page, setPage] = useState(1)
 
   const [selectedId, setSelectedId] = useState(null)
   const hasLoadedOnce = useRef(false)
@@ -410,12 +266,35 @@ export default function InteriorInquiriesPage() {
     })
   }, [inquiries, debouncedSearch, statusFilter, dateFrom, dateTo])
 
-  const totalPages = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE))
-  const pageItems = useMemo(() => filtered.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE), [filtered, page])
-  useEffect(() => { if (page > totalPages) setPage(totalPages) }, [page, totalPages])
-  useEffect(() => { setPage(1) }, [debouncedSearch, statusFilter, dateFrom, dateTo])
+  // Column sorting; newest first by default.
+  const [sort, setSort] = useState({ key: 'received', dir: 'desc' })
+  const onSort = (key) => setSort((prev) => nextSort(prev, key, SORT_DEFAULTS))
+  const sorted = useMemo(() => {
+    const value = SORT_VALUE[sort.key] || SORT_VALUE.received
+    const dir = sort.dir === 'asc' ? 1 : -1
+    return [...filtered].sort((a, b) => {
+      const av = value(a), bv = value(b)
+      const cmp = typeof av === 'number' && typeof bv === 'number'
+        ? av - bv
+        : String(av).localeCompare(String(bv), undefined, { numeric: true, sensitivity: 'base' })
+      return cmp * dir || String(b.created_at || '').localeCompare(String(a.created_at || ''))
+    })
+  }, [filtered, sort])
 
   const selected = useMemo(() => inquiries.find((i) => i.id === selectedId) || null, [inquiries, selectedId])
+
+  // Keyboard: "/" jumps to search, Esc closes the open inquiry.
+  const searchRef = useRef(null)
+  const closePanel = useCallback(() => setSelectedId(null), [])
+  useListShortcuts({ searchRef, onEscape: selectedId ? closePanel : null })
+
+  const clearDates = () => { setDateFrom(''); setDateTo('') }
+  const clearAllFilters = () => { setStatusFilter('all'); setSearch(''); clearDates() }
+  const filterChips = [
+    statusFilter !== 'all' && { key: 'status', label: TABS.find((t) => t.id === statusFilter)?.label || statusFilter, onRemove: () => setStatusFilter('all') },
+    debouncedSearch.trim() && { key: 'search', label: `"${debouncedSearch.trim()}"`, onRemove: () => setSearch('') },
+    (dateFrom || dateTo) && { key: 'dates', label: `Received ${dateFrom ? fmtDateShort(dateFrom) : '…'} → ${dateTo ? fmtDateShort(dateTo) : '…'}`, onRemove: clearDates },
+  ].filter(Boolean)
 
   const handleUpdate = useCallback(async (id, patch) => {
     try {
@@ -441,86 +320,89 @@ export default function InteriorInquiriesPage() {
     }
   }, [])
 
-  const tabs = [
-    { id: 'all',       label: 'All' },
-    { id: 'new',       label: 'New' },
-    { id: 'contacted', label: 'Contacted' },
-    { id: 'closed',    label: 'Closed' },
-  ]
-
   return (
     <div className="h-full flex min-h-0">
-      <div className="flex-1 min-h-0 flex flex-col p-3 gap-3">
-        <div className="flex-shrink-0 pt-1 pb-2">
-          <SummaryCards inquiries={inquiries} />
-        </div>
-
-        <div className="flex-shrink-0 flex items-center gap-2">
-          <div className="relative flex-1 min-w-0">
-            <Search size={13} className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground pointer-events-none" />
-            <Input placeholder="Search name, email, address, message…" value={search} onChange={(e) => setSearch(e.target.value)} className="pl-9 h-9 text-xs rounded-lg" />
-          </div>
-          <Button variant="outline" size="sm" onClick={fetchData} disabled={refreshing} className="h-9 rounded-lg" title="Refresh">
-            <RefreshCw size={13} className={cn(refreshing && 'animate-spin')} />
-          </Button>
-          <DateRangeFilter
-            from={dateFrom} to={dateTo}
-            onFromChange={setDateFrom} onToChange={setDateTo}
-            onClear={() => { setDateFrom(''); setDateTo('') }}
-          />
-        </div>
-
-        <div className="flex-shrink-0">
-          <StatusTabs tabs={tabs} value={statusFilter} onChange={setStatusFilter} counts={counts} label="Filter inquiries by status" />
-        </div>
-
-        <div className="flex-1 min-h-0 rounded-lg border border-border shadow-sm overflow-hidden bg-card flex flex-col">
-          <div className="flex-1 min-h-0 overflow-y-auto">
-            <div className="sticky top-0 z-10 px-4 py-2.5 border-b border-border bg-card grid grid-cols-[1.6fr_1.4fr_1.2fr_120px_120px] gap-4 items-center">
-              <span className="text-[10px] font-bold uppercase tracking-wider text-foreground truncate">Client</span>
-              <span className="text-[10px] font-bold uppercase tracking-wider text-foreground truncate">Property</span>
-              <span className="text-[10px] font-bold uppercase tracking-wider text-foreground truncate">Service</span>
-              <span className="text-[10px] font-bold uppercase tracking-wider text-foreground truncate">Received</span>
-              <span className="text-[10px] font-bold uppercase tracking-wider text-foreground text-right truncate">Status</span>
-            </div>
-
-            {loading ? (
-              <div className="space-y-2 p-3">{[...Array(8)].map((_, i) => <Skeleton key={i} className="h-14 w-full" />)}</div>
-            ) : pageItems.length === 0 ? (
-              <div className="h-full flex items-center justify-center text-center py-12">
-                <div>
-                  <Inbox size={36} className="text-muted-foreground/40 mx-auto mb-3" />
-                  <p className="text-sm text-foreground font-semibold">
-                    {inquiries.length === 0 ? 'No design inquiries yet' : 'Nothing matches these filters'}
-                  </p>
-                  <p className="text-xs text-muted-foreground mt-1">
-                    {inquiries.length === 0 ? "When clients submit on your website, they'll appear here" : 'Try clearing the search or filters'}
-                  </p>
-                </div>
-              </div>
-            ) : (
-              pageItems.map((inquiry) => (
-                <InquiryRow key={inquiry.id} inquiry={inquiry} selected={selectedId === inquiry.id}
-                  onClick={() => setSelectedId((prev) => (prev === inquiry.id ? null : inquiry.id))} />
-              ))
-            )}
+      <div className="flex-1 min-h-0 flex flex-col overflow-hidden">
+        <div className="px-6 py-5 md:px-8 md:py-6 flex-1 min-h-0 flex flex-col gap-4">
+          <div className="flex-shrink-0">
+            <SummaryCards inquiries={inquiries} active={statusFilter} onSelect={setStatusFilter} />
           </div>
 
-          {totalPages > 1 && (
-            <div className="flex-shrink-0 border-t border-border bg-card px-3 py-2">
-              <div className="flex items-center justify-center gap-1">
-                <button type="button" onClick={() => setPage((p) => Math.max(1, p - 1))} disabled={page === 1}
-                  className={cn('p-1.5 rounded-lg border border-border', page === 1 ? 'opacity-40 cursor-not-allowed' : 'hover:bg-muted')}>
-                  <ChevronLeft size={13} />
-                </button>
-                <span className="text-[11px] text-muted-foreground tabular-nums px-3">{page} / {totalPages}</span>
-                <button type="button" onClick={() => setPage((p) => Math.min(totalPages, p + 1))} disabled={page === totalPages}
-                  className={cn('p-1.5 rounded-lg border border-border', page === totalPages ? 'opacity-40 cursor-not-allowed' : 'hover:bg-muted')}>
-                  <ChevronRight size={13} />
-                </button>
-              </div>
+          <div className="flex-shrink-0 flex items-center gap-2">
+            <div className="relative flex-1 min-w-0">
+              <Search size={13} className="absolute left-3 top-1/2 -translate-y-1/2 text-foreground pointer-events-none" />
+              <Input
+                ref={searchRef}
+                placeholder="Search name, email, address, message…"
+                value={search}
+                onChange={(e) => setSearch(e.target.value)}
+                className="pl-9 pr-9 h-9 text-xs rounded-md"
+              />
+              {!search && <SearchKeyHint />}
             </div>
+            <DateRangeFilter
+              from={dateFrom} to={dateTo}
+              onFromChange={setDateFrom} onToChange={setDateTo}
+              onClear={clearDates}
+              title="Received date range"
+            />
+            <Button variant="outline" size="sm" onClick={() => fetchData()} disabled={refreshing} className="h-9 rounded-md" title="Refresh">
+              <RefreshCw size={13} className={cn(refreshing && 'animate-spin')} />
+            </Button>
+          </div>
+
+          <div className="flex-shrink-0">
+            <StatusTabs tabs={TABS} value={statusFilter} onChange={setStatusFilter} counts={counts} label="Filter inquiries by status" />
+          </div>
+
+          {!loading && (
+            <ResultsBar
+              shown={sorted.length}
+              total={inquiries.length}
+              noun={inquiries.length === 1 ? 'inquiry' : 'inquiries'}
+              chips={filterChips}
+              onClearAll={clearAllFilters}
+              hint="Click a column to sort · Press / to search"
+            />
           )}
+
+          <div className="flex-1 min-h-0 rounded-md border border-border shadow-sm overflow-hidden bg-card">
+            <div className="h-full overflow-y-auto" style={{ scrollbarGutter: 'stable' }}>
+              <div className={cn('sticky top-0 z-10 px-4 py-2.5 border-b border-border bg-card', ROW_GRID)}>
+                <SortHeader label="Client" sortKey="client" sort={sort} onSort={onSort} />
+                <SortHeader label="Property" sortKey="property" sort={sort} onSort={onSort} />
+                <SortHeader label="Service" sortKey="service" sort={sort} onSort={onSort} />
+                <SortHeader label="Received" sortKey="received" sort={sort} onSort={onSort} />
+                <SortHeader label="Status" sortKey="status" sort={sort} onSort={onSort} align="right" />
+              </div>
+
+              {loading ? (
+                <div className="space-y-2 p-3">{[...Array(8)].map((_, i) => <Skeleton key={i} className="h-14 w-full" />)}</div>
+              ) : sorted.length === 0 ? (
+                <div className="h-full flex items-center justify-center text-center py-12">
+                  <div>
+                    <Inbox size={32} strokeWidth={1.5} className="text-foreground mx-auto mb-3" />
+                    <p className="text-sm text-foreground font-semibold">
+                      {inquiries.length === 0 ? 'No design inquiries yet' : 'Nothing matches these filters'}
+                    </p>
+                    <p className="text-xs text-foreground mt-1">
+                      {inquiries.length === 0 ? "When clients submit on your website, they'll appear here." : 'Try clearing the search or filters.'}
+                    </p>
+                    {filterChips.length > 0 && (
+                      <button type="button" onClick={clearAllFilters} className="mt-4 inline-flex items-center h-8 px-3 rounded-md border border-border text-xs font-semibold text-foreground hover:bg-muted">
+                        Clear filters
+                      </button>
+                    )}
+                  </div>
+                </div>
+              ) : (
+                sorted.map((inquiry) => (
+                  <InquiryRow key={inquiry.id} inquiry={inquiry} selected={selectedId === inquiry.id}
+                    onClick={() => setSelectedId((prev) => (prev === inquiry.id ? null : inquiry.id))} />
+                ))
+              )}
+            </div>
+          </div>
         </div>
       </div>
 
@@ -571,53 +453,51 @@ function InquiryDetailPanel({ inquiry, onClose, onUpdate, onDelete }) {
 
   return (
     <motion.div
-      initial={{ width: 0, opacity: 0 }} animate={{ width: 448, opacity: 1 }} exit={{ width: 0, opacity: 0 }}
+      initial={{ width: 0, opacity: 0 }} animate={{ width: PANEL_WIDTH, opacity: 1 }} exit={{ width: 0, opacity: 0 }}
       transition={{ width: { duration: 0.32, ease: [0.4, 0, 0.2, 1] }, opacity: { duration: 0.2 } }}
-      className="h-full flex-shrink-0 p-3" style={{ maxWidth: '100%', width: 448 + 24 }}
+      className="h-full flex-shrink-0 p-3" style={{ maxWidth: '100%', width: PANEL_WIDTH + 24 }}
     >
-      <div
-        className="h-full rounded-xl border border-border overflow-hidden flex flex-col bg-card"
-        style={{
-          boxShadow: '0 12px 32px -12px rgba(15,23,42,0.18), 0 4px 12px -4px rgba(15,23,42,0.08)',
-        }}
-      >
+      <div className="h-full rounded-md border border-border bg-card shadow-lg overflow-hidden flex flex-col">
         <AnimatePresence mode="wait" initial={false}>
           <motion.div key={inquiry.id}
             initial={{ opacity: 0, y: 6 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -4 }}
             transition={{ duration: 0.18 }} className="h-full flex flex-col min-h-0">
             <div className="flex-shrink-0 px-5 py-4 border-b border-border">
               <div className="flex items-start gap-3">
-                <ClientAvatar name={inquiry.client_name} size="lg" />
+                <InitialsAvatar name={inquiry.client_name} size="lg" />
                 <div className="min-w-0 flex-1">
                   <p className="text-base font-bold text-foreground truncate">{inquiry.client_name}</p>
-                  <p className="text-[11px] text-muted-foreground truncate">{inquiry.client_email}</p>
-                  <div className="mt-2 flex items-center gap-2 flex-wrap"><StatusBadge status={inquiry.status} /></div>
+                  <p className="text-[11px] text-foreground truncate">{inquiry.client_email}</p>
+                  <div className="mt-2 flex items-center gap-2 flex-wrap">
+                    <StatusText status={inquiry.status} />
+                    <span className="text-[11px] text-foreground">· {timeAgo(inquiry.created_at)}</span>
+                  </div>
                 </div>
-                <button onClick={onClose} className="p-1 rounded-lg hover:bg-muted text-foreground flex-shrink-0"><X size={16} /></button>
+                <button type="button" onClick={onClose} aria-label="Close" className="p-1 rounded-md hover:bg-muted text-foreground flex-shrink-0"><X size={16} /></button>
               </div>
 
               <div className="flex items-center gap-2 mt-3 flex-wrap">
                 {inquiry.status !== 'contacted' && (
-                  <Button variant="outline" size="sm" className="h-8 rounded-lg text-[11px] gap-1.5"
+                  <Button variant="outline" size="sm" className="h-8 rounded-md text-[11px] gap-1.5"
                     onClick={() => setStatus('contacted')} disabled={saving}>
                     <Phone size={11} /> Mark contacted
                   </Button>
                 )}
                 {inquiry.status !== 'closed' && (
                   <Button variant="outline" size="sm"
-                    className="h-8 rounded-lg text-[11px] gap-1.5 text-emerald-600 border-emerald-200 hover:bg-emerald-50 dark:text-emerald-400 dark:border-emerald-800 dark:hover:bg-emerald-900/20"
+                    className="h-8 rounded-md text-[11px] gap-1.5 text-emerald-600 border-emerald-200 hover:bg-emerald-50 dark:text-emerald-400 dark:border-emerald-800 dark:hover:bg-emerald-900/20"
                     onClick={() => setStatus('closed')} disabled={saving}>
                     <Check size={11} /> Mark closed
                   </Button>
                 )}
                 {inquiry.status !== 'new' && (
-                  <Button variant="outline" size="sm" className="h-8 rounded-lg text-[11px] gap-1.5"
+                  <Button variant="outline" size="sm" className="h-8 rounded-md text-[11px] gap-1.5"
                     onClick={() => setStatus('new')} disabled={saving}>
                     Reopen
                   </Button>
                 )}
                 <Button variant="outline" size="sm"
-                  className="h-8 rounded-lg text-[11px] gap-1.5 text-red-600 border-red-200 hover:bg-red-50 dark:text-red-400 dark:border-red-800 dark:hover:bg-red-900/20 ml-auto"
+                  className="h-8 rounded-md text-[11px] gap-1.5 text-red-600 border-red-200 hover:bg-red-50 dark:text-red-400 dark:border-red-800 dark:hover:bg-red-900/20 ml-auto"
                   onClick={confirmDelete}>
                   <Trash2 size={11} /> Delete
                 </Button>
@@ -634,11 +514,11 @@ function InquiryDetailPanel({ inquiry, onClose, onUpdate, onDelete }) {
 
               <DetailSection title="Project">
                 <div className="p-3 space-y-0.5">
-                  <FieldRow label="Service"   value={SERVICE_LABEL[inquiry.service_type] || '—'} />
+                  <FieldRow label="Service"    value={SERVICE_LABEL[inquiry.service_type] || '—'} />
                   <FieldRow label="Room scope" value={ROOM_SCOPE_LABEL[inquiry.room_scope] || '—'} />
-                  <FieldRow label="Budget"    value={BUDGET_LABEL[inquiry.budget_range] || '—'} />
-                  <FieldRow label="Timeline"  value={TIMELINE_LABEL[inquiry.timeline] || '—'} />
-                  <FieldRow label="Received"  value={fmtDateTime(inquiry.created_at)} />
+                  <FieldRow label="Budget"     value={BUDGET_LABEL[inquiry.budget_range] || '—'} />
+                  <FieldRow label="Timeline"   value={TIMELINE_LABEL[inquiry.timeline] || '—'} />
+                  <FieldRow label="Received"   value={fmtDateTime(inquiry.created_at)} />
                   {inquiry.contacted_at && <FieldRow label="Contacted" value={fmtDateTime(inquiry.contacted_at)} />}
                   {inquiry.closed_at    && <FieldRow label="Closed"    value={fmtDateTime(inquiry.closed_at)} />}
                 </div>
@@ -665,7 +545,7 @@ function InquiryDetailPanel({ inquiry, onClose, onUpdate, onDelete }) {
                     <div className="grid grid-cols-3 gap-2">
                       {images.map((img, idx) => (
                         <a key={idx} href={img.url} target="_blank" rel="noreferrer noopener"
-                          className="relative aspect-square rounded-lg overflow-hidden border border-border bg-muted hover:opacity-90 transition-opacity group flex items-center justify-center">
+                          className="relative aspect-square rounded-md overflow-hidden border border-border bg-card hover:opacity-90 transition-opacity group flex items-center justify-center">
                           <img src={img.url} alt="" className="w-full h-full object-cover" loading="lazy"
                             onError={(e) => { e.currentTarget.style.display = 'none' }} />
                           <div className="absolute inset-0 bg-black/0 group-hover:bg-black/20 transition-colors flex items-center justify-center pointer-events-none">
@@ -682,9 +562,9 @@ function InquiryDetailPanel({ inquiry, onClose, onUpdate, onDelete }) {
                 <div className="p-3">
                   <textarea value={notesDraft} onChange={(e) => setNotesDraft(e.target.value)} onBlur={saveNotes}
                     rows={4} maxLength={2000} placeholder="Internal notes — only you see these"
-                    className="w-full text-xs rounded-lg resize-none bg-background border border-border px-3 py-2 focus:outline-none focus:ring-2 focus:ring-ring/30 placeholder:text-muted-foreground/60" />
-                  <p className="text-[10px] text-muted-foreground mt-1 text-right tabular-nums">
-                    {notesSaving ? 'Saving…' : 'Auto-saves on blur'}
+                    className="w-full text-xs rounded-md resize-none bg-card border border-border px-3 py-2 focus:outline-none focus:ring-2 focus:ring-ring/30" />
+                  <p className="text-[11px] text-foreground mt-1 text-right tabular-nums">
+                    {notesSaving ? 'Saving…' : 'Saves when you click away'}
                   </p>
                 </div>
               </DetailSection>
@@ -699,16 +579,16 @@ function InquiryDetailPanel({ inquiry, onClose, onUpdate, onDelete }) {
 function DetailSection({ title, children }) {
   return (
     <div>
-      <h4 className="text-[10px] font-bold uppercase tracking-wider text-foreground mb-2 px-0.5">{title}</h4>
-      <div className="rounded-lg bg-card border border-border shadow-sm overflow-hidden">{children}</div>
+      <h4 className="text-[11px] font-semibold uppercase tracking-wider text-foreground mb-2 px-0.5">{title}</h4>
+      <div className="rounded-md bg-card border border-border shadow-sm overflow-hidden">{children}</div>
     </div>
   )
 }
 function ContactRow({ icon: Icon, label, value, href }) {
   return (
     <div className="flex items-center gap-2 min-w-0">
-      <Icon size={12} className="text-muted-foreground flex-shrink-0" />
-      <span className="text-[10px] uppercase tracking-wider text-muted-foreground font-semibold min-w-[52px] flex-shrink-0">{label}</span>
+      <Icon size={12} className="text-foreground flex-shrink-0" />
+      <span className="text-[11px] font-semibold text-foreground min-w-[52px] flex-shrink-0">{label}</span>
       <a href={href} className="text-xs text-foreground hover:text-brand hover:underline truncate">{value}</a>
     </div>
   )
@@ -716,7 +596,7 @@ function ContactRow({ icon: Icon, label, value, href }) {
 function FieldRow({ label, value }) {
   return (
     <div className="flex items-baseline justify-between gap-3 py-0.5">
-      <span className="text-[10px] uppercase tracking-wider text-muted-foreground font-semibold min-w-[72px]">{label}</span>
+      <span className="text-[11px] font-semibold text-foreground min-w-[72px]">{label}</span>
       <span className="text-xs text-foreground text-right break-words">{value}</span>
     </div>
   )
