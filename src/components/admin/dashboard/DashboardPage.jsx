@@ -1094,7 +1094,7 @@ export default function DashboardPage() {
   const fetchBackupLatest = useCallback(async () => {
     const { data, error: err } = await supabase
       .from('backup_runs')
-      .select('id, started_at, finished_at, status, row_counts, duration_ms, error_message, trigger_source')
+      .select('id, started_at, finished_at, status, row_counts, duration_ms, error_message, trigger_source, sheet_url')
       .order('started_at', { ascending: false })
       .limit(1)
       .maybeSingle()
@@ -1139,11 +1139,9 @@ export default function DashboardPage() {
   const now = useMemo(() => new Date(), [])
   const firstName = (user?.user_metadata?.full_name || user?.email?.split('@')[0] || '').split(' ')[0]
 
-  // Without an ID the link would point at Google's "file can't be opened" page, so it's hidden instead.
-  const sheetUrl = useMemo(() => {
-    const id = import.meta.env.VITE_BACKUP_SHEET_ID?.trim()
-    return id ? `https://docs.google.com/spreadsheets/d/${id}/edit` : null
-  }, [])
+  // The backup records the sheet's link on each run (admins only), so the
+  // sheet's ID stays out of the public website code. No link, no button.
+  const sheetUrl = backupLatest?.sheet_url || null
 
   const runBackup = useCallback(async () => {
     if (backupRunning) return

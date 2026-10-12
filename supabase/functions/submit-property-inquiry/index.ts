@@ -16,6 +16,7 @@ if (!SUPABASE_SERVICE_ROLE) throw new Error('SUPABASE_SERVICE_ROLE_KEY is requir
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
 const PHONE_RE = /^[\d\s+()\-.]{0,40}$/
 const HONEYPOT_FIELD = 'website_url'
+const IMAGE_PATH_RE = /^\d{4}-\d{2}\/[a-z0-9]{4,40}\.(jpe?g|png|webp)$/
 
 // ------------------------------------------------------------
 // Sanitizers
@@ -165,7 +166,10 @@ serve(async (req) => {
       const path = typeof img?.path === 'string' ? img.path : ''
 
       if (!url || !path) continue
-      if (!url.startsWith(`${SUPABASE_URL}/storage/v1/object/public/property-inquiry-images/`)) {
+      // The path is what the form uploaded (YYYY-MM/<random>.jpg) and the URL
+      // must be exactly that file's link, so a stored path can't point at
+      // anyone else's image.
+      if (!IMAGE_PATH_RE.test(path) || url !== `${SUPABASE_URL}/storage/v1/object/public/property-inquiry-images/${path}`) {
         return json({ error: 'Image URL must be from our storage' }, 400)
       }
 

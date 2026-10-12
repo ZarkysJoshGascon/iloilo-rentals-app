@@ -1524,6 +1524,10 @@ serve(async (req) => {
     let triggerSource: 'cron' | 'manual' = 'cron'
     let createdBy: string | null = null
 
+    // The hourly job sends a service-role key. Reading its role is only safe
+    // because Supabase checks the token's signature before this function
+    // runs: keep this function deployed WITH JWT verification (never
+    // --no-verify-jwt), or a forged token would pass.
     if (jwtPayload && jwtPayload.role === 'service_role') {
       triggerSource = 'cron'
     } else {
@@ -1538,7 +1542,14 @@ serve(async (req) => {
 
     const { data: runRow } = await supabase
       .from('backup_runs')
-      .insert({ status: 'running', trigger_source: triggerSource, created_by: createdBy })
+      .insert({
+        status: 'running',
+        trigger_source: triggerSource,
+        created_by: createdBy,
+        // The Dashboard links to the sheet from here (admins only), so its ID
+        // never has to be in the public website code.
+        sheet_url: SHEET_ID ? `https://docs.google.com/spreadsheets/d/${SHEET_ID}/edit` : null,
+      })
       .select('id').single()
     runId = runRow?.id || null
 
