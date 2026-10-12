@@ -19,6 +19,13 @@ const BUCKET = 'hero-images'
 const HOME = 'home'
 export const REVIEWS = 'home/reviews'
 const IMAGE_FILE = /\.(jpe?g|png|webp)$/i
+const DEPTH_FILE = /\.depth\.png$/i
+// A project folder may also hold its floor plan and a tour.json:
+//   { "type": "house" | "condo", "facts": "150 sqm lot · 131 sqm floor area",
+//     "stops": { "<photo file>": { "x": 0-1, "y": 0-1, "note": "…" } } }
+// x / y place the photo's "you are here" marker on the plan.
+const PLAN_FILE = /^plan\.(png|jpe?g|webp)$/i
+const TOUR_FILE = 'tour.json'
 // Resized on Supabase's side. `contain` keeps the whole photo; the default
 // (`cover`) keeps the original height and crops the sides.
 const TRANSFORM = { width: 1200, quality: 75, resize: 'contain' }
@@ -101,7 +108,8 @@ function useFolder(folder) {
 
 function photoUrl(path, version, transform) {
   const { data } = supabase.storage.from(BUCKET).getPublicUrl(path, { transform })
-  return version ? `${data.publicUrl}&v=${version}` : data.publicUrl
+  if (!version) return data.publicUrl
+  return `${data.publicUrl}${data.publicUrl.includes('?') ? '&' : '?'}v=${version}`
 }
 
 /**
@@ -208,19 +216,48 @@ function loadInteriorProjects() {
           const { data: files, error: filesError } = await bucket.list(`${INTERIOR}/${folder}`, { limit: 100 })
           if (filesError) throw filesError
           const { title, note } = parseLabel(folder)
+          const fileUrl = (file) => photoUrl(`${INTERIOR}/${folder}/${file.name}`, Date.parse(file.updated_at) || 0)
+          const planFile = files.find((file) => file.id && PLAN_FILE.test(file.name))
+          const tourFile = files.find((file) => file.id && file.name === TOUR_FILE)
+          let tour = {}
+          if (tourFile) {
+            try {
+              tour = await fetch(fileUrl(tourFile)).then((res) => (res.ok ? res.json() : {}))
+            } catch (err) {
+              console.warn('[siteImages] could not read tour.json for', folder, err)
+            }
+          }
+          // "<photo>.depth.png" beside a photo is its depth map, for the 3D walk.
+          const depthOf = new Map(
+            files
+              .filter((file) => file.id && DEPTH_FILE.test(file.name))
+              .map((file) => [file.name.replace(DEPTH_FILE, ''), file]),
+          )
           const shots = files
-            .filter((file) => file.id && IMAGE_FILE.test(file.name))
+            .filter((file) => file.id && IMAGE_FILE.test(file.name) && !DEPTH_FILE.test(file.name) && !PLAN_FILE.test(file.name))
             .sort((a, b) => byNumberThenName(a.name, b.name))
             .map((file) => {
               const label = parseLabel(file.name)
+              const depth = depthOf.get(file.name.replace(IMAGE_FILE, ''))
+              const stop = tour.stops?.[file.name] || {}
               return {
                 key: file.name,
                 src: photoUrl(`${INTERIOR}/${folder}/${file.name}`, Date.parse(file.updated_at) || 0, INTERIOR_PHOTO),
+                // Served as is: resizing would blur or recompress the depth values.
+                depth: depth ? fileUrl(depth) : null,
                 room: label.title,
-                note: label.note,
+                note: stop.note || label.note,
+                marker: Number.isFinite(stop.x) && Number.isFinite(stop.y) ? { x: stop.x, y: stop.y } : null,
               }
             })
-          return { key: folder, title, location: note, shots }
+          return {
+            key: folder,
+            title,
+            location: tour.facts || note,
+            type: tour.type || null,
+            plan: planFile ? fileUrl(planFile) : null,
+            shots,
+          }
         }))
         return projects.filter((project) => project.shots.length > 0)
       })

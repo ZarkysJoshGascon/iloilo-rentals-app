@@ -29,3 +29,6 @@ dist-ssr
 .env.*.local
 .vercel
 .env*
+
+# Raw source images for interior tours (processed copies go to storage)
+/tour-source/

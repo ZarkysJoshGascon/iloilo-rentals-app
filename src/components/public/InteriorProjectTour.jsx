@@ -1,10 +1,11 @@
 // src/components/public/InteriorProjectTour.jsx
-import { useMemo, useRef, useState } from 'react'
+import { useCallback, useMemo, useRef, useState } from 'react'
 import {
   motion, useScroll, useTransform, useReducedMotion, useMotionValueEvent, AnimatePresence,
 } from 'framer-motion'
 import { ArrowDown, ArrowRight, Loader2 } from 'lucide-react'
 import { useInteriorProjects } from '@/lib/siteImages'
+import DepthWalkthrough, { supportsWebGL } from './DepthWalkthrough'
 
 // ─────────────────────────────────────────────────────────────
 // A scroll-driven walk through finished interior projects.
@@ -16,6 +17,11 @@ import { useInteriorProjects } from '@/lib/siteImages'
 //      with a darkening at the edges like passing through a door frame.
 //   3. After the last room you step back out and the page offers the form.
 //
+// Rooms with a depth map ("<photo>.depth.png" next to the photo) are drawn in
+// 3D by DepthWalkthrough, so the camera really moves through the space; it
+// takes over whenever a project has depth maps and the browser has WebGL.
+// Otherwise (or with reduced motion) the photos themselves are moved.
+//
 // Photos come from Supabase Storage (hero-images/interior/, see
 // useInteriorProjects in lib/siteImages): add a folder per project and the
 // tour picks it up. Until there are any, the demo below shows only with
@@ -23,6 +29,8 @@ import { useInteriorProjects } from '@/lib/siteImages'
 // ─────────────────────────────────────────────────────────────
 
 const UNSPLASH = (id) => `https://images.unsplash.com/photo-${id}?w=1800&q=80&auto=format&fit=crop`
+const DEMO_DEPTH = (id) => `/tours/demo/${id}.depth.png`
+const demoShot = (key, id, room, note) => ({ key, src: UNSPLASH(id), depth: DEMO_DEPTH(id), room, note })
 
 const DEMO_PROJECTS = [
   {
@@ -30,9 +38,9 @@ const DEMO_PROJECTS = [
     title: 'Studio makeover',
     location: 'Megaworld, Iloilo City',
     shots: [
-      { key: 'a', src: UNSPLASH('1522708323590-d24dbb6b0267'), room: 'Living & dining', note: 'Stepping in from the door' },
-      { key: 'b', src: UNSPLASH('1502672260266-1c1ef2d93688'), room: 'Sleeping area', note: 'Turning toward the bed' },
-      { key: 'c', src: UNSPLASH('1493809842364-78817add7ffb'), room: 'Bed styling', note: 'Linens, art and light, up close' },
+      demoShot('a', '1522708323590-d24dbb6b0267', 'Living & dining', 'Stepping in from the door'),
+      demoShot('b', '1502672260266-1c1ef2d93688', 'Sleeping area', 'Turning toward the bed'),
+      demoShot('c', '1493809842364-78817add7ffb', 'Bed styling', 'Linens, art and light, up close'),
     ],
   },
   {
@@ -40,10 +48,10 @@ const DEMO_PROJECTS = [
     title: 'One-bedroom refresh',
     location: 'Mandurriao, Iloilo City',
     shots: [
-      { key: 'a', src: UNSPLASH('1600607687939-ce8a6c25118c'), room: 'Open living area', note: 'Walking in toward the kitchen' },
-      { key: 'b', src: UNSPLASH('1484154218962-a197022b5858'), room: 'Dining nook', note: 'Looking across the table' },
-      { key: 'c', src: UNSPLASH('1505691938895-1758d7feb511'), room: 'Lounge', note: 'Taking in the feature wall' },
-      { key: 'd', src: UNSPLASH('1586023492125-27b2c045efd7'), room: 'Reading corner', note: 'A closer look at the details' },
+      demoShot('a', '1600607687939-ce8a6c25118c', 'Open living area', 'Walking in toward the kitchen'),
+      demoShot('b', '1484154218962-a197022b5858', 'Dining nook', 'Looking across the table'),
+      demoShot('c', '1505691938895-1758d7feb511', 'Lounge', 'Taking in the feature wall'),
+      demoShot('d', '1586023492125-27b2c045efd7', 'Reading corner', 'A closer look at the details'),
     ],
   },
 ]
@@ -68,6 +76,9 @@ const OUTRO_VH = 70     // stepping back out
 const PASS = 0.3
 
 const EASE = [0.16, 1, 0.3, 1]
+
+// tour.json "type" → what the project is.
+const TYPE_LABEL = { house: 'House design', condo: 'Interior design · Condominium' }
 
 // Clamped linear map of v from [a, b] to [c, d]. Scroll-linked values use the
 // function form of useTransform: the array form hands opacity to the browser's
@@ -112,6 +123,16 @@ function Tour({ projects, skipTo, demo }) {
     rooms.forEach((r, i) => { if (r.roomIndex === 0) starts.push(i) })
     return starts
   }, [rooms])
+
+  // 3D when the rooms have depth maps and the browser can draw them.
+  const [webgl] = useState(supportsWebGL)
+  const [failed3d, setFailed3d] = useState(false)
+  const onFail3d = useCallback(() => setFailed3d(true), [])
+  const use3d = !reduce && webgl && !failed3d && rooms.some((r) => r.depth)
+  const rooms3d = useMemo(
+    () => rooms.map((r) => ({ id: r.id, src: r.src, depth: r.depth, move: r.camera })),
+    [rooms],
+  )
 
   const total = rooms.length
   const distance = INTRO_VH + total * VH_PER_ROOM + OUTRO_VH
@@ -166,14 +187,16 @@ function Tour({ projects, skipTo, demo }) {
   const project = projects[room.projectIndex]
   const roomsInProject = project.shots.length
 
-  // Jump the scroll to the start of a project.
-  const goToProject = (projectIndex) => {
+  // Jump the scroll to a room (index in walk order), or to the start of a project.
+  const goToRoom = (index) => {
     const section = sectionRef.current
     if (!section) return
     const vh = window.innerHeight / 100
-    const into = (INTRO_VH + firstRoomOf[projectIndex] * VH_PER_ROOM + VH_PER_ROOM * PASS) * vh
+    const into = (INTRO_VH + index * VH_PER_ROOM + VH_PER_ROOM * PASS) * vh
     window.scrollTo({ top: section.getBoundingClientRect().top + window.scrollY + into, behavior: 'smooth' })
   }
+  const goToProject = (projectIndex) => goToRoom(firstRoomOf[projectIndex])
+  const stopWord = project.type === 'house' ? 'View' : 'Room'
 
   return (
     <section
@@ -185,9 +208,13 @@ function Tour({ projects, skipTo, demo }) {
       <div className="sticky top-0 h-svh overflow-hidden">
         {/* Rooms, framed by the doorway */}
         <motion.div className="absolute inset-0 bg-black" style={{ clipPath, perspective: '1200px' }}>
-          {rooms.map((r, i) => (
-            <Room key={r.id} room={r} index={i} total={total} walk={walk} reduce={reduce} />
-          ))}
+          {use3d ? (
+            <DepthWalkthrough rooms={rooms3d} walk={walk} pass={PASS} onFail={onFail3d} />
+          ) : (
+            rooms.map((r, i) => (
+              <Room key={r.id} room={r} index={i} total={total} walk={walk} reduce={reduce} />
+            ))
+          )}
           <motion.div
             aria-hidden="true"
             className="absolute inset-0 pointer-events-none"
@@ -210,7 +237,7 @@ function Tour({ projects, skipTo, demo }) {
             Walk through spaces we&apos;ve designed
           </h2>
           <p className="mt-3 text-sm md:text-base text-white/70">
-            {projects.length} project{projects.length === 1 ? '' : 's'} · {total} rooms
+            {projects.length} project{projects.length === 1 ? '' : 's'} · {total} views
             {demo && <span className="ml-2 text-amber-300">(sample photos)</span>}
           </p>
         </motion.div>
@@ -236,7 +263,7 @@ function Tour({ projects, skipTo, demo }) {
         {/* During the walk: project, rooms, progress */}
         {/* A soft shadow keeps the text readable over bright photos */}
         <motion.div style={{ opacity: hudOpacity }} className="absolute z-[70] inset-0 pointer-events-none [text-shadow:0_1px_10px_rgba(0,0,0,0.55)]">
-          <div className="absolute left-0 right-0 top-0 px-6 md:px-12 pt-24 md:pt-28">
+          <div className={`absolute left-0 right-0 top-0 px-6 md:px-12 pt-24 md:pt-28 ${project.plan ? 'pr-36 md:pr-12' : ''}`}>
             <AnimatePresence mode="wait" initial={false}>
               <motion.div
                 key={room.projectIndex}
@@ -247,12 +274,35 @@ function Tour({ projects, skipTo, demo }) {
               >
                 <p className="text-[11px] font-bold uppercase tracking-[0.2em] text-white/65">
                   Project {String(room.projectIndex + 1).padStart(2, '0')} of {String(projects.length).padStart(2, '0')}
+                  {TYPE_LABEL[project.type] && <span className="block md:inline md:before:content-['·'] md:before:mx-2">{TYPE_LABEL[project.type]}</span>}
                 </p>
                 <p className="mt-1.5 text-xl md:text-3xl font-bold text-white tracking-tight">{project.title}</p>
                 {project.location && <p className="text-sm md:text-base text-white/70">{project.location}</p>}
               </motion.div>
             </AnimatePresence>
           </div>
+
+          {/* The floor plan, marking where you are; tap a marker to go there.
+              Top right on phones, under the project's name on larger screens. */}
+          {project.plan && (
+            <div className="absolute right-4 top-24 md:right-auto md:left-12 md:top-[13.5rem]">
+              <AnimatePresence mode="wait" initial={false}>
+                <motion.div
+                  key={room.projectIndex}
+                  initial={{ opacity: 0, y: 8 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  exit={{ opacity: 0, y: -6 }}
+                  transition={{ duration: 0.4, ease: EASE }}
+                >
+                  <FloorPlan
+                    project={project}
+                    roomIndex={room.roomIndex}
+                    onPick={(i) => goToRoom(firstRoomOf[room.projectIndex] + i)}
+                  />
+                </motion.div>
+              </AnimatePresence>
+            </div>
+          )}
 
           {/* Projects, with how far through each one you are (desktop) */}
           {projects.length > 1 && (
@@ -295,7 +345,7 @@ function Tour({ projects, skipTo, demo }) {
 
             <div className="flex items-center gap-3">
               <span className="text-[12px] font-semibold tabular-nums text-white/75">
-                Room {room.roomIndex + 1} / {roomsInProject}
+                {stopWord} {room.roomIndex + 1} / {roomsInProject}
               </span>
               <span className="flex gap-1.5">
                 {project.shots.map((s, i) => (
@@ -330,6 +380,50 @@ function Tour({ projects, skipTo, demo }) {
         </motion.div>
       </div>
     </section>
+  )
+}
+
+// The project's floor plan with a marker for each photo that has one
+// (tour.json); the one you're looking at glows. Tapping a marker goes there.
+function FloorPlan({ project, roomIndex, onPick }) {
+  return (
+    <div className="pointer-events-auto rounded-lg bg-black/45 backdrop-blur-md p-1.5 md:p-2 shadow-lg ring-1 ring-white/15">
+      <p className="hidden md:block px-0.5 pb-1.5 text-[10px] font-bold uppercase tracking-[0.18em] text-white/70 [text-shadow:none]">
+        Floor plan
+      </p>
+      <div className="relative inline-block align-top">
+        <img
+          src={project.plan}
+          alt={`${project.title} floor plan`}
+          draggable={false}
+          className="block w-auto h-auto max-w-[7rem] max-h-[8rem] md:max-w-[15rem] md:max-h-[30vh] rounded"
+        />
+        {project.shots.map((shot, i) => {
+          if (!shot.marker) return null
+          const here = i === roomIndex
+          return (
+            <button
+              key={shot.key}
+              type="button"
+              onClick={() => onPick(i)}
+              title={shot.room}
+              aria-label={`Go to ${shot.room}`}
+              aria-current={here ? 'step' : undefined}
+              className="absolute -translate-x-1/2 -translate-y-1/2 w-6 h-6 flex items-center justify-center"
+              style={{ left: `${shot.marker.x * 100}%`, top: `${shot.marker.y * 100}%` }}
+            >
+              {here && <span aria-hidden className="absolute w-5 h-5 rounded-full bg-white/50 animate-ping" />}
+              <span
+                aria-hidden
+                className={here
+                  ? 'relative w-3.5 h-3.5 rounded-full bg-white ring-2 ring-[#2d568e] shadow'
+                  : 'relative w-2.5 h-2.5 rounded-full bg-white/80 ring-1 ring-black/40'}
+              />
+            </button>
+          )
+        })}
+      </div>
+    </div>
   )
 }
 
