@@ -21,6 +21,17 @@ function formatWhen(iso) {
   return d.toLocaleDateString('en-PH', { month: 'short', day: 'numeric', year: 'numeric' })
 }
 
+function peso(n) {
+  return `₱${Number(n || 0).toLocaleString('en-PH', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
+}
+
+// "Nov 2025 · Gross income: Excel ₱10,000.00, Accounting ₱12,000.00", one per line.
+function describeWarnings(warnings, max = 6) {
+  const lines = warnings.slice(0, max).map((w) => `${w.month} · ${w.label}: Excel ${peso(w.sheet)}, Accounting ${peso(w.accounting)}`)
+  if (warnings.length > max) lines.push(`…and ${warnings.length - max} more`)
+  return lines.join('\n')
+}
+
 /**
  * compact  buttons only (for a page header); the full version adds a status line
  */
@@ -45,8 +56,15 @@ export function StatementActions({ contract, compact = false, className }) {
   const download = async () => {
     setBusy('download')
     try {
-      await downloadContractStatement(contract.id)
-      toast.success('Statement downloaded')
+      const { warnings } = await downloadContractStatement(contract.id)
+      if (warnings.length > 0) {
+        toast(
+          `Downloaded, but some months differ from the Accounting page:\n${describeWarnings(warnings, 3)}`,
+          { icon: '⚠️', duration: 10000, style: { whiteSpace: 'pre-line', maxWidth: 460 } },
+        )
+      } else {
+        toast.success('Statement downloaded · matches Accounting')
+      }
     } catch (err) {
       console.error(err)
       toast.error(err?.message || 'Could not build the statement')
@@ -60,7 +78,19 @@ export function StatementActions({ contract, compact = false, className }) {
     if (!window.confirm(`Email the statement for ${contract.contract_code || 'this contract'} to ${ownerEmail}?${again}`)) return
     setBusy('send')
     try {
-      const res = await sendContractStatement(contract.id)
+      let res
+      try {
+        res = await sendContractStatement(contract.id)
+      } catch (err) {
+        // The Excel disagrees with Accounting for some months: ask before sending.
+        if (err?.code !== 'mismatch') throw err
+        const ok = window.confirm(
+          `The statement differs from the Accounting page:\n\n${describeWarnings(err.warnings)}\n\n` +
+          'Download it to check first, or send it anyway?\n\nOK = send anyway · Cancel = don\'t send',
+        )
+        if (!ok) return
+        res = await sendContractStatement(contract.id, { force: true })
+      }
       toast.success(`Statement sent to ${res?.to || ownerEmail}`)
       loadHistory()
     } catch (err) {

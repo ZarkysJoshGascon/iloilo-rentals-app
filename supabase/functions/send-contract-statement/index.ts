@@ -4,9 +4,11 @@
 // contract's owner through Resend (mode "send", only once the contract has
 // ended). Each send is recorded in contract_statements.
 //
-// The figures come from the same contract_monthly_breakdown RPC the
-// Accounting page uses, read as the signed-in admin, so the file matches
-// what the CRM shows.
+// The file lists every booking, cleaning and expense month by month and
+// works each month out from those rows (data read as the signed-in admin).
+// Each month is checked against the Accounting page's figures
+// (contract_monthly_breakdown): a download returns any differences as
+// warnings, and a send stops on them unless the admin confirms (force).
 
 import { serve } from 'https://deno.land/std@0.168.0/http/server.ts'
 import { encode as encodeBase64 } from 'https://deno.land/std@0.168.0/encoding/base64.ts'
@@ -14,7 +16,7 @@ import { createClient } from 'https://esm.sh/@supabase/supabase-js@2'
 import ExcelJS from 'npm:exceljs@4.4.0'
 import { corsHeaders } from '../_shared/cors.ts'
 import {
-  buildStatementWorkbook, computeTotals, enumerateMonths, formatDateText, nightsWithin,
+  buildStatementWorkbook, computeMonth, computeTotals, enumerateMonths, formatDateText, monthLabel, round2,
 } from './workbook.js'
 
 const RESEND_API_KEY        = Deno.env.get('RESEND_API_KEY')
@@ -67,18 +69,23 @@ function nightsBetween(checkIn: string, checkOut: string): number {
 
 // ---------------------------------------------------------------
 // Data for one contract term, read as the admin (RLS applies).
+// Every booking, cleaning and expense is grouped by month and the month's
+// figures are worked out from those rows, so the owner can trace every
+// peso. Each month is then compared with the Accounting page's figures
+// (contract_monthly_breakdown); any difference comes back as a warning.
 // ---------------------------------------------------------------
+const DEFAULT_PM_PCT = 35
+
 async function loadStatement(db: any, contract: any) {
   const start = contract.effective_date
   const end = contract.expiry_date || todayISO()
 
-  const [breakdownRes, bookingsRes, cleaningsRes, manualRes, extensionsRes] = await Promise.all([
+  const [breakdownRes, bookingsRes, cleaningsRes, manualRes, extensionsRes, pmRes] = await Promise.all([
     db.rpc('contract_monthly_breakdown', { p_contract_id: contract.id }),
     db.from('bookings')
-      .select('booking_code, check_in, check_out, guests, total_amount, booker_commission, affiliate_commission')
+      .select('booking_code, check_in, check_out, guests, total_amount, booker_commission, affiliate_commission, cancelled_at')
       .eq('unit_id', contract.unit_id)
       .is('deleted_at', null)
-      .is('cancelled_at', null)
       .gte('check_in', start)
       .lte('check_in', end)
       .order('check_in', { ascending: true }),
@@ -88,20 +95,43 @@ async function loadStatement(db: any, contract: any) {
       .gte('scheduled_date', start)
       .lte('scheduled_date', end)
       .order('scheduled_date', { ascending: true }),
-    db.from('contract_monthly_expenses').select('month, custom_items').eq('contract_id', contract.id),
+    db.from('contract_monthly_expenses')
+      .select('month, electricity, internet, water, marketing, custom_items')
+      .eq('contract_id', contract.id),
     db.from('contract_extensions')
       .select('previous_expiry, new_expiry, created_at')
       .eq('contract_id', contract.id)
       .order('created_at', { ascending: true }),
+    db.from('pm_contracts')
+      .select('pm_id, pm_share_of_company_pct, effective_date')
+      .eq('unit_id', contract.unit_id)
+      .order('effective_date', { ascending: false }),
   ])
 
   if (breakdownRes.error) throw new Error(`Accounting figures: ${breakdownRes.error.message}`)
   if (bookingsRes.error) throw new Error(`Bookings: ${bookingsRes.error.message}`)
   if (cleaningsRes.error) throw new Error(`Cleanings: ${cleaningsRes.error.message}`)
   if (manualRes.error) throw new Error(`Expenses: ${manualRes.error.message}`)
-  // Extension history is optional (older databases may not have the table).
+  // Extension history and PM percentages are optional extras.
 
-  const bookings = (bookingsRes.data || []).map((b: any) => ({
+  const monthOf = (iso: string) => String(iso || '').slice(0, 7)
+
+  const crmByMonth = new Map<string, any>()
+  for (const r of breakdownRes.data || []) {
+    const key = typeof r.month === 'string' ? r.month.slice(0, 7) : new Date(r.month).toISOString().slice(0, 7)
+    crmByMonth.set(key, r)
+  }
+  const manualByMonth = new Map<string, any>()
+  for (const r of manualRes.data || []) manualByMonth.set(monthOf(r.month), r)
+
+  const pmPctFor = (pmId: string | null) => {
+    if (pmRes.error) return DEFAULT_PM_PCT
+    const row = (pmRes.data || []).find((p: any) => !pmId || p.pm_id === pmId)
+    const pct = Number(row?.pm_share_of_company_pct)
+    return Number.isFinite(pct) && pct > 0 ? pct : DEFAULT_PM_PCT
+  }
+
+  const toBooking = (b: any) => ({
     code: b.booking_code || '—',
     checkIn: b.check_in,
     checkOut: b.check_out,
@@ -110,59 +140,63 @@ async function loadStatement(db: any, contract: any) {
     amount: Number(b.total_amount || 0),
     bookerComm: Number(b.booker_commission || 0),
     affiliateComm: Number(b.affiliate_commission || 0),
-  }))
+  })
 
-  const byMonth = new Map<string, any>()
-  for (const r of breakdownRes.data || []) {
-    const key = typeof r.month === 'string' ? r.month.slice(0, 7) : new Date(r.month).toISOString().slice(0, 7)
-    byMonth.set(key, r)
-  }
+  const split = { ownerSplitPct: OWNER_SPLIT_PCT, companySplitPct: COMPANY_SPLIT_PCT }
+  const warnings: any[] = []
 
   const months = enumerateMonths(start, end).map((key: string) => {
-    const r = byMonth.get(key) || {}
-    const inMonth = bookings.filter((b: any) => String(b.checkIn).slice(0, 7) === key)
-    return {
+    const monthBookings = (bookingsRes.data || []).filter((b: any) => monthOf(b.check_in) === key)
+    const manual = manualByMonth.get(key) || {}
+    const crm = crmByMonth.get(key) || null
+
+    // The PM for the month is the one Accounting used.
+    const hasPm = !!crm && (!!crm.pm_id || !!crm.pm_name || Number(crm.pm_share) !== 0)
+    const month: any = {
       month: key,
-      bookings: inMonth.length,
-      nights: inMonth.reduce((t: number, b: any) => t + b.nights, 0),
-      gross: Number(r.gross) || 0,
-      bookingComm: Number(r.booking_comm) || 0,
-      affiliateComm: Number(r.affiliate_comm) || 0,
-      housekeeping: Number(r.housekeeping) || 0,
-      laundry: Number(r.laundry) || 0,
-      electricity: Number(r.electricity) || 0,
-      internet: Number(r.internet) || 0,
-      water: Number(r.water) || 0,
-      marketing: Number(r.marketing) || 0,
-      other: Number(r.custom_total) || 0,
-      totalExpenses: Number(r.total_expenses) || 0,
-      net: Number(r.net) || 0,
+      bookings: monthBookings.filter((b: any) => !b.cancelled_at).map(toBooking),
+      cancelled: monthBookings.filter((b: any) => b.cancelled_at).map(toBooking),
+      cleanings: (cleaningsRes.data || [])
+        .filter((c: any) => monthOf(c.scheduled_date) === key)
+        .map((c: any) => ({
+          code: c.cleaning_code || '—',
+          date: c.scheduled_date,
+          type: c.type || '—',
+          status: c.status || '—',
+          housekeeping: Number(c.payment_amount || 0),
+          laundry: Number(c.laundry_payment_amount || 0),
+          counted: c.status !== 'cancelled',
+        })),
+      bills: {
+        electricity: Number(manual.electricity || 0),
+        internet: Number(manual.internet || 0),
+        water: Number(manual.water || 0),
+        marketing: Number(manual.marketing || 0),
+      },
+      other: (Array.isArray(manual.custom_items) ? manual.custom_items : [])
+        .filter((x: any) => x && typeof x.name === 'string' && x.name.trim())
+        .map((x: any) => ({ name: x.name.slice(0, 80), amount: Number(x.amount) || 0 })),
+      pm: hasPm ? { name: crm.pm_name || null, pct: pmPctFor(crm.pm_id || null) } : null,
     }
+    month.figures = computeMonth(month, split)
+
+    // Does the sheet agree with the Accounting page for this month?
+    const f = month.figures
+    const checks: [string, number, number][] = [
+      ['Gross income', f.gross, Number(crm?.gross) || 0],
+      ['Total expenses', f.totalExpenses, Number(crm?.total_expenses) || 0],
+      ['Net income', f.net, Number(crm?.net) || 0],
+      ['PM share', f.pmShare, Number(crm?.pm_share) || 0],
+    ]
+    for (const [label, sheet, accounting] of checks) {
+      if (Math.abs(sheet - accounting) >= 0.5) {
+        warnings.push({ month: monthLabel(key), label, sheet: round2(sheet), accounting: round2(accounting) })
+      }
+    }
+    return month
   })
 
-  const cleanings = (cleaningsRes.data || []).map((c: any) => ({
-    code: c.cleaning_code || '—',
-    date: c.scheduled_date,
-    type: c.type || '—',
-    status: c.status || '—',
-    housekeeping: Number(c.payment_amount || 0),
-    laundry: Number(c.laundry_payment_amount || 0),
-  }))
-
-  const otherExpenses: any[] = []
-  for (const row of manualRes.data || []) {
-    const key = String(row.month).slice(0, 7)
-    for (const item of Array.isArray(row.custom_items) ? row.custom_items : []) {
-      if (!item || typeof item.name !== 'string' || !item.name.trim()) continue
-      otherExpenses.push({ month: key, name: item.name.slice(0, 80), amount: Number(item.amount) || 0 })
-    }
-  }
-  otherExpenses.sort((a, b) => a.month.localeCompare(b.month))
-
-  const totals = computeTotals({
-    months, bookings, start, end,
-    ownerSplitPct: OWNER_SPLIT_PCT, companySplitPct: COMPANY_SPLIT_PCT,
-  })
+  const totals = computeTotals({ months, start, end })
 
   return {
     contract: {
@@ -175,10 +209,8 @@ async function loadStatement(db: any, contract: any) {
       extensions: extensionsRes.error ? [] : (extensionsRes.data || []),
     },
     months,
-    bookings,
-    cleanings,
-    otherExpenses,
     totals,
+    warnings,
     preparedOn: todayISO(),
     ownerSplitPct: OWNER_SPLIT_PCT,
     companySplitPct: COMPANY_SPLIT_PCT,
@@ -219,12 +251,13 @@ function renderHtml(data: any): string {
           <p style="margin:0 0 14px 0;font-size:14px;color:#0a0a0a;">Hi ${escapeHtml(firstName)},</p>
           <p style="margin:0 0 24px 0;font-size:14px;line-height:1.7;color:#3f3f46;">
             Your contract ${escapeHtml(contract.code || '')} for ${escapeHtml(unitLine || 'your unit')} has ended.
-            Here is a summary of the term. The full breakdown by month, booking and expense is in the attached Excel file.
+            Here is a summary of the term. The attached Excel file lists every booking, cleaning and expense
+            month by month, with how each month's net income and your share were worked out.
           </p>
           <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0">
-            ${row('Gross revenue', formatMoney(totals.gross))}
+            ${row('Gross income', formatMoney(totals.gross))}
             ${row('Total expenses', formatMoney(totals.totalExpenses))}
-            ${row('Net profit', formatMoney(totals.net))}
+            ${row('Net income', formatMoney(totals.net))}
             ${row(`Your share (${OWNER_SPLIT_PCT}%)`, formatMoney(totals.ownerShare), true)}
             ${row('Bookings · nights', `${totals.bookings} · ${totals.nights}`)}
           </table>
@@ -256,13 +289,13 @@ function renderText(data: any): string {
     `Your contract ${contract.code || ''} for ${unitLine || 'your unit'} has ended.`,
     `Term: ${formatDateText(contract.start)} – ${formatDateText(contract.end)}`,
     '',
-    `  Gross revenue:      ${formatMoney(totals.gross)}`,
+    `  Gross income:       ${formatMoney(totals.gross)}`,
     `  Total expenses:     ${formatMoney(totals.totalExpenses)}`,
-    `  Net profit:         ${formatMoney(totals.net)}`,
+    `  Net income:         ${formatMoney(totals.net)}`,
     `  Your share (${OWNER_SPLIT_PCT}%):  ${formatMoney(totals.ownerShare)}`,
     `  Bookings · nights:  ${totals.bookings} · ${totals.nights}`,
     '',
-    'The full breakdown is in the attached Excel file.',
+    'The attached Excel file lists every booking, cleaning and expense month by month, with how each month was worked out.',
     'If anything looks off or you have questions, just reply to this email.',
     '',
     'Warm regards,',
@@ -301,6 +334,7 @@ serve(async (req) => {
     const body = await req.json().catch(() => ({}))
     const contractId = typeof body.contract_id === 'string' ? body.contract_id : null
     const mode = body.mode === 'send' ? 'send' : 'download'
+    const force = body.force === true
     if (!contractId) return json({ error: 'contract_id is required' }, 400)
 
     const { data: contract, error: cErr } = await db
@@ -332,6 +366,16 @@ serve(async (req) => {
     }
 
     const data = await loadStatement(db, contract)
+
+    // Don't email figures that disagree with Accounting unless the admin says so.
+    if (mode === 'send' && data.warnings.length > 0 && !force) {
+      return json({
+        error: 'The statement differs from the Accounting page for some months.',
+        code: 'mismatch',
+        warnings: data.warnings,
+      }, 409)
+    }
+
     const workbook = buildStatementWorkbook(ExcelJS, data)
     const buffer = await workbook.xlsx.writeBuffer()
     const file = encodeBase64(new Uint8Array(buffer as ArrayBuffer))
@@ -339,7 +383,7 @@ serve(async (req) => {
     const filename = `Statement-${safe(contract.units?.unit_code || 'unit')}-${safe(contract.contract_code || contract.id)}.xlsx`
 
     if (mode === 'download') {
-      return json({ ok: true, filename, file, totals: data.totals })
+      return json({ ok: true, filename, file, totals: data.totals, warnings: data.warnings })
     }
 
     const subject = `Your statement for ${contract.units?.unit_code || 'your unit'} · ${formatDateText(data.contract.start)} – ${formatDateText(data.contract.end)}`

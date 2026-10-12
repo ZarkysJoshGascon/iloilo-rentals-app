@@ -258,7 +258,7 @@ async function resizeImage(file, maxW, quality, maxH = null) {
 // ------------------------------------------------------------
 // Owner statements (send-contract-statement Edge Function)
 // ------------------------------------------------------------
-async function callStatementFunction(contractId, mode) {
+async function callStatementFunction(contractId, mode, extra = {}) {
   if (!contractId) throw new Error('Missing contract id')
   const { data: { session } } = await supabase.auth.getSession()
   if (!session) throw new Error('Not signed in')
@@ -271,20 +271,23 @@ async function callStatementFunction(contractId, mode) {
         'Content-Type': 'application/json',
         Authorization: `Bearer ${session.access_token}`,
       },
-      body: JSON.stringify({ contract_id: contractId, mode }),
+      body: JSON.stringify({ contract_id: contractId, mode, ...extra }),
     },
   )
   const data = await res.json().catch(() => ({}))
   if (!res.ok) {
     if (res.status === 404 && !data?.error) throw new Error('The statement function is not deployed yet.')
-    throw new Error(data?.error || `Request failed (${res.status})`)
+    const err = new Error(data?.error || `Request failed (${res.status})`)
+    err.code = data?.code || null
+    err.warnings = Array.isArray(data?.warnings) ? data.warnings : []
+    throw err
   }
   return data
 }
 
 /** Builds the Excel statement and saves it in the browser, to check before sending. */
 export async function downloadContractStatement(contractId) {
-  const { filename, file } = await callStatementFunction(contractId, 'download')
+  const { filename, file, warnings } = await callStatementFunction(contractId, 'download')
   const bytes = Uint8Array.from(atob(file), (c) => c.charCodeAt(0))
   const blob = new Blob([bytes], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' })
   const url = URL.createObjectURL(blob)
@@ -295,12 +298,12 @@ export async function downloadContractStatement(contractId) {
   a.click()
   a.remove()
   setTimeout(() => URL.revokeObjectURL(url), 1000)
-  return filename
+  return { filename, warnings: warnings || [] }
 }
 
 /** Emails the Excel statement to the contract's owner (ended contracts only). */
-export function sendContractStatement(contractId) {
-  return callStatementFunction(contractId, 'send')
+export function sendContractStatement(contractId, { force = false } = {}) {
+  return callStatementFunction(contractId, 'send', force ? { force: true } : {})
 }
 
 /** Past statement emails for a contract, newest first (empty if the table isn't there yet). */
