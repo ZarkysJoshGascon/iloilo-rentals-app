@@ -1,5 +1,5 @@
 // src/components/admin/ContractAlertBar.jsx
-// Warning bar under the CRM header: contracts that have expired or are about
+// Warning bar on the Dashboard, under the header: contracts that have expired or are about
 // to. Expands into a list; each row opens that contract. Dismissing hides it
 // for the rest of the day, unless something new comes up.
 import { useMemo, useState } from 'react'

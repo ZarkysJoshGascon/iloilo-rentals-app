@@ -2,7 +2,7 @@
 // Contracts that need renewing, for the CRM's warning bar and sidebar badge:
 // those expiring within CONTRACT_ALERT_DAYS, and those already expired on a
 // unit that's still active (it can't take bookings until it's renewed).
-// Replaces the daily renewal email: the warning shows inside the CRM instead.
+// This replaced the old daily renewal email (send-renewal-digest, now removed).
 import { useCallback, useEffect, useState } from 'react'
 import { supabase } from '@/lib/supabase'
 import { useDebouncedRealtime } from '@/hooks/useDebouncedRealtime'

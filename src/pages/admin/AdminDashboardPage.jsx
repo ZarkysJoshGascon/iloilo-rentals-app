@@ -193,7 +193,7 @@ export default function AdminDashboardPage() {
   const [activeTab, setActiveTab] = useState(initialTab)
   const [sidebarCollapsed, setSidebarCollapsed] = useState(true)
   const [adminUser, setAdminUser] = useState(null)
-  // Contracts expired or expiring soon: warning bar + sidebar badge (instead of the renewal email).
+  // Contracts expired or expiring soon: warning bar on the Dashboard + sidebar badge.
   const contractAlerts = useContractAlerts()
 
   // ── Mark current tab loaded as soon as it becomes active ──
@@ -445,6 +445,8 @@ export default function AdminDashboardPage() {
             </div>
           </header>
 
+          {/* Contract renewals warning: Dashboard only */}
+          {activeTab === 'dashboard' && (
           <ContractAlertBar
             alerts={contractAlerts}
             onOpenContracts={() => handleTabChange('contracts')}
@@ -455,6 +457,7 @@ export default function AdminDashboardPage() {
               setSearchParams(next, { replace: true })
             }}
           />
+          )}
 
           <div
             className="flex-1 min-h-0 relative"
