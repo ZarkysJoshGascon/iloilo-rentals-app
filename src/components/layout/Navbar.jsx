@@ -29,10 +29,12 @@ export default function Navbar() {
   const rowRef = useRef(null)
   const [userKey, setUserKey] = useState(0)
 
+  // `main` links keep their label on laptop-width screens; the rest show only
+  // their icon until the screen is wide enough for every label.
   const desktopLinks = [
-    { path: '/',                label: 'Home',            icon: Home },
-    { path: '/list-property',   label: 'List Property',   icon: Building2 },
-    { path: '/interior-design', label: 'Interior Design', icon: Palette },
+    { path: '/',                label: 'Home',            icon: Home,      main: true },
+    { path: '/list-property',   label: 'List Property',   icon: Building2, main: true },
+    { path: '/interior-design', label: 'Interior Design', icon: Palette,   main: true },
     { path: '/about',           label: 'About',           icon: Info },
     { path: '/contact',         label: 'Contact',         icon: Phone },
     { path: '/terms',           label: 'Terms',           icon: FileText },
@@ -123,7 +125,9 @@ export default function Navbar() {
                 <Link
                   key={link.path}
                   to={link.path}
-                  className={`relative flex items-center px-4 py-2.5 text-sm font-medium rounded-full transition-colors duration-200 whitespace-nowrap ${
+                  title={link.label}
+                  aria-label={link.label}
+                  className={`relative flex items-center px-3 xl:px-4 py-2.5 text-sm font-medium rounded-full transition-colors duration-200 whitespace-nowrap ${
                     active ? 'text-[#1a3a5c]' : 'text-[color:var(--nav-fg)] hover:text-[color:var(--nav-fg-strong)] hover:bg-gray-900/5'
                   }`}
                 >
@@ -136,7 +140,8 @@ export default function Navbar() {
                   )}
                   <span className="relative flex items-center gap-2">
                     <Icon size={15} />
-                    <span>{link.label}</span>
+                    {/* Narrower screens show the icon only (the name is in the tooltip). */}
+                    <span className={link.main ? 'hidden lg:inline' : 'hidden xl:inline'}>{link.label}</span>
                   </span>
                 </Link>
               )
@@ -153,20 +158,22 @@ export default function Navbar() {
                     <Link
                       to="/admin"
                       title="Open the admin CRM"
+                      aria-label="CRM"
                       className="flex items-center gap-2 px-3 py-2 rounded-full text-sm font-medium transition-colors text-[color:var(--nav-fg)] hover:text-[color:var(--nav-fg-strong)] hover:bg-gray-900/5"
                     >
                       <LayoutDashboard size={15} />
-                      <span>CRM</span>
+                      <span className="hidden lg:inline">CRM</span>
                     </Link>
                   )}
                   {showOwnerLink && (
                     <Link
                       to="/owner"
                       title="Your units and earnings"
+                      aria-label="My units"
                       className="flex items-center gap-2 px-3 py-2 rounded-full text-sm font-medium transition-colors text-[color:var(--nav-fg)] hover:text-[color:var(--nav-fg-strong)] hover:bg-gray-900/5"
                     >
                       <KeyRound size={15} />
-                      <span>My units</span>
+                      <span className="hidden lg:inline">My units</span>
                     </Link>
                   )}
                   <div className="w-9 h-9 rounded-full overflow-hidden bg-[color:var(--nav-line)] flex items-center justify-center flex-shrink-0 ring-1 ring-[color:var(--nav-line)]">
