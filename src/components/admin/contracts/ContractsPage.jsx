@@ -1382,6 +1382,12 @@ export default function ContractsPage() {
   const [newModalOpen, setNewModalOpen] = useState(false)
   const hasLoadedOnce = useRef(false)
 
+  // A ?contract= link opened while already on this page (e.g. from the
+  // contract warning bar) selects that contract too.
+  useEffect(() => {
+    if (initialContractId) setSelectedId(initialContractId)
+  }, [initialContractId])
+
   useEffect(() => {
     const t = setTimeout(() => setDebouncedSearch(search), 300)
     return () => clearTimeout(t)

@@ -16,6 +16,8 @@ import AdminSidebar, {
   SIDEBAR_SLIDE_EASE,
 } from '../../components/admin/AdminSidebar'
 import { InquiryNotifications } from '../../components/admin/InquiryNotifications'
+import ContractAlertBar from '../../components/admin/ContractAlertBar'
+import { useContractAlerts } from '../../hooks/useContractAlerts'
 
 // ─────────────────────────────────────────────────────────────
 // Lazy pages
@@ -191,6 +193,8 @@ export default function AdminDashboardPage() {
   const [activeTab, setActiveTab] = useState(initialTab)
   const [sidebarCollapsed, setSidebarCollapsed] = useState(true)
   const [adminUser, setAdminUser] = useState(null)
+  // Contracts expired or expiring soon: warning bar + sidebar badge (instead of the renewal email).
+  const contractAlerts = useContractAlerts()
 
   // ── Mark current tab loaded as soon as it becomes active ──
   useEffect(() => {
@@ -369,6 +373,7 @@ export default function AdminDashboardPage() {
           prefetch={PREFETCH}
           user={adminUser}
           onSignOut={handleSignOut}
+          contractAlertCount={contractAlerts.total}
         />
 
         <div
@@ -439,6 +444,17 @@ export default function AdminDashboardPage() {
               </button>
             </div>
           </header>
+
+          <ContractAlertBar
+            alerts={contractAlerts}
+            onOpenContracts={() => handleTabChange('contracts')}
+            onOpenContract={(id) => {
+              const next = new URLSearchParams()
+              next.set('tab', 'contracts')
+              next.set('contract', id)
+              setSearchParams(next, { replace: true })
+            }}
+          />
 
           <div
             className="flex-1 min-h-0 relative"

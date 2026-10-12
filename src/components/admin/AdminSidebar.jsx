@@ -75,6 +75,7 @@ const NAV_GROUPS = [
 ]
 
 const BADGE_HINTS = {
+  contracts: 'contracts expired or expiring within 30 days',
   inquiries: 'new property inquiries',
   interior: 'new design inquiries',
   housekeeping: 'cleanings waiting for review',
@@ -138,11 +139,12 @@ export default function AdminSidebar({
   prefetch,
   user,
   onSignOut,
+  contractAlertCount = 0,
 }) {
   const navigate = useNavigate()
   const { signOut } = useAuth()
   const { isDark } = useTheme()
-  const badges = useNavBadges()
+  const badges = { ...useNavBadges(), contracts: contractAlertCount }
 
   const handleSignOut = async () => {
     if (onSignOut) {

@@ -15,9 +15,11 @@ if (!SUPABASE_URL) throw new Error('SUPABASE_URL is required')
 if (!SUPABASE_SERVICE_ROLE_KEY) throw new Error('SUPABASE_SERVICE_ROLE_KEY is required')
 if (!CRON_SECRET) throw new Error('CRON_SECRET is required')
 
-// ✅ FIX #24 — Fail loudly if ADMIN_EMAIL is missing.
+// Optional. Expiring contracts are shown as a warning bar inside the CRM, so
+// this email is an extra: without ADMIN_EMAIL the function sends nothing
+// (never a guessed address — the old fallback pointed at another company's
+// domain).
 const ADMIN_EMAIL = Deno.env.get('ADMIN_EMAIL')
-if (!ADMIN_EMAIL) throw new Error('ADMIN_EMAIL is required')
 
 const FROM_EMAIL = Deno.env.get('FROM_EMAIL') || 'onboarding@resend.dev'
 // The live site (iloilorentals.com belongs to someone else).
@@ -174,6 +176,12 @@ serve(async (req) => {
     if (!timingSafeEqual(authHeader, expected)) {
       return new Response(JSON.stringify({ error: 'Unauthorized' }), {
         status: 401,
+        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+      })
+    }
+
+    if (!ADMIN_EMAIL) {
+      return new Response(JSON.stringify({ ok: true, sent: false, reason: 'ADMIN_EMAIL not set; renewals are shown in the CRM' }), {
         headers: { ...corsHeaders, 'Content-Type': 'application/json' },
       })
     }
