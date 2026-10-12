@@ -50,36 +50,6 @@ const TOURS = [
   },
 ]
 
-// A stock walkthrough that shows what a finished tour will feel like (e.g. to
-// brief the architect or demo to a client). Always labelled "Sample video" with
-// its credit, so it is never presented as our work. See SAMPLE_IS_PUBLIC below.
-// Footage: "Video of a House Interior" by Kindel Media, Pexels License.
-const SAMPLE_TOUR = {
-  key: 'sample',
-  sample: true,
-  src: `${DIR}/sample-tour.mp4`,
-  srcMobile: `${DIR}/sample-tour-mobile.mp4`,
-  eyebrow: 'Sample walkthrough',
-  label: 'Sample house tour',
-  title: 'Stroll through a home, one scroll at a time',
-  subtitle: 'A preview of how our project tours will feel. Scroll down to walk forward, scroll up to walk back.',
-  credit: 'Sample footage: Kindel Media on Pexels',
-  vh: 500,
-  beats: [
-    { from: 0.06, title: 'The entry', note: 'Into the foyer, past the staircase.' },
-    { from: 0.38, title: 'Dining area', note: 'Under the pendant lights, along the table.' },
-    { from: 0.68, title: 'Living room', note: 'Open plan, full of daylight.' },
-  ],
-}
-
-// Shown to everyone for now, for client demos while the project's own
-// walkthrough videos are being made. Set to false once real tours are added
-// (it then shows only on localhost or with ?demo in the URL).
-const SAMPLE_IS_PUBLIC = true
-
-const showSample = () =>
-  SAMPLE_IS_PUBLIC || import.meta.env.DEV || new URLSearchParams(window.location.search).has('demo')
-
 // Clamped linear map of v from [a, b] to [c, d]. Scroll-linked values use the
 // function form of useTransform: the array form hands opacity to the browser's
 // native scroll timeline, which maps window-scroll offsets wrong.
@@ -100,8 +70,7 @@ function beatAt(beats, v) {
 }
 
 export default function InteriorVideoTours({ skipTo }) {
-  const tours = showSample() ? [SAMPLE_TOUR, ...TOURS] : TOURS
-  return tours.map((tour) => <VideoTour key={tour.key} tour={tour} skipTo={skipTo} />)
+  return TOURS.map((tour) => <VideoTour key={tour.key} tour={tour} skipTo={skipTo} />)
 }
 
 function VideoTour({ tour, skipTo }) {
