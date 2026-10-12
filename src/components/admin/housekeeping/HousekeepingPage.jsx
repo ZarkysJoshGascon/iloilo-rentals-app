@@ -8,7 +8,7 @@ import {
   ChevronRight, ChevronLeft, Building2, Clock,
   Image as ImageIcon, FileText, Shirt, Wallet, Send, Coffee,
   ZoomIn, RotateCcw, LogIn, CheckCircle2, Lock,
-  Calendar as CalendarIcon, Copy,
+  Calendar as CalendarIcon, Copy, DoorOpen,
 } from 'lucide-react'
 import toast from 'react-hot-toast'
 import { Button } from '@/components/ui/button'
@@ -30,6 +30,7 @@ import {
   purgeCleaningPhotos,
 } from '@/lib/cleanings'
 import { ContextMenu } from '@/components/ui/ContextMenu'
+import { SortHeader, nextSort, ResultsBar, SearchKeyHint, useListShortcuts } from '@/components/admin/_shared/listTools'
 
 const BRAND = '#2d568e'
 const SOFT_SHADOW = '0 20px 40px -16px rgba(15,23,42,0.24), 0 6px 16px -6px rgba(15,23,42,0.10)'
@@ -128,6 +129,19 @@ const PHOTO_LIMITS = { before: 15, after: 15, report: 10 }
 const MAX_NOTE_LEN = 2000
 const MAX_METHOD_LEN = 60
 const MAX_REFERENCE_LEN = 100
+
+// Sortable columns: the value each one sorts by, and the direction a fresh
+// click starts in. Unassigned cleanings sort first by housekeeper.
+const CLEANING_STATUS_ORDER = ['to-be-evaluated', 'ready', 'scheduled', 'completed', 'cancelled']
+const CLEANING_SORT_VALUE = {
+  code:        (c) => c.cleaning_code || '',
+  booking:     (c) => c.bookings?.booking_code || '',
+  type:        (c) => c.type || '',
+  housekeeper: (c) => c.housekeepers?.name || '',
+  scheduled:   (c) => c.scheduled_date || '',
+  status:      (c) => CLEANING_STATUS_ORDER.indexOf(getEffectiveStatus(c)),
+}
+const CLEANING_SORT_DEFAULT_DIR = { scheduled: 'desc' }
 
 const ROW_GRID = 'grid grid-cols-[minmax(0,1.3fr)_minmax(0,1.1fr)_minmax(0,0.7fr)_minmax(0,1.2fr)_minmax(0,0.9fr)_150px] gap-4 items-center'
 const PANEL_WIDTH = 480
@@ -337,6 +351,9 @@ function PhotoLightbox({ photos, initialIndex, onClose }) {
       animate={{ opacity: 1 }}
       exit={{ opacity: 0 }}
       transition={{ duration: 0.15 }}
+      role="dialog"
+      aria-modal="true"
+      aria-label="Photo viewer"
       className="fixed inset-0 z-[10001] bg-black/90 backdrop-blur-sm flex items-center justify-center"
       onClick={onClose}
     >
@@ -440,44 +457,56 @@ function StatusText({ cleaning }) {
   return <span className={cn('text-[12px] font-semibold', config.className)}>{config.label}</span>
 }
 
-function SummaryCards({ cleanings }) {
+// The cards follow a cleaning's stages (guest still in → guest left → submitted)
+// and double as quick filters for the list below.
+function SummaryCards({ cleanings, active, onSelect }) {
   const stats = useMemo(() => {
-    let scheduled = 0, toBeEvaluated = 0, cancelled = 0
+    let scheduled = 0, ready = 0, toBeEvaluated = 0
     for (const c of cleanings) {
       const s = getEffectiveStatus(c)
-      if (s === 'scheduled' || s === 'ready') scheduled++
+      if (s === 'scheduled') scheduled++
+      else if (s === 'ready') ready++
       else if (s === 'to-be-evaluated') toBeEvaluated++
-      else if (s === 'cancelled') cancelled++
     }
-    return { total: cleanings.length, scheduled, toBeEvaluated, cancelled }
+    return { total: cleanings.length, scheduled, ready, toBeEvaluated }
   }, [cleanings])
 
   const cards = [
-    { label: 'Total Cleanings',  value: stats.total,          icon: Sparkles  },
-    { label: 'Scheduled',        value: stats.scheduled,      icon: Clock     },
-    { label: 'To Be Evaluated',  value: stats.toBeEvaluated,  icon: AlertTriangle },
-    { label: 'Cancelled',        value: stats.cancelled,      icon: X         },
+    { id: 'all',             label: 'Total Cleanings', value: stats.total,         icon: Sparkles },
+    { id: 'scheduled',       label: 'Scheduled',       value: stats.scheduled,     icon: Clock },
+    { id: 'ready',           label: 'Ready to Clean',  value: stats.ready,         icon: DoorOpen },
+    { id: 'to-be-evaluated', label: 'To Be Evaluated', value: stats.toBeEvaluated, icon: AlertTriangle },
   ]
 
   return (
     <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
-      {cards.map((card, i) => (
-        <motion.div
-          key={card.label}
-          initial={{ opacity: 0, y: 8 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ delay: i * 0.05, duration: 0.25 }}
-          className="rounded-md bg-card border border-border shadow-sm p-4"
-        >
-          <div className="flex items-center gap-2 mb-2">
-            <card.icon size={15} className="text-foreground" />
-            <span className="text-[11px] font-bold uppercase tracking-wider text-foreground">
-              {card.label}
-            </span>
-          </div>
-          <p className="text-3xl font-bold text-foreground tabular-nums">{card.value}</p>
-        </motion.div>
-      ))}
+      {cards.map((card, i) => {
+        const isActive = active === card.id
+        return (
+          <motion.button
+            type="button"
+            key={card.label}
+            initial={{ opacity: 0, y: 8 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ delay: i * 0.05, duration: 0.25 }}
+            onClick={() => onSelect(isActive ? 'all' : card.id)}
+            aria-pressed={isActive}
+            title={isActive && card.id !== 'all' ? 'Click again to show all cleanings' : `Show ${card.label.toLowerCase()}`}
+            className={cn(
+              'text-left rounded-md bg-card border shadow-sm p-4 transition-colors',
+              isActive ? 'border-foreground ring-1 ring-foreground' : 'border-border hover:border-foreground/40',
+            )}
+          >
+            <div className="flex items-center gap-2 mb-2">
+              <card.icon size={15} className="text-foreground" />
+              <span className="text-[11px] font-bold uppercase tracking-wider text-foreground">
+                {card.label}
+              </span>
+            </div>
+            <p className="text-3xl font-bold text-foreground tabular-nums">{card.value}</p>
+          </motion.button>
+        )
+      })}
     </div>
   )
 }
@@ -610,7 +639,7 @@ function TodayPanel({ title, icon: Icon, rows, loading, empty, variant, onRowCli
               ))}
             </div>
           ) : rows.length === 0 ? (
-            <div className="rounded-md bg-card border border-border shadow-sm py-8 px-4 text-center">
+            <div className="rounded-md bg-card border border-border shadow-sm py-3 px-4">
               <p className="text-[12px] text-foreground/70">{empty}</p>
             </div>
           ) : (
@@ -2184,7 +2213,7 @@ function CleaningListRow({ cleaning, selected, highlighted, onClick, onViewBooki
               <span className="text-[12.5px] font-medium text-foreground truncate">{cleaning.housekeepers.name}</span>
             </>
           ) : (
-            <span className="text-[11.5px] italic text-foreground/60">Unassigned</span>
+            <span className="text-[11.5px] font-semibold text-amber-600 dark:text-amber-400">Unassigned</span>
           )}
         </div>
         <div className="text-[12.5px] font-medium tabular-nums text-foreground min-w-0">
@@ -2402,6 +2431,32 @@ export default function HousekeepingPage({ initialSelectedId }) {
     })
   }, [cleanings, statusFilter, debouncedSearch])
 
+  // Column sorting; latest scheduled date first by default.
+  const [sort, setSort] = useState({ key: 'scheduled', dir: 'desc' })
+  const onSort = (key) => setSort((prev) => nextSort(prev, key, CLEANING_SORT_DEFAULT_DIR))
+  const sorted = useMemo(() => {
+    const value = CLEANING_SORT_VALUE[sort.key] || CLEANING_SORT_VALUE.scheduled
+    const dir = sort.dir === 'asc' ? 1 : -1
+    return [...filtered].sort((a, b) => {
+      const av = value(a), bv = value(b)
+      const cmp = typeof av === 'number' && typeof bv === 'number'
+        ? av - bv
+        : String(av).localeCompare(String(bv), undefined, { numeric: true, sensitivity: 'base' })
+      return cmp * dir || (b.scheduled_date || '').localeCompare(a.scheduled_date || '')
+    })
+  }, [filtered, sort])
+
+  // Keyboard: "/" jumps to search, Esc closes the open cleaning.
+  const searchRef = useRef(null)
+  const closePanel = useCallback(() => setSelectedId(null), [])
+  useListShortcuts({ searchRef, onEscape: selectedId ? closePanel : null })
+
+  const clearFilters = () => { setStatusFilter('all'); setSearch('') }
+  const filterChips = [
+    statusFilter !== 'all' && { key: 'status', label: STATUS_PILLS.find((p) => p.id === statusFilter)?.label || statusFilter, onRemove: () => setStatusFilter('all') },
+    debouncedSearch.trim() && { key: 'search', label: `"${debouncedSearch.trim()}"`, onRemove: () => setSearch('') },
+  ].filter(Boolean)
+
   const selected = useMemo(() => cleanings.find((c) => c.id === selectedId) || null, [cleanings, selectedId])
   const handleSelect = (c) => setSelectedId((prev) => (prev === c.id ? null : c.id))
 
@@ -2443,10 +2498,21 @@ export default function HousekeepingPage({ initialSelectedId }) {
       <div className="flex-1 min-h-0 flex flex-col p-3 gap-3 overflow-y-auto">
 
         <div className="flex-shrink-0 pt-1 pb-2">
-          <SummaryCards cleanings={cleanings} />
+          <SummaryCards cleanings={cleanings} active={statusFilter} onSelect={setStatusFilter} />
         </div>
 
         <div className="flex-shrink-0 grid grid-cols-1 lg:grid-cols-2 gap-4 pt-1 pb-2">
+          {/* Most urgent first */}
+          <TodayPanel
+            title="Overdue"
+            icon={Clock}
+            rows={overdue}
+            loading={isFirstLoad}
+            empty="No overdue cleanings"
+            variant="overdue"
+            onRowClick={handlePanelRowClick}
+            emphasis
+          />
           <TodayPanel
             title="Due today"
             icon={Sparkles}
@@ -2466,16 +2532,6 @@ export default function HousekeepingPage({ initialSelectedId }) {
             onRowClick={handlePanelRowClick}
           />
           <TodayPanel
-            title="Overdue"
-            icon={Clock}
-            rows={overdue}
-            loading={isFirstLoad}
-            empty="No overdue cleanings"
-            variant="overdue"
-            onRowClick={handlePanelRowClick}
-            emphasis
-          />
-          <TodayPanel
             title="Completed"
             icon={CheckCircle2}
             rows={completed}
@@ -2489,7 +2545,8 @@ export default function HousekeepingPage({ initialSelectedId }) {
         <div className="flex-shrink-0 flex items-center gap-2">
           <div className="relative flex-1 min-w-0">
             <Search size={13} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-muted-foreground" />
-            <Input placeholder="Search code, unit, booking, housekeeper, notes..." value={search} onChange={(e) => setSearch(e.target.value)} className="pl-8 h-8 text-xs rounded" />
+            <Input ref={searchRef} placeholder="Search code, unit, booking, housekeeper, notes..." value={search} onChange={(e) => setSearch(e.target.value)} className="pl-8 pr-9 h-8 text-xs rounded" />
+            {!search && <SearchKeyHint />}
           </div>
           <Button size="sm" className="h-8 rounded text-xs text-white transition-all duration-150 active:scale-[0.98]" style={{ backgroundColor: BRAND }} onClick={() => setNewModalOpen(true)}>
             <Plus size={13} />
@@ -2504,29 +2561,45 @@ export default function HousekeepingPage({ initialSelectedId }) {
           <StatusPills active={statusFilter} onChange={setStatusFilter} counts={counts} />
         </div>
 
+        {!isFirstLoad && (
+          <ResultsBar
+            shown={sorted.length}
+            total={cleanings.length}
+            noun={cleanings.length === 1 ? 'cleaning' : 'cleanings'}
+            chips={filterChips}
+            onClearAll={clearFilters}
+            hint="Click a column to sort · Right-click a cleaning for quick actions · Press / to search"
+          />
+        )}
+
         <div className="flex-1 min-h-[420px] rounded border border-border shadow-sm overflow-hidden bg-card flex flex-col">
           <div className={cn('flex-shrink-0 px-4 py-2.5 border-b border-border bg-muted/40', ROW_GRID)}>
-            <span className="text-[10px] font-bold uppercase tracking-wider text-foreground truncate">Code · Unit</span>
-            <span className="text-[10px] font-bold uppercase tracking-wider text-foreground truncate">Booking</span>
-            <span className="text-[10px] font-bold uppercase tracking-wider text-foreground truncate">Type</span>
-            <span className="text-[10px] font-bold uppercase tracking-wider text-foreground truncate">Housekeeper</span>
-            <span className="text-[10px] font-bold uppercase tracking-wider text-foreground truncate">Scheduled</span>
-            <span className="text-[10px] font-bold uppercase tracking-wider text-foreground text-right truncate">Status</span>
+            <SortHeader label="Code · Unit" sortKey="code" sort={sort} onSort={onSort} />
+            <SortHeader label="Booking" sortKey="booking" sort={sort} onSort={onSort} />
+            <SortHeader label="Type" sortKey="type" sort={sort} onSort={onSort} />
+            <SortHeader label="Housekeeper" sortKey="housekeeper" sort={sort} onSort={onSort} />
+            <SortHeader label="Scheduled" sortKey="scheduled" sort={sort} onSort={onSort} />
+            <SortHeader label="Status" sortKey="status" sort={sort} onSort={onSort} align="right" />
           </div>
 
           <div className="flex-1 min-h-0 overflow-y-auto" style={{ scrollbarGutter: 'stable' }}>
             {isFirstLoad ? (
               <div className="space-y-2 p-3">{[...Array(5)].map((_, i) => <Skeleton key={i} className="h-14 w-full" />)}</div>
-            ) : filtered.length === 0 ? (
+            ) : sorted.length === 0 ? (
               <div className="flex items-center justify-center text-center py-12">
                 <div>
                   <Sparkles size={36} className="text-muted-foreground/40 mx-auto mb-3" />
-                  <p className="text-sm text-muted-foreground font-semibold">No cleanings match your filters</p>
-                  <p className="text-xs text-muted-foreground mt-1">Try clearing filters or creating a new cleaning</p>
+                  <p className="text-sm text-foreground font-semibold">No cleanings match your filters</p>
+                  <p className="text-xs text-foreground/70 mt-1">Try clearing the filters, or create a new cleaning.</p>
+                  {filterChips.length > 0 && (
+                    <button type="button" onClick={clearFilters} className="mt-4 inline-flex items-center h-8 px-3 rounded-md border border-border text-xs font-semibold text-foreground hover:bg-muted">
+                      Clear filters
+                    </button>
+                  )}
                 </div>
               </div>
             ) : (
-              filtered.map((c) => (
+              sorted.map((c) => (
                 <CleaningListRow
                   key={c.id}
                   cleaning={c}

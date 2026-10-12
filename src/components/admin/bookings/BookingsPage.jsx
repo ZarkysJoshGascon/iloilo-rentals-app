@@ -38,6 +38,7 @@ import {
 import { sendBookingConfirmation } from '@/lib/email'
 import BookingConfirmationModal from './BookingConfirmationModal'
 import { ContextMenu } from '@/components/ui/ContextMenu'
+import { SortHeader, nextSort, ResultsBar, SearchKeyHint, useListShortcuts } from '@/components/admin/_shared/listTools'
 
 const BRAND = '#2d568e'
 const SOFT_SHADOW = '0 20px 40px -16px rgba(15,23,42,0.24), 0 6px 16px -6px rgba(15,23,42,0.10)'
@@ -51,6 +52,19 @@ const STATUS_PILLS = [
   { id: 'completed',        label: 'Done' },
   { id: 'unpaid',           label: 'Unpaid' },
 ]
+
+// Sortable columns: the value each one sorts by, and the direction a fresh
+// click starts in (dates and money start with the newest / largest).
+const STATUS_ORDER = ['needs-attention', 'in-house', 'upcoming', 'checked-out', 'completed']
+const SORT_VALUE = {
+  guest:   (b) => b.guest_name || '',
+  code:    (b) => b.booking_code || '',
+  unit:    (b) => b.units?.unit_code || '',
+  checkin: (b) => b.check_in || '',
+  payment: (b) => Number(b.balance || 0),
+  status:  (b) => STATUS_ORDER.indexOf(deriveBookingStatus(b)),
+}
+const SORT_DEFAULT_DIR = { checkin: 'desc', payment: 'desc' }
 
 const ROW_GRID = 'grid grid-cols-[minmax(0,1.6fr)_minmax(0,0.8fr)_minmax(0,1.1fr)_minmax(0,1fr)_minmax(0,1.1fr)_130px] gap-4 items-center'
 const PANEL_WIDTH = 448
@@ -688,7 +702,8 @@ function ModalShell({ open, onClose, title, titleId, maxWidth = 'max-w-md', chil
   )
 }
 
-function SummaryCards({ bookings }) {
+// The cards double as quick filters for the list below.
+function SummaryCards({ bookings, active, onSelect }) {
   const stats = useMemo(() => {
     let upcoming = 0, inHouse = 0, completed = 0, needsAttention = 0
     for (const b of bookings) {
@@ -702,24 +717,39 @@ function SummaryCards({ bookings }) {
   }, [bookings])
 
   const cards = [
-    { label: 'Total Bookings',    value: stats.total,          icon: CalendarIcon },
-    { label: 'Upcoming',          value: stats.upcoming,       icon: Clock },
-    { label: 'In-House',          value: stats.inHouse,        icon: Building2 },
-    { label: 'Needs Attention',   value: stats.needsAttention, icon: AlertTriangle },
+    { id: 'all',             label: 'Total Bookings',  value: stats.total,          icon: CalendarIcon },
+    { id: 'upcoming',        label: 'Upcoming',        value: stats.upcoming,       icon: Clock },
+    { id: 'in-house',        label: 'In-House',        value: stats.inHouse,        icon: Building2 },
+    { id: 'needs-attention', label: 'Needs Attention', value: stats.needsAttention, icon: AlertTriangle },
   ]
 
   return (
     <div className="grid grid-cols-2 md:grid-cols-2 lg:grid-cols-4 gap-3">
-      {cards.map((card, i) => (
-        <motion.div key={card.label} initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: i * 0.05, duration: 0.25 }}
-          className="rounded-md bg-card border border-border shadow-sm p-4">
-          <div className="flex items-center gap-2 mb-2">
-            <card.icon size={15} className="text-foreground" />
-            <span className="text-[11px] font-bold uppercase tracking-wider text-foreground">{card.label}</span>
-          </div>
-          <p className="text-3xl font-bold text-foreground tabular-nums">{card.value}</p>
-        </motion.div>
-      ))}
+      {cards.map((card, i) => {
+        const isActive = active === card.id
+        return (
+          <motion.button
+            type="button"
+            key={card.label}
+            initial={{ opacity: 0, y: 8 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ delay: i * 0.05, duration: 0.25 }}
+            onClick={() => onSelect(isActive ? 'all' : card.id)}
+            aria-pressed={isActive}
+            title={isActive && card.id !== 'all' ? 'Click again to show all bookings' : `Show ${card.label.toLowerCase()}`}
+            className={cn(
+              'text-left rounded-md bg-card border shadow-sm p-4 transition-colors',
+              isActive ? 'border-foreground ring-1 ring-foreground' : 'border-border hover:border-foreground/40',
+            )}
+          >
+            <div className="flex items-center gap-2 mb-2">
+              <card.icon size={15} className="text-foreground" />
+              <span className="text-[11px] font-bold uppercase tracking-wider text-foreground">{card.label}</span>
+            </div>
+            <p className="text-3xl font-bold text-foreground tabular-nums">{card.value}</p>
+          </motion.button>
+        )
+      })}
     </div>
   )
 }
@@ -911,7 +941,7 @@ function TodayPanel({ title, icon: Icon, rows, loading, empty, onRowClick }) {
               ))}
             </div>
           ) : rows.length === 0 ? (
-            <div className="rounded-md bg-card border border-border shadow-sm py-8 px-4 text-center">
+            <div className="rounded-md bg-card border border-border shadow-sm py-3 px-4">
               <p className="text-[12px] text-foreground/70">{empty}</p>
             </div>
           ) : (
@@ -1218,6 +1248,13 @@ function BookingDetailPanel({
                   </Button>
                 )}
               </div>
+              {!isCompleted && !canComplete && (
+                <p className="-mt-2 text-right text-[11px] text-foreground/70">
+                  {guestLeft
+                    ? 'To mark this booking as done, collect the remaining balance first.'
+                    : 'You can mark this booking as done after the guest checks out.'}
+                </p>
+              )}
 
               <DetailSection title="Summary">
                 <div className="p-3 space-y-1 text-xs">
@@ -2760,16 +2797,32 @@ export default function BookingsPage({ initialSelectedId }) {
     window.history.replaceState({}, '', url.toString())
   }, [statusFilter])
 
+  // Column sorting; newest check-in first by default.
+  const [sort, setSort] = useState({ key: 'checkin', dir: 'desc' })
+  const onSort = (key) => setSort((prev) => nextSort(prev, key, SORT_DEFAULT_DIR))
   const sorted = useMemo(() => {
-    const copy = [...filtered]
-    copy.sort((a, b) => {
-      const av = a.check_in ?? '', bv = b.check_in ?? ''
-      if (av > bv) return -1
-      if (av < bv) return 1
-      return 0
+    const value = SORT_VALUE[sort.key] || SORT_VALUE.checkin
+    const dir = sort.dir === 'asc' ? 1 : -1
+    return [...filtered].sort((a, b) => {
+      const av = value(a), bv = value(b)
+      const cmp = typeof av === 'number' && typeof bv === 'number'
+        ? av - bv
+        : String(av).localeCompare(String(bv), undefined, { numeric: true, sensitivity: 'base' })
+      return cmp * dir || (b.check_in || '').localeCompare(a.check_in || '')
     })
-    return copy
-  }, [filtered])
+  }, [filtered, sort])
+
+  // Keyboard: "/" jumps to search, Esc closes the open booking.
+  const searchRef = useRef(null)
+  const closePanel = useCallback(() => setSelectedId(null), [])
+  useListShortcuts({ searchRef, onEscape: selectedId ? closePanel : null })
+
+  const clearFilters = () => { setStatusFilter('all'); setSearch(''); setDateFrom(''); setDateTo('') }
+  const filterChips = [
+    statusFilter !== 'all' && { key: 'status', label: STATUS_PILLS.find((p) => p.id === statusFilter)?.label || statusFilter, onRemove: () => setStatusFilter('all') },
+    debouncedSearch.trim() && { key: 'search', label: `"${debouncedSearch.trim()}"`, onRemove: () => setSearch('') },
+    (dateFrom || dateTo) && { key: 'dates', label: `Check-in ${dateFrom ? formatDateShort(dateFrom) : '…'} → ${dateTo ? formatDateShort(dateTo) : '…'}`, onRemove: () => { setDateFrom(''); setDateTo('') } },
+  ].filter(Boolean)
 
   const selected = useMemo(() => sorted.find((b) => b.id === selectedId) || null, [sorted, selectedId])
 
@@ -2820,7 +2873,7 @@ export default function BookingsPage({ initialSelectedId }) {
       <div className="flex-1 min-h-0 flex flex-col p-3 gap-3 overflow-y-auto">
 
         <div className="flex-shrink-0 pt-1 pb-2">
-          <SummaryCards bookings={bookings} />
+          <SummaryCards bookings={bookings} active={statusFilter} onSelect={setStatusFilter} />
         </div>
 
         <div className="flex-shrink-0 grid grid-cols-1 lg:grid-cols-2 gap-4 pt-1 pb-2">
@@ -2831,7 +2884,8 @@ export default function BookingsPage({ initialSelectedId }) {
         <div className="flex-shrink-0 flex items-center gap-2">
           <div className="relative flex-1 min-w-0">
             <Search size={13} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-muted-foreground" />
-            <Input placeholder="Search guest, booking code, unit, email, booker, notes..." value={search} onChange={(e) => setSearch(e.target.value)} className="pl-8 h-8 text-xs rounded" />
+            <Input ref={searchRef} placeholder="Search guest, booking code, unit, email, booker, notes..." value={search} onChange={(e) => setSearch(e.target.value)} className="pl-8 pr-9 h-8 text-xs rounded" />
+            {!search && <SearchKeyHint />}
           </div>
           <DateRangeFilter from={dateFrom} to={dateTo} onFromChange={setDateFrom} onToChange={setDateTo} onClear={() => { setDateFrom(''); setDateTo('') }} />
           <Button size="sm" className="h-8 rounded text-xs text-white transition-all duration-150 active:scale-[0.98]" style={{ backgroundColor: BRAND }} onClick={openNew}>
@@ -2848,14 +2902,25 @@ export default function BookingsPage({ initialSelectedId }) {
           <WarningsStrip needsAttention={needsAttention} endingSoon={endingSoon} onSelect={(b) => setSelectedId(b.id)} />
         </div>
 
+        {!isFirstLoad && (
+          <ResultsBar
+            shown={sorted.length}
+            total={bookings.length}
+            noun={bookings.length === 1 ? 'booking' : 'bookings'}
+            chips={filterChips}
+            onClearAll={clearFilters}
+            hint="Click a column to sort · Right-click a booking for quick actions · Press / to search"
+          />
+        )}
+
         <div className="flex-1 min-h-[420px] rounded border border-border shadow-sm overflow-hidden bg-card flex flex-col">
           <div className={cn('flex-shrink-0 px-4 py-2.5 border-b border-border bg-muted/40', ROW_GRID)}>
-            <span className="text-[10px] font-bold uppercase tracking-wider text-foreground truncate">Guest</span>
-            <span className="text-[10px] font-bold uppercase tracking-wider text-foreground truncate">Code</span>
-            <span className="text-[10px] font-bold uppercase tracking-wider text-foreground truncate">Unit</span>
-            <span className="text-[10px] font-bold uppercase tracking-wider text-foreground truncate">Check-in → Check-out</span>
-            <span className="text-[10px] font-bold uppercase tracking-wider text-foreground truncate">Payment</span>
-            <span className="text-[10px] font-bold uppercase tracking-wider text-foreground text-right truncate">Status</span>
+            <SortHeader label="Guest" sortKey="guest" sort={sort} onSort={onSort} />
+            <SortHeader label="Code" sortKey="code" sort={sort} onSort={onSort} />
+            <SortHeader label="Unit" sortKey="unit" sort={sort} onSort={onSort} />
+            <SortHeader label="Check-in → Check-out" sortKey="checkin" sort={sort} onSort={onSort} />
+            <SortHeader label="Payment" sortKey="payment" sort={sort} onSort={onSort} />
+            <SortHeader label="Status" sortKey="status" sort={sort} onSort={onSort} align="right" />
           </div>
 
           <div className="flex-1 min-h-0 overflow-y-auto" style={{ scrollbarGutter: 'stable' }}>
@@ -2866,7 +2931,12 @@ export default function BookingsPage({ initialSelectedId }) {
                 <div>
                   <CalendarIcon size={36} className="text-muted-foreground/40 mx-auto mb-3" />
                   <p className="text-sm text-foreground font-semibold">No bookings match your filters</p>
-                  <p className="text-xs text-muted-foreground mt-1">Try clearing filters or creating a new booking</p>
+                  <p className="text-xs text-foreground/70 mt-1">Try clearing the filters, or create a new booking.</p>
+                  {filterChips.length > 0 && (
+                    <button type="button" onClick={clearFilters} className="mt-4 inline-flex items-center h-8 px-3 rounded-md border border-border text-xs font-semibold text-foreground hover:bg-muted">
+                      Clear filters
+                    </button>
+                  )}
                 </div>
               </div>
             ) : (
