@@ -20,6 +20,8 @@ const ADMIN_EMAIL = Deno.env.get('ADMIN_EMAIL')
 if (!ADMIN_EMAIL) throw new Error('ADMIN_EMAIL is required')
 
 const FROM_EMAIL = Deno.env.get('FROM_EMAIL') || 'onboarding@resend.dev'
+// The live site (iloilorentals.com belongs to someone else).
+const PUBLIC_SITE_URL = (Deno.env.get('PUBLIC_SITE_URL') || 'https://iloilorental.com').replace(/\/+$/, '')
 
 function timingSafeEqual(a: string, b: string): boolean {
   if (a.length !== b.length) return false
@@ -132,7 +134,7 @@ function generateHTML(contracts: ExpiringContract[]): string {
             ${renderSection('This Month', thisMonth, '#ea580c')}
             ${renderSection('Next 90 Days', soon, '#6b7280')}
             <div style="margin-top: 32px; padding-top: 24px; border-top: 1px solid #eee; text-align: center;">
-              <a href="https://iloilorentals.com/admin?tab=registry&filter=renewing"
+              <a href="${PUBLIC_SITE_URL}/admin?tab=registry&filter=renewing"
                  style="display: inline-block; background: #2d568e; color: white; text-decoration: none; padding: 14px 28px; border-radius: 10px; font-weight: 600; font-size: 14px;">
                 Open Renewals Dashboard
               </a>
