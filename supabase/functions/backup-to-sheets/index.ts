@@ -1541,6 +1541,14 @@ serve(async (req) => {
       createdBy = user.id
     }
 
+    // { mode: 'share' }: only bring the sheet's access in line with the CRM
+    // access list (the CRM calls this right after someone is added or removed).
+    const body = await req.json().catch(() => ({}))
+    if (body?.mode === 'share') {
+      const sharing = await syncSheetAccess(supabase, await getAccessToken())
+      return json({ ok: true, sharing })
+    }
+
     const { data: runRow } = await supabase
       .from('backup_runs')
       .insert({
@@ -1601,8 +1609,8 @@ serve(async (req) => {
       }
     }
 
-    // Every CRM admin can open the sheet from the Dashboard without asking.
-    const sharing = await shareSheetWithAdmins(supabase, accessToken)
+    // Everyone with CRM access can open the sheet from the Dashboard without asking.
+    const sharing = await syncSheetAccess(supabase, accessToken)
 
     const finishedAt = new Date().toISOString()
     const durationMs = Date.now() - startedAt
@@ -1670,55 +1678,87 @@ function json(body: unknown, status = 200) {
 }
 
 // ════════════════════════════════════════════════════════════════
-// Sheet access for admins
+// Sheet access follows CRM access
 // ════════════════════════════════════════════════════════════════
-// Gives every CRM admin view access to the backup sheet (no email is sent),
-// so the Dashboard's "Open sheet" button opens it instead of Google's
-// "Request access" page. It only ever adds access; it never removes anyone
-// (the sheet's owner manages that in Google Sheets). Never fails the backup:
-// problems come back in the result instead.
-async function shareSheetWithAdmins(
+// Everyone with CRM access (admin_users) or a pending CRM invite
+// (admin_invites) can view the backup sheet, so the Dashboard's sheet button
+// opens it instead of Google's "Request access" page. Access this function
+// gave is recorded in sheet_shares, and taken back when someone leaves the
+// list; shares made by hand in Google Sheets are never touched. No emails are
+// sent. Never fails the backup: problems come back in the result.
+async function syncSheetAccess(
   supabase: ReturnType<typeof createClient>,
   token: string,
-): Promise<{ added: string[]; already: number; failed: string[] }> {
-  const result = { added: [] as string[], already: 0, failed: [] as string[] }
+): Promise<{ added: string[]; removed: string[]; already: number; failed: string[] }> {
+  const result = { added: [] as string[], removed: [] as string[], already: 0, failed: [] as string[] }
   if (!SHEET_ID) return result
   try {
-    const { data: admins, error } = await supabase.from('admin_users').select('user_id')
-    if (error) throw error
-    const emails: string[] = []
+    // Who should have access.
+    const wanted = new Set<string>()
+    const { data: admins, error: adminsErr } = await supabase.from('admin_users').select('user_id')
+    if (adminsErr) throw adminsErr
     for (const a of admins || []) {
       const { data } = await supabase.auth.admin.getUserById(a.user_id)
       const email = data?.user?.email?.toLowerCase()
-      if (email) emails.push(email)
+      if (email) wanted.add(email)
     }
+    const { data: invites, error: invitesErr } = await supabase.from('admin_invites').select('email')
+    if (invitesErr) throw invitesErr
+    for (const i of invites || []) if (i.email) wanted.add(String(i.email).toLowerCase())
 
+    // Who has access now, and which of those this function gave.
     const base = `https://www.googleapis.com/drive/v3/files/${SHEET_ID}/permissions`
-    const listRes = await fetch(`${base}?fields=permissions(emailAddress,role)&supportsAllDrives=true`, {
+    const listRes = await fetch(`${base}?fields=permissions(id,emailAddress,role)&supportsAllDrives=true`, {
       headers: { Authorization: `Bearer ${token}` },
     })
     const listBody = await listRes.json().catch(() => ({}))
     if (!listRes.ok) throw new Error(listBody?.error?.message || `Drive permissions list failed (${listRes.status})`)
-    const haveAccess = new Set(
-      (listBody.permissions || []).map((p: { emailAddress?: string }) => (p.emailAddress || '').toLowerCase()),
-    )
+    const current = new Map<string, { id: string; role: string }>()
+    for (const p of listBody.permissions || []) {
+      if (p.emailAddress) current.set(String(p.emailAddress).toLowerCase(), { id: p.id, role: p.role })
+    }
+    const { data: shared } = await supabase.from('sheet_shares').select('email')
+    const ours = new Set((shared || []).map((r: { email: string }) => r.email))
 
-    for (const email of emails) {
-      if (haveAccess.has(email)) { result.already++; continue }
+    for (const email of wanted) {
+      if (current.has(email)) { result.already++; continue }
       const res = await fetch(`${base}?sendNotificationEmail=false&supportsAllDrives=true`, {
         method: 'POST',
         headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
         body: JSON.stringify({ type: 'user', role: 'reader', emailAddress: email }),
       })
-      if (res.ok) result.added.push(email)
-      else {
+      if (res.ok) {
+        result.added.push(email)
+        await supabase.from('sheet_shares').upsert({ email })
+      } else {
         const body = await res.json().catch(() => ({}))
         result.failed.push(`${email}: ${body?.error?.message || res.status}`)
       }
     }
+
+    // Take back the view access this function gave to people no longer on the list.
+    for (const email of ours) {
+      if (wanted.has(email)) continue
+      const perm = current.get(email)
+      if (perm && perm.role === 'reader') {
+        const res = await fetch(`${base}/${perm.id}?supportsAllDrives=true`, {
+          method: 'DELETE',
+          headers: { Authorization: `Bearer ${token}` },
+        })
+        if (!res.ok && res.status !== 404) {
+          const body = await res.json().catch(() => ({}))
+          result.failed.push(`remove ${email}: ${body?.error?.message || res.status}`)
+          continue
+        }
+        result.removed.push(email)
+      }
+      await supabase.from('sheet_shares').delete().eq('email', email)
+    }
   } catch (err) {
     result.failed.push((err as Error).message || 'Sharing failed')
   }
-  if (result.added.length || result.failed.length) console.log('Sheet sharing:', JSON.stringify(result))
+  if (result.added.length || result.removed.length || result.failed.length) {
+    console.log('Sheet access:', JSON.stringify(result))
+  }
   return result
 }

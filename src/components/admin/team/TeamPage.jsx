@@ -7,7 +7,7 @@ import {
   UserPlus, Users, Award, Mail, Phone, Edit2, User,
   Calendar, Building2,
   AlertTriangle, Pencil, Wallet, FileText, Eye, Upload, ExternalLink,
-  Lock,
+  Lock, ShieldCheck,
 } from 'lucide-react'
 import toast from 'react-hot-toast'
 import { Button } from '@/components/ui/button'
@@ -26,6 +26,7 @@ import {
   validateStaffEmail, createStaffMember, updateStaffMember,
 } from '@/lib/staff'
 import { StatusTabs } from '@/components/admin/_shared/StatusTabs'
+import CrmAccessPanel from './CrmAccessPanel'
 import { StatStrip, StatTile } from '@/components/admin/_shared/StatStrip'
 import { ResultsBar, SearchKeyHint, useListShortcuts } from '@/components/admin/_shared/listTools'
 
@@ -41,6 +42,8 @@ const TABS = [
   { id: 'affiliates',        label: 'Affiliates',          icon: Award },
   { id: 'housekeepers',      label: 'Housekeepers',        icon: Users },
   { id: 'property_managers', label: 'Property managers',   icon: Building2 },
+  // Not staff: who can open the CRM (and its backup sheet).
+  { id: 'crm_access',        label: 'CRM access',          icon: ShieldCheck },
 ]
 
 // ============================================================
@@ -2410,6 +2413,11 @@ function PMDetailModal({ pm, onClose, onChanged, units }) {
 // ============================================================
 export default function TeamPage() {
   const [activeTab, setActiveTab] = useState('specialists')
+  // How many people have CRM access (for the tab's count); the panel keeps it current.
+  const [accessCount, setAccessCount] = useState(0)
+  useEffect(() => {
+    supabase.rpc('crm_access_list').then(({ data }) => { if (Array.isArray(data)) setAccessCount(data.length) })
+  }, [])
   const [data, setData] = useState({ specialists: [], affiliates: [], housekeepers: [] })
   const [counts, setCounts] = useState({ specialists: {}, affiliates: {} })
   const [teamTotals, setTeamTotals] = useState({
@@ -2615,6 +2623,7 @@ export default function TeamPage() {
 
   const showSkeleton = loading
   const isPMTab = activeTab === 'property_managers'
+  const isAccessTab = activeTab === 'crm_access'
 
   const groupLabel = TABS.find((t) => t.id === activeTab)?.label || 'people'
   const totalInGroup = isPMTab ? pms.length : activeList.length
@@ -2648,8 +2657,10 @@ export default function TeamPage() {
               affiliates: data.affiliates.length,
               housekeepers: data.housekeepers.length,
               property_managers: pms.length,
+              crm_access: accessCount,
             }}
           />
+          {!isAccessTab && (<>
           <div className="relative flex-1 min-w-[200px]">
             <Search size={13} className="absolute left-3 top-1/2 -translate-y-1/2 text-foreground pointer-events-none" />
             <Input
@@ -2670,9 +2681,16 @@ export default function TeamPage() {
           <Button variant="outline" size="sm" onClick={() => fetchAll()} disabled={refreshing} className="h-9 rounded-md" title="Refresh">
             <RefreshCw size={13} className={cn(refreshing && 'animate-spin')} />
           </Button>
+          </>)}
         </div>
 
-        {!loading && (
+        {isAccessTab && (
+          <div className="flex-1 min-h-0 overflow-y-auto -mx-1 px-1 pb-2">
+            <CrmAccessPanel onCount={setAccessCount} />
+          </div>
+        )}
+
+        {!isAccessTab && !loading && (
           <ResultsBar
             shown={filtered.length}
             total={totalInGroup}
@@ -2684,6 +2702,7 @@ export default function TeamPage() {
         )}
 
         <div
+          hidden={isAccessTab}
           className={cn('flex-1 min-h-0 overflow-y-auto -mx-1 px-1 pb-2 transition-opacity', refreshing && 'opacity-60')}
           style={{ scrollbarGutter: 'stable' }}
         >
@@ -2729,7 +2748,7 @@ export default function TeamPage() {
       </div>
 
       <AnimatePresence>
-        {!isPMTab && selected && (
+        {!isPMTab && !isAccessTab && selected && (
           <WorkerDetailModal
             key={selected.id}
             worker={selected}
@@ -2752,7 +2771,7 @@ export default function TeamPage() {
         )}
       </AnimatePresence>
 
-      {!isPMTab && (
+      {!isPMTab && !isAccessTab && (
         <WorkerFormModal
           open={formOpen}
           onClose={() => { setFormOpen(false); setEditing(null) }}
