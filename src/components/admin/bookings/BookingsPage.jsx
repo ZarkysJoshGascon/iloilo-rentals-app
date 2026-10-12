@@ -39,6 +39,8 @@ import { sendBookingConfirmation } from '@/lib/email'
 import BookingConfirmationModal from './BookingConfirmationModal'
 import { ContextMenu } from '@/components/ui/ContextMenu'
 import { SortHeader, nextSort, ResultsBar, SearchKeyHint, useListShortcuts } from '@/components/admin/_shared/listTools'
+import { Panel, PanelHeader, SectionLabel, InitialsAvatar } from '@/components/admin/_shared/Panel'
+import { StatStrip, StatTile } from '@/components/admin/_shared/StatStrip'
 
 const BRAND = '#2d568e'
 const SOFT_SHADOW = '0 20px 40px -16px rgba(15,23,42,0.24), 0 6px 16px -6px rgba(15,23,42,0.10)'
@@ -210,38 +212,13 @@ function unitLabel(u) {
   return c || b || '—'
 }
 
-const AVATAR_COLORS = [
-  ['bg-blue-100', 'text-blue-700', 'dark:bg-blue-900/40', 'dark:text-blue-300'],
-  ['bg-emerald-100', 'text-emerald-700', 'dark:bg-emerald-900/40', 'dark:text-emerald-300'],
-  ['bg-orange-100', 'text-orange-700', 'dark:bg-orange-900/40', 'dark:text-orange-300'],
-  ['bg-purple-100', 'text-purple-700', 'dark:bg-purple-900/40', 'dark:text-purple-300'],
-  ['bg-rose-100', 'text-rose-700', 'dark:bg-rose-900/40', 'dark:text-rose-300'],
-  ['bg-cyan-100', 'text-cyan-700', 'dark:bg-cyan-900/40', 'dark:text-cyan-300'],
-  ['bg-amber-100', 'text-amber-700', 'dark:bg-amber-900/40', 'dark:text-amber-300'],
-  ['bg-indigo-100', 'text-indigo-700', 'dark:bg-indigo-900/40', 'dark:text-indigo-300'],
-]
-
 function initials(name) {
   if (!name) return '?'
   return name.trim().split(/\s+/).slice(0, 2).map((p) => p[0]?.toUpperCase() || '').join('') || '?'
 }
-function avatarColor(seed) {
-  if (!seed) return AVATAR_COLORS[0]
-  let hash = 0
-  for (let i = 0; i < seed.length; i++) { hash = ((hash << 5) - hash) + seed.charCodeAt(i); hash = hash & hash }
-  return AVATAR_COLORS[Math.abs(hash) % AVATAR_COLORS.length]
-}
+// Plain initials on white, as on the Dashboard.
 function GuestAvatar({ name, photo_url = null, size = 'md' }) {
-  const [bg, text, dbg, dtext] = avatarColor(name)
-  const sizeClasses = size === 'lg' ? 'w-12 h-12 text-base' : size === 'sm' ? 'w-8 h-8 text-[11px]' : size === 'xs' ? 'w-6 h-6 text-[9px]' : 'w-10 h-10 text-sm'
-  if (photo_url) {
-    return <img src={photo_url} alt={name} className={cn('rounded-full object-cover flex-shrink-0', sizeClasses)} />
-  }
-  return (
-    <div className={cn('rounded-full flex items-center justify-center font-semibold flex-shrink-0', sizeClasses, bg, text, dbg, dtext)}>
-      {initials(name)}
-    </div>
-  )
+  return <InitialsAvatar name={name} photoUrl={photo_url} size={size === 'xs' ? 'xs' : size === 'sm' ? 'sm' : size === 'lg' ? 'lg' : 'md'} />
 }
 
 const BOOKING_STATUS_TEXT = {
@@ -386,10 +363,10 @@ function RangeCalendar({
           open ? 'border-primary ring-2 ring-primary/25' : 'border-input hover:bg-muted/40',
         )}
       >
-        <span className={cn('truncate', !displayValue && 'text-muted-foreground')}>
+        <span className={cn('truncate', !displayValue && 'text-foreground')}>
           {displayValue || placeholder}
         </span>
-        <CalendarIcon size={14} className="text-muted-foreground flex-shrink-0" />
+        <CalendarIcon size={14} className="text-foreground flex-shrink-0" />
       </button>
 
       <AnimatePresence>
@@ -426,7 +403,7 @@ function RangeCalendar({
             {/* Day of week header */}
             <div className="grid grid-cols-7 mb-2">
               {DOW.map((d, i) => (
-                <div key={`${d}-${i}`} className="text-[10px] font-bold text-muted-foreground text-center">
+                <div key={`${d}-${i}`} className="text-[10px] font-bold text-foreground text-center">
                   {d}
                 </div>
               ))}
@@ -482,7 +459,7 @@ function RangeCalendar({
 
             {/* Legend + clear */}
             <div className="mt-4 pt-3 border-t border-border flex items-center justify-between gap-2">
-              <div className="flex items-center gap-3 text-[10px] text-muted-foreground">
+              <div className="flex items-center gap-3 text-[10px] text-foreground">
                 <span className="inline-flex items-center gap-1">
                   <span className="w-2.5 h-2.5 rounded-full bg-red-400" /> Occupied
                 </span>
@@ -493,7 +470,7 @@ function RangeCalendar({
               <button
                 type="button"
                 onClick={() => { onChange(''); setOpen(false) }}
-                className="text-[10px] font-semibold text-muted-foreground hover:text-foreground transition-colors"
+                className="text-[10px] font-semibold text-foreground hover:text-foreground transition-colors"
               >
                 Clear
               </button>
@@ -560,17 +537,17 @@ function PersonCombobox({
           disabled && 'opacity-50 cursor-not-allowed',
         )}
       >
-        <span className={cn('truncate', !selected && 'text-muted-foreground')}>
+        <span className={cn('truncate', !selected && 'text-foreground')}>
           {selected ? (
             <>
               <span className="text-foreground">{selected.name}</span>
-              <span className="text-muted-foreground ml-1.5 font-mono text-[11px]">{selected.code}</span>
+              <span className="text-foreground ml-1.5 font-mono text-[11px]">{selected.code}</span>
             </>
           ) : (
             <span className="italic">{emptyLabel}</span>
           )}
         </span>
-        <ChevronDown size={14} className="text-muted-foreground flex-shrink-0" />
+        <ChevronDown size={14} className="text-foreground flex-shrink-0" />
       </button>
 
       <AnimatePresence>
@@ -583,7 +560,7 @@ function PersonCombobox({
             className="absolute z-40 mt-2 w-full rounded-xl border border-border bg-popover overflow-hidden"
             style={{ boxShadow: SOFT_SHADOW }}
           >
-            <div className="p-2 border-b border-border bg-muted/30">
+            <div className="p-2 border-b border-border bg-card">
               <Input
                 value={query}
                 onChange={(e) => setQuery(e.target.value)}
@@ -598,15 +575,15 @@ function PersonCombobox({
                 type="button"
                 onClick={() => { onChange(''); setOpen(false) }}
                 className={cn(
-                  'w-full text-left px-3 py-2 text-xs italic text-muted-foreground hover:bg-muted/60 transition-colors',
-                  !value && 'bg-muted/40 font-semibold',
+                  'w-full text-left px-3 py-2 text-xs italic text-foreground hover:bg-muted/60 transition-colors',
+                  !value && 'bg-muted font-semibold',
                 )}
               >
                 {emptyLabel}
               </button>
 
               {filtered.length === 0 ? (
-                <div className="px-3 py-3 text-xs text-muted-foreground italic text-center">
+                <div className="px-3 py-3 text-xs text-foreground italic text-center">
                   No matches
                 </div>
               ) : (
@@ -629,15 +606,15 @@ function PersonCombobox({
                           <span className="text-[12px] font-semibold text-foreground truncate">
                             {p.name || '—'}
                           </span>
-                          <span className="font-mono text-[10px] text-muted-foreground">{p.code}</span>
+                          <span className="font-mono text-[10px] text-foreground">{p.code}</span>
                         </div>
                         {tier && (
-                          <p className="text-[10px] text-muted-foreground mt-0.5">
+                          <p className="text-[10px] text-foreground mt-0.5">
                             {tier.tier} · {tier.rate}%
                           </p>
                         )}
                         {secondaryLabel && !tier && (
-                          <p className="text-[10px] text-muted-foreground mt-0.5">
+                          <p className="text-[10px] text-foreground mt-0.5">
                             {secondaryLabel(p)}
                           </p>
                         )}
@@ -702,55 +679,36 @@ function ModalShell({ open, onClose, title, titleId, maxWidth = 'max-w-md', chil
   )
 }
 
-// The cards double as quick filters for the list below.
+// KPI strip as on the Dashboard; each tile filters the list below.
 function SummaryCards({ bookings, active, onSelect }) {
   const stats = useMemo(() => {
-    let upcoming = 0, inHouse = 0, completed = 0, needsAttention = 0
+    let upcoming = 0, inHouse = 0, needsAttention = 0
     for (const b of bookings) {
       const s = deriveBookingStatus(b)
       if (s === 'upcoming') upcoming++
       else if (s === 'in-house') inHouse++
-      else if (s === 'completed') completed++
       else if (s === 'needs-attention') needsAttention++
     }
-    return { total: bookings.length, upcoming, inHouse, completed, needsAttention }
+    return { total: bookings.length, upcoming, inHouse, needsAttention }
   }, [bookings])
 
-  const cards = [
-    { id: 'all',             label: 'Total Bookings',  value: stats.total,          icon: CalendarIcon },
-    { id: 'upcoming',        label: 'Upcoming',        value: stats.upcoming,       icon: Clock },
-    { id: 'in-house',        label: 'In-House',        value: stats.inHouse,        icon: Building2 },
-    { id: 'needs-attention', label: 'Needs Attention', value: stats.needsAttention, icon: AlertTriangle },
-  ]
+  const pick = (id) => onSelect(active === id ? 'all' : id)
 
   return (
-    <div className="grid grid-cols-2 md:grid-cols-2 lg:grid-cols-4 gap-3">
-      {cards.map((card, i) => {
-        const isActive = active === card.id
-        return (
-          <motion.button
-            type="button"
-            key={card.label}
-            initial={{ opacity: 0, y: 8 }}
-            animate={{ opacity: 1, y: 0 }}
-            transition={{ delay: i * 0.05, duration: 0.25 }}
-            onClick={() => onSelect(isActive ? 'all' : card.id)}
-            aria-pressed={isActive}
-            title={isActive && card.id !== 'all' ? 'Click again to show all bookings' : `Show ${card.label.toLowerCase()}`}
-            className={cn(
-              'text-left rounded-md bg-card border shadow-sm p-4 transition-colors',
-              isActive ? 'border-foreground ring-1 ring-foreground' : 'border-border hover:border-foreground/40',
-            )}
-          >
-            <div className="flex items-center gap-2 mb-2">
-              <card.icon size={15} className="text-foreground" />
-              <span className="text-[11px] font-bold uppercase tracking-wider text-foreground">{card.label}</span>
-            </div>
-            <p className="text-3xl font-bold text-foreground tabular-nums">{card.value}</p>
-          </motion.button>
-        )
-      })}
-    </div>
+    <StatStrip cols={4}>
+      <StatTile icon={CalendarIcon} label="Total bookings" value={stats.total} sub="All active records" active={active === 'all'} onClick={() => onSelect('all')} />
+      <StatTile icon={Clock} label="Upcoming" value={stats.upcoming} sub="Future check-ins" active={active === 'upcoming'} onClick={() => pick('upcoming')} />
+      <StatTile icon={Building2} label="In-house" value={stats.inHouse} sub="Guests staying now" active={active === 'in-house'} onClick={() => pick('in-house')} />
+      <StatTile
+        icon={AlertTriangle}
+        label="Needs attention"
+        value={stats.needsAttention}
+        sub={stats.needsAttention > 0 ? 'Left with a balance owed' : 'Everyone has settled'}
+        attention={stats.needsAttention > 0}
+        active={active === 'needs-attention'}
+        onClick={() => pick('needs-attention')}
+      />
+    </StatStrip>
   )
 }
 
@@ -779,10 +737,10 @@ function StatusPills({ statusFilter, onStatusFilter, counts }) {
   }, [statusFilter, counts])
 
   return (
-    <div className="inline-flex items-center p-1 rounded-full bg-muted/60 border border-border/60">
+    <div className="inline-flex items-center p-0.5 rounded-md bg-card border border-border">
       <div ref={containerRef} className="relative inline-flex items-center gap-1">
         <motion.div
-          className="absolute top-0 bottom-0 rounded-full bg-card shadow-sm border border-border z-0"
+          className="absolute top-0 bottom-0 rounded-md bg-foreground z-0"
           animate={{ left: indicator.left, width: indicator.width }}
           transition={{ type: 'spring', stiffness: 350, damping: 28 }}
         />
@@ -796,12 +754,12 @@ function StatusPills({ statusFilter, onStatusFilter, counts }) {
               data-active={isActive}
               onClick={() => onStatusFilter(tab.id)}
               className={cn(
-                'relative z-10 px-3.5 py-1.5 rounded-full text-[11px] font-semibold transition-colors duration-200 whitespace-nowrap',
-                isActive ? 'text-foreground' : 'text-foreground/70 hover:text-foreground'
+                'relative z-10 px-3 h-7 rounded-md text-[12px] font-medium transition-colors duration-200 whitespace-nowrap',
+                isActive ? 'text-background' : 'text-foreground'
               )}
             >
               {tab.label}
-              <span className={cn('ml-1', isActive ? 'opacity-90' : 'opacity-60')}>{count}</span>
+              <span className="ml-1 font-semibold tabular-nums">{count}</span>
             </button>
           )
         })}
@@ -878,12 +836,12 @@ function DateRangeFilter({ from, to, onFromChange, onToChange, onClear }) {
             transition={{ duration: 0.12 }}
             className="absolute right-0 z-30 mt-1 w-[280px] rounded-xl bg-popover border border-border shadow-xl p-3"
           >
-            <p className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground mb-2">
+            <p className="text-[10px] font-bold uppercase tracking-wider text-foreground mb-2">
               Booking check-in range
             </p>
             <div className="space-y-2">
               <div>
-                <label className="text-[10px] uppercase tracking-wider text-muted-foreground font-semibold mb-1 block">From</label>
+                <label className="text-[10px] uppercase tracking-wider text-foreground font-semibold mb-1 block">From</label>
                 <input
                   type="date"
                   value={localFrom}
@@ -893,7 +851,7 @@ function DateRangeFilter({ from, to, onFromChange, onToChange, onClear }) {
                 />
               </div>
               <div>
-                <label className="text-[10px] uppercase tracking-wider text-muted-foreground font-semibold mb-1 block">To</label>
+                <label className="text-[10px] uppercase tracking-wider text-foreground font-semibold mb-1 block">To</label>
                 <input
                   type="date"
                   value={localTo}
@@ -905,7 +863,7 @@ function DateRangeFilter({ from, to, onFromChange, onToChange, onClear }) {
             </div>
             <div className="flex items-center justify-between pt-3 mt-3 border-t border-border">
               <button type="button" onClick={clear} disabled={!localFrom && !localTo}
-                className="text-[11px] font-semibold text-muted-foreground hover:text-foreground disabled:opacity-40">
+                className="text-[11px] font-semibold text-foreground hover:text-foreground disabled:opacity-40">
                 Clear
               </button>
               <button type="button" onClick={apply}
@@ -921,70 +879,65 @@ function DateRangeFilter({ from, to, onFromChange, onToChange, onClear }) {
   )
 }
 
-function TodayPanel({ title, icon: Icon, rows, loading, empty, onRowClick }) {
+function TodayRow({ booking, onClick }) {
+  const balance = Number(booking.balance || 0)
   return (
-    <section className="flex flex-col min-h-0">
-      <div className="flex items-center gap-2 mb-2">
-        <Icon size={13} className="text-foreground flex-shrink-0" />
-        <h3 className="text-[11px] font-semibold uppercase tracking-wider text-foreground truncate">{title}</h3>
-        {!loading && (
-          <span className="text-[11px] font-semibold text-muted-foreground tabular-nums">· {rows.length}</span>
+    <button
+      type="button"
+      onClick={onClick}
+      className="w-full text-left px-5 py-2.5 flex items-center gap-3 border-b border-border last:border-0 hover:bg-muted/40 transition-colors"
+    >
+      <GuestAvatar name={booking.guest_name} />
+      <div className="min-w-0 flex-1">
+        <p className="text-[13px] font-semibold text-foreground truncate">{booking.guest_name || '—'}</p>
+        <p className="text-[11px] text-foreground truncate mt-0.5">
+          <span className="font-medium">{booking.units?.unit_code || '—'}</span>
+          {booking.units?.building ? ` · ${booking.units.building}` : ''}
+          {booking.booking_code && <span className="ml-2 font-mono">{booking.booking_code}</span>}
+        </p>
+      </div>
+      <div className="text-right flex-shrink-0">
+        {balance > 0 ? (
+          <span className="text-[11.5px] font-semibold tabular-nums text-amber-600 dark:text-amber-400">{formatMoney(balance)} due</span>
+        ) : (
+          <span className="text-[11.5px] font-semibold text-emerald-600 dark:text-emerald-400">Paid</span>
+        )}
+        <p className="text-[10.5px] tabular-nums text-foreground mt-1">
+          {formatDateShort(booking.check_in)} → {formatDateShort(booking.check_out)}
+        </p>
+      </div>
+    </button>
+  )
+}
+
+function TodayColumn({ icon, title, rows, loading, empty, onRowClick }) {
+  return (
+    <div className="min-w-0">
+      <SectionLabel icon={icon} title={title} count={loading ? null : rows.length} />
+      {/* About three rows; more scroll inside */}
+      <div className="max-h-[204px] overflow-y-auto">
+        {loading ? (
+          <div className="p-3 space-y-2">{[...Array(2)].map((_, i) => <div key={i} className="h-11 rounded-md bg-muted animate-pulse" />)}</div>
+        ) : rows.length === 0 ? (
+          <p className="px-5 py-3 text-[12px] text-foreground">{empty}</p>
+        ) : (
+          rows.map((b) => <TodayRow key={b.id} booking={b} onClick={() => onRowClick(b)} />)
         )}
       </div>
+    </div>
+  )
+}
 
-      <div className="flex-1 min-h-0">
-        <div className="max-h-[180px] overflow-y-auto pr-1 space-y-1.5">
-          {loading ? (
-            <div className="space-y-1.5">
-              {[...Array(3)].map((_, i) => (
-                <div key={i} className="h-14 rounded-md bg-muted animate-pulse" />
-              ))}
-            </div>
-          ) : rows.length === 0 ? (
-            <div className="rounded-md bg-card border border-border shadow-sm py-3 px-4">
-              <p className="text-[12px] text-foreground/70">{empty}</p>
-            </div>
-          ) : (
-            rows.map((b) => {
-              const balance = Number(b.balance || 0)
-              return (
-                <button
-                  key={b.id}
-                  type="button"
-                  onClick={() => onRowClick(b)}
-                  className="relative w-full text-left rounded-md border border-border bg-background py-2 pl-4 pr-3 overflow-hidden transition-colors hover:bg-muted/40"
-                >
-                  <span aria-hidden className="absolute top-0 bottom-0 left-0 w-[4px]" style={{ backgroundColor: BRAND }} />
-                  <div className="flex items-center gap-2 min-w-0">
-                    <GuestAvatar name={b.guest_name} size="sm" />
-                    <div className="min-w-0 flex-1">
-                      <p className="text-xs font-semibold text-foreground truncate">{b.guest_name || '—'}</p>
-                      <p className="text-[11px] text-foreground/75 truncate">
-                        {b.booking_code || '—'} · {b.units?.unit_code || '—'}
-                      </p>
-                    </div>
-                    <div className="flex flex-col items-end flex-shrink-0">
-                      <span className="text-[11px] tabular-nums text-foreground/75">
-                        {formatDateShort(b.check_in)} → {formatDateShort(b.check_out)}
-                      </span>
-                      {balance > 0 ? (
-                        <span className="text-[11px] font-semibold tabular-nums text-amber-600 dark:text-amber-400">
-                          {formatMoney(balance)} due
-                        </span>
-                      ) : (
-                        <span className="text-[11px] font-semibold tabular-nums text-emerald-600 dark:text-emerald-400">
-                          Paid
-                        </span>
-                      )}
-                    </div>
-                  </div>
-                </button>
-              )
-            })
-          )}
-        </div>
+// Today's arrivals and departures in one card, like the Dashboard's Today card.
+function TodayCard({ checkIns, checkOuts, loading, onRowClick }) {
+  return (
+    <Panel>
+      <PanelHeader icon={CalendarIcon} title="Today" subtitle="Check-ins and check-outs" />
+      <div className="grid grid-cols-1 md:grid-cols-2 md:divide-x divide-border">
+        <TodayColumn icon={LogIn} title="Check-ins" rows={checkIns} loading={loading} empty="No check-ins today." onRowClick={onRowClick} />
+        <TodayColumn icon={LogOut} title="Check-outs" rows={checkOuts} loading={loading} empty="No check-outs today." onRowClick={onRowClick} />
       </div>
-    </section>
+    </Panel>
   )
 }
 
@@ -996,7 +949,7 @@ function WarningChip({ icon: Icon, label, count, active, onClick, triggerRef, ch
           active ? 'bg-foreground text-background border-foreground' : 'bg-card text-foreground border-border hover:bg-muted')}>
         <Icon size={13} className={active ? 'opacity-90' : 'opacity-60'} />
         <span>{label}</span>
-        <span className={cn('min-w-[20px] h-[18px] inline-flex items-center justify-center px-1.5 rounded text-[10px] font-semibold tabular-nums', active ? 'bg-background/20' : 'bg-muted')}>{count}</span>
+        <span className={cn('min-w-[20px] h-[18px] inline-flex items-center justify-center px-1.5 rounded text-[10px] font-semibold tabular-nums', active ? 'bg-background/20' : 'border border-border')}>{count}</span>
       </button>
       {children}
     </div>
@@ -1059,7 +1012,7 @@ function WarningRow({ booking, chip, chipTone, onClick }) {
           <span className="font-mono text-xs font-semibold text-foreground truncate">{booking.booking_code}</span>
           <span className="text-[11px] text-foreground truncate">{booking.guest_name}</span>
         </div>
-        <p className="text-[10px] text-muted-foreground mt-0.5 truncate">
+        <p className="text-[10px] text-foreground mt-0.5 truncate">
           {booking.units?.unit_code || '—'} · {formatDateShort(booking.check_in)} → {formatDateShort(booking.check_out)}
         </p>
       </div>
@@ -1089,11 +1042,11 @@ function WarningsStrip({ needsAttention, endingSoon, onSelect }) {
                 <div className="flex items-start justify-between gap-3 px-4 py-3 border-b border-border">
                   <div className="min-w-0">
                     <p className="text-xs font-semibold text-foreground">Needs Attention</p>
-                    <p className="text-[10px] text-muted-foreground mt-0.5">
+                    <p className="text-[10px] text-foreground mt-0.5">
                       {naCount} booking{naCount === 1 ? '' : 's'} past check-out with balance still owed
                     </p>
                   </div>
-                  <button type="button" onClick={() => setOpen(null)} className="p-1 -m-1 rounded hover:bg-muted text-muted-foreground"><X size={12} /></button>
+                  <button type="button" onClick={() => setOpen(null)} className="p-1 -m-1 rounded hover:bg-muted text-foreground"><X size={12} /></button>
                 </div>
                 <div className="flex-1 overflow-y-auto">
                   {needsAttention.map((b) => (
@@ -1114,11 +1067,11 @@ function WarningsStrip({ needsAttention, endingSoon, onSelect }) {
                 <div className="flex items-start justify-between gap-3 px-4 py-3 border-b border-border">
                   <div className="min-w-0">
                     <p className="text-xs font-semibold text-foreground">Ending Soon</p>
-                    <p className="text-[10px] text-muted-foreground mt-0.5">
+                    <p className="text-[10px] text-foreground mt-0.5">
                       {esCount} booking{esCount === 1 ? '' : 's'} ending in the next 2 days with balance due
                     </p>
                   </div>
-                  <button type="button" onClick={() => setOpen(null)} className="p-1 -m-1 rounded hover:bg-muted text-muted-foreground"><X size={12} /></button>
+                  <button type="button" onClick={() => setOpen(null)} className="p-1 -m-1 rounded hover:bg-muted text-foreground"><X size={12} /></button>
                 </div>
                 <div className="flex-1 overflow-y-auto">
                   {endingSoon.map((b) => (
@@ -1241,7 +1194,7 @@ function BookingDetailPanel({
                     className={cn('h-7 rounded text-[11px] gap-1.5',
                       canComplete
                         ? 'text-emerald-600 border-emerald-200 hover:bg-emerald-50 dark:text-emerald-400 dark:border-emerald-800 dark:hover:bg-emerald-900/20'
-                        : 'text-muted-foreground border-border cursor-not-allowed opacity-60')}
+                        : 'text-foreground border-border cursor-not-allowed opacity-60')}
                     onClick={canComplete ? onComplete : undefined}
                     disabled={!canComplete}>
                     <CheckCircle2 size={11} /> Mark as Done
@@ -1249,7 +1202,7 @@ function BookingDetailPanel({
                 )}
               </div>
               {!isCompleted && !canComplete && (
-                <p className="-mt-2 text-right text-[11px] text-foreground/70">
+                <p className="-mt-2 text-right text-[11px] text-foreground">
                   {guestLeft
                     ? 'To mark this booking as done, collect the remaining balance first.'
                     : 'You can mark this booking as done after the guest checks out.'}
@@ -1278,7 +1231,7 @@ function BookingDetailPanel({
                     <span className="text-xs tabular-nums text-foreground">
                       {wasEdited
                         ? `${formatDate(booking.updated_at)} · ${editedAgo || ''}`
-                        : <span className="italic text-muted-foreground">Never edited</span>}
+                        : <span className="italic text-foreground">Never edited</span>}
                     </span>
                   </div>
                 </div>
@@ -1287,7 +1240,7 @@ function BookingDetailPanel({
               <DetailSection title={`Payment History · ${transactions.length}`}>
                 <div className="p-2">
                   {transactions.length === 0 ? (
-                    <div className="py-4 text-center text-xs text-muted-foreground italic">No payments recorded yet</div>
+                    <div className="py-4 text-center text-xs text-foreground italic">No payments recorded yet</div>
                   ) : (
                     <div className="space-y-1.5">
                       {transactions.map((t, i) => (
@@ -1296,7 +1249,7 @@ function BookingDetailPanel({
                             <span className="text-[10px] uppercase tracking-wider font-bold text-foreground min-w-[60px]">{formatDateShort(t.date)}</span>
                             <span className="text-xs font-semibold text-foreground tabular-nums">{formatMoney(t.amount)}</span>
                             {t.method && <span className="text-[11px] text-foreground truncate">{t.method}</span>}
-                            {t.reference && <span className="text-[10px] text-muted-foreground font-mono truncate">· {t.reference}</span>}
+                            {t.reference && <span className="text-[10px] text-foreground font-mono truncate">· {t.reference}</span>}
                           </div>
                         </div>
                       ))}
@@ -1339,9 +1292,9 @@ function BookingDetailPanel({
                     </div>
                     <div className="flex items-center gap-2 py-0.5">
                       <span className="text-[10px] uppercase tracking-wider text-foreground font-semibold min-w-[72px]">Expiry</span>
-                      <span className="text-xs tabular-nums text-foreground">{governing.expiry_date || <span className="italic text-muted-foreground">Open-ended</span>}</span>
+                      <span className="text-xs tabular-nums text-foreground">{governing.expiry_date || <span className="italic text-foreground">Open-ended</span>}</span>
                     </div>
-                    <p className="pt-2 mt-2 border-t border-border text-[10px] text-muted-foreground italic">
+                    <p className="pt-2 mt-2 border-t border-border text-[10px] text-foreground italic">
                       Contract PDF opens from the Contracts page.
                     </p>
                   </div>
@@ -1350,7 +1303,7 @@ function BookingDetailPanel({
                     <p className="text-xs text-red-600 dark:text-red-400 font-semibold">
                       No contract covers this booking&apos;s check-in.
                     </p>
-                    <p className="text-[10px] text-muted-foreground mt-1">
+                    <p className="text-[10px] text-foreground mt-1">
                       This booking won&apos;t appear in Accounting for any contract.
                     </p>
                   </div>
@@ -1413,7 +1366,7 @@ function BookingDetailPanel({
                     <span className="text-foreground">Affiliate {affiliateTier ? `· ${affiliateTier}` : ''}</span>
                     <span className="font-semibold tabular-nums text-foreground">{formatMoney(booking.affiliate_commission)}</span>
                   </div>
-                  <p className="pt-2 mt-1 border-t border-border text-[10px] text-muted-foreground italic flex items-center gap-1">
+                  <p className="pt-2 mt-1 border-t border-border text-[10px] text-foreground italic flex items-center gap-1">
                     <Lock size={9} className="opacity-60" />
                     Rates snapshotted at booking creation.
                   </p>
@@ -1492,11 +1445,11 @@ function BookingListRow({ booking, contracts, selected, highlighted, onClick, on
           <GuestAvatar name={booking.guest_name} size="sm" />
           <div className="min-w-0 flex-1">
             <p className="text-[13.5px] font-semibold text-foreground truncate leading-tight">{booking.guest_name}</p>
-            <p className="text-[11.5px] text-foreground/75 truncate mt-0.5">
+            <p className="text-[11.5px] text-foreground truncate mt-0.5">
               {booking.guest_email || booking.guest_contact || `${booking.guests || 1} guest${booking.guests > 1 ? 's' : ''}`}
             </p>
             {bookedAgo && (
-              <p className="text-[11px] text-foreground/60 truncate">
+              <p className="text-[11px] text-foreground truncate">
                 Booked {bookedAgo}
                 {wasEdited && editedAgo && <> · Edited {editedAgo}</>}
               </p>
@@ -1506,7 +1459,7 @@ function BookingListRow({ booking, contracts, selected, highlighted, onClick, on
         <span className="font-mono text-[12px] text-foreground truncate">{booking.booking_code}</span>
         <div className="min-w-0">
           <span className="block font-mono text-[12.5px] font-bold text-foreground truncate">{booking.units?.unit_code || '—'}</span>
-          <span className="block text-[11.5px] text-foreground/75 truncate">{booking.units?.building || '—'}</span>
+          <span className="block text-[11.5px] text-foreground truncate">{booking.units?.building || '—'}</span>
           {!governing && (
             <span className="block text-[10px] font-semibold uppercase tracking-wider text-red-600 dark:text-red-400">
               No contract
@@ -1515,11 +1468,11 @@ function BookingListRow({ booking, contracts, selected, highlighted, onClick, on
         </div>
         <div className="min-w-0 tabular-nums">
           <div className="text-[12.5px] font-medium text-foreground truncate">{formatDateShort(booking.check_in)} → {formatDateShort(booking.check_out)}</div>
-          <div className="text-[11.5px] text-foreground/75">{nights} night{nights === 1 ? '' : 's'}</div>
+          <div className="text-[11.5px] text-foreground">{nights} night{nights === 1 ? '' : 's'}</div>
         </div>
         <div className="min-w-0">
           <PaymentStatusBadge status={booking.payment_status} />
-          <div className="text-[11.5px] tabular-nums text-foreground/75 truncate">
+          <div className="text-[11.5px] tabular-nums text-foreground truncate">
             {Number(booking.balance || 0) > 0
               ? `${formatMoney(booking.balance)} due of ${formatMoney(booking.total_amount)}`
               : formatMoney(booking.total_amount)}
@@ -1578,9 +1531,9 @@ function FormSection({ icon: Icon, title, subtitle, children, className }) {
       <div className="flex items-center gap-2">
         {Icon && <Icon size={14} className="text-foreground flex-shrink-0" />}
         <h3 className="text-[11px] font-bold uppercase tracking-wider text-foreground">{title}</h3>
-        {subtitle && <span className="text-[10px] text-muted-foreground">· {subtitle}</span>}
+        {subtitle && <span className="text-[10px] text-foreground">· {subtitle}</span>}
       </div>
-      <div className="rounded-xl border border-border bg-muted/20 p-4 space-y-3">
+      <div className="rounded-xl border border-border bg-card p-4 space-y-3">
         {children}
       </div>
     </section>
@@ -1936,8 +1889,8 @@ function BookingFormModal({ open, onClose, onSaved, units, editing, specialists,
               <h2 id="booking-form-title" className="text-base font-bold text-foreground truncate">
                 {editing ? 'Edit Booking' : 'New Booking'}
               </h2>
-              {editing && <p className="text-[11px] text-muted-foreground font-mono truncate mt-0.5">{editing.booking_code}</p>}
-              {!editing && <p className="text-[11px] text-muted-foreground mt-0.5">Create a new reservation</p>}
+              {editing && <p className="text-[11px] text-foreground font-mono truncate mt-0.5">{editing.booking_code}</p>}
+              {!editing && <p className="text-[11px] text-foreground mt-0.5">Create a new reservation</p>}
             </div>
           </div>
           <button onClick={onClose} className="p-1.5 rounded-lg hover:bg-muted transition-colors flex-shrink-0">
@@ -1974,7 +1927,7 @@ function BookingFormModal({ open, onClose, onSaved, units, editing, specialists,
                     </p>
                   )}
                   {selectedUnit && selectedContract && (
-                    <p className="text-[10px] text-muted-foreground mt-1.5">
+                    <p className="text-[10px] text-foreground mt-1.5">
                       Contract: {selectedContract.effective_date || '—'} → {selectedContract.expiry_date || 'open-ended'}
                     </p>
                   )}
@@ -2015,12 +1968,12 @@ function BookingFormModal({ open, onClose, onSaved, units, editing, specialists,
                   </div>
                 </div>
                 {form.unit_id && unitBookings.length > 0 && (
-                  <p className="text-[10px] text-muted-foreground">
+                  <p className="text-[10px] text-foreground">
                     {unitBookings.length} existing booking{unitBookings.length === 1 ? '' : 's'} · red circles mark occupied days
                   </p>
                 )}
                 {!form.unit_id && (
-                  <p className="text-[10px] text-muted-foreground italic">
+                  <p className="text-[10px] text-foreground italic">
                     Pick a unit to see existing bookings
                   </p>
                 )}
@@ -2091,7 +2044,7 @@ function BookingFormModal({ open, onClose, onSaved, units, editing, specialists,
 
                 {!editing && (
                   <div className="pt-2 border-t border-border space-y-3">
-                    <p className="text-[10px] uppercase tracking-wider text-muted-foreground font-semibold">Initial payment (optional)</p>
+                    <p className="text-[10px] uppercase tracking-wider text-foreground font-semibold">Initial payment (optional)</p>
                     <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
                       <div>
                         <label className={labelClass}>Amount</label>
@@ -2122,12 +2075,12 @@ function BookingFormModal({ open, onClose, onSaved, units, editing, specialists,
               </FormSection>
 
               {!editing && (
-                <label className="flex items-start gap-3 p-4 rounded-xl border border-border bg-muted/20 cursor-pointer hover:bg-muted/30 transition-colors">
+                <label className="flex items-start gap-3 p-4 rounded-xl border border-border bg-card cursor-pointer hover:bg-muted/30 transition-colors">
                   <input type="checkbox" checked={sendEmail} onChange={(e) => setSendEmail(e.target.checked)}
                     className="mt-0.5 rounded border-border" />
                   <div className="min-w-0">
                     <p className="text-xs font-semibold text-foreground">Send booking confirmation email</p>
-                    <p className="text-[10px] text-muted-foreground mt-0.5">
+                    <p className="text-[10px] text-foreground mt-0.5">
                       The guest receives a confirmation after the booking is created. You can also send it later from the booking panel.
                     </p>
                   </div>
@@ -2137,51 +2090,51 @@ function BookingFormModal({ open, onClose, onSaved, units, editing, specialists,
 
             {/* RIGHT — sticky summary */}
             <aside className="lg:sticky lg:top-0 self-start">
-              <div className="rounded-xl border border-border bg-muted/20 p-4 space-y-3">
-                <p className="text-[10px] uppercase tracking-wider text-muted-foreground font-bold">Live Summary</p>
+              <div className="rounded-xl border border-border bg-card p-4 space-y-3">
+                <p className="text-[10px] uppercase tracking-wider text-foreground font-bold">Live Summary</p>
 
                 <div className="space-y-2 text-xs">
                   <div className="flex justify-between">
-                    <span className="text-muted-foreground">Unit</span>
+                    <span className="text-foreground">Unit</span>
                     <span className="font-semibold text-foreground truncate ml-2 text-right">
                       {selectedUnit ? unitLabel(selectedUnit) : '—'}
                     </span>
                   </div>
                   <div className="flex justify-between">
-                    <span className="text-muted-foreground">Check-in</span>
+                    <span className="text-foreground">Check-in</span>
                     <span className="font-semibold text-foreground tabular-nums">
                       {form.check_in || '—'}
                     </span>
                   </div>
                   <div className="flex justify-between">
-                    <span className="text-muted-foreground">Check-out</span>
+                    <span className="text-foreground">Check-out</span>
                     <span className="font-semibold text-foreground tabular-nums">
                       {form.check_out || '—'}
                     </span>
                   </div>
                   <div className="flex justify-between">
-                    <span className="text-muted-foreground">Nights</span>
+                    <span className="text-foreground">Nights</span>
                     <span className="font-semibold text-foreground tabular-nums">{nights}</span>
                   </div>
                   <div className="flex justify-between">
-                    <span className="text-muted-foreground">Guests</span>
+                    <span className="text-foreground">Guests</span>
                     <span className="font-semibold text-foreground tabular-nums">{form.guests || 1}</span>
                   </div>
                 </div>
 
                 <div className="pt-3 border-t border-border space-y-1.5 text-xs">
                   <div className="flex justify-between">
-                    <span className="text-muted-foreground">Total</span>
+                    <span className="text-foreground">Total</span>
                     <span className="font-semibold text-foreground tabular-nums">{formatMoney(totalAmount)}</span>
                   </div>
                   {!editing && initialAmount > 0 && (
                     <>
                       <div className="flex justify-between">
-                        <span className="text-muted-foreground">Initial</span>
+                        <span className="text-foreground">Initial</span>
                         <span className="font-semibold text-foreground tabular-nums">{formatMoney(initialAmount)}</span>
                       </div>
                       <div className="flex justify-between">
-                        <span className="text-muted-foreground">Remaining</span>
+                        <span className="text-foreground">Remaining</span>
                         <span className={cn('font-bold tabular-nums',
                           willBePaid ? 'text-emerald-600 dark:text-emerald-400' :
                           willBePartial ? 'text-amber-600 dark:text-amber-400' :
@@ -2195,16 +2148,16 @@ function BookingFormModal({ open, onClose, onSaved, units, editing, specialists,
 
                 {bookerCommission > 0 && (
                   <div className="pt-3 border-t border-border space-y-1 text-xs">
-                    <p className="text-[10px] uppercase tracking-wider text-muted-foreground font-bold">Commissions</p>
+                    <p className="text-[10px] uppercase tracking-wider text-foreground font-bold">Commissions</p>
                     <div className="flex justify-between">
-                      <span className="text-muted-foreground">Booker ({bookerRate}%)</span>
+                      <span className="text-foreground">Booker ({bookerRate}%)</span>
                       <span className="font-semibold text-foreground tabular-nums">{formatMoney(bookerCommission)}</span>
                     </div>
                   </div>
                 )}
                 {affiliateCommission > 0 && (
                   <div className="flex justify-between text-xs">
-                    <span className="text-muted-foreground">
+                    <span className="text-foreground">
                       Affiliate ({affiliateRate}%)
                     </span>
                     <span className="font-semibold text-foreground tabular-nums">{formatMoney(affiliateCommission)}</span>
@@ -2216,8 +2169,8 @@ function BookingFormModal({ open, onClose, onSaved, units, editing, specialists,
         </div>
 
         {/* Footer */}
-        <div className="flex items-center justify-between gap-3 px-6 py-4 border-t border-border bg-muted/30 flex-shrink-0">
-          <p className="text-[10px] text-muted-foreground hidden sm:block">
+        <div className="flex items-center justify-between gap-3 px-6 py-4 border-t border-border bg-card flex-shrink-0">
+          <p className="text-[10px] text-foreground hidden sm:block">
             {editing ? 'Changes to check-out will reschedule linked cleanings.' : 'Booking code will be generated on save.'}
           </p>
           <div className="flex items-center gap-2 ml-auto">
@@ -2282,7 +2235,7 @@ function AddPaymentModal({ open, onClose, booking, onSaved }) {
   return (
     <ModalShell open={open} onClose={onClose} title="Add Payment" titleId="add-payment-title">
       <div className="p-5 space-y-3">
-        <div className="grid grid-cols-3 gap-2 text-xs bg-muted/40 rounded p-3">
+        <div className="grid grid-cols-3 gap-2 text-xs bg-card border border-border rounded p-3">
           <div><div className="text-foreground">Total</div><div className="font-semibold tabular-nums text-foreground">{formatMoney(total)}</div></div>
           <div><div className="text-foreground">Paid</div><div className="font-semibold tabular-nums text-foreground">{formatMoney(paid)}</div></div>
           <div><div className="text-foreground">Balance</div><div className="font-semibold tabular-nums text-foreground">{formatMoney(balance)}</div></div>
@@ -2292,7 +2245,7 @@ function AddPaymentModal({ open, onClose, booking, onSaved }) {
         <div><label className={labelClass}>Reference</label><Input value={reference} onChange={(e) => setReference(e.target.value)} className="h-9 text-xs rounded" maxLength={100} /></div>
         <div><label className={labelClass}>Date</label><Input type="date" value={date} onChange={(e) => setDate(e.target.value)} className="h-9 text-xs rounded" /></div>
       </div>
-      <div className="flex items-center justify-end gap-2 px-5 py-3 border-t border-border bg-muted/30">
+      <div className="flex items-center justify-end gap-2 px-5 py-3 border-t border-border bg-card">
         <Button variant="outline" size="sm" className="h-9 rounded text-xs" onClick={onClose} disabled={saving}>Cancel</Button>
         <Button size="sm" className="h-9 rounded text-xs" onClick={save} disabled={saving} style={{ backgroundColor: BRAND }}>
           {saving ? <Loader2 size={12} className="mr-1.5 animate-spin" /> : <Plus size={12} className="mr-1.5" />}
@@ -2463,7 +2416,7 @@ function ExtendStayModal({ open, onClose, booking, onSaved, contracts }) {
   return (
     <ModalShell open={open} onClose={onClose} title="Extend Stay" titleId="extend-stay-title">
       <div className="p-5 space-y-3 max-h-[70vh] overflow-y-auto">
-        <div className="grid grid-cols-2 gap-2 text-xs bg-muted/40 rounded p-3">
+        <div className="grid grid-cols-2 gap-2 text-xs bg-card border border-border rounded p-3">
           <div><div className="text-foreground">Current check-out</div><div className="font-semibold text-foreground">{formatDate(booking.check_out)}</div></div>
           <div><div className="text-foreground">Current nights</div><div className="font-semibold tabular-nums text-foreground">{oldNights}</div></div>
         </div>
@@ -2481,7 +2434,7 @@ function ExtendStayModal({ open, onClose, booking, onSaved, contracts }) {
         )}
 
         {governingContract && (
-          <p className="text-[10px] text-muted-foreground">
+          <p className="text-[10px] text-foreground">
             Contract range: {governingContract.effective_date || '—'} → {governingContract.expiry_date || 'open-ended'}
           </p>
         )}
@@ -2491,7 +2444,7 @@ function ExtendStayModal({ open, onClose, booking, onSaved, contracts }) {
             min={booking.check_out || governingContract?.effective_date || undefined}
             max={governingContract?.expiry_date || undefined}
             className="h-8 text-xs rounded" />
-          <p className="text-[10px] text-muted-foreground mt-1">Before {STAY_TIMES.checkOut.label} · linked cleanings will move</p>
+          <p className="text-[10px] text-foreground mt-1">Before {STAY_TIMES.checkOut.label} · linked cleanings will move</p>
         </div>
         <div>
           <label className={labelClass}>New Total Amount (₱) *</label>
@@ -2500,7 +2453,7 @@ function ExtendStayModal({ open, onClose, booking, onSaved, contracts }) {
         {newNights > oldNights && <p className="text-[10px] text-foreground">Extended by {newNights - oldNights} night{newNights - oldNights === 1 ? '' : 's'} · new total {newNights} night{newNights === 1 ? '' : 's'}</p>}
 
         {(booking.booker_code || booking.affiliate_code) && previewTotal > 0 && (
-          <div className="rounded-md bg-muted/40 border border-border p-2.5 space-y-1">
+          <div className="rounded-md bg-card border border-border p-2.5 space-y-1">
             <p className="text-[10px] font-bold uppercase tracking-wider text-foreground flex items-center gap-1">
               <Lock size={9} className="opacity-60" />
               {bookerRateWasInferred || affiliateRateWasInferred ? 'Existing commissions preserved' : 'Recalculated commissions'}
@@ -2533,7 +2486,7 @@ function ExtendStayModal({ open, onClose, booking, onSaved, contracts }) {
           </div>
         )}
       </div>
-      <div className="flex items-center justify-end gap-2 px-5 py-3 border-t border-border bg-muted/30">
+      <div className="flex items-center justify-end gap-2 px-5 py-3 border-t border-border bg-card">
         <Button variant="outline" size="sm" className="h-8 rounded text-xs" onClick={onClose} disabled={saving}>Cancel</Button>
         <Button size="sm" className="h-8 rounded text-xs" onClick={save} disabled={saving} style={{ backgroundColor: BRAND }}>
           {saving ? <Loader2 size={12} className="mr-1.5 animate-spin" /> : <CalendarIcon size={12} className="mr-1.5" />}
@@ -2580,14 +2533,14 @@ function CompleteConfirmModal({ open, onClose, booking, onConfirmed }) {
     <ModalShell open={open} onClose={onClose} title="Mark as Done?" titleId="complete-title" maxWidth="max-w-sm">
       <div className="p-5 space-y-2 text-xs">
         <p className="text-foreground">This booking will be marked as done. You can no longer add payments or extend it.</p>
-        <div className="bg-muted/40 rounded p-3 space-y-1 mt-3">
+        <div className="bg-card border border-border rounded p-3 space-y-1 mt-3">
           <div className="flex justify-between"><span className="text-foreground">Code</span><span className="font-mono font-semibold text-foreground">{booking.booking_code}</span></div>
           <div className="flex justify-between"><span className="text-foreground">Guest</span><span className="font-semibold text-foreground">{booking.guest_name}</span></div>
           <div className="flex justify-between"><span className="text-foreground">Check-out</span><span className="font-semibold text-foreground">{formatDate(booking.check_out)}</span></div>
           <div className="flex justify-between"><span className="text-foreground">Total</span><span className="font-semibold tabular-nums text-foreground">{formatMoney(booking.total_amount)}</span></div>
         </div>
       </div>
-      <div className="flex items-center justify-end gap-2 px-5 py-3 border-t border-border bg-muted/30">
+      <div className="flex items-center justify-end gap-2 px-5 py-3 border-t border-border bg-card">
         <Button variant="outline" size="sm" className="h-8 rounded text-xs" onClick={onClose} disabled={saving}>Cancel</Button>
         <Button size="sm" className="h-8 rounded text-xs" onClick={confirm} disabled={saving} style={{ backgroundColor: BRAND }}>
           {saving ? <Loader2 size={12} className="mr-1.5 animate-spin" /> : <CheckCircle2 size={12} className="mr-1.5" />}
@@ -2870,20 +2823,19 @@ export default function BookingsPage({ initialSelectedId }) {
 
   return (
     <div className="h-full flex min-h-0">
-      <div className="flex-1 min-h-0 flex flex-col p-3 gap-3 overflow-y-auto">
+      <div className="flex-1 min-h-0 flex flex-col px-6 py-5 md:px-8 md:py-6 gap-4 overflow-y-auto">
 
         <div className="flex-shrink-0 pt-1 pb-2">
           <SummaryCards bookings={bookings} active={statusFilter} onSelect={setStatusFilter} />
         </div>
 
-        <div className="flex-shrink-0 grid grid-cols-1 lg:grid-cols-2 gap-4 pt-1 pb-2">
-          <TodayPanel title="Check-ins today" icon={LogIn} rows={checkInsToday} loading={isFirstLoad} empty="No check-ins today" onRowClick={handleTodayPanelRowClick} />
-          <TodayPanel title="Check-outs today" icon={LogOut} rows={checkOutsToday} loading={isFirstLoad} empty="No check-outs today" onRowClick={handleTodayPanelRowClick} />
+        <div className="flex-shrink-0">
+          <TodayCard checkIns={checkInsToday} checkOuts={checkOutsToday} loading={isFirstLoad} onRowClick={handleTodayPanelRowClick} />
         </div>
 
         <div className="flex-shrink-0 flex items-center gap-2">
           <div className="relative flex-1 min-w-0">
-            <Search size={13} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-muted-foreground" />
+            <Search size={13} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-foreground" />
             <Input ref={searchRef} placeholder="Search guest, booking code, unit, email, booker, notes..." value={search} onChange={(e) => setSearch(e.target.value)} className="pl-8 pr-9 h-8 text-xs rounded" />
             {!search && <SearchKeyHint />}
           </div>
@@ -2913,8 +2865,8 @@ export default function BookingsPage({ initialSelectedId }) {
           />
         )}
 
-        <div className="flex-1 min-h-[420px] rounded border border-border shadow-sm overflow-hidden bg-card flex flex-col">
-          <div className={cn('flex-shrink-0 px-4 py-2.5 border-b border-border bg-muted/40', ROW_GRID)}>
+        <div className="flex-1 min-h-[420px] rounded-md border border-border shadow-sm overflow-hidden bg-card flex flex-col">
+          <div className={cn('flex-shrink-0 px-4 py-2.5 border-b border-border', ROW_GRID)}>
             <SortHeader label="Guest" sortKey="guest" sort={sort} onSort={onSort} />
             <SortHeader label="Code" sortKey="code" sort={sort} onSort={onSort} />
             <SortHeader label="Unit" sortKey="unit" sort={sort} onSort={onSort} />
@@ -2929,9 +2881,9 @@ export default function BookingsPage({ initialSelectedId }) {
             ) : sorted.length === 0 ? (
               <div className="flex items-center justify-center text-center py-12">
                 <div>
-                  <CalendarIcon size={36} className="text-muted-foreground/40 mx-auto mb-3" />
+                  <CalendarIcon size={36} className="text-foreground mx-auto mb-3" />
                   <p className="text-sm text-foreground font-semibold">No bookings match your filters</p>
-                  <p className="text-xs text-foreground/70 mt-1">Try clearing the filters, or create a new booking.</p>
+                  <p className="text-xs text-foreground mt-1">Try clearing the filters, or create a new booking.</p>
                   {filterChips.length > 0 && (
                     <button type="button" onClick={clearFilters} className="mt-4 inline-flex items-center h-8 px-3 rounded-md border border-border text-xs font-semibold text-foreground hover:bg-muted">
                       Clear filters

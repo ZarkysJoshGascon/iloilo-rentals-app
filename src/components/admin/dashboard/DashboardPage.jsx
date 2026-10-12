@@ -18,6 +18,7 @@ import { useDebouncedRealtime } from '@/hooks/useDebouncedRealtime'
 import { useAuth } from '@/context/AuthContext'
 import { cn } from '@/lib/utils'
 import { ContextMenu } from '@/components/ui/ContextMenu'
+import { StatStrip, StatTile } from '@/components/admin/_shared/StatStrip'
 
 const NEARING_END_DAYS = 60
 const COMING_UP_DAYS = 7
@@ -29,9 +30,6 @@ const CHART_VARS = '[--chart:var(--brand)]'
 
 // Two-thirds / one-third rows; the right card's list scrolls inside it.
 const DASH_ROW = 'grid grid-cols-1 xl:grid-cols-[minmax(0,2fr)_minmax(0,1fr)] gap-4'
-
-// Brand blue for the bar on the left of each row, as on the Bookings page.
-const BRAND = '#2d568e'
 
 const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']
 
@@ -225,18 +223,22 @@ function Card({ className, children }) {
   )
 }
 
-// Same look as the Bookings and Housekeeping section titles: a small
-// uppercase label with its icon and count, in full-strength text (no grey).
 function CardHeader({ icon: Icon, title, subtitle, count, action }) {
   return (
-    <div className="flex items-center justify-between gap-3 px-5 py-3.5 border-b border-border">
-      <div className="min-w-0">
-        <div className="flex items-center gap-2">
-          {Icon && <Icon size={15} strokeWidth={1.9} className="text-foreground flex-shrink-0" />}
-          <h3 className="text-[11px] font-bold uppercase tracking-wider text-foreground truncate">{title}</h3>
-          {count != null && <span className="text-[11px] font-bold tabular-nums text-foreground">· {count}</span>}
+    <div className="flex items-center justify-between gap-3 px-5 py-4 border-b border-border">
+      <div className="flex items-center gap-3 min-w-0">
+        {Icon && <Icon size={18} strokeWidth={1.75} className="text-foreground flex-shrink-0" />}
+        <div className="min-w-0">
+          <div className="flex items-center gap-2">
+            <h3 className="text-[14px] font-semibold text-foreground truncate">{title}</h3>
+            {count != null && (
+              <span className="text-[11px] font-semibold tabular-nums px-1.5 py-0.5 rounded-md border border-border text-foreground">
+                {count}
+              </span>
+            )}
+          </div>
+          {subtitle && <p className="text-[11px] text-foreground mt-0.5 truncate">{subtitle}</p>}
         </div>
-        {subtitle && <p className="text-[11.5px] text-foreground mt-1 truncate">{subtitle}</p>}
       </div>
       {action}
     </div>
@@ -248,7 +250,7 @@ function ViewAll({ onClick }) {
     <button
       type="button"
       onClick={onClick}
-      className="group inline-flex items-center gap-1 text-[12px] font-semibold text-foreground hover:underline underline-offset-2 flex-shrink-0"
+      className="group inline-flex items-center gap-1 text-[12px] font-medium text-foreground hover:text-foreground transition-colors flex-shrink-0"
     >
       View all <ArrowRight size={13} className="transition-transform group-hover:translate-x-0.5" />
     </button>
@@ -259,8 +261,8 @@ function EmptyState({ icon: Icon = Inbox, title, hint }) {
   return (
     <div className="flex-1 flex flex-col items-center justify-center py-10 px-4 text-center">
       <Icon size={22} strokeWidth={1.5} className="text-foreground mb-2" />
-      <p className="text-[12px] font-semibold text-foreground">{title}</p>
-      {hint && <p className="text-[11.5px] text-foreground mt-0.5">{hint}</p>}
+      <p className="text-[12px] font-medium text-foreground">{title}</p>
+      {hint && <p className="text-[11px] text-foreground mt-0.5">{hint}</p>}
     </div>
   )
 }
@@ -299,66 +301,10 @@ function StatusLabel({ tone, icon: Icon, children }) {
   )
 }
 
-// KPI card in the Bookings / Housekeeping style: uppercase label, big number.
-function KpiCard({ icon: Icon, label, value, sub, attention = false, loading = false, onClick, className }) {
-  return (
-    <button
-      type="button"
-      onClick={onClick}
-      className={cn('text-left rounded-md bg-card border border-border shadow-sm p-4 transition-colors hover:border-foreground/40', className)}
-    >
-      <div className="flex items-center justify-between gap-2 mb-2">
-        <span className="flex items-center gap-2 min-w-0">
-          <Icon size={15} className="text-foreground flex-shrink-0" />
-          <span className="text-[11px] font-bold uppercase tracking-wider text-foreground truncate">{label}</span>
-        </span>
-        {attention && <AlertTriangle size={14} strokeWidth={2} className="text-foreground flex-shrink-0" aria-label="Needs action" />}
-      </div>
-      {loading ? (
-        <span className="block h-8 w-14 rounded bg-muted animate-pulse" />
-      ) : (
-        <p className="text-3xl font-bold text-foreground tabular-nums leading-tight">{value}</p>
-      )}
-      {sub && (
-        <p className={cn('mt-1.5 text-[11.5px] truncate', attention ? 'font-semibold text-amber-600 dark:text-amber-400' : 'text-foreground')}>
-          {loading ? ' ' : sub}
-        </p>
-      )}
-    </button>
-  )
-}
-
-// Coloured initials, the same as the guest avatars on the Bookings page.
-const AVATAR_COLORS = [
-  'bg-blue-100 text-blue-700 dark:bg-blue-900/40 dark:text-blue-300',
-  'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/40 dark:text-emerald-300',
-  'bg-orange-100 text-orange-700 dark:bg-orange-900/40 dark:text-orange-300',
-  'bg-purple-100 text-purple-700 dark:bg-purple-900/40 dark:text-purple-300',
-  'bg-rose-100 text-rose-700 dark:bg-rose-900/40 dark:text-rose-300',
-  'bg-cyan-100 text-cyan-700 dark:bg-cyan-900/40 dark:text-cyan-300',
-  'bg-amber-100 text-amber-700 dark:bg-amber-900/40 dark:text-amber-300',
-  'bg-indigo-100 text-indigo-700 dark:bg-indigo-900/40 dark:text-indigo-300',
-]
-function avatarColor(seed) {
-  if (!seed) return AVATAR_COLORS[0]
-  let hash = 0
-  for (let i = 0; i < seed.length; i++) { hash = ((hash << 5) - hash) + seed.charCodeAt(i); hash = hash & hash }
-  return AVATAR_COLORS[Math.abs(hash) % AVATAR_COLORS.length]
-}
-function GuestAvatar({ name }) {
-  return (
-    <div className={cn('w-8 h-8 rounded-full flex items-center justify-center text-[11px] font-semibold flex-shrink-0', avatarColor(name))}>
-      {initialsOf(name)}
-    </div>
-  )
-}
-
 // ─────────────────────────────────────────────────────────────
 // Today — check-ins and check-outs
 // ─────────────────────────────────────────────────────────────
 
-// Row card with the brand bar on the left, as in the Bookings page's
-// check-in / check-out panels.
 function BookingRow({ booking }) {
   const navigate = useNavigate()
   const openBooking = () => navigate(`/admin?tab=bookings&booking=${booking.id}`)
@@ -370,57 +316,52 @@ function BookingRow({ booking }) {
       <button
         type="button"
         onClick={openBooking}
-        className="relative w-full text-left rounded-md border border-border bg-background py-2 pl-4 pr-3 overflow-hidden transition-colors hover:bg-muted/40 cursor-pointer"
+        className="w-full text-left px-5 py-3 flex items-center gap-3 border-b border-border last:border-0 hover:bg-muted/40 transition-colors cursor-pointer"
       >
-        <span aria-hidden className="absolute top-0 bottom-0 left-0 w-[4px]" style={{ backgroundColor: BRAND }} />
-        <div className="flex items-center gap-2.5 min-w-0">
-          <GuestAvatar name={booking.guest_name} />
-          <div className="min-w-0 flex-1">
-            <p className="text-[12.5px] font-semibold text-foreground truncate">{booking.guest_name || '—'}</p>
-            <p className="text-[11px] text-foreground truncate">
-              {booking.booking_code || '—'} · <span className="font-medium">{booking.units?.unit_code || '—'}</span>
-              {booking.units?.building ? ` · ${booking.units.building}` : ''}
-            </p>
-          </div>
-          <div className="flex flex-col items-end flex-shrink-0">
-            <span className="text-[11px] tabular-nums text-foreground">
-              {formatDateShort(booking.check_in)} → {formatDateShort(booking.check_out)}
-            </span>
-            {paid ? (
-              <StatusLabel tone="good">Paid</StatusLabel>
-            ) : (
-              <StatusLabel tone="warning">{formatMoney(balance)} due</StatusLabel>
-            )}
-          </div>
+        <div className="w-9 h-9 rounded-full bg-card ring-1 ring-border text-foreground flex items-center justify-center text-[12px] font-semibold flex-shrink-0">
+          {initialsOf(booking.guest_name)}
+        </div>
+        <div className="min-w-0 flex-1">
+          <p className="text-[13px] font-semibold text-foreground truncate">{booking.guest_name || '—'}</p>
+          <p className="text-[11px] text-foreground truncate mt-0.5">
+            <span className="font-medium text-foreground">{booking.units?.unit_code || '—'}</span>
+            {' · '}{booking.units?.building || '—'}
+            {booking.booking_code && <span className="ml-2 font-mono">{booking.booking_code}</span>}
+          </p>
+        </div>
+        <div className="text-right flex-shrink-0">
+          {paid ? (
+            <StatusLabel tone="good">Paid</StatusLabel>
+          ) : (
+            <StatusLabel tone="warning">{formatMoney(balance)} due</StatusLabel>
+          )}
+          <p className="text-[10px] text-foreground tabular-nums mt-1">
+            {formatDateShort(booking.check_in)} → {formatDateShort(booking.check_out)}
+          </p>
         </div>
       </button>
     </ContextMenu>
   )
 }
 
-// A list label inside a card (personal activity): white, not a grey band.
 function SectionLabel({ icon: Icon, title, count }) {
   return (
-    <div className="sticky top-0 z-[1] flex items-center gap-2 px-5 h-9 bg-card border-b border-border text-[11px] font-semibold uppercase tracking-wider text-foreground">
+    <div className="sticky top-0 z-[1] flex items-center gap-2 px-5 h-8 bg-card border-b border-border text-[11px] font-semibold uppercase tracking-wider text-foreground">
       {Icon && <Icon size={13} strokeWidth={2} className="text-foreground" />}
       <span>{title}</span>
-      {count != null && <span className="tabular-nums">· {count}</span>}
+      {count != null && <span className="tabular-nums font-medium">{count}</span>}
     </div>
   )
 }
 
-function TodaySection({ icon: Icon, title, emptyText, rows }) {
+function TodaySection({ icon, title, emptyText, rows }) {
   return (
-    <div className="px-4 pt-3">
-      <div className="flex items-center gap-2 mb-2">
-        <Icon size={13} className="text-foreground flex-shrink-0" />
-        <h4 className="text-[11px] font-semibold uppercase tracking-wider text-foreground">{title}</h4>
-        <span className="text-[11px] font-semibold tabular-nums text-foreground">· {rows.length}</span>
-      </div>
+    <div>
+      <SectionLabel icon={icon} title={title} count={rows.length} />
       {rows.length === 0 ? (
-        <div className="rounded-md border border-border py-2.5 px-3 text-[12px] text-foreground">{emptyText}</div>
+        <p className="px-5 py-4 text-[12px] text-foreground border-b border-border">{emptyText}</p>
       ) : (
-        <div className="space-y-1.5">{rows.map((b) => <BookingRow key={b.id} booking={b} />)}</div>
+        <div className="border-b border-border">{rows.map((b) => <BookingRow key={b.id} booking={b} />)}</div>
       )}
     </div>
   )
@@ -438,13 +379,13 @@ function TodayCard({ checkIns, checkOuts, comingUp, loading, onViewAll }) {
         action={<ViewAll onClick={onViewAll} />}
       />
       <div className="relative flex-1 min-h-[260px]">
-        <div className="xl:absolute xl:inset-0 overflow-y-auto pb-3">
+        <div className="xl:absolute xl:inset-0 overflow-y-auto">
           {loading ? (
             <RowsSkeleton />
           ) : (
             <>
-              <TodaySection icon={LogIn} title="Check-ins today" emptyText="No check-ins today." rows={checkIns} />
-              <TodaySection icon={LogOut} title="Check-outs today" emptyText="No check-outs today." rows={checkOuts} />
+              <TodaySection icon={LogIn} title="Arriving" emptyText="No check-ins today." rows={checkIns} />
+              <TodaySection icon={LogOut} title="Leaving" emptyText="No check-outs today." rows={checkOuts} />
               <TodaySection icon={CalendarClock} title={`Next ${COMING_UP_DAYS} days`} emptyText="No arrivals booked this week." rows={comingUp} />
             </>
           )}
@@ -835,7 +776,7 @@ function ContractsCard({ contracts, loading, onViewAll, className }) {
       ) : (
         <div className="overflow-x-auto">
           <div className="min-w-[640px]">
-            <div className={cn(CONTRACT_COLS, 'px-5 py-2.5 border-b border-border text-[10px] font-bold uppercase tracking-wider text-foreground')}>
+            <div className={cn(CONTRACT_COLS, 'px-5 py-2.5 border-b border-border text-[11px] font-semibold text-foreground')}>
               <span>Contract</span>
               <span>Unit</span>
               <span>Started</span>
@@ -862,7 +803,7 @@ function ActivityRow({ title, amount, meta, dates, onOpen, contextItems }) {
         onClick={onOpen}
         className="relative w-full text-left px-5 py-2.5 border-b border-border last:border-0 hover:bg-muted/40 transition-colors cursor-pointer overflow-hidden"
       >
-        <span aria-hidden className="absolute top-0 bottom-0 left-0 w-[4px]" style={{ backgroundColor: BRAND }} />
+        <span aria-hidden className="absolute top-2 bottom-2 left-0 w-[3px] rounded-r bg-foreground" />
         <div className="flex items-center gap-2 min-w-0">
           <span className="text-[12px] font-semibold text-foreground truncate flex-1">{title}</span>
           <span className="text-[11px] text-foreground tabular-nums flex-shrink-0">{amount}</span>
@@ -1318,7 +1259,7 @@ export default function DashboardPage() {
 
   return (
     <div className={cn('h-full overflow-y-auto', CHART_VARS)}>
-      <div className="p-3 pt-4 space-y-4 pb-8">
+      <div className="px-6 py-5 md:px-8 md:py-6 max-w-[1600px] mx-auto space-y-4 pb-10">
 
         {/* Header */}
         <div className="flex flex-wrap items-end justify-between gap-3">
@@ -1372,11 +1313,11 @@ export default function DashboardPage() {
         </div>
 
         {/* KPIs */}
-        <div className="grid grid-cols-2 lg:grid-cols-5 gap-3">
-          <KpiCard icon={CalendarRange} label="Total bookings" value={stats.totalBookings.toLocaleString('en-PH')} sub="All active records" loading={loading} onClick={() => goto('bookings')} />
-          <KpiCard icon={Home} label="In-house now" value={stats.inHouseBookings} sub="Guests staying now" loading={loading} onClick={() => goto('bookings', 'in-house')} />
-          <KpiCard icon={CalendarClock} label="Upcoming" value={stats.upcomingBookings} sub="Future check-ins" loading={loading} onClick={() => goto('bookings', 'upcoming')} />
-          <KpiCard
+        <StatStrip>
+          <StatTile icon={CalendarRange} label="Total bookings" value={stats.totalBookings.toLocaleString('en-PH')} sub="All active records" loading={loading} onClick={() => goto('bookings')} />
+          <StatTile icon={Home} label="In-house now" value={stats.inHouseBookings} sub="Guests staying now" loading={loading} onClick={() => goto('bookings', 'in-house')} />
+          <StatTile icon={CalendarClock} label="Upcoming" value={stats.upcomingBookings} sub="Future check-ins" loading={loading} onClick={() => goto('bookings', 'upcoming')} />
+          <StatTile
             icon={Wallet}
             label="Unpaid bookings"
             value={stats.unpaidBookingsCount}
@@ -1385,7 +1326,7 @@ export default function DashboardPage() {
             loading={loading}
             onClick={() => goto('bookings', 'unpaid')}
           />
-          <KpiCard
+          <StatTile
             icon={ClipboardCheck}
             label="Cleaning reviews"
             value={stats.cleaningsToEvaluate}
@@ -1393,9 +1334,9 @@ export default function DashboardPage() {
             attention={!loading && cleaningsAttention}
             loading={loading}
             onClick={() => goto('housekeeping', 'evaluate')}
-            className="col-span-2 lg:col-span-1"
+            className="col-span-2 sm:col-span-1"
           />
-        </div>
+        </StatStrip>
 
         {/* Performance beside today's movements */}
         <div className={DASH_ROW}>

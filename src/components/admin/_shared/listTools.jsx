@@ -16,13 +16,13 @@ export function SortHeader({ label, sortKey, sort, onSort, align = 'left', class
       onClick={() => onSort(sortKey)}
       title={`Sort by ${label.toLowerCase()}`}
       className={cn(
-        'group inline-flex items-center gap-1 min-w-0 text-[10px] font-bold uppercase tracking-wider text-foreground hover:text-foreground/70 transition-colors',
+        'group inline-flex items-center gap-1 min-w-0 text-[11px] font-semibold text-foreground hover:underline underline-offset-2',
         align === 'right' && 'justify-end ml-auto',
         className,
       )}
     >
       <span className="truncate">{label}</span>
-      <Icon size={12} className={cn('flex-shrink-0', active ? 'text-foreground' : 'text-foreground/30 group-hover:text-foreground/60')} />
+      <Icon size={12} className={cn('flex-shrink-0 text-foreground', !active && 'opacity-40 group-hover:opacity-100')} />
     </button>
   )
 }
@@ -44,7 +44,7 @@ export function nextSort(sort, key, defaults = {}) {
 export function ResultsBar({ shown, total, noun, chips = [], onClearAll, hint }) {
   return (
     <div className="flex-shrink-0 flex flex-wrap items-center justify-between gap-x-4 gap-y-1.5 px-0.5">
-      <div className="flex flex-wrap items-center gap-1.5 text-[12px] text-foreground/80">
+      <div className="flex flex-wrap items-center gap-1.5 text-[12px] text-foreground">
         <span>
           Showing <span className="font-semibold text-foreground tabular-nums">{shown}</span>
           {shown !== total && <> of <span className="tabular-nums">{total}</span></>} {noun}
@@ -71,7 +71,7 @@ export function ResultsBar({ shown, total, noun, chips = [], onClearAll, hint })
           </button>
         )}
       </div>
-      {hint && <span className="hidden lg:inline text-[11px] text-foreground/60">{hint}</span>}
+      {hint && <span className="hidden lg:inline text-[11px] text-foreground">{hint}</span>}
     </div>
   )
 }
@@ -79,7 +79,7 @@ export function ResultsBar({ shown, total, noun, chips = [], onClearAll, hint })
 /** The little "/" key shown inside a search box. */
 export function SearchKeyHint() {
   return (
-    <kbd className="pointer-events-none absolute right-2 top-1/2 -translate-y-1/2 hidden md:inline-flex items-center justify-center h-5 min-w-[20px] px-1 rounded border border-border bg-muted text-[10px] font-semibold text-foreground/70">
+    <kbd className="pointer-events-none absolute right-2 top-1/2 -translate-y-1/2 hidden md:inline-flex items-center justify-center h-5 min-w-[20px] px-1 rounded border border-border bg-card text-[10px] font-semibold text-foreground">
       /
     </kbd>
   )

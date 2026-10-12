@@ -31,6 +31,8 @@ import {
 } from '@/lib/cleanings'
 import { ContextMenu } from '@/components/ui/ContextMenu'
 import { SortHeader, nextSort, ResultsBar, SearchKeyHint, useListShortcuts } from '@/components/admin/_shared/listTools'
+import { Panel, PanelHeader, SectionLabel, InitialsAvatar } from '@/components/admin/_shared/Panel'
+import { StatStrip, StatTile } from '@/components/admin/_shared/StatStrip'
 
 const BRAND = '#2d568e'
 const SOFT_SHADOW = '0 20px 40px -16px rgba(15,23,42,0.24), 0 6px 16px -6px rgba(15,23,42,0.10)'
@@ -115,15 +117,6 @@ const STATUS_PILLS = [
   { id: 'completed', label: 'Completed' },
   { id: 'cancelled', label: 'Cancelled' },
 ]
-
-const PILL_TEXT_ACTIVE = {
-  all: 'text-foreground',
-  scheduled: 'text-amber-700 dark:text-amber-400',
-  ready: 'text-blue-700 dark:text-blue-400',
-  'to-be-evaluated': 'text-fuchsia-700 dark:text-fuchsia-400',
-  completed: 'text-emerald-700 dark:text-emerald-400',
-  cancelled: 'text-red-700 dark:text-red-400',
-}
 
 const PHOTO_LIMITS = { before: 15, after: 15, report: 10 }
 const MAX_NOTE_LEN = 2000
@@ -221,7 +214,7 @@ function guestLeftStatus(booking) {
 
   const className =
     mins < 60 ? 'text-amber-600 dark:text-amber-400'
-    : hours < 4 ? 'text-muted-foreground'
+    : hours < 4 ? 'text-foreground'
     : 'text-red-600 dark:text-red-400'
 
   return {
@@ -230,31 +223,9 @@ function guestLeftStatus(booking) {
   }
 }
 
-const AVATAR_COLORS = [
-  ['bg-blue-100', 'text-blue-700', 'dark:bg-blue-900/40', 'dark:text-blue-300'],
-  ['bg-emerald-100', 'text-emerald-700', 'dark:bg-emerald-900/40', 'dark:text-emerald-300'],
-  ['bg-orange-100', 'text-orange-700', 'dark:bg-orange-900/40', 'dark:text-orange-300'],
-  ['bg-purple-100', 'text-purple-700', 'dark:bg-purple-900/40', 'dark:text-purple-300'],
-  ['bg-rose-100', 'text-rose-700', 'dark:bg-rose-900/40', 'dark:text-rose-300'],
-  ['bg-cyan-100', 'text-cyan-700', 'dark:bg-cyan-900/40', 'dark:text-cyan-300'],
-  ['bg-amber-100', 'text-amber-700', 'dark:bg-amber-900/40', 'dark:text-amber-300'],
-  ['bg-indigo-100', 'text-indigo-700', 'dark:bg-indigo-900/40', 'dark:text-indigo-300'],
-]
-function avatarColor(seed) {
-  if (!seed) return AVATAR_COLORS[0]
-  let hash = 0
-  for (let i = 0; i < seed.length; i++) { hash = ((hash << 5) - hash) + seed.charCodeAt(i); hash = hash & hash }
-  return AVATAR_COLORS[Math.abs(hash) % AVATAR_COLORS.length]
-}
+// Plain initials on white, as on the Dashboard.
 function WorkerAvatar({ name, photo_url, size = 'md' }) {
-  const [bg, text, dbg, dtext] = avatarColor(name)
-  const sizeClasses = size === 'lg' ? 'w-12 h-12 text-base' : size === 'sm' ? 'w-6 h-6 text-[10px]' : 'w-10 h-10 text-sm'
-  if (photo_url) return <img src={photo_url} alt={name} className={cn('rounded-full object-cover flex-shrink-0', sizeClasses)} />
-  return (
-    <div className={cn('rounded-full flex items-center justify-center font-semibold flex-shrink-0', sizeClasses, bg, text, dbg, dtext)}>
-      {initials(name)}
-    </div>
-  )
+  return <InitialsAvatar name={name} photoUrl={photo_url} size={size === 'lg' ? 'lg' : size === 'sm' ? 'sm' : 'md'} />
 }
 
 function useSignedUrls(photos) {
@@ -457,8 +428,8 @@ function StatusText({ cleaning }) {
   return <span className={cn('text-[12px] font-semibold', config.className)}>{config.label}</span>
 }
 
-// The cards follow a cleaning's stages (guest still in → guest left → submitted)
-// and double as quick filters for the list below.
+// KPI strip as on the Dashboard. The tiles follow a cleaning's stages
+// (guest still in → guest left → submitted) and filter the list below.
 function SummaryCards({ cleanings, active, onSelect }) {
   const stats = useMemo(() => {
     let scheduled = 0, ready = 0, toBeEvaluated = 0
@@ -471,43 +442,23 @@ function SummaryCards({ cleanings, active, onSelect }) {
     return { total: cleanings.length, scheduled, ready, toBeEvaluated }
   }, [cleanings])
 
-  const cards = [
-    { id: 'all',             label: 'Total Cleanings', value: stats.total,         icon: Sparkles },
-    { id: 'scheduled',       label: 'Scheduled',       value: stats.scheduled,     icon: Clock },
-    { id: 'ready',           label: 'Ready to Clean',  value: stats.ready,         icon: DoorOpen },
-    { id: 'to-be-evaluated', label: 'To Be Evaluated', value: stats.toBeEvaluated, icon: AlertTriangle },
-  ]
+  const pick = (id) => onSelect(active === id ? 'all' : id)
 
   return (
-    <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
-      {cards.map((card, i) => {
-        const isActive = active === card.id
-        return (
-          <motion.button
-            type="button"
-            key={card.label}
-            initial={{ opacity: 0, y: 8 }}
-            animate={{ opacity: 1, y: 0 }}
-            transition={{ delay: i * 0.05, duration: 0.25 }}
-            onClick={() => onSelect(isActive ? 'all' : card.id)}
-            aria-pressed={isActive}
-            title={isActive && card.id !== 'all' ? 'Click again to show all cleanings' : `Show ${card.label.toLowerCase()}`}
-            className={cn(
-              'text-left rounded-md bg-card border shadow-sm p-4 transition-colors',
-              isActive ? 'border-foreground ring-1 ring-foreground' : 'border-border hover:border-foreground/40',
-            )}
-          >
-            <div className="flex items-center gap-2 mb-2">
-              <card.icon size={15} className="text-foreground" />
-              <span className="text-[11px] font-bold uppercase tracking-wider text-foreground">
-                {card.label}
-              </span>
-            </div>
-            <p className="text-3xl font-bold text-foreground tabular-nums">{card.value}</p>
-          </motion.button>
-        )
-      })}
-    </div>
+    <StatStrip cols={4}>
+      <StatTile icon={Sparkles} label="Total cleanings" value={stats.total} sub="All cleanings" active={active === 'all'} onClick={() => onSelect('all')} />
+      <StatTile icon={Clock} label="Scheduled" value={stats.scheduled} sub="Guest still in the unit" active={active === 'scheduled'} onClick={() => pick('scheduled')} />
+      <StatTile icon={DoorOpen} label="Ready to clean" value={stats.ready} sub="Guest has left" active={active === 'ready'} onClick={() => pick('ready')} />
+      <StatTile
+        icon={AlertTriangle}
+        label="To be evaluated"
+        value={stats.toBeEvaluated}
+        sub={stats.toBeEvaluated > 0 ? 'Waiting for your review' : 'All reviewed'}
+        attention={stats.toBeEvaluated > 0}
+        active={active === 'to-be-evaluated'}
+        onClick={() => pick('to-be-evaluated')}
+      />
+    </StatStrip>
   )
 }
 
@@ -518,7 +469,7 @@ function PanelRow({ cleaning, variant, onClick }) {
   const nights = computeNightsFromBooking(booking)
 
   let timingText = null
-  let timingClass = 'text-foreground/75'
+  let timingClass = 'text-foreground'
 
   if (variant === 'overdue') {
     const gl = guestLeftStatus(booking)
@@ -536,7 +487,7 @@ function PanelRow({ cleaning, variant, onClick }) {
       timingClass = gl.className
     } else {
       timingText = 'No guest check-out'
-      timingClass = 'text-muted-foreground italic'
+      timingClass = 'text-foreground italic'
     }
   } else if (variant === 'pending') {
     const ago = timeAgo(cleaning.submitted_at)
@@ -561,21 +512,16 @@ function PanelRow({ cleaning, variant, onClick }) {
     <button
       type="button"
       onClick={onClick}
-      className="relative w-full text-left rounded-md border border-border bg-background py-2 pl-4 pr-3 overflow-hidden transition-colors hover:bg-muted/40"
+      className="w-full text-left px-5 py-2.5 border-b border-border last:border-0 transition-colors hover:bg-muted/40"
     >
-      <span
-        aria-hidden
-        className="absolute top-0 bottom-0 left-0 w-[4px]"
-        style={{ backgroundColor: '#10b981' }}
-      />
 
       <div className="flex items-center gap-2 min-w-0">
         <p className="text-[12px] text-foreground truncate flex-1 min-w-0">
           <span className="font-mono font-semibold">{cleaning.cleaning_code || '—'}</span>
           {identityParts.map((part, i) => (
             <span key={i}>
-              <span className="text-foreground/40 mx-1.5">·</span>
-              <span className="text-foreground/75">{part}</span>
+              <span className="text-foreground mx-1.5">·</span>
+              <span className="text-foreground">{part}</span>
             </span>
           ))}
         </p>
@@ -591,17 +537,17 @@ function PanelRow({ cleaning, variant, onClick }) {
         <p className="text-[11px] truncate flex-1 min-w-0">
           {metaParts.length > 0 ? (
             metaParts.map((part, i) => (
-              <span key={i} className="text-foreground/75">
-                {i > 0 && <span className="mx-1.5 text-foreground/40">·</span>}
+              <span key={i} className="text-foreground">
+                {i > 0 && <span className="mx-1.5 text-foreground">·</span>}
                 {part}
               </span>
             ))
           ) : (
-            <span className="italic text-foreground/60">No booking</span>
+            <span className="italic text-foreground">No booking</span>
           )}
           {timingText && (
             <>
-              <span className="mx-1.5 text-foreground/40">·</span>
+              <span className="mx-1.5 text-foreground">·</span>
               <span className={cn('font-semibold', timingClass)}>{timingText}</span>
             </>
           )}
@@ -611,50 +557,36 @@ function PanelRow({ cleaning, variant, onClick }) {
   )
 }
 
-function TodayPanel({ title, icon: Icon, rows, loading, empty, variant, onRowClick, emphasis = false }) {
-  const countClass = emphasis && rows.length > 0
-    ? 'text-red-600 dark:text-red-400'
-    : 'text-muted-foreground'
-
+function QueueSection({ icon, title, rows, loading, empty, variant, onRowClick, emphasis = false }) {
   return (
-    <section className="flex flex-col min-h-0">
-      <div className="flex items-center gap-2 mb-2">
-        <Icon size={13} className="text-foreground flex-shrink-0" />
-        <h3 className="text-[11px] font-semibold uppercase tracking-wider text-foreground truncate">
-          {title}
-        </h3>
-        {!loading && (
-          <span className={cn('text-[11px] font-semibold tabular-nums', countClass)}>
-            · {rows.length}
-          </span>
+    <div className="min-w-0 border-b border-border last:border-b-0 lg:odd:border-r lg:[&:nth-last-child(-n+2)]:border-b-0">
+      <SectionLabel icon={icon} title={title} count={loading ? null : rows.length} emphasis={emphasis} />
+      {/* About three rows; more scroll inside */}
+      <div className="max-h-[210px] overflow-y-auto">
+        {loading ? (
+          <div className="p-3 space-y-2">{[...Array(2)].map((_, i) => <div key={i} className="h-12 rounded-md bg-muted animate-pulse" />)}</div>
+        ) : rows.length === 0 ? (
+          <p className="px-5 py-3 text-[12px] text-foreground">{empty}</p>
+        ) : (
+          rows.map((c) => <PanelRow key={c.id} cleaning={c} variant={variant} onClick={() => onRowClick(c)} />)
         )}
       </div>
+    </div>
+  )
+}
 
-      <div className="flex-1 min-h-0">
-        <div className="max-h-[200px] overflow-y-auto pr-1 space-y-1.5">
-          {loading ? (
-            <div className="space-y-1.5">
-              {[...Array(3)].map((_, i) => (
-                <div key={i} className="h-14 rounded-md bg-muted animate-pulse" />
-              ))}
-            </div>
-          ) : rows.length === 0 ? (
-            <div className="rounded-md bg-card border border-border shadow-sm py-3 px-4">
-              <p className="text-[12px] text-foreground/70">{empty}</p>
-            </div>
-          ) : (
-            rows.map((c) => (
-              <PanelRow
-                key={c.id}
-                cleaning={c}
-                variant={variant}
-                onClick={() => onRowClick(c)}
-              />
-            ))
-          )}
-        </div>
+// What needs doing, most urgent first.
+function QueueCard({ overdue, dueToday, pendingEvaluation, completed, loading, onRowClick }) {
+  return (
+    <Panel>
+      <PanelHeader icon={Sparkles} title="Work queue" subtitle="Overdue, due today, waiting for review and recently completed" />
+      <div className="grid grid-cols-1 lg:grid-cols-2">
+        <QueueSection icon={Clock} title="Overdue" rows={overdue} loading={loading} empty="No overdue cleanings." variant="overdue" onRowClick={onRowClick} emphasis />
+        <QueueSection icon={Sparkles} title="Due today" rows={dueToday} loading={loading} empty="No cleanings due today." variant="scheduled" onRowClick={onRowClick} />
+        <QueueSection icon={AlertTriangle} title="To be evaluated" rows={pendingEvaluation} loading={loading} empty="Nothing waiting for review." variant="pending" onRowClick={onRowClick} />
+        <QueueSection icon={CheckCircle2} title="Completed" rows={completed} loading={loading} empty="No completed cleanings." variant="completed" onRowClick={onRowClick} />
       </div>
-    </section>
+    </Panel>
   )
 }
 
@@ -703,10 +635,10 @@ function StatusPills({ active, onChange, counts }) {
   }, [active, counts])
 
   return (
-    <div className="inline-flex items-center p-1 rounded-full bg-muted/60 border border-border/60">
+    <div className="inline-flex items-center p-0.5 rounded-md bg-card border border-border">
       <div ref={containerRef} className="relative inline-flex items-center gap-1">
         <motion.div
-          className="absolute top-0 bottom-0 rounded-full bg-card shadow-sm border border-border z-0"
+          className="absolute top-0 bottom-0 rounded-md bg-foreground z-0"
           animate={{ left: indicator.left, width: indicator.width }}
           transition={{ type: 'spring', stiffness: 350, damping: 28 }}
         />
@@ -720,14 +652,12 @@ function StatusPills({ active, onChange, counts }) {
               data-active={isActive}
               onClick={() => onChange(tab.id)}
               className={cn(
-                'relative z-10 px-3.5 py-1.5 rounded-full text-[11px] font-semibold transition-colors duration-200 whitespace-nowrap',
-                isActive
-                  ? (PILL_TEXT_ACTIVE[tab.id] || 'text-foreground')
-                  : 'text-foreground/70 hover:text-foreground',
+                'relative z-10 px-3 h-7 rounded-md text-[12px] font-medium transition-colors duration-200 whitespace-nowrap',
+                isActive ? 'text-background' : 'text-foreground',
               )}
             >
               {tab.label}
-              <span className={cn('ml-1', isActive ? 'opacity-90' : 'opacity-60')}>{count}</span>
+              <span className="ml-1 font-semibold tabular-nums">{count}</span>
             </button>
           )
         })}
@@ -746,9 +676,9 @@ function ReadOnlyPhotoGrid({ photos, label, onOpenPhoto }) {
 
   if (safePhotos.length === 0) {
     return (
-      <div className="rounded-md border border-dashed border-border bg-muted/20 py-4 text-center">
-        <ImageIcon size={14} className="text-muted-foreground/40 mx-auto mb-1" />
-        <p className="text-[11px] text-muted-foreground italic">No {label.toLowerCase()} photos</p>
+      <div className="rounded-md border border-dashed border-border bg-card py-4 text-center">
+        <ImageIcon size={14} className="text-foreground mx-auto mb-1" />
+        <p className="text-[11px] text-foreground italic">No {label.toLowerCase()} photos</p>
       </div>
     )
   }
@@ -756,8 +686,8 @@ function ReadOnlyPhotoGrid({ photos, label, onOpenPhoto }) {
   return (
     <div>
       <div className="flex items-center justify-between mb-2">
-        <p className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground">{label}</p>
-        <span className="text-[10px] text-muted-foreground tabular-nums">{safePhotos.length}</span>
+        <p className="text-[10px] font-bold uppercase tracking-wider text-foreground">{label}</p>
+        <span className="text-[10px] text-foreground tabular-nums">{safePhotos.length}</span>
       </div>
       <div className="grid grid-cols-3 gap-2">
         {safePhotos.map((p, i) => {
@@ -794,9 +724,9 @@ function ReadOnlySinglePhoto({ photo, label, onOpenPhoto }) {
   if (!photo) {
     return (
       <div>
-        <p className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground mb-2">{label}</p>
-        <div className="w-full aspect-video rounded-md border border-dashed border-border bg-muted/20 flex items-center justify-center">
-          <ImageIcon size={14} className="text-muted-foreground/40" />
+        <p className="text-[10px] font-bold uppercase tracking-wider text-foreground mb-2">{label}</p>
+        <div className="w-full aspect-video rounded-md border border-dashed border-border bg-card flex items-center justify-center">
+          <ImageIcon size={14} className="text-foreground" />
         </div>
       </div>
     )
@@ -804,7 +734,7 @@ function ReadOnlySinglePhoto({ photo, label, onOpenPhoto }) {
 
   return (
     <div>
-      <p className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground mb-2">{label}</p>
+      <p className="text-[10px] font-bold uppercase tracking-wider text-foreground mb-2">{label}</p>
       <button
         type="button"
         onClick={() => signedUrl && onOpenPhoto?.([photo], 0)}
@@ -829,12 +759,12 @@ function ReadOnlySinglePhoto({ photo, label, onOpenPhoto }) {
 function ReadOnlyItemsList({ items, emptyLabel = 'No items' }) {
   const parsed = parseInventory(items)
   if (parsed.length === 0) {
-    return <p className="text-[11px] italic text-muted-foreground text-center py-1">{emptyLabel}</p>
+    return <p className="text-[11px] italic text-foreground text-center py-1">{emptyLabel}</p>
   }
   return (
     <div className="space-y-1">
       {parsed.map((it, i) => (
-        <div key={i} className="flex items-center justify-between px-2 py-1 rounded bg-muted/40 text-xs">
+        <div key={i} className="flex items-center justify-between px-2 py-1 rounded bg-card text-xs">
           <span className="text-foreground truncate">{it.name}</span>
           <span className="text-foreground font-semibold tabular-nums">×{it.quantity}</span>
         </div>
@@ -873,7 +803,7 @@ function CompletedReadOnlyPanel({ cleaning, onOpenPhoto }) {
           {hasAfter && <ReadOnlyPhotoGrid photos={cleaning.photos_after} label="After" onOpenPhoto={onOpenPhoto} />}
           {hasReport && <ReadOnlyPhotoGrid photos={cleaning.photos_report} label="Report" onOpenPhoto={onOpenPhoto} />}
           {!hasBefore && !hasAfter && !hasReport && (
-            <p className="text-[11px] italic text-muted-foreground text-center py-2">
+            <p className="text-[11px] italic text-foreground text-center py-2">
               No photos on file
             </p>
           )}
@@ -887,14 +817,14 @@ function CompletedReadOnlyPanel({ cleaning, onOpenPhoto }) {
         <DetailSection title="Amenities">
           <div className="p-3 grid grid-cols-2 gap-3">
             <div>
-              <p className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground mb-2">Used</p>
+              <p className="text-[10px] font-bold uppercase tracking-wider text-foreground mb-2">Used</p>
               <ReadOnlySinglePhoto photo={cleaning.amenities_used_photo} label="Photo" onOpenPhoto={onOpenPhoto} />
               <div className="mt-2">
                 <ReadOnlyItemsList items={cleaning.amenities_used_items} />
               </div>
             </div>
             <div>
-              <p className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground mb-2">Replaced</p>
+              <p className="text-[10px] font-bold uppercase tracking-wider text-foreground mb-2">Replaced</p>
               <ReadOnlySinglePhoto photo={cleaning.amenities_replaced_photo} label="Photo" onOpenPhoto={onOpenPhoto} />
               <div className="mt-2">
                 <ReadOnlyItemsList items={cleaning.amenities_replaced_items} />
@@ -911,14 +841,14 @@ function CompletedReadOnlyPanel({ cleaning, onOpenPhoto }) {
         <DetailSection title="Laundry">
           <div className="p-3 grid grid-cols-2 gap-3">
             <div>
-              <p className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground mb-2">Used</p>
+              <p className="text-[10px] font-bold uppercase tracking-wider text-foreground mb-2">Used</p>
               <ReadOnlySinglePhoto photo={cleaning.laundry_used_photo} label="Photo" onOpenPhoto={onOpenPhoto} />
               <div className="mt-2">
                 <ReadOnlyItemsList items={cleaning.laundry_used_items} />
               </div>
             </div>
             <div>
-              <p className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground mb-2">Replaced</p>
+              <p className="text-[10px] font-bold uppercase tracking-wider text-foreground mb-2">Replaced</p>
               <ReadOnlySinglePhoto photo={cleaning.laundry_replaced_photo} label="Photo" onOpenPhoto={onOpenPhoto} />
               <div className="mt-2">
                 <ReadOnlyItemsList items={cleaning.laundry_replaced_items} />
@@ -995,7 +925,7 @@ function PhotoGrid({ cleaning, category, onChanged, onOpenPhoto }) {
   return (
     <div className="space-y-2">
       {photos.length === 0 ? (
-        <p className="text-xs text-muted-foreground italic py-2 text-center">No {category} photos</p>
+        <p className="text-xs text-foreground italic py-2 text-center">No {category} photos</p>
       ) : (
         <div className="grid grid-cols-3 gap-2">
           {photos.map((p, idx) => {
@@ -1053,11 +983,11 @@ function PhotoSection({ cleaning, onChanged, onOpenPhoto }) {
 
   return (
     <DetailSection title="Cleaning Photos">
-      <div className="flex gap-1 p-2 border-b border-border bg-muted/20">
+      <div className="flex gap-1 p-2 border-b border-border bg-card">
         {tabs.map((t) => (
           <button key={t.id} type="button" onClick={() => setTab(t.id)}
             className={cn('flex-1 flex items-center justify-center gap-1.5 px-3 py-1.5 rounded-full text-[11px] font-semibold transition-colors',
-              tab === t.id ? 'bg-card border border-border text-foreground shadow-sm' : 'text-muted-foreground hover:text-foreground')}>
+              tab === t.id ? 'bg-card border border-border text-foreground shadow-sm' : 'text-foreground hover:text-foreground')}>
             {t.label}
             <span className="opacity-60 tabular-nums">{t.count}</span>
           </button>
@@ -1112,7 +1042,7 @@ function SinglePhotoCRM({ cleaning, field, category, label, onChanged, onOpenPho
   return (
     <div>
       <div className="flex items-center justify-between mb-2">
-        <p className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground">{label}</p>
+        <p className="text-[10px] font-bold uppercase tracking-wider text-foreground">{label}</p>
         {existing && (
           <button type="button" onClick={handleRemove}
             className="text-[10px] font-semibold uppercase tracking-wider text-red-500 hover:underline">
@@ -1149,7 +1079,7 @@ function SinglePhotoCRM({ cleaning, field, category, label, onChanged, onOpenPho
         </div>
       ) : (
         <button type="button" onClick={() => inputRef.current?.click()} disabled={uploading}
-          className="w-full aspect-video rounded-md border-2 border-dashed border-border flex flex-col items-center justify-center gap-1 text-muted-foreground text-[11px] active:bg-muted/50 transition-colors disabled:opacity-50">
+          className="w-full aspect-video rounded-md border-2 border-dashed border-border flex flex-col items-center justify-center gap-1 text-foreground text-[11px] active:bg-muted/50 transition-colors disabled:opacity-50">
           {uploading ? <Loader2 size={16} className="animate-spin" /> : <Camera size={16} />}
           {uploading ? 'Uploading…' : 'Add photo'}
         </button>
@@ -1211,7 +1141,7 @@ function ListEditorCRM({ items, onChange, placeholder = 'Item name' }) {
   return (
     <div className="space-y-1.5">
       {parsed.length === 0 ? (
-        <p className="text-[11px] italic text-muted-foreground text-center py-1">No items</p>
+        <p className="text-[11px] italic text-foreground text-center py-1">No items</p>
       ) : (
         parsed.map((it, i) => (
           <div key={i} className="flex items-center gap-1.5 px-2 py-1 rounded bg-background border border-border">
@@ -1232,7 +1162,7 @@ function ListEditorCRM({ items, onChange, placeholder = 'Item name' }) {
               className="h-6 text-xs rounded bg-background w-14 tabular-nums border-transparent hover:border-border"
             />
             <button type="button" onClick={() => handleRemove(i)} disabled={saving}
-              className="p-1 rounded hover:bg-red-500/10 text-muted-foreground hover:text-red-500 disabled:opacity-50">
+              className="p-1 rounded hover:bg-red-500/10 text-foreground hover:text-red-500 disabled:opacity-50">
               <Trash2 size={11} />
             </button>
           </div>
@@ -1283,14 +1213,14 @@ function CategoryPair({ title, Icon, cleaning, usedPhotoField, replacedPhotoFiel
     <DetailSection title={title}>
       <div className="p-3 grid grid-cols-2 gap-3">
         <div>
-          <p className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground mb-2">Used</p>
+          <p className="text-[10px] font-bold uppercase tracking-wider text-foreground mb-2">Used</p>
           <SinglePhotoCRM cleaning={cleaning} field={usedPhotoField} category={usedCategory} label="Used" onChanged={onChanged} onOpenPhoto={onOpenPhoto} />
           <div className="mt-2">
             <ListEditorCRM items={cleaning[usedItemsField]} onChange={(next) => handleFieldUpdate(usedItemsField, next)} />
           </div>
         </div>
         <div>
-          <p className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground mb-2">Replaced</p>
+          <p className="text-[10px] font-bold uppercase tracking-wider text-foreground mb-2">Replaced</p>
           <SinglePhotoCRM cleaning={cleaning} field={replacedPhotoField} category={replacedCategory} label="Replaced" onChanged={onChanged} onOpenPhoto={onOpenPhoto} />
           <div className="mt-2">
             <ListEditorCRM items={cleaning[replacedItemsField]} onChange={(next) => handleFieldUpdate(replacedItemsField, next)} />
@@ -1395,7 +1325,7 @@ function HousekeeperPaymentSection({ cleaning, onChanged }) {
     }
   }
 
-  const labelClass = 'text-[10px] uppercase tracking-wider text-muted-foreground font-semibold mb-1 block'
+  const labelClass = 'text-[10px] uppercase tracking-wider text-foreground font-semibold mb-1 block'
   const inputClass = 'h-8 text-xs rounded w-full'
 
   const statusLabel = isCompleted ? 'Paid' : isPending ? 'Pending Evaluation' : 'Not Paid'
@@ -1404,8 +1334,8 @@ function HousekeeperPaymentSection({ cleaning, onChanged }) {
     <DetailSection title={`Housekeeper Payment · ${statusLabel}`}>
       <div className="p-3 space-y-3">
         {isPending && (
-          <div className="flex items-start gap-2 px-2.5 py-2 rounded-md bg-muted/40 border border-border">
-            <Clock size={12} className="text-muted-foreground flex-shrink-0 mt-0.5" />
+          <div className="flex items-start gap-2 px-2.5 py-2 rounded-md bg-card border border-border">
+            <Clock size={12} className="text-foreground flex-shrink-0 mt-0.5" />
             <p className="text-[11px] text-foreground flex-1">
               Housekeeper submitted this cleaning. Review the photos, then approve or send back for corrections.
             </p>
@@ -1414,7 +1344,7 @@ function HousekeeperPaymentSection({ cleaning, onChanged }) {
 
         {isCompleted && cleaning.paid_at && (
           <div className="flex items-center justify-between text-xs">
-            <span className="text-muted-foreground">Paid at</span>
+            <span className="text-foreground">Paid at</span>
             <span className="text-foreground font-semibold">{formatDateTime(cleaning.paid_at)}</span>
           </div>
         )}
@@ -1453,7 +1383,7 @@ function HousekeeperPaymentSection({ cleaning, onChanged }) {
           </div>
         )}
         {!isCompleted && (!amountOk || !methodOk) && (
-          <p className="text-[10px] text-muted-foreground text-center">
+          <p className="text-[10px] text-foreground text-center">
             Fill amount and method to enable approval
           </p>
         )}
@@ -1511,7 +1441,7 @@ function LaundryPaymentSection({ cleaning, onChanged }) {
     }
   }
 
-  const labelClass = 'text-[10px] uppercase tracking-wider text-muted-foreground font-semibold mb-1 block'
+  const labelClass = 'text-[10px] uppercase tracking-wider text-foreground font-semibold mb-1 block'
   const inputClass = 'h-8 text-xs rounded w-full'
   const hasStoredPayment = cleaning.laundry_paid_at
 
@@ -1523,7 +1453,7 @@ function LaundryPaymentSection({ cleaning, onChanged }) {
     return (
       <DetailSection title={`Laundry Payment · ${statusLabel}`}>
         <div className="p-3">
-          <p className="text-xs italic text-muted-foreground text-center py-2">
+          <p className="text-xs italic text-foreground text-center py-2">
             No laundry payment was recorded for this cleaning.
           </p>
         </div>
@@ -1536,7 +1466,7 @@ function LaundryPaymentSection({ cleaning, onChanged }) {
       <div className="p-3 space-y-3">
         {hasStoredPayment && (
           <div className="flex items-center justify-between text-xs">
-            <span className="text-muted-foreground">Paid at</span>
+            <span className="text-foreground">Paid at</span>
             <span className="text-foreground font-semibold">{formatDateTime(cleaning.laundry_paid_at)}</span>
           </div>
         )}
@@ -1569,7 +1499,7 @@ function LaundryPaymentSection({ cleaning, onChanged }) {
               {saving ? 'Saving…' : hasStoredPayment ? 'Update Laundry Payment' : 'Save Laundry Payment'}
             </Button>
             {!canSave && (
-              <p className="text-[10px] text-muted-foreground text-center">
+              <p className="text-[10px] text-foreground text-center">
                 Optional — fill amount and method to save
               </p>
             )}
@@ -1695,7 +1625,7 @@ function NewCleaningModal({ open, onClose, onCreated, units, bookings, housekeep
     } finally { setSaving(false) }
   }
 
-  const labelClass = 'text-[10px] uppercase tracking-wider text-muted-foreground font-semibold mb-1 block'
+  const labelClass = 'text-[10px] uppercase tracking-wider text-foreground font-semibold mb-1 block'
   const inputClass = 'h-8 text-xs rounded'
 
   return (
@@ -1733,7 +1663,7 @@ function NewCleaningModal({ open, onClose, onCreated, units, bookings, housekeep
               </SelectTrigger>
               <SelectContent>
                 {eligibleUnits.length === 0 ? (
-                  <div className="px-3 py-2 text-xs text-muted-foreground italic">
+                  <div className="px-3 py-2 text-xs text-foreground italic">
                     No units with an active contract
                   </div>
                 ) : (
@@ -1768,11 +1698,11 @@ function NewCleaningModal({ open, onClose, onCreated, units, bookings, housekeep
                 <SelectValue placeholder="No booking (standalone)">
                   {form.booking_id
                     ? (() => { const b = bookings.find((x) => x.id === form.booking_id); return b ? `${b.booking_code} · ${b.guest_name}` : null })()
-                    : <span className="text-muted-foreground italic">No booking (standalone)</span>}
+                    : <span className="text-foreground italic">No booking (standalone)</span>}
                 </SelectValue>
               </SelectTrigger>
               <SelectContent>
-                <SelectItem value="__none__" className="text-xs italic text-muted-foreground">No booking (standalone)</SelectItem>
+                <SelectItem value="__none__" className="text-xs italic text-foreground">No booking (standalone)</SelectItem>
                 {bookings.map((b) => <SelectItem key={b.id} value={b.id} className="text-xs">{b.booking_code} · {b.guest_name}</SelectItem>)}
               </SelectContent>
             </Select>
@@ -1791,7 +1721,7 @@ function NewCleaningModal({ open, onClose, onCreated, units, bookings, housekeep
             <div>
               <label className={labelClass}>Scheduled date</label>
               <Input type="date" value={form.scheduled_date} onChange={(e) => setField('scheduled_date', e.target.value)} className={inputClass} />
-              <p className="text-[10px] text-muted-foreground mt-1">Window: {CLEANING_WINDOW.label}</p>
+              <p className="text-[10px] text-foreground mt-1">Window: {CLEANING_WINDOW.label}</p>
             </div>
           </div>
           <div>
@@ -1801,11 +1731,11 @@ function NewCleaningModal({ open, onClose, onCreated, units, bookings, housekeep
                 <SelectValue placeholder="Unassigned">
                   {form.housekeeper_id
                     ? (() => { const h = housekeepers.find((x) => x.id === form.housekeeper_id); return h ? `${h.name} · ${h.code}` : null })()
-                    : <span className="text-muted-foreground italic">Unassigned</span>}
+                    : <span className="text-foreground italic">Unassigned</span>}
                 </SelectValue>
               </SelectTrigger>
               <SelectContent>
-                <SelectItem value="__none__" className="text-xs italic text-muted-foreground">Unassigned</SelectItem>
+                <SelectItem value="__none__" className="text-xs italic text-foreground">Unassigned</SelectItem>
                 {housekeepers.map((h) => <SelectItem key={h.id} value={h.id} className="text-xs">{h.name} · {h.code}</SelectItem>)}
               </SelectContent>
             </Select>
@@ -1815,7 +1745,7 @@ function NewCleaningModal({ open, onClose, onCreated, units, bookings, housekeep
             <Textarea value={form.notes} onChange={(e) => setField('notes', e.target.value)} maxLength={MAX_NOTE_LEN} rows={2} className="text-xs rounded resize-none" placeholder="Any notes..." />
           </div>
         </div>
-        <div className="flex items-center justify-end gap-2 px-5 py-3 border-t border-border bg-muted/30">
+        <div className="flex items-center justify-end gap-2 px-5 py-3 border-t border-border bg-card">
           <Button variant="outline" size="sm" className="h-8 rounded text-xs" onClick={onClose} disabled={saving}>Cancel</Button>
           <Button size="sm" className="h-8 rounded text-xs" onClick={handleSubmit} disabled={saving || unitStatus !== 'ok'} style={{ backgroundColor: BRAND }}>
             {saving ? <Loader2 size={12} className="mr-1.5 animate-spin" /> : <Check size={12} className="mr-1.5" />}
@@ -1879,7 +1809,7 @@ function CleaningDetailPanel({ cleaning, onClose, onChanged, onDelete, housekeep
           <div className="flex-shrink-0 px-5 py-4 border-b border-border">
             <div className="flex items-start gap-3">
               <div className="w-12 h-12 rounded-md bg-muted flex items-center justify-center flex-shrink-0">
-                <Building2 size={20} className="text-muted-foreground" />
+                <Building2 size={20} className="text-foreground" />
               </div>
               <div className="min-w-0 flex-1">
                 <p className="font-mono text-sm font-bold text-foreground truncate">
@@ -1894,17 +1824,17 @@ function CleaningDetailPanel({ cleaning, onClose, onChanged, onDelete, housekeep
                   <StatusText cleaning={cleaning} />
                 </div>
               </div>
-              <button onClick={onClose} className="p-1 rounded hover:bg-muted text-muted-foreground flex-shrink-0"><X size={16} /></button>
+              <button onClick={onClose} className="p-1 rounded hover:bg-muted text-foreground flex-shrink-0"><X size={16} /></button>
             </div>
           </div>
 
           <div className="flex-1 overflow-y-auto p-4 space-y-4">
             {pendingEvaluation && (
-              <div className="rounded-md bg-muted/40 border border-border p-3 flex items-start gap-2">
-                <Clock size={14} className="text-muted-foreground flex-shrink-0 mt-0.5" />
+              <div className="rounded-md bg-card border border-border p-3 flex items-start gap-2">
+                <Clock size={14} className="text-foreground flex-shrink-0 mt-0.5" />
                 <div className="min-w-0">
                   <p className="text-xs font-semibold text-foreground">To be evaluated</p>
-                  <p className="text-[11px] text-muted-foreground mt-0.5">
+                  <p className="text-[11px] text-foreground mt-0.5">
                     The housekeeper submitted this cleaning. Review the photos and payment details, then approve or send back.
                   </p>
                 </div>
@@ -1929,7 +1859,7 @@ function CleaningDetailPanel({ cleaning, onClose, onChanged, onDelete, housekeep
               <div className="p-3 space-y-0.5">
                 {booking && (
                   <div className="flex items-center justify-between py-0.5 gap-2">
-                    <span className="text-[10px] uppercase tracking-wider text-muted-foreground font-semibold min-w-[72px]">Booking</span>
+                    <span className="text-[10px] uppercase tracking-wider text-foreground font-semibold min-w-[72px]">Booking</span>
                     <span className="text-xs font-mono text-foreground truncate text-right">
                       {booking.booking_code} · {booking.guest_name}
                     </span>
@@ -1937,20 +1867,20 @@ function CleaningDetailPanel({ cleaning, onClose, onChanged, onDelete, housekeep
                 )}
                 {!booking && (
                   <div className="flex items-center justify-between py-0.5 gap-2">
-                    <span className="text-[10px] uppercase tracking-wider text-muted-foreground font-semibold min-w-[72px]">Booking</span>
-                    <span className="text-xs italic text-muted-foreground">Standalone (no booking)</span>
+                    <span className="text-[10px] uppercase tracking-wider text-foreground font-semibold min-w-[72px]">Booking</span>
+                    <span className="text-xs italic text-foreground">Standalone (no booking)</span>
                   </div>
                 )}
                 {suggestDeep && !isCompleted && !isCancelled && (
-                  <div className="mt-2 flex items-center gap-2 px-2.5 py-1.5 rounded-md bg-muted/40 border border-border">
-                    <AlertTriangle size={12} className="text-muted-foreground flex-shrink-0" />
+                  <div className="mt-2 flex items-center gap-2 px-2.5 py-1.5 rounded-md bg-card border border-border">
+                    <AlertTriangle size={12} className="text-foreground flex-shrink-0" />
                     <span className="text-[11px] text-foreground flex-1">{stayNights}-night stay — consider deep clean</span>
                     <button type="button" onClick={() => updateField('type', 'deep')} disabled={saving}
                       className="text-[10px] font-semibold uppercase tracking-wider text-foreground hover:underline disabled:opacity-50">Set Deep</button>
                   </div>
                 )}
                 <div className="flex items-center gap-2 py-0.5">
-                  <span className="text-[10px] uppercase tracking-wider text-muted-foreground font-semibold min-w-[72px] flex-shrink-0">Type</span>
+                  <span className="text-[10px] uppercase tracking-wider text-foreground font-semibold min-w-[72px] flex-shrink-0">Type</span>
                   <div className="flex-1">
                     <Select value={cleaning.type} onValueChange={(v) => updateField('type', v)} disabled={isCompleted || isCancelled}>
                       <SelectTrigger className="h-7 text-xs rounded"><SelectValue /></SelectTrigger>
@@ -1962,7 +1892,7 @@ function CleaningDetailPanel({ cleaning, onClose, onChanged, onDelete, housekeep
                   </div>
                 </div>
                 <div className="flex items-center gap-2 py-0.5">
-                  <span className="text-[10px] uppercase tracking-wider text-muted-foreground font-semibold min-w-[72px] flex-shrink-0">Status</span>
+                  <span className="text-[10px] uppercase tracking-wider text-foreground font-semibold min-w-[72px] flex-shrink-0">Status</span>
                   <div className="flex-1">
                     <Select
                       value={effective}
@@ -2009,21 +1939,21 @@ function CleaningDetailPanel({ cleaning, onClose, onChanged, onDelete, housekeep
                   </div>
                 </div>
                 <div className="flex items-center gap-2 py-0.5">
-                  <span className="text-[10px] uppercase tracking-wider text-muted-foreground font-semibold min-w-[72px] flex-shrink-0">Scheduled</span>
+                  <span className="text-[10px] uppercase tracking-wider text-foreground font-semibold min-w-[72px] flex-shrink-0">Scheduled</span>
                   <Input type="date" value={cleaning.scheduled_date || ''} onChange={(e) => updateField('scheduled_date', sanitizeDateOnly(e.target.value))} disabled={isCompleted || isCancelled} className="h-7 text-xs rounded bg-background flex-1" />
                 </div>
                 <div className="flex items-center gap-2 py-0.5">
-                  <span className="text-[10px] uppercase tracking-wider text-muted-foreground font-semibold min-w-[72px] flex-shrink-0">Window</span>
+                  <span className="text-[10px] uppercase tracking-wider text-foreground font-semibold min-w-[72px] flex-shrink-0">Window</span>
                   <span className="text-xs text-foreground">{CLEANING_WINDOW.label}</span>
                 </div>
                 <div className="flex items-center gap-2 py-0.5">
-                  <span className="text-[10px] uppercase tracking-wider text-muted-foreground font-semibold min-w-[72px] flex-shrink-0">Submitted</span>
+                  <span className="text-[10px] uppercase tracking-wider text-foreground font-semibold min-w-[72px] flex-shrink-0">Submitted</span>
                   <span className="text-xs tabular-nums text-foreground">
                     {cleaning.submitted_at ? `${formatDateTime(cleaning.submitted_at)} · ${timeAgo(cleaning.submitted_at)}` : '—'}
                   </span>
                 </div>
                 <div className="flex items-center gap-2 py-0.5">
-                  <span className="text-[10px] uppercase tracking-wider text-muted-foreground font-semibold min-w-[72px] flex-shrink-0">Completed</span>
+                  <span className="text-[10px] uppercase tracking-wider text-foreground font-semibold min-w-[72px] flex-shrink-0">Completed</span>
                   <span className="text-xs tabular-nums text-foreground">{cleaning.completed_at ? formatDateTime(cleaning.completed_at) : '—'}</span>
                 </div>
               </div>
@@ -2036,18 +1966,18 @@ function CleaningDetailPanel({ cleaning, onClose, onChanged, onDelete, housekeep
                     <WorkerAvatar name={selectedHousekeeper.name} photo_url={selectedHousekeeper.photo_url} size="lg" />
                     <div className="min-w-0 flex-1">
                       <p className="text-sm font-semibold truncate">{selectedHousekeeper.name}</p>
-                      <p className="text-[11px] font-mono text-muted-foreground">{selectedHousekeeper.code}</p>
+                      <p className="text-[11px] font-mono text-foreground">{selectedHousekeeper.code}</p>
                     </div>
                   </div>
                 )}
                 <Select value={cleaning.housekeeper_id || '__none__'} onValueChange={(v) => updateField('housekeeper_id', v === '__none__' ? null : v)} disabled={isCompleted || isCancelled}>
                   <SelectTrigger className="h-8 text-xs rounded w-full">
                     <SelectValue placeholder="Unassigned">
-                      {selectedHousekeeper ? selectedHousekeeper.name : <span className="text-muted-foreground italic">Unassigned</span>}
+                      {selectedHousekeeper ? selectedHousekeeper.name : <span className="text-foreground italic">Unassigned</span>}
                     </SelectValue>
                   </SelectTrigger>
                   <SelectContent>
-                    <SelectItem value="__none__" className="text-xs italic text-muted-foreground">Unassigned</SelectItem>
+                    <SelectItem value="__none__" className="text-xs italic text-foreground">Unassigned</SelectItem>
                     {housekeepers.map((h) => <SelectItem key={h.id} value={h.id} className="text-xs">{h.name} · {h.code}</SelectItem>)}
                   </SelectContent>
                 </Select>
@@ -2190,7 +2120,7 @@ function CleaningListRow({ cleaning, selected, highlighted, onClick, onViewBooki
           <span className="font-mono text-[12.5px] font-bold text-foreground truncate block">
             {cleaning.cleaning_code || '—'}
           </span>
-          <span className="text-[11.5px] text-foreground/75 truncate block">
+          <span className="text-[11.5px] text-foreground truncate block">
             {cleaning.units?.unit_code || '—'}
             {cleaning.units?.building ? ` · ${cleaning.units.building}` : ''}
           </span>
@@ -2199,10 +2129,10 @@ function CleaningListRow({ cleaning, selected, highlighted, onClick, onViewBooki
           {cleaning.bookings ? (
             <>
               <span className="font-mono text-[12px] text-foreground truncate block">{cleaning.bookings.booking_code}</span>
-              <span className="text-[11.5px] text-foreground/75 truncate block">{cleaning.bookings.guest_name}</span>
+              <span className="text-[11.5px] text-foreground truncate block">{cleaning.bookings.guest_name}</span>
             </>
           ) : (
-            <span className="text-[11.5px] italic text-foreground/60">Standalone</span>
+            <span className="text-[11.5px] italic text-foreground">Standalone</span>
           )}
         </div>
         <div className="min-w-0"><TypeText type={cleaning.type} /></div>
@@ -2495,56 +2425,26 @@ export default function HousekeepingPage({ initialSelectedId }) {
 
   return (
     <div className="h-full flex min-h-0">
-      <div className="flex-1 min-h-0 flex flex-col p-3 gap-3 overflow-y-auto">
+      <div className="flex-1 min-h-0 flex flex-col px-6 py-5 md:px-8 md:py-6 gap-4 overflow-y-auto">
 
         <div className="flex-shrink-0 pt-1 pb-2">
           <SummaryCards cleanings={cleanings} active={statusFilter} onSelect={setStatusFilter} />
         </div>
 
-        <div className="flex-shrink-0 grid grid-cols-1 lg:grid-cols-2 gap-4 pt-1 pb-2">
-          {/* Most urgent first */}
-          <TodayPanel
-            title="Overdue"
-            icon={Clock}
-            rows={overdue}
+        <div className="flex-shrink-0">
+          <QueueCard
+            overdue={overdue}
+            dueToday={dueToday}
+            pendingEvaluation={pendingEvaluation}
+            completed={completed}
             loading={isFirstLoad}
-            empty="No overdue cleanings"
-            variant="overdue"
-            onRowClick={handlePanelRowClick}
-            emphasis
-          />
-          <TodayPanel
-            title="Due today"
-            icon={Sparkles}
-            rows={dueToday}
-            loading={isFirstLoad}
-            empty="No cleanings due today"
-            variant="scheduled"
-            onRowClick={handlePanelRowClick}
-          />
-          <TodayPanel
-            title="To be evaluated"
-            icon={AlertTriangle}
-            rows={pendingEvaluation}
-            loading={isFirstLoad}
-            empty="Nothing waiting for review"
-            variant="pending"
-            onRowClick={handlePanelRowClick}
-          />
-          <TodayPanel
-            title="Completed"
-            icon={CheckCircle2}
-            rows={completed}
-            loading={isFirstLoad}
-            empty="No completed cleanings"
-            variant="completed"
             onRowClick={handlePanelRowClick}
           />
         </div>
 
         <div className="flex-shrink-0 flex items-center gap-2">
           <div className="relative flex-1 min-w-0">
-            <Search size={13} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-muted-foreground" />
+            <Search size={13} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-foreground" />
             <Input ref={searchRef} placeholder="Search code, unit, booking, housekeeper, notes..." value={search} onChange={(e) => setSearch(e.target.value)} className="pl-8 pr-9 h-8 text-xs rounded" />
             {!search && <SearchKeyHint />}
           </div>
@@ -2572,8 +2472,8 @@ export default function HousekeepingPage({ initialSelectedId }) {
           />
         )}
 
-        <div className="flex-1 min-h-[420px] rounded border border-border shadow-sm overflow-hidden bg-card flex flex-col">
-          <div className={cn('flex-shrink-0 px-4 py-2.5 border-b border-border bg-muted/40', ROW_GRID)}>
+        <div className="flex-1 min-h-[420px] rounded-md border border-border shadow-sm overflow-hidden bg-card flex flex-col">
+          <div className={cn('flex-shrink-0 px-4 py-2.5 border-b border-border', ROW_GRID)}>
             <SortHeader label="Code · Unit" sortKey="code" sort={sort} onSort={onSort} />
             <SortHeader label="Booking" sortKey="booking" sort={sort} onSort={onSort} />
             <SortHeader label="Type" sortKey="type" sort={sort} onSort={onSort} />
@@ -2588,9 +2488,9 @@ export default function HousekeepingPage({ initialSelectedId }) {
             ) : sorted.length === 0 ? (
               <div className="flex items-center justify-center text-center py-12">
                 <div>
-                  <Sparkles size={36} className="text-muted-foreground/40 mx-auto mb-3" />
+                  <Sparkles size={36} className="text-foreground mx-auto mb-3" />
                   <p className="text-sm text-foreground font-semibold">No cleanings match your filters</p>
-                  <p className="text-xs text-foreground/70 mt-1">Try clearing the filters, or create a new cleaning.</p>
+                  <p className="text-xs text-foreground mt-1">Try clearing the filters, or create a new cleaning.</p>
                   {filterChips.length > 0 && (
                     <button type="button" onClick={clearFilters} className="mt-4 inline-flex items-center h-8 px-3 rounded-md border border-border text-xs font-semibold text-foreground hover:bg-muted">
                       Clear filters
