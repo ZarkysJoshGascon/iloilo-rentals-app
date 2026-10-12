@@ -1,5 +1,5 @@
 import { createPortal } from 'react-dom'
-import { AnimatePresence, motion } from 'framer-motion'
+import { AnimatePresence, motion, useReducedMotion } from 'framer-motion'
 
 const EASE = [0.16, 1, 0.3, 1]
 
@@ -9,6 +9,7 @@ const EASE = [0.16, 1, 0.3, 1]
  * Rendered into <body> so nothing on the page can sit above it.
  */
 export function Preloader({ show, progress = 0, logo, brandColor = '#2d568e' }) {
+  const reduce = useReducedMotion()
   return createPortal(
     <AnimatePresence>
       {show && (
@@ -25,7 +26,7 @@ export function Preloader({ show, progress = 0, logo, brandColor = '#2d568e' }) 
               src={logo}
               alt=""
               className="w-28 h-28 md:w-36 md:h-36 object-contain"
-              animate={{ scale: [1, 1.04, 1] }}
+              animate={reduce ? undefined : { scale: [1, 1.04, 1] }}
               transition={{ duration: 2, repeat: Infinity, ease: 'easeInOut' }}
             />
           )}

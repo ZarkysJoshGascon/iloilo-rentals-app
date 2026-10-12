@@ -6,6 +6,7 @@ import Footer from '../../components/layout/Footer'
 import { Photo } from '@/components/ui/photo'
 import { WorksWheel } from '@/components/ui/works-wheel'
 import { spot, useSitePhotos, useSiteGallery, REVIEWS } from '@/lib/siteImages'
+import { usePageRevealed } from '@/lib/pageReveal'
 import {
   ArrowRight,
   Building2, Sofa, BedDouble, Handshake, Palette, CheckCircle2, X,
@@ -21,12 +22,14 @@ const TONE_GREY = '#eef0f3'
 // ============================================================
 // SCROLL REVEAL
 // ============================================================
+// Entrance animations hold until the loading screen has gone (usePageRevealed).
 function Reveal({ children, delay = 0, y = 50, className = '', amount = 0.6 }) {
+  const revealed = usePageRevealed()
   return (
     <motion.div
       className={className}
       initial={{ opacity: 0, y }}
-      whileInView={{ opacity: 1, y: 0 }}
+      whileInView={revealed ? { opacity: 1, y: 0 } : undefined}
       viewport={{ once: true, amount }}
       transition={{ duration: 1, delay, ease: [0.16, 1, 0.3, 1] }}
     >
@@ -36,11 +39,12 @@ function Reveal({ children, delay = 0, y = 50, className = '', amount = 0.6 }) {
 }
 
 function RevealFromLeft({ children, delay = 0, className = '', amount = 0.6 }) {
+  const revealed = usePageRevealed()
   return (
     <motion.div
       className={className}
       initial={{ opacity: 0, x: -80 }}
-      whileInView={{ opacity: 1, x: 0 }}
+      whileInView={revealed ? { opacity: 1, x: 0 } : undefined}
       viewport={{ once: true, amount }}
       transition={{ duration: 1, delay, ease: [0.16, 1, 0.3, 1] }}
     >
@@ -50,11 +54,12 @@ function RevealFromLeft({ children, delay = 0, className = '', amount = 0.6 }) {
 }
 
 function RevealFromRight({ children, delay = 0, className = '', amount = 0.6 }) {
+  const revealed = usePageRevealed()
   return (
     <motion.div
       className={className}
       initial={{ opacity: 0, x: 80 }}
-      whileInView={{ opacity: 1, x: 0 }}
+      whileInView={revealed ? { opacity: 1, x: 0 } : undefined}
       viewport={{ once: true, amount }}
       transition={{ duration: 1, delay, ease: [0.16, 1, 0.3, 1] }}
     >
@@ -493,6 +498,7 @@ const FLIP_EASE = [0.3, 0.7, 0.25, 1]
 
 function FloatingPhoto({ facing, children }) {
   const reduce = useReducedMotion()
+  const revealed = usePageRevealed()
   const dir = facing === 'right' ? 1 : -1
   const loop = { duration: FLOAT_SECONDS, ease: 'easeInOut', repeat: Infinity }
   const land = { duration: FLIP_SECONDS, ease: FLIP_EASE }
@@ -506,7 +512,7 @@ function FloatingPhoto({ facing, children }) {
     <motion.div
       className="relative pb-12 md:pb-16"
       initial={reduce ? 'rest' : 'flipped'}
-      whileInView="rest"
+      whileInView={revealed ? 'rest' : undefined}
       viewport={{ once: true, amount: 0.35 }}
     >
       {/* Float */}

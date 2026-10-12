@@ -2,6 +2,7 @@
 // Site photos managed in Supabase Storage, bucket `hero-images`:
 //   home/          one file per photo spot (see HomePage.jsx)
 //   home/reviews/  review screenshots; the "What They Say" section shows them all
+//   interior/      one folder per finished interior project (see useInteriorProjects)
 //
 // Supabase serves public files with an hour of browser and CDN caching, so a
 // photo replaced under the same name would keep showing the old copy. Each
@@ -11,7 +12,7 @@
 // A folder is listed whenever a page using it mounts (one small request). The
 // listing also says which photos exist, so a spot without an upload goes
 // straight to its placeholder instead of failing first.
-import { useCallback, useMemo, useSyncExternalStore } from 'react'
+import { useCallback, useEffect, useMemo, useState, useSyncExternalStore } from 'react'
 import { supabase } from '@/lib/supabase'
 
 const BUCKET = 'hero-images'
@@ -64,6 +65,33 @@ function refresh(folder, store) {
       store.loading = false
       store.listeners.forEach((l) => l())
     })
+}
+
+/**
+ * Resolves once every photo folder that a mounted page uses has been listed
+ * (or failed to list), i.e. once the page's photo URLs are known.
+ */
+export function whenSitePhotosListed() {
+  const pending = [...stores.values()].filter((s) => s.listeners.size > 0 && (s.files === undefined || s.loading))
+  const folders = new Promise((resolve) => {
+    const check = () => {
+      if (pending.some((s) => s.files === undefined || s.loading)) return
+      pending.forEach((s) => s.listeners.delete(check))
+      resolve()
+    }
+    pending.forEach((s) => s.listeners.add(check))
+    check()
+  })
+  return Promise.all([folders, Promise.allSettled([...otherLoads])]).then(() => {})
+}
+
+// Other photo listings in flight (e.g. interior projects), so the loading
+// screen waits for them too.
+const otherLoads = new Set()
+function trackLoad(promise) {
+  otherLoads.add(promise)
+  promise.finally(() => otherLoads.delete(promise)).catch(() => {})
+  return promise
 }
 
 function useFolder(folder) {
@@ -139,3 +167,88 @@ export function useSiteGallery(folder, { thumbHeight = 720, fullWidth = 1600 } =
       }))
   }, [files, folder, thumbHeight, fullWidth])
 }
+
+// ─────────────────────────────────────────────────────────────
+// Interior projects: `interior/` holds one folder per finished project, and
+// each folder holds that project's photos in walk-through order:
+//
+//   interior/01 Studio makeover - Megaworld Tower/01 Living room - Stepping in from the door.jpg
+//   interior/01 Studio makeover - Megaworld Tower/02 Bedroom.jpg
+//
+// The leading number sets the order and isn't shown. Text after " - " is the
+// project's location (folders) or a short caption (photos). Use letters,
+// numbers, spaces and hyphens in the names.
+// ─────────────────────────────────────────────────────────────
+const INTERIOR = 'interior'
+const INTERIOR_PHOTO = { width: 1800, quality: 80, resize: 'contain' }
+const byNumberThenName = (a, b) => a.localeCompare(b, undefined, { numeric: true, sensitivity: 'base' })
+
+// "02 Living room - Stepping in" → { title: 'Living room', note: 'Stepping in' }
+function parseLabel(name) {
+  const clean = name.replace(IMAGE_FILE, '').replace(/^\s*\d+[\s._-]*/, '').replace(/_/g, ' ').trim()
+  const [title, ...rest] = clean.split(/\s+-\s+/)
+  const tidy = (t) => t.replace(/\s+/g, ' ').trim()
+  const first = tidy(title || clean)
+  return { title: first.charAt(0).toUpperCase() + first.slice(1), note: rest.length ? tidy(rest.join(' - ')) : '' }
+}
+
+let interiorProjects // undefined until loaded once this session
+let interiorRequest = null
+
+function loadInteriorProjects() {
+  if (interiorRequest) return interiorRequest
+  const bucket = supabase.storage.from(BUCKET)
+  interiorRequest = trackLoad(
+    bucket.list(INTERIOR, { limit: 100 })
+      .then(async ({ data, error }) => {
+        if (error) throw error
+        // Folders come back without an id.
+        const folders = data.filter((entry) => !entry.id).map((entry) => entry.name).sort(byNumberThenName)
+        const projects = await Promise.all(folders.map(async (folder) => {
+          const { data: files, error: filesError } = await bucket.list(`${INTERIOR}/${folder}`, { limit: 100 })
+          if (filesError) throw filesError
+          const { title, note } = parseLabel(folder)
+          const shots = files
+            .filter((file) => file.id && IMAGE_FILE.test(file.name))
+            .sort((a, b) => byNumberThenName(a.name, b.name))
+            .map((file) => {
+              const label = parseLabel(file.name)
+              return {
+                key: file.name,
+                src: photoUrl(`${INTERIOR}/${folder}/${file.name}`, Date.parse(file.updated_at) || 0, INTERIOR_PHOTO),
+                room: label.title,
+                note: label.note,
+              }
+            })
+          return { key: folder, title, location: note, shots }
+        }))
+        return projects.filter((project) => project.shots.length > 0)
+      })
+      .catch((err) => {
+        console.warn('[siteImages] could not list interior projects', err)
+        return []
+      })
+      .then((projects) => {
+        interiorProjects = projects
+        return projects
+      }),
+  )
+  return interiorRequest
+}
+
+/**
+ * Finished interior projects from Supabase Storage, as
+ * `[{ key, title, location, shots: [{ key, src, room, note }] }]`.
+ * `undefined` while loading; an empty array when there are none yet.
+ */
+export function useInteriorProjects() {
+  const [projects, setProjects] = useState(interiorProjects)
+  useEffect(() => {
+    if (projects !== undefined) return
+    let cancelled = false
+    loadInteriorProjects().then((result) => { if (!cancelled) setProjects(result) })
+    return () => { cancelled = true }
+  }, [projects])
+  return projects
+}
+

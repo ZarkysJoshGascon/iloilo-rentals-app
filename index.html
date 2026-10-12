@@ -3,11 +3,29 @@
   <head>
     <meta charset="UTF-8" />
     <link rel="icon" type="image/svg+xml" href="/Iloilo_rentals_img.png" />
+    <link rel="preload" as="image" href="/Iloilo_rentals_img.png" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>iloilo-rentals</title>
+    <style>
+      /* Shown until React starts; matches the loading screen in src/components/ui/preloader.jsx,
+         which takes over without a visible change. */
+      .boot { position: fixed; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 32px; background: #fff; }
+      .boot img { width: 112px; height: 112px; object-fit: contain; }
+      .boot div { width: 192px; height: 4px; border-radius: 9999px; background: #f3f4f6; overflow: hidden; }
+      .boot div span { display: block; width: 4%; height: 100%; border-radius: 9999px; background: #2d568e; }
+      @media (min-width: 768px) {
+        .boot img { width: 144px; height: 144px; }
+        .boot div { width: 256px; }
+      }
+    </style>
   </head>
   <body>
-    <div id="root"></div>
+    <div id="root">
+      <div class="boot" role="status" aria-label="Loading">
+        <img src="/Iloilo_rentals_img.png" alt="" />
+        <div><span></span></div>
+      </div>
+    </div>
     <script type="module" src="/src/main.jsx"></script>
   </body>
 </html>
