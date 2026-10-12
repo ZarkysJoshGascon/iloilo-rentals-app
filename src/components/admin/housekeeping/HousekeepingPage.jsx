@@ -5,7 +5,7 @@ import { motion, AnimatePresence } from 'framer-motion'
 import {
   Plus, Search, RefreshCw, X, Check, Loader2, Trash2,
   Sparkles, AlertTriangle, Camera,
-  ChevronRight, ChevronLeft, Building2, Clock,
+  ChevronRight, ChevronLeft, Clock,
   Image as ImageIcon, Shirt, Wallet, Send, Coffee,
   ZoomIn, RotateCcw, CheckCircle2, Lock,
   Calendar as CalendarIcon, Copy, DoorOpen,
@@ -1750,9 +1750,6 @@ function CleaningDetailPanel({ cleaning, onClose, onChanged, onDelete, housekeep
             >
           <div className="flex-shrink-0 px-5 py-4 border-b border-border">
             <div className="flex items-start gap-3">
-              <div className="w-12 h-12 rounded-md bg-muted flex items-center justify-center flex-shrink-0">
-                <Building2 size={20} className="text-foreground" />
-              </div>
               <div className="min-w-0 flex-1">
                 <p className="font-mono text-sm font-bold text-foreground truncate">
                   {cleaning.cleaning_code || '—'}

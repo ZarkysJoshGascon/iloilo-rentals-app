@@ -1774,9 +1774,6 @@ function ContractDetailPanel({ contract, contracts, units, owners, onClose, onCh
           >
             <div className="flex-shrink-0 px-5 py-4 border-b border-border">
               <div className="flex items-start gap-3">
-                <div className="w-12 h-12 rounded-md bg-muted flex items-center justify-center flex-shrink-0">
-                  <FileText size={20} className="text-foreground" />
-                </div>
                 <div className="min-w-0 flex-1">
                   <p className="text-base font-bold text-foreground font-mono truncate">{contract.contract_code || '—'}</p>
                   <p className="text-[11px] text-foreground truncate">
