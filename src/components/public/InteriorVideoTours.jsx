@@ -51,8 +51,8 @@ const TOURS = [
 ]
 
 // A stock walkthrough that shows what a finished tour will feel like (e.g. to
-// brief the architect). Only shown on localhost or with ?demo in the URL, and
-// always labelled, so visitors never see it presented as our work.
+// brief the architect or demo to a client). Always labelled "Sample video" with
+// its credit, so it is never presented as our work. See SAMPLE_IS_PUBLIC below.
 // Footage: "Video of a House Interior" by Kindel Media, Pexels License.
 const SAMPLE_TOUR = {
   key: 'sample',
@@ -72,8 +72,13 @@ const SAMPLE_TOUR = {
   ],
 }
 
+// Shown to everyone for now, for client demos while the project's own
+// walkthrough videos are being made. Set to false once real tours are added
+// (it then shows only on localhost or with ?demo in the URL).
+const SAMPLE_IS_PUBLIC = true
+
 const showSample = () =>
-  import.meta.env.DEV || new URLSearchParams(window.location.search).has('demo')
+  SAMPLE_IS_PUBLIC || import.meta.env.DEV || new URLSearchParams(window.location.search).has('demo')
 
 // Clamped linear map of v from [a, b] to [c, d]. Scroll-linked values use the
 // function form of useTransform: the array form hands opacity to the browser's
