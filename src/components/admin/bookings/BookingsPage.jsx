@@ -52,7 +52,7 @@ const STATUS_PILLS = [
   { id: 'unpaid',           label: 'Unpaid' },
 ]
 
-const ROW_GRID = 'grid grid-cols-[1.4fr_1fr_1.2fr_1.1fr_1fr_160px] gap-4 items-center'
+const ROW_GRID = 'grid grid-cols-[minmax(0,1.6fr)_minmax(0,0.8fr)_minmax(0,1.1fr)_minmax(0,1fr)_minmax(0,1.1fr)_130px] gap-4 items-center'
 const PANEL_WIDTH = 448
 
 const MONTHS = ['January','February','March','April','May','June','July','August','September','October','November','December']
@@ -233,9 +233,9 @@ function GuestAvatar({ name, photo_url = null, size = 'md' }) {
 const BOOKING_STATUS_TEXT = {
   upcoming:          { label: 'Upcoming',        className: 'text-blue-600 dark:text-blue-400' },
   'in-house':        { label: 'In-House',        className: 'text-emerald-600 dark:text-emerald-400' },
-  'checked-out':     { label: 'Checked Out',     className: 'text-gray-500 dark:text-gray-400' },
+  'checked-out':     { label: 'Checked Out',     className: 'text-slate-600 dark:text-slate-300' },
   'needs-attention': { label: 'Needs Attention', className: 'text-amber-600 dark:text-amber-400' },
-  completed:         { label: 'Done',            className: 'text-gray-500 dark:text-gray-400' },
+  completed:         { label: 'Done',            className: 'text-slate-600 dark:text-slate-300' },
 }
 
 const PAYMENT_STATUS_TEXT = {
@@ -247,12 +247,12 @@ const PAYMENT_STATUS_TEXT = {
 function BookingStatusBadge({ status }) {
   const config = BOOKING_STATUS_TEXT[status]
   if (!config) return null
-  return <span className={cn('text-[11px] font-semibold', config.className)}>{config.label}</span>
+  return <span className={cn('text-[12px] font-semibold', config.className)}>{config.label}</span>
 }
 function PaymentStatusBadge({ status }) {
   const config = PAYMENT_STATUS_TEXT[status]
   if (!config) return null
-  return <span className={cn('text-[11px] font-semibold', config.className)}>{config.label}</span>
+  return <span className={cn('text-[12px] font-semibold', config.className)}>{config.label}</span>
 }
 
 // ─────────────────────────────────────────────────────────────
@@ -767,7 +767,7 @@ function StatusPills({ statusFilter, onStatusFilter, counts }) {
               onClick={() => onStatusFilter(tab.id)}
               className={cn(
                 'relative z-10 px-3.5 py-1.5 rounded-full text-[11px] font-semibold transition-colors duration-200 whitespace-nowrap',
-                isActive ? 'text-foreground' : 'text-muted-foreground hover:text-foreground'
+                isActive ? 'text-foreground' : 'text-foreground/70 hover:text-foreground'
               )}
             >
               {tab.label}
@@ -912,7 +912,7 @@ function TodayPanel({ title, icon: Icon, rows, loading, empty, onRowClick }) {
             </div>
           ) : rows.length === 0 ? (
             <div className="rounded-md bg-card border border-border shadow-sm py-8 px-4 text-center">
-              <p className="text-[11px] text-muted-foreground italic">{empty}</p>
+              <p className="text-[12px] text-foreground/70">{empty}</p>
             </div>
           ) : (
             rows.map((b) => {
@@ -929,20 +929,20 @@ function TodayPanel({ title, icon: Icon, rows, loading, empty, onRowClick }) {
                     <GuestAvatar name={b.guest_name} size="sm" />
                     <div className="min-w-0 flex-1">
                       <p className="text-xs font-semibold text-foreground truncate">{b.guest_name || '—'}</p>
-                      <p className="text-[10px] text-muted-foreground truncate">
+                      <p className="text-[11px] text-foreground/75 truncate">
                         {b.booking_code || '—'} · {b.units?.unit_code || '—'}
                       </p>
                     </div>
                     <div className="flex flex-col items-end flex-shrink-0">
-                      <span className="text-[10px] tabular-nums text-muted-foreground">
+                      <span className="text-[11px] tabular-nums text-foreground/75">
                         {formatDateShort(b.check_in)} → {formatDateShort(b.check_out)}
                       </span>
                       {balance > 0 ? (
-                        <span className="text-[10px] font-semibold tabular-nums text-amber-600 dark:text-amber-400">
+                        <span className="text-[11px] font-semibold tabular-nums text-amber-600 dark:text-amber-400">
                           {formatMoney(balance)} due
                         </span>
                       ) : (
-                        <span className="text-[10px] font-semibold tabular-nums text-emerald-600 dark:text-emerald-400">
+                        <span className="text-[11px] font-semibold tabular-nums text-emerald-600 dark:text-emerald-400">
                           Paid
                         </span>
                       )}
@@ -1449,48 +1449,46 @@ function BookingListRow({ booking, contracts, selected, highlighted, onClick, on
         transition={{ duration: 0.4 }}
         whileHover={{ backgroundColor: selected ? 'rgba(45, 86, 142, 0.14)' : 'rgba(45, 86, 142, 0.05)' }}
         whileTap={{ scale: 0.998 }}
-        className={cn('group/row w-full text-left px-4 py-3 border-b border-border cursor-pointer select-none', ROW_GRID)}
+        className={cn('group/row w-full text-left px-4 py-3 border-b border-border last:border-b-0 cursor-pointer select-none', ROW_GRID)}
       >
-        <div className="flex items-center gap-2 min-w-0">
+        <div className="flex items-center gap-3 min-w-0">
           <GuestAvatar name={booking.guest_name} size="sm" />
           <div className="min-w-0 flex-1">
-            <p className="text-sm font-semibold text-foreground truncate">{booking.guest_name}</p>
-            <p className="text-[10px] text-muted-foreground truncate">
+            <p className="text-[13.5px] font-semibold text-foreground truncate leading-tight">{booking.guest_name}</p>
+            <p className="text-[11.5px] text-foreground/75 truncate mt-0.5">
               {booking.guest_email || booking.guest_contact || `${booking.guests || 1} guest${booking.guests > 1 ? 's' : ''}`}
             </p>
             {bookedAgo && (
-              <p className="text-[10px] text-muted-foreground truncate">
+              <p className="text-[11px] text-foreground/60 truncate">
                 Booked {bookedAgo}
-                {wasEdited && editedAgo && (
-                  <>
-                    <span className="mx-1 text-muted-foreground/50">·</span>
-                    <span>Edited {editedAgo}</span>
-                  </>
-                )}
+                {wasEdited && editedAgo && <> · Edited {editedAgo}</>}
               </p>
             )}
           </div>
         </div>
-        <span className="font-mono text-xs text-foreground truncate">{booking.booking_code}</span>
+        <span className="font-mono text-[12px] text-foreground truncate">{booking.booking_code}</span>
         <div className="min-w-0">
-          <span className="font-mono text-xs font-bold text-foreground truncate flex items-center gap-1">
-            {booking.units?.unit_code || '—'}
-            {!governing && (
-              <span className="text-[9px] font-semibold uppercase tracking-wider text-red-600 dark:text-red-400">
-                No contract
-              </span>
-            )}
-          </span>
-          <span className="text-[10px] text-muted-foreground truncate block">{booking.units?.building || '—'}</span>
+          <span className="block font-mono text-[12.5px] font-bold text-foreground truncate">{booking.units?.unit_code || '—'}</span>
+          <span className="block text-[11.5px] text-foreground/75 truncate">{booking.units?.building || '—'}</span>
+          {!governing && (
+            <span className="block text-[10px] font-semibold uppercase tracking-wider text-red-600 dark:text-red-400">
+              No contract
+            </span>
+          )}
         </div>
-        <div className="text-[11px] tabular-nums text-foreground min-w-0">
-          <div className="truncate">{formatDateShort(booking.check_in)} → {formatDateShort(booking.check_out)}</div>
-          <div className="text-[10px] text-muted-foreground">{nights} night{nights === 1 ? '' : 's'}</div>
+        <div className="min-w-0 tabular-nums">
+          <div className="text-[12.5px] font-medium text-foreground truncate">{formatDateShort(booking.check_in)} → {formatDateShort(booking.check_out)}</div>
+          <div className="text-[11.5px] text-foreground/75">{nights} night{nights === 1 ? '' : 's'}</div>
         </div>
-        <div className="flex items-center min-w-0">
+        <div className="min-w-0">
           <PaymentStatusBadge status={booking.payment_status} />
+          <div className="text-[11.5px] tabular-nums text-foreground/75 truncate">
+            {Number(booking.balance || 0) > 0
+              ? `${formatMoney(booking.balance)} due of ${formatMoney(booking.total_amount)}`
+              : formatMoney(booking.total_amount)}
+          </div>
         </div>
-        <div className="flex items-center justify-end flex-shrink-0">
+        <div className="flex items-center justify-end min-w-0">
           <BookingStatusBadge status={status} />
         </div>
       </motion.button>
@@ -2850,8 +2848,8 @@ export default function BookingsPage({ initialSelectedId }) {
           <WarningsStrip needsAttention={needsAttention} endingSoon={endingSoon} onSelect={(b) => setSelectedId(b.id)} />
         </div>
 
-        <div className="flex-shrink-0 rounded border border-border shadow-sm overflow-hidden bg-card flex flex-col">
-          <div className={cn('flex-shrink-0 px-4 py-2 border-b border-border bg-card', ROW_GRID)}>
+        <div className="flex-1 min-h-[420px] rounded border border-border shadow-sm overflow-hidden bg-card flex flex-col">
+          <div className={cn('flex-shrink-0 px-4 py-2.5 border-b border-border bg-muted/40', ROW_GRID)}>
             <span className="text-[10px] font-bold uppercase tracking-wider text-foreground truncate">Guest</span>
             <span className="text-[10px] font-bold uppercase tracking-wider text-foreground truncate">Code</span>
             <span className="text-[10px] font-bold uppercase tracking-wider text-foreground truncate">Unit</span>
@@ -2860,7 +2858,7 @@ export default function BookingsPage({ initialSelectedId }) {
             <span className="text-[10px] font-bold uppercase tracking-wider text-foreground text-right truncate">Status</span>
           </div>
 
-          <div className="h-[280px] overflow-y-auto" style={{ scrollbarGutter: 'stable' }}>
+          <div className="flex-1 min-h-0 overflow-y-auto" style={{ scrollbarGutter: 'stable' }}>
             {isFirstLoad ? (
               <div className="space-y-2 p-3">{[...Array(5)].map((_, i) => <Skeleton key={i} className="h-14 w-full" />)}</div>
             ) : sorted.length === 0 ? (

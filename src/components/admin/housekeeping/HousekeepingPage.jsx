@@ -101,7 +101,7 @@ const TYPE_TEXT = {
 const STATUS_TEXT = {
   scheduled:         { label: 'Scheduled',        className: 'text-amber-600 dark:text-amber-400' },
   ready:             { label: 'Ready',            className: 'text-blue-600 dark:text-blue-400' },
-  'to-be-evaluated': { label: 'To Be Evaluated',  className: 'text-gray-600 dark:text-gray-400' },
+  'to-be-evaluated': { label: 'To Be Evaluated',  className: 'text-fuchsia-600 dark:text-fuchsia-400' },
   completed:         { label: 'Completed',        className: 'text-emerald-600 dark:text-emerald-400' },
   cancelled:         { label: 'Cancelled',        className: 'text-red-600 dark:text-red-400' },
 }
@@ -119,7 +119,7 @@ const PILL_TEXT_ACTIVE = {
   all: 'text-foreground',
   scheduled: 'text-amber-700 dark:text-amber-400',
   ready: 'text-blue-700 dark:text-blue-400',
-  'to-be-evaluated': 'text-gray-700 dark:text-gray-300',
+  'to-be-evaluated': 'text-fuchsia-700 dark:text-fuchsia-400',
   completed: 'text-emerald-700 dark:text-emerald-400',
   cancelled: 'text-red-700 dark:text-red-400',
 }
@@ -129,7 +129,7 @@ const MAX_NOTE_LEN = 2000
 const MAX_METHOD_LEN = 60
 const MAX_REFERENCE_LEN = 100
 
-const ROW_GRID = 'grid grid-cols-[1.3fr_1fr_1fr_1.2fr_1fr_140px] gap-4 items-center'
+const ROW_GRID = 'grid grid-cols-[minmax(0,1.3fr)_minmax(0,1.1fr)_minmax(0,0.7fr)_minmax(0,1.2fr)_minmax(0,0.9fr)_150px] gap-4 items-center'
 const PANEL_WIDTH = 480
 
 function formatDate(d) {
@@ -431,13 +431,13 @@ function PhotoLightbox({ photos, initialIndex, onClose }) {
 
 function TypeText({ type }) {
   const config = TYPE_TEXT[type] || TYPE_TEXT.basic
-  return <span className={cn('text-[11px] font-semibold capitalize', config.className)}>{config.label}</span>
+  return <span className={cn('text-[12px] font-semibold capitalize', config.className)}>{config.label}</span>
 }
 
 function StatusText({ cleaning }) {
   const effective = getEffectiveStatus(cleaning)
   const config = STATUS_TEXT[effective] || STATUS_TEXT.scheduled
-  return <span className={cn('text-[11px] font-semibold', config.className)}>{config.label}</span>
+  return <span className={cn('text-[12px] font-semibold', config.className)}>{config.label}</span>
 }
 
 function SummaryCards({ cleanings }) {
@@ -489,7 +489,7 @@ function PanelRow({ cleaning, variant, onClick }) {
   const nights = computeNightsFromBooking(booking)
 
   let timingText = null
-  let timingClass = 'text-muted-foreground'
+  let timingClass = 'text-foreground/75'
 
   if (variant === 'overdue') {
     const gl = guestLeftStatus(booking)
@@ -541,12 +541,12 @@ function PanelRow({ cleaning, variant, onClick }) {
       />
 
       <div className="flex items-center gap-2 min-w-0">
-        <p className="text-[11px] text-foreground truncate flex-1 min-w-0">
+        <p className="text-[12px] text-foreground truncate flex-1 min-w-0">
           <span className="font-mono font-semibold">{cleaning.cleaning_code || '—'}</span>
           {identityParts.map((part, i) => (
             <span key={i}>
-              <span className="text-muted-foreground mx-1.5">·</span>
-              <span className="text-muted-foreground">{part}</span>
+              <span className="text-foreground/40 mx-1.5">·</span>
+              <span className="text-foreground/75">{part}</span>
             </span>
           ))}
         </p>
@@ -559,21 +559,21 @@ function PanelRow({ cleaning, variant, onClick }) {
         {housekeeper?.name && (
           <WorkerAvatar name={housekeeper.name} photo_url={housekeeper.photo_url} size="sm" />
         )}
-        <p className="text-[10px] truncate flex-1 min-w-0">
+        <p className="text-[11px] truncate flex-1 min-w-0">
           {metaParts.length > 0 ? (
             metaParts.map((part, i) => (
-              <span key={i} className="text-muted-foreground">
-                {i > 0 && <span className="mx-1.5 text-muted-foreground/50">·</span>}
+              <span key={i} className="text-foreground/75">
+                {i > 0 && <span className="mx-1.5 text-foreground/40">·</span>}
                 {part}
               </span>
             ))
           ) : (
-            <span className="italic text-muted-foreground">No booking</span>
+            <span className="italic text-foreground/60">No booking</span>
           )}
           {timingText && (
             <>
-              <span className="mx-1.5 text-muted-foreground/50">·</span>
-              <span className={cn('font-medium', timingClass)}>{timingText}</span>
+              <span className="mx-1.5 text-foreground/40">·</span>
+              <span className={cn('font-semibold', timingClass)}>{timingText}</span>
             </>
           )}
         </p>
@@ -611,7 +611,7 @@ function TodayPanel({ title, icon: Icon, rows, loading, empty, variant, onRowCli
             </div>
           ) : rows.length === 0 ? (
             <div className="rounded-md bg-card border border-border shadow-sm py-8 px-4 text-center">
-              <p className="text-[11px] text-muted-foreground italic">{empty}</p>
+              <p className="text-[12px] text-foreground/70">{empty}</p>
             </div>
           ) : (
             rows.map((c) => (
@@ -694,7 +694,7 @@ function StatusPills({ active, onChange, counts }) {
                 'relative z-10 px-3.5 py-1.5 rounded-full text-[11px] font-semibold transition-colors duration-200 whitespace-nowrap',
                 isActive
                   ? (PILL_TEXT_ACTIVE[tab.id] || 'text-foreground')
-                  : 'text-muted-foreground hover:text-foreground',
+                  : 'text-foreground/70 hover:text-foreground',
               )}
             >
               {tab.label}
@@ -2155,13 +2155,13 @@ function CleaningListRow({ cleaning, selected, highlighted, onClick, onViewBooki
         transition={{ duration: 0.4 }}
         whileHover={{ backgroundColor: selected ? 'rgba(45, 86, 142, 0.14)' : 'rgba(45, 86, 142, 0.05)' }}
         whileTap={{ scale: 0.998 }}
-        className={cn('group/row w-full text-left px-4 py-3 border-b border-border cursor-pointer select-none', ROW_GRID)}
+        className={cn('group/row w-full text-left px-4 py-3 border-b border-border last:border-b-0 cursor-pointer select-none', ROW_GRID)}
       >
         <div className="min-w-0">
-          <span className="font-mono text-xs font-bold text-foreground truncate block">
+          <span className="font-mono text-[12.5px] font-bold text-foreground truncate block">
             {cleaning.cleaning_code || '—'}
           </span>
-          <span className="text-[10px] text-muted-foreground truncate block">
+          <span className="text-[11.5px] text-foreground/75 truncate block">
             {cleaning.units?.unit_code || '—'}
             {cleaning.units?.building ? ` · ${cleaning.units.building}` : ''}
           </span>
@@ -2169,11 +2169,11 @@ function CleaningListRow({ cleaning, selected, highlighted, onClick, onViewBooki
         <div className="min-w-0">
           {cleaning.bookings ? (
             <>
-              <span className="font-mono text-[11px] text-foreground truncate block">{cleaning.bookings.booking_code}</span>
-              <span className="text-[10px] text-muted-foreground truncate block">{cleaning.bookings.guest_name}</span>
+              <span className="font-mono text-[12px] text-foreground truncate block">{cleaning.bookings.booking_code}</span>
+              <span className="text-[11.5px] text-foreground/75 truncate block">{cleaning.bookings.guest_name}</span>
             </>
           ) : (
-            <span className="text-[10px] italic text-muted-foreground">Standalone</span>
+            <span className="text-[11.5px] italic text-foreground/60">Standalone</span>
           )}
         </div>
         <div className="min-w-0"><TypeText type={cleaning.type} /></div>
@@ -2181,13 +2181,13 @@ function CleaningListRow({ cleaning, selected, highlighted, onClick, onViewBooki
           {cleaning.housekeepers ? (
             <>
               <WorkerAvatar name={cleaning.housekeepers.name} photo_url={cleaning.housekeepers.photo_url} size="sm" />
-              <span className="text-xs text-foreground truncate">{cleaning.housekeepers.name}</span>
+              <span className="text-[12.5px] font-medium text-foreground truncate">{cleaning.housekeepers.name}</span>
             </>
           ) : (
-            <span className="text-[11px] italic text-muted-foreground">Unassigned</span>
+            <span className="text-[11.5px] italic text-foreground/60">Unassigned</span>
           )}
         </div>
-        <div className="text-[11px] tabular-nums text-muted-foreground min-w-0">
+        <div className="text-[12.5px] font-medium tabular-nums text-foreground min-w-0">
           <div className="truncate">{formatDate(cleaning.scheduled_date)}</div>
         </div>
         <div className="flex items-center gap-2 justify-end flex-shrink-0">
@@ -2504,8 +2504,8 @@ export default function HousekeepingPage({ initialSelectedId }) {
           <StatusPills active={statusFilter} onChange={setStatusFilter} counts={counts} />
         </div>
 
-        <div className="flex-shrink-0 rounded border border-border shadow-sm overflow-hidden bg-card flex flex-col">
-          <div className={cn('flex-shrink-0 px-4 py-2 border-b border-border bg-card', ROW_GRID)}>
+        <div className="flex-1 min-h-[420px] rounded border border-border shadow-sm overflow-hidden bg-card flex flex-col">
+          <div className={cn('flex-shrink-0 px-4 py-2.5 border-b border-border bg-muted/40', ROW_GRID)}>
             <span className="text-[10px] font-bold uppercase tracking-wider text-foreground truncate">Code · Unit</span>
             <span className="text-[10px] font-bold uppercase tracking-wider text-foreground truncate">Booking</span>
             <span className="text-[10px] font-bold uppercase tracking-wider text-foreground truncate">Type</span>
@@ -2514,7 +2514,7 @@ export default function HousekeepingPage({ initialSelectedId }) {
             <span className="text-[10px] font-bold uppercase tracking-wider text-foreground text-right truncate">Status</span>
           </div>
 
-          <div className="h-[280px] overflow-y-auto" style={{ scrollbarGutter: 'stable' }}>
+          <div className="flex-1 min-h-0 overflow-y-auto" style={{ scrollbarGutter: 'stable' }}>
             {isFirstLoad ? (
               <div className="space-y-2 p-3">{[...Array(5)].map((_, i) => <Skeleton key={i} className="h-14 w-full" />)}</div>
             ) : filtered.length === 0 ? (

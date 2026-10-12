@@ -5,8 +5,8 @@ import { motion, AnimatePresence, MotionConfig, useReducedMotion } from 'framer-
 import { useTheme } from "../../context/ThemeContext";
 import { useAuth } from "../../context/AuthContext";
 import {
-  Moon, Sun, LogOut, ArrowLeft, Calendar, Users, Sparkles,
-  FileText, TrendingUp, Loader2, LayoutDashboard, Megaphone, Inbox, Palette,
+  Moon, Sun, ArrowLeft, Calendar, Users, Sparkles,
+  FileText, TrendingUp, LayoutDashboard, Megaphone, Inbox, Palette,
   ScrollText,
 } from 'lucide-react'
 import AdminSidebar, {
@@ -59,16 +59,13 @@ const VALID_TABS = [
 // Palette
 // ─────────────────────────────────────────────────────────────
 const C = {
-  pageBg:      '#f2f5f9',
+  pageBg:      '#ffffff',
   pageBgDark:  '#070a12',
   surface:     '#ffffff',
   surfaceDark: '#0f131c',
   border:      '#e1e7ef',
   borderDark:  'rgba(255,255,255,0.07)',
 }
-
-const SOFT_SHADOW = '0 12px 32px -12px rgba(15,23,42,0.18), 0 4px 12px -4px rgba(15,23,42,0.08)'
-const SOFT_SHADOW_DARK = '0 12px 32px -12px rgba(0,0,0,0.55), 0 4px 12px -4px rgba(0,0,0,0.35)'
 
 function readStorage(key, fallback = 0) {
   try {
@@ -194,7 +191,6 @@ export default function AdminDashboardPage() {
   const [activeTab, setActiveTab] = useState(initialTab)
   const [sidebarCollapsed, setSidebarCollapsed] = useState(true)
   const [adminUser, setAdminUser] = useState(null)
-  const [showProfileMenu, setShowProfileMenu] = useState(false)
 
   // ── Mark current tab loaded as soon as it becomes active ──
   useEffect(() => {
@@ -320,14 +316,6 @@ export default function AdminDashboardPage() {
     return () => cancelIdle(handle)
   }, [])
 
-  // ── Profile menu escape ─────────────────────────────────
-  useEffect(() => {
-    if (!showProfileMenu) return
-    const onKey = (e) => { if (e.key === 'Escape') setShowProfileMenu(false) }
-    window.addEventListener('keydown', onKey)
-    return () => window.removeEventListener('keydown', onKey)
-  }, [showProfileMenu])
-
   const tabIcons = {
     dashboard: LayoutDashboard, registry: ScrollText, contracts: FileText,
     accounting: TrendingUp, bookings: Calendar, housekeeping: Sparkles,
@@ -379,6 +367,8 @@ export default function AdminDashboardPage() {
           onMouseEnter={() => setSidebarCollapsed(false)}
           onMouseLeave={() => setSidebarCollapsed(true)}
           prefetch={PREFETCH}
+          user={adminUser}
+          onSignOut={handleSignOut}
         />
 
         <div
@@ -414,7 +404,7 @@ export default function AdminDashboardPage() {
                 transition={{ duration: 0.32, ease: [0.16, 1, 0.3, 1] }}
                 className="flex items-center gap-2.5 min-w-0"
               >
-                <Icon size={18} className="text-[#2d568e] dark:text-blue-400 flex-shrink-0" />
+                <Icon size={18} strokeWidth={1.75} className="text-foreground flex-shrink-0" />
                 <h2 className="text-[15px] font-semibold text-foreground truncate tracking-tight">
                   {title}
                 </h2>
@@ -431,7 +421,7 @@ export default function AdminDashboardPage() {
             <div className="flex items-center gap-2 flex-shrink-0">
               <button
                 onClick={() => navigate('/')}
-                className="hidden sm:inline-flex items-center gap-1.5 h-8 px-3 rounded-lg text-[12px] font-medium text-foreground transition-colors hover:bg-black/[0.04] dark:hover:bg-white/[0.06]"
+                className="hidden sm:inline-flex items-center gap-1.5 h-8 px-3 rounded-md text-[12px] font-medium text-foreground transition-colors hover:bg-black/[0.04] dark:hover:bg-white/[0.06]"
                 style={{ border: `1px solid ${border}` }}
               >
                 <ArrowLeft size={13} />
@@ -440,84 +430,13 @@ export default function AdminDashboardPage() {
 
               <button
                 onClick={toggleTheme}
-                className="inline-flex items-center justify-center w-8 h-8 rounded-lg text-foreground transition-colors hover:bg-black/[0.04] dark:hover:bg-white/[0.06]"
+                className="inline-flex items-center justify-center w-8 h-8 rounded-md text-foreground transition-colors hover:bg-black/[0.04] dark:hover:bg-white/[0.06]"
                 style={{ border: `1px solid ${border}` }}
                 aria-label="Toggle theme"
+                title={isDark ? 'Light mode' : 'Dark mode'}
               >
-                {isDark
-                  ? <Sun size={14} className="text-amber-400" />
-                  : <Moon size={14} className="text-gray-600" />}
+                {isDark ? <Sun size={14} /> : <Moon size={14} />}
               </button>
-
-              <div className="relative">
-                <button
-                  onClick={() => setShowProfileMenu((v) => !v)}
-                  className="flex items-center gap-2 h-8 pl-1 pr-2.5 rounded-lg transition-colors hover:bg-black/[0.04] dark:hover:bg-white/[0.06]"
-                  style={{ border: `1px solid ${border}` }}
-                >
-                  {adminUser?.avatar ? (
-                    <img src={adminUser.avatar} alt="" className="w-6 h-6 rounded-full object-cover" />
-                  ) : (
-                    <div className="w-6 h-6 rounded-full bg-gradient-to-br from-[#2d568e] to-[#1e3a5f] flex items-center justify-center text-white text-[10px] font-semibold">
-                      {adminUser?.name?.charAt(0)?.toUpperCase() || 'A'}
-                    </div>
-                  )}
-                  <div className="hidden md:block text-left leading-none">
-                    <p className="text-[12px] font-medium text-foreground truncate max-w-[140px]">
-                      {adminUser?.name || 'Admin'}
-                    </p>
-                    <p className="text-[10px] text-muted-foreground mt-0.5">Administrator</p>
-                  </div>
-                </button>
-
-                <AnimatePresence>
-                  {showProfileMenu && (
-                    <>
-                      <div className="fixed inset-0 z-40" onClick={() => setShowProfileMenu(false)} />
-                      <motion.div
-                        initial={{ opacity: 0, y: -4 }}
-                        animate={{ opacity: 1, y: 0 }}
-                        exit={{ opacity: 0, y: -4 }}
-                        transition={{ duration: 0.12, ease: [0.16, 1, 0.3, 1] }}
-                        className="absolute right-0 top-full mt-2 w-64 rounded-xl z-50 overflow-hidden"
-                        style={{
-                          backgroundColor: surface,
-                          border: `1px solid ${border}`,
-                          boxShadow: isDark ? SOFT_SHADOW_DARK : SOFT_SHADOW,
-                        }}
-                      >
-                        <div className="p-4" style={{ borderBottom: `1px solid ${border}` }}>
-                          <div className="flex items-center gap-3 min-w-0">
-                            {adminUser?.avatar ? (
-                              <img src={adminUser.avatar} alt="" className="w-10 h-10 rounded-full object-cover" />
-                            ) : (
-                              <div className="w-10 h-10 rounded-full bg-gradient-to-br from-[#2d568e] to-[#1e3a5f] flex items-center justify-center text-white font-semibold">
-                                {adminUser?.name?.charAt(0)?.toUpperCase() || 'A'}
-                              </div>
-                            )}
-                            <div className="min-w-0">
-                              <p className="text-[13px] font-semibold text-foreground truncate">
-                                {adminUser?.name || 'Admin'}
-                              </p>
-                              <p className="text-[11px] text-muted-foreground truncate">
-                                {adminUser?.email || ''}
-                              </p>
-                            </div>
-                          </div>
-                        </div>
-                        <div className="p-1.5">
-                          <button
-                            onClick={handleSignOut}
-                            className="w-full flex items-center gap-2 px-3 py-2 text-[12px] font-medium text-red-600 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-950/20 rounded-lg transition-colors"
-                          >
-                            <LogOut size={14} /> Sign Out
-                          </button>
-                        </div>
-                      </motion.div>
-                    </>
-                  )}
-                </AnimatePresence>
-              </div>
             </div>
           </header>
 

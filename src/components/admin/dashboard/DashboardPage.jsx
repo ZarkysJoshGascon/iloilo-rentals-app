@@ -6,7 +6,7 @@ import {
   Copy, Calendar, TrendingUp, FileText, Mail, Sparkles, Loader2,
   CheckCircle2, AlertTriangle, CalendarRange, Home, CalendarClock,
   Wallet, ClipboardCheck, LogIn, LogOut, Clock, ArrowUpRight, ArrowDownRight,
-  Table2, BarChart3, ExternalLink,
+  Table2, BarChart3, ExternalLink, CalendarDays, UserRound,
 } from 'lucide-react'
 import {
   ResponsiveContainer, BarChart, Bar, AreaChart, Area,
@@ -18,14 +18,18 @@ import { useDebouncedRealtime } from '@/hooks/useDebouncedRealtime'
 import { useAuth } from '@/context/AuthContext'
 import { cn } from '@/lib/utils'
 import { ContextMenu } from '@/components/ui/ContextMenu'
+import { StatStrip, StatTile } from '@/components/admin/_shared/StatStrip'
 
 const NEARING_END_DAYS = 60
+const COMING_UP_DAYS = 7
 const LIST_LIMIT = 8
 const MY_LIST_LIMIT = 12
 
-// Monochrome, to match the CRM: near-black marks on the white card,
-// light grey on the dark card.
-const CHART_VARS = '[--chart:#1f2937] dark:[--chart:#e5e7eb]'
+// Chart marks use the logo blue (the --brand token; lighter in dark mode).
+const CHART_VARS = '[--chart:var(--brand)]'
+
+// Two-thirds / one-third rows; the right card's list scrolls inside it.
+const DASH_ROW = 'grid grid-cols-1 xl:grid-cols-[minmax(0,2fr)_minmax(0,1fr)] gap-4'
 
 const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']
 
@@ -228,12 +232,12 @@ function CardHeader({ icon: Icon, title, subtitle, count, action }) {
           <div className="flex items-center gap-2">
             <h3 className="text-[14px] font-semibold text-foreground truncate">{title}</h3>
             {count != null && (
-              <span className="text-[11px] font-semibold tabular-nums px-1.5 py-0.5 rounded-md bg-muted text-muted-foreground">
+              <span className="text-[11px] font-semibold tabular-nums px-1.5 py-0.5 rounded-md bg-muted text-foreground/75">
                 {count}
               </span>
             )}
           </div>
-          {subtitle && <p className="text-[11px] text-muted-foreground mt-0.5 truncate">{subtitle}</p>}
+          {subtitle && <p className="text-[11px] text-foreground/75 mt-0.5 truncate">{subtitle}</p>}
         </div>
       </div>
       {action}
@@ -246,7 +250,7 @@ function ViewAll({ onClick }) {
     <button
       type="button"
       onClick={onClick}
-      className="group inline-flex items-center gap-1 text-[12px] font-medium text-muted-foreground hover:text-foreground transition-colors flex-shrink-0"
+      className="group inline-flex items-center gap-1 text-[12px] font-medium text-foreground/75 hover:text-foreground transition-colors flex-shrink-0"
     >
       View all <ArrowRight size={13} className="transition-transform group-hover:translate-x-0.5" />
     </button>
@@ -256,9 +260,9 @@ function ViewAll({ onClick }) {
 function EmptyState({ icon: Icon = Inbox, title, hint }) {
   return (
     <div className="flex-1 flex flex-col items-center justify-center py-10 px-4 text-center">
-      <Icon size={22} strokeWidth={1.5} className="text-muted-foreground/50 mb-2" />
+      <Icon size={22} strokeWidth={1.5} className="text-muted-foreground/60 mb-2" />
       <p className="text-[12px] font-medium text-foreground">{title}</p>
-      {hint && <p className="text-[11px] text-muted-foreground mt-0.5">{hint}</p>}
+      {hint && <p className="text-[11px] text-foreground/75 mt-0.5">{hint}</p>}
     </div>
   )
 }
@@ -279,59 +283,21 @@ function RowsSkeleton({ rows = 4 }) {
   )
 }
 
-// Status = icon + label, never colour alone.
-function StatusLabel({ tone, icon: Icon, children }) {
-  const toneClass = {
-    good: 'text-foreground',
-    warning: 'text-foreground',
-    critical: 'text-foreground',
-    muted: 'text-muted-foreground',
-  }[tone]
-  return (
-    <span className={cn('inline-flex items-center gap-1 text-[11px] font-semibold whitespace-nowrap', toneClass)}>
-      <Icon size={13} strokeWidth={2} />
-      {children}
-    </span>
-  )
+// Status in font colour. An icon, when given, takes the same colour.
+const STATUS_TONES = {
+  good: 'text-emerald-600 dark:text-emerald-400',
+  warning: 'text-amber-600 dark:text-amber-400',
+  critical: 'text-red-600 dark:text-red-400',
+  info: 'text-blue-600 dark:text-blue-400',
+  muted: 'text-foreground/75',
 }
 
-function StatTile({ icon: Icon, label, value, sub, attention = false, onClick }) {
+function StatusLabel({ tone, icon: Icon, children }) {
   return (
-    <button
-      type="button"
-      onClick={onClick}
-      disabled={!onClick}
-      className={cn(
-        'group relative rounded-md bg-card border shadow-sm p-4 text-left flex flex-col justify-between min-h-[128px] w-full transition-all',
-        'border-border',
-        onClick && 'cursor-pointer hover:-translate-y-0.5 hover:shadow-md hover:border-foreground/25 active:translate-y-0',
-      )}
-    >
-      <div className="flex items-start justify-between gap-2">
-        <Icon
-          size={20}
-          strokeWidth={1.75}
-          className="text-foreground"
-        />
-        {attention ? (
-          <AlertTriangle size={16} strokeWidth={2} className="text-foreground" aria-label="Needs action" />
-        ) : (
-          onClick && (
-            <ArrowUpRight size={15} className="text-muted-foreground/0 group-hover:text-muted-foreground transition-colors" />
-          )
-        )}
-      </div>
-      <div className="mt-4">
-        <p className="text-[12px] font-medium text-muted-foreground truncate">{label}</p>
-        <p className="text-[30px] font-semibold text-foreground leading-none tracking-tight mt-1.5">{value}</p>
-        {/* For attention tiles this line is the status label that goes with the warning icon. */}
-        {sub && (
-          <p className={cn('text-[11px] mt-2 truncate', attention ? 'font-semibold text-foreground' : 'text-muted-foreground')}>
-            {sub}
-          </p>
-        )}
-      </div>
-    </button>
+    <span className={cn('inline-flex items-center gap-1 text-[11.5px] font-semibold whitespace-nowrap', STATUS_TONES[tone])}>
+      {Icon && <Icon size={13} strokeWidth={2} className="flex-shrink-0" />}
+      {children}
+    </span>
   )
 }
 
@@ -357,7 +323,7 @@ function BookingRow({ booking }) {
         </div>
         <div className="min-w-0 flex-1">
           <p className="text-[13px] font-semibold text-foreground truncate">{booking.guest_name || '—'}</p>
-          <p className="text-[11px] text-muted-foreground truncate mt-0.5">
+          <p className="text-[11px] text-foreground/75 truncate mt-0.5">
             <span className="font-medium text-foreground/80">{booking.units?.unit_code || '—'}</span>
             {' · '}{booking.units?.building || '—'}
             {booking.booking_code && <span className="ml-2 font-mono">{booking.booking_code}</span>}
@@ -365,11 +331,11 @@ function BookingRow({ booking }) {
         </div>
         <div className="text-right flex-shrink-0">
           {paid ? (
-            <StatusLabel tone="good" icon={CheckCircle2}>Paid</StatusLabel>
+            <StatusLabel tone="good">Paid</StatusLabel>
           ) : (
-            <StatusLabel tone="warning" icon={Wallet}>{formatMoney(balance)} due</StatusLabel>
+            <StatusLabel tone="warning">{formatMoney(balance)} due</StatusLabel>
           )}
-          <p className="text-[10px] text-muted-foreground tabular-nums mt-1">
+          <p className="text-[10px] text-foreground/75 tabular-nums mt-1">
             {formatDateShort(booking.check_in)} → {formatDateShort(booking.check_out)}
           </p>
         </div>
@@ -378,22 +344,53 @@ function BookingRow({ booking }) {
   )
 }
 
-function TodayCard({ icon, title, emptyTitle, emptyHint, rows, loading, onViewAll }) {
+function SectionLabel({ icon: Icon, title, count }) {
   return (
-    <Card className="min-h-[300px]">
+    <div className="sticky top-0 z-[1] flex items-center gap-2 px-5 h-8 bg-muted/60 backdrop-blur-sm border-b border-border text-[11px] font-semibold uppercase tracking-wider text-foreground/75">
+      {Icon && <Icon size={13} strokeWidth={2} className="text-foreground" />}
+      <span>{title}</span>
+      {count != null && <span className="tabular-nums font-medium">{count}</span>}
+    </div>
+  )
+}
+
+function TodaySection({ icon, title, emptyText, rows }) {
+  return (
+    <div>
+      <SectionLabel icon={icon} title={title} count={rows.length} />
+      {rows.length === 0 ? (
+        <p className="px-5 py-4 text-[12px] text-foreground/75 border-b border-border">{emptyText}</p>
+      ) : (
+        <div className="border-b border-border">{rows.map((b) => <BookingRow key={b.id} booking={b} />)}</div>
+      )}
+    </div>
+  )
+}
+
+// Arrivals, departures and the week ahead in one card. On wide screens the list scrolls inside
+// the card, so the row height comes from the chart beside it.
+function TodayCard({ checkIns, checkOuts, comingUp, loading, onViewAll }) {
+  return (
+    <Card>
       <CardHeader
-        icon={icon}
-        title={title}
-        count={loading ? null : rows.length}
+        icon={CalendarDays}
+        title="Today"
+        subtitle={`Check-ins, check-outs and the next ${COMING_UP_DAYS} days`}
         action={<ViewAll onClick={onViewAll} />}
       />
-      {loading ? (
-        <RowsSkeleton />
-      ) : rows.length === 0 ? (
-        <EmptyState icon={icon} title={emptyTitle} hint={emptyHint} />
-      ) : (
-        <div className="flex-1">{rows.map((b) => <BookingRow key={b.id} booking={b} />)}</div>
-      )}
+      <div className="relative flex-1 min-h-[260px]">
+        <div className="xl:absolute xl:inset-0 overflow-y-auto">
+          {loading ? (
+            <RowsSkeleton />
+          ) : (
+            <>
+              <TodaySection icon={LogIn} title="Arriving" emptyText="No check-ins today." rows={checkIns} />
+              <TodaySection icon={LogOut} title="Leaving" emptyText="No check-outs today." rows={checkOuts} />
+              <TodaySection icon={CalendarClock} title={`Next ${COMING_UP_DAYS} days`} emptyText="No arrivals booked this week." rows={comingUp} />
+            </>
+          )}
+        </div>
+      </div>
     </Card>
   )
 }
@@ -404,14 +401,14 @@ function TodayCard({ icon, title, emptyTitle, emptyHint, rows, loading, onViewAl
 
 function Delta({ value, unit = '%', vsLabel }) {
   if (value == null || !Number.isFinite(value)) {
-    return <p className="text-[11px] text-muted-foreground mt-1.5">No {vsLabel} data to compare</p>
+    return <p className="text-[11px] text-foreground/75 mt-1.5">No {vsLabel} data to compare</p>
   }
   const shown = unit === 'pts' ? Math.round(value) : Math.round(value * 100)
   const up = shown > 0
   const flat = shown === 0
   const Icon = up ? ArrowUpRight : ArrowDownRight
   return (
-    <p className="text-[11px] mt-1.5 flex items-center gap-1 text-muted-foreground">
+    <p className="text-[11px] mt-1.5 flex items-center gap-1 text-foreground/75">
       {flat ? (
         <span className="font-semibold text-foreground">No change</span>
       ) : (
@@ -433,7 +430,7 @@ function Delta({ value, unit = '%', vsLabel }) {
 function SummaryStat({ label, value, children, hero = false }) {
   return (
     <div className="min-w-0">
-      <p className="text-[12px] font-medium text-muted-foreground">{label}</p>
+      <p className="text-[12px] font-medium text-foreground/75">{label}</p>
       <p className={cn('font-semibold text-foreground tracking-tight leading-none mt-1.5', hero ? 'text-[34px]' : 'text-[24px]')}>
         {value}
       </p>
@@ -448,7 +445,7 @@ function ChartTooltip({ active, payload, label, metric }) {
   return (
     <div className="rounded-md border border-border bg-popover shadow-lg px-3 py-2">
       <p className="text-[14px] font-semibold tabular-nums text-foreground">{m.format(payload[0].value)}</p>
-      <p className="text-[11px] text-muted-foreground mt-0.5 flex items-center gap-1.5">
+      <p className="text-[11px] text-foreground/75 mt-0.5 flex items-center gap-1.5">
         <span className="inline-block w-3 h-[2px] rounded-full bg-[var(--chart)]" />
         {m.label} · {label}
       </p>
@@ -456,7 +453,7 @@ function ChartTooltip({ active, payload, label, metric }) {
   )
 }
 
-const AXIS_TICK = { fontSize: 11, fill: 'var(--muted-foreground)' }
+const AXIS_TICK = { fontSize: 11, fill: 'var(--foreground)', fillOpacity: 0.7 }
 
 function PerformanceChart({ data, metric }) {
   const m = METRICS[metric]
@@ -532,7 +529,7 @@ function PerformanceTable({ data }) {
     <div className="overflow-x-auto">
       <table className="w-full text-[12px]">
         <thead>
-          <tr className="text-left text-muted-foreground border-b border-border">
+          <tr className="text-left text-foreground/75 border-b border-border">
             <th className="font-medium py-2 pr-4">Month</th>
             <th className="font-medium py-2 pr-4 text-right">Bookings</th>
             <th className="font-medium py-2 pr-4 text-right">Occupancy</th>
@@ -541,7 +538,7 @@ function PerformanceTable({ data }) {
         </thead>
         <tbody className="tabular-nums">
           {data.map((r) => (
-            <tr key={r.month} className={cn('border-b border-border/60 last:border-0', r.future ? 'text-muted-foreground' : 'text-foreground')}>
+            <tr key={r.month} className={cn('border-b border-border/60 last:border-0', r.future ? 'text-foreground/75' : 'text-foreground')}>
               <td className="py-1.5 pr-4">{r.label}</td>
               <td className="py-1.5 pr-4 text-right">{cell(r, r.bookings)}</td>
               <td className="py-1.5 pr-4 text-right">{cell(r, `${Math.round(r.occupancy)}%`)}</td>
@@ -575,7 +572,7 @@ function Segmented({ value, onChange, options }) {
             'px-3 h-7 rounded-md text-[12px] font-medium transition-colors',
             value === o.value
               ? 'bg-card text-foreground shadow-sm'
-              : 'text-muted-foreground hover:text-foreground',
+              : 'text-foreground/75 hover:text-foreground',
           )}
         >
           {o.label}
@@ -605,7 +602,7 @@ function PerformanceCard({ year, setYear, analytics, loading }) {
           <TrendingUp size={18} strokeWidth={1.75} className="text-foreground flex-shrink-0" />
           <div className="min-w-0">
             <h3 className="text-[14px] font-semibold text-foreground">Performance</h3>
-            <p className="text-[11px] text-muted-foreground mt-0.5">
+            <p className="text-[11px] text-foreground/75 mt-0.5">
               {summary.partial ? `${year} year to date` : `${year} full year`}
             </p>
           </div>
@@ -621,7 +618,7 @@ function PerformanceCard({ year, setYear, analytics, loading }) {
             <button
               type="button"
               onClick={() => setYear((y) => y - 1)}
-              className="h-full px-2 text-muted-foreground hover:text-foreground"
+              className="h-full px-2 text-foreground/75 hover:text-foreground"
               aria-label="Previous year"
             >
               <ChevronLeft size={15} />
@@ -631,7 +628,7 @@ function PerformanceCard({ year, setYear, analytics, loading }) {
               type="button"
               onClick={() => setYear((y) => y + 1)}
               disabled={year >= currentYear}
-              className="h-full px-2 text-muted-foreground hover:text-foreground disabled:opacity-30 disabled:hover:text-muted-foreground"
+              className="h-full px-2 text-foreground/75 hover:text-foreground disabled:opacity-30 disabled:hover:text-foreground/75"
               aria-label="Next year"
             >
               <ChevronRight size={15} />
@@ -640,7 +637,7 @@ function PerformanceCard({ year, setYear, analytics, loading }) {
           <button
             type="button"
             onClick={() => setView((v) => (v === 'chart' ? 'table' : 'chart'))}
-            className="inline-flex items-center gap-1.5 h-8 px-2.5 rounded-md border border-border text-[12px] font-medium text-muted-foreground hover:text-foreground"
+            className="inline-flex items-center gap-1.5 h-8 px-2.5 rounded-md border border-border text-[12px] font-medium text-foreground/75 hover:text-foreground"
             aria-pressed={view === 'table'}
           >
             {view === 'chart' ? <Table2 size={14} /> : <BarChart3 size={14} />}
@@ -672,7 +669,7 @@ function PerformanceCard({ year, setYear, analytics, loading }) {
               label="Best month"
               value={summary.peak ? summary.peak.label : '—'}
             >
-              <p className="text-[11px] text-muted-foreground mt-1.5">
+              <p className="text-[11px] text-foreground/75 mt-1.5">
                 {summary.peak ? `${formatMoney(summary.peak.revenue)} revenue` : 'No revenue yet'}
               </p>
             </SummaryStat>
@@ -682,12 +679,12 @@ function PerformanceCard({ year, setYear, analytics, loading }) {
             {view === 'chart' ? (
               <p className="text-[12px] font-medium text-foreground">
                 {METRICS[metric].label} by month
-                <span className="font-normal text-muted-foreground"> · {METRICS[metric].note}</span>
+                <span className="font-normal text-foreground/75"> · {METRICS[metric].note}</span>
               </p>
             ) : (
               <p className="text-[12px] font-medium text-foreground">
                 Monthly breakdown
-                <span className="font-normal text-muted-foreground"> · {year}</span>
+                <span className="font-normal text-foreground/75"> · {year}</span>
               </p>
             )}
             {view === 'chart' ? (
@@ -740,21 +737,21 @@ function ContractRow({ contract }) {
       >
         <div className="min-w-0">
           <span className="font-mono text-[12px] font-semibold text-foreground truncate block">{contract.contract_code || '—'}</span>
-          <span className="text-[11px] text-muted-foreground truncate block mt-0.5">{contract.owners?.name || 'No owner'}</span>
+          <span className="text-[11px] text-foreground/75 truncate block mt-0.5">{contract.owners?.name || 'No owner'}</span>
         </div>
         <div className="min-w-0">
           <span className="text-[12px] font-semibold text-foreground truncate block">{contract.units?.unit_code || '—'}</span>
-          <span className="text-[11px] text-muted-foreground truncate block mt-0.5">{contract.units?.building || '—'}</span>
+          <span className="text-[11px] text-foreground/75 truncate block mt-0.5">{contract.units?.building || '—'}</span>
         </div>
-        <span className="text-[12px] tabular-nums text-muted-foreground truncate">{formatDateShort(contract.effective_date)}</span>
+        <span className="text-[12px] tabular-nums text-foreground/75 truncate">{formatDateShort(contract.effective_date)}</span>
         <span className="text-[12px] tabular-nums text-foreground truncate">{formatDateShort(contract.expiry_date)}</span>
         <div className="flex justify-end min-w-[96px]">
           {days != null && days <= 7 ? (
-            <StatusLabel tone="critical" icon={AlertTriangle}>{left}</StatusLabel>
+            <StatusLabel tone="critical">{left}</StatusLabel>
           ) : days != null && days <= 30 ? (
-            <StatusLabel tone="warning" icon={Clock}>{left}</StatusLabel>
+            <StatusLabel tone="warning">{left}</StatusLabel>
           ) : (
-            <StatusLabel tone="muted" icon={Clock}>{left}</StatusLabel>
+            <StatusLabel tone="muted">{left}</StatusLabel>
           )}
         </div>
       </button>
@@ -762,9 +759,9 @@ function ContractRow({ contract }) {
   )
 }
 
-function ContractsCard({ contracts, loading, onViewAll }) {
+function ContractsCard({ contracts, loading, onViewAll, className }) {
   return (
-    <Card>
+    <Card className={className}>
       <CardHeader
         icon={CalendarClock}
         title="Contracts nearing end"
@@ -779,7 +776,7 @@ function ContractsCard({ contracts, loading, onViewAll }) {
       ) : (
         <div className="overflow-x-auto">
           <div className="min-w-[640px]">
-            <div className={cn(CONTRACT_COLS, 'px-5 py-2 bg-muted/40 border-b border-border text-[11px] font-medium text-muted-foreground')}>
+            <div className={cn(CONTRACT_COLS, 'px-5 py-2 bg-muted/40 border-b border-border text-[11px] font-medium text-foreground/75')}>
               <span>Contract</span>
               <span>Unit</span>
               <span>Started</span>
@@ -795,7 +792,7 @@ function ContractsCard({ contracts, loading, onViewAll }) {
 }
 
 // ─────────────────────────────────────────────────────────────
-// Personal activity (left column)
+// Personal activity — only for admins linked to a staff role
 // ─────────────────────────────────────────────────────────────
 
 function ActivityRow({ title, amount, meta, dates, onOpen, contextItems }) {
@@ -804,55 +801,52 @@ function ActivityRow({ title, amount, meta, dates, onOpen, contextItems }) {
       <button
         type="button"
         onClick={onOpen}
-        className="relative w-full text-left px-3.5 py-2.5 pl-4 border-b border-border last:border-0 hover:bg-muted/40 transition-colors cursor-pointer overflow-hidden"
+        className="relative w-full text-left px-5 py-2.5 border-b border-border last:border-0 hover:bg-muted/40 transition-colors cursor-pointer overflow-hidden"
       >
         <span aria-hidden className="absolute top-2 bottom-2 left-0 w-[3px] rounded-r bg-foreground/25" />
         <div className="flex items-center gap-2 min-w-0">
           <span className="text-[12px] font-semibold text-foreground truncate flex-1">{title}</span>
           <span className="text-[11px] text-foreground tabular-nums flex-shrink-0">{amount}</span>
         </div>
-        <div className="mt-0.5 text-[11px] text-muted-foreground truncate">{meta}</div>
-        <div className="mt-0.5 text-[10px] text-muted-foreground tabular-nums">{dates}</div>
+        <div className="mt-0.5 flex items-center justify-between gap-2 text-[11px] text-foreground/75">
+          <span className="truncate">{meta}</span>
+          <span className="text-[10px] tabular-nums flex-shrink-0">{dates}</span>
+        </div>
       </button>
     </ContextMenu>
   )
 }
 
-function ActivityList({ title, loading, items, emptyText, renderRow }) {
+function ActivitySection({ title, items, emptyText, renderRow }) {
   return (
     <div>
-      <div className="flex items-center gap-2 mb-2 px-0.5">
-        <h4 className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">{title}</h4>
-        <span className="text-[11px] text-muted-foreground tabular-nums">{loading ? '…' : items.length}</span>
-      </div>
-      <div className="rounded-md bg-card border border-border shadow-sm overflow-hidden">
-        {loading ? (
-          <div className="p-2 space-y-1.5">{[...Array(3)].map((_, i) => <div key={i} className="h-11 rounded-md bg-muted animate-pulse" />)}</div>
-        ) : items.length === 0 ? (
-          <div className="px-3 py-6 text-center"><p className="text-[11px] text-muted-foreground">{emptyText}</p></div>
-        ) : (
-          items.map(renderRow)
-        )}
-      </div>
+      <SectionLabel title={title} count={items.length} />
+      {items.length === 0 ? (
+        <p className="px-5 py-4 text-[12px] text-foreground/75 border-b border-border">{emptyText}</p>
+      ) : (
+        <div className="border-b border-border">{items.map(renderRow)}</div>
+      )}
     </div>
   )
 }
 
-function MyActivityPanel() {
-  const navigate = useNavigate()
-  const { user } = useAuth()
-
-  const [loading, setLoading] = useState(true)
-  const [profile, setProfile] = useState({ name: null, email: null, photo_url: null })
-  const [matched, setMatched] = useState({ specialist: null, affiliate: null, housekeeper: null })
-  const [bookings, setBookings] = useState([])
-  const [cleanings, setCleanings] = useState([])
-  const [referrals, setReferrals] = useState([])
+// Looks the signed-in email up in the staff tables, then loads that person's
+// own bookings, cleanings and referrals.
+function useMyActivity(user) {
+  const [state, setState] = useState({
+    loading: true,
+    matched: { specialist: null, affiliate: null, housekeeper: null },
+    bookings: [],
+    cleanings: [],
+    referrals: [],
+  })
 
   useEffect(() => {
-    if (!user?.email) { setLoading(false); return }
+    if (!user?.email) {
+      setState((s) => ({ ...s, loading: false }))
+      return
+    }
     let cancelled = false
-    setLoading(true)
     const email = user.email.toLowerCase()
 
     async function load() {
@@ -864,64 +858,45 @@ function MyActivityPanel() {
         ])
         if (cancelled) return
 
-        const nextMatched = {
+        const matched = {
           specialist: specRes.data || null,
           affiliate: affRes.data || null,
           housekeeper: hkRes.data || null,
         }
-        setMatched(nextMatched)
 
-        setProfile({
-          name: user.user_metadata?.full_name || specRes.data?.name || affRes.data?.name || hkRes.data?.name || user.email.split('@')[0],
-          email: user.email,
-          photo_url: user.user_metadata?.avatar_url || specRes.data?.photo_url || affRes.data?.photo_url || hkRes.data?.photo_url || null,
-        })
-
-        const fetches = []
-        if (nextMatched.specialist?.code) {
-          fetches.push(
-            supabase.from('bookings')
-              .select(`id, booking_code, guest_name, guest_email, check_in, check_out, total_amount, booker_commission, payment_status, completed_at, units:unit_id ( id, unit_code, building )`)
-              .eq('booker_code', nextMatched.specialist.code)
-              .is('deleted_at', null)
-              .order('check_in', { ascending: false })
-              .limit(MY_LIST_LIMIT)
-              .then((r) => ({ kind: 'bookings', data: r.data || [] }))
-          )
-        }
-        if (nextMatched.housekeeper?.id) {
-          fetches.push(
-            supabase.from('cleanings')
-              .select(`id, booking_id, cleaning_code, scheduled_date, status, type, payment_amount, units:unit_id ( id, unit_code, building )`)
-              .eq('housekeeper_id', nextMatched.housekeeper.id)
-              .order('scheduled_date', { ascending: false })
-              .limit(MY_LIST_LIMIT)
-              .then((r) => ({ kind: 'cleanings', data: r.data || [] }))
-          )
-        }
-        if (nextMatched.affiliate?.code) {
-          fetches.push(
-            supabase.from('bookings')
-              .select(`id, booking_code, guest_name, guest_email, check_in, check_out, total_amount, affiliate_commission, payment_status, completed_at, units:unit_id ( id, unit_code, building )`)
-              .eq('affiliate_code', nextMatched.affiliate.code)
-              .is('deleted_at', null)
-              .order('check_in', { ascending: false })
-              .limit(MY_LIST_LIMIT)
-              .then((r) => ({ kind: 'referrals', data: r.data || [] }))
-          )
-        }
-
-        const results = await Promise.all(fetches)
+        const [bookings, cleanings, referrals] = await Promise.all([
+          matched.specialist?.code
+            ? supabase.from('bookings')
+                .select(`id, booking_code, guest_name, guest_email, check_in, check_out, total_amount, booker_commission, payment_status, completed_at, units:unit_id ( id, unit_code, building )`)
+                .eq('booker_code', matched.specialist.code)
+                .is('deleted_at', null)
+                .order('check_in', { ascending: false })
+                .limit(MY_LIST_LIMIT)
+                .then((r) => r.data || [])
+            : [],
+          matched.housekeeper?.id
+            ? supabase.from('cleanings')
+                .select(`id, booking_id, cleaning_code, scheduled_date, status, type, payment_amount, units:unit_id ( id, unit_code, building )`)
+                .eq('housekeeper_id', matched.housekeeper.id)
+                .order('scheduled_date', { ascending: false })
+                .limit(MY_LIST_LIMIT)
+                .then((r) => r.data || [])
+            : [],
+          matched.affiliate?.code
+            ? supabase.from('bookings')
+                .select(`id, booking_code, guest_name, guest_email, check_in, check_out, total_amount, affiliate_commission, payment_status, completed_at, units:unit_id ( id, unit_code, building )`)
+                .eq('affiliate_code', matched.affiliate.code)
+                .is('deleted_at', null)
+                .order('check_in', { ascending: false })
+                .limit(MY_LIST_LIMIT)
+                .then((r) => r.data || [])
+            : [],
+        ])
         if (cancelled) return
-        for (const r of results) {
-          if (r.kind === 'bookings') setBookings(r.data)
-          else if (r.kind === 'cleanings') setCleanings(r.data)
-          else if (r.kind === 'referrals') setReferrals(r.data)
-        }
+        setState({ loading: false, matched, bookings, cleanings, referrals })
       } catch (err) {
-        console.error('MyActivityPanel load failed:', err)
-      } finally {
-        if (!cancelled) setLoading(false)
+        console.error('My activity load failed:', err)
+        if (!cancelled) setState((s) => ({ ...s, loading: false }))
       }
     }
 
@@ -929,15 +904,19 @@ function MyActivityPanel() {
     return () => { cancelled = true }
   }, [user?.id, user?.email])
 
-  const rolePills = useMemo(() => {
-    const pills = []
-    if (matched.specialist) pills.push('Specialist')
-    if (matched.affiliate) pills.push('Affiliate')
-    if (matched.housekeeper) pills.push('Housekeeper')
-    return pills
-  }, [matched])
+  const { specialist, affiliate, housekeeper } = state.matched
+  return { ...state, linked: !!(specialist || affiliate || housekeeper) }
+}
 
-  const hasAnyMatch = !!(matched.specialist || matched.affiliate || matched.housekeeper)
+function MyActivityCard({ activity }) {
+  const navigate = useNavigate()
+  const { matched, bookings, cleanings, referrals } = activity
+
+  const roles = [
+    matched.specialist && 'Specialist',
+    matched.affiliate && 'Affiliate',
+    matched.housekeeper && 'Housekeeper',
+  ].filter(Boolean)
 
   const goBooking = (id) => navigate(`/admin?tab=bookings&booking=${id}`)
   const goCleaning = (id) => navigate(`/admin?tab=housekeeping&cleaning=${id}`)
@@ -956,100 +935,69 @@ function MyActivityPanel() {
   ]
 
   return (
-    <aside className="flex-shrink-0 hidden lg:flex flex-col gap-4 w-[300px] xl:w-[320px] overflow-hidden" style={{ maxHeight: '100%' }}>
-      <div className="rounded-md bg-card border border-border shadow-sm overflow-hidden flex-shrink-0">
-        <div className="p-4 flex flex-col items-center text-center">
-          {profile.photo_url ? (
-            <img src={profile.photo_url} alt={profile.name || ''} className="w-16 h-16 rounded-full object-cover ring-1 ring-border" />
-          ) : (
-            <div className="w-16 h-16 rounded-full bg-foreground flex items-center justify-center text-background text-xl font-bold">
-              {(profile.name || 'U').charAt(0).toUpperCase()}
-            </div>
+    <Card>
+      <CardHeader icon={UserRound} title="My activity" subtitle={`Linked as ${roles.join(' · ')}`} />
+      <div className="relative flex-1 min-h-[260px]">
+        <div className="xl:absolute xl:inset-0 overflow-y-auto">
+          {matched.specialist && (
+            <ActivitySection
+              title="My bookings"
+              items={bookings}
+              emptyText="No bookings yet."
+              renderRow={(b) => (
+                <ActivityRow
+                  key={b.id}
+                  title={b.guest_name || '—'}
+                  amount={formatMoney(b.total_amount)}
+                  meta={`${b.booking_code || '—'} · ${b.units?.unit_code || '—'}`}
+                  dates={`${formatDateShort(b.check_in)} → ${formatDateShort(b.check_out)}`}
+                  onOpen={() => goBooking(b.id)}
+                  contextItems={buildBookingContextItems(b, navigate)}
+                />
+              )}
+            />
           )}
-          <p className="mt-2.5 text-sm font-semibold text-foreground truncate w-full">{profile.name || 'User'}</p>
-          <p className="text-[11px] text-muted-foreground truncate w-full">{profile.email || ''}</p>
-          <div className="mt-2.5 flex flex-wrap items-center justify-center gap-1.5">
-            {['Administrator', ...rolePills].map((p) => (
-              <span key={p} className="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-semibold border border-border text-foreground">
-                {p}
-              </span>
-            ))}
-          </div>
+
+          {matched.housekeeper && (
+            <ActivitySection
+              title="My cleanings"
+              items={cleanings}
+              emptyText="No cleanings yet."
+              renderRow={(c) => (
+                <ActivityRow
+                  key={c.id}
+                  title={<span className="font-mono">{c.cleaning_code || '—'}</span>}
+                  amount={formatMoney(c.payment_amount || 0)}
+                  meta={<span className="capitalize">{`${c.units?.unit_code || '—'} · ${c.type || '—'} · ${c.status || '—'}`}</span>}
+                  dates={formatDateShort(c.scheduled_date)}
+                  onOpen={() => goCleaning(c.id)}
+                  contextItems={cleaningContextItems(c)}
+                />
+              )}
+            />
+          )}
+
+          {matched.affiliate && (
+            <ActivitySection
+              title="My referrals"
+              items={referrals}
+              emptyText="No referrals yet."
+              renderRow={(b) => (
+                <ActivityRow
+                  key={b.id}
+                  title={b.guest_name || '—'}
+                  amount={formatMoney(b.affiliate_commission || 0)}
+                  meta={`${b.booking_code || '—'} · ${b.units?.unit_code || '—'}`}
+                  dates={`${formatDateShort(b.check_in)} → ${formatDateShort(b.check_out)}`}
+                  onOpen={() => goBooking(b.id)}
+                  contextItems={buildBookingContextItems(b, navigate)}
+                />
+              )}
+            />
+          )}
         </div>
       </div>
-
-      <div className="flex-1 min-h-0 overflow-y-auto space-y-4 pr-0.5">
-        {!hasAnyMatch && !loading && (
-          <div className="rounded-md bg-card border border-border shadow-sm px-4 py-8 flex flex-col items-center justify-center text-center">
-            <Inbox size={20} strokeWidth={1.5} className="text-muted-foreground/50 mb-2" />
-            <p className="text-[12px] font-medium text-foreground">No personal activity</p>
-            <p className="text-[11px] text-muted-foreground mt-1 max-w-[220px]">
-              Your email isn't linked to a specialist, affiliate, or housekeeper.
-            </p>
-          </div>
-        )}
-
-        {matched.specialist && (
-          <ActivityList
-            title="My bookings"
-            loading={loading}
-            items={bookings}
-            emptyText="No bookings yet"
-            renderRow={(b) => (
-              <ActivityRow
-                key={b.id}
-                title={b.guest_name || '—'}
-                amount={formatMoney(b.total_amount)}
-                meta={`${b.booking_code || '—'} · ${b.units?.unit_code || '—'}`}
-                dates={`${formatDateShort(b.check_in)} → ${formatDateShort(b.check_out)}`}
-                onOpen={() => goBooking(b.id)}
-                contextItems={buildBookingContextItems(b, navigate)}
-              />
-            )}
-          />
-        )}
-
-        {matched.housekeeper && (
-          <ActivityList
-            title="My cleanings"
-            loading={loading}
-            items={cleanings}
-            emptyText="No cleanings yet"
-            renderRow={(c) => (
-              <ActivityRow
-                key={c.id}
-                title={<span className="font-mono">{c.cleaning_code || '—'}</span>}
-                amount={formatMoney(c.payment_amount || 0)}
-                meta={<span className="capitalize">{`${c.units?.unit_code || '—'} · ${c.type || '—'} · ${c.status || '—'}`}</span>}
-                dates={formatDateShort(c.scheduled_date)}
-                onOpen={() => goCleaning(c.id)}
-                contextItems={cleaningContextItems(c)}
-              />
-            )}
-          />
-        )}
-
-        {matched.affiliate && (
-          <ActivityList
-            title="My referrals"
-            loading={loading}
-            items={referrals}
-            emptyText="No referrals yet"
-            renderRow={(b) => (
-              <ActivityRow
-                key={b.id}
-                title={b.guest_name || '—'}
-                amount={formatMoney(b.affiliate_commission || 0)}
-                meta={`${b.booking_code || '—'} · ${b.units?.unit_code || '—'}`}
-                dates={`${formatDateShort(b.check_in)} → ${formatDateShort(b.check_out)}`}
-                onOpen={() => goBooking(b.id)}
-                contextItems={buildBookingContextItems(b, navigate)}
-              />
-            )}
-          />
-        )}
-      </div>
-    </aside>
+    </Card>
   )
 }
 
@@ -1060,6 +1008,7 @@ function MyActivityPanel() {
 export default function DashboardPage() {
   const navigate = useNavigate()
   const { user } = useAuth()
+  const activity = useMyActivity(user)
   const [loading, setLoading] = useState(true)
   const [refreshing, setRefreshing] = useState(false)
   const [error, setError] = useState(null)
@@ -1073,7 +1022,7 @@ export default function DashboardPage() {
     cleaningsToEvaluate: 0,
   })
 
-  const [todayLists, setTodayLists] = useState({ checkIns: [], checkOuts: [] })
+  const [todayLists, setTodayLists] = useState({ checkIns: [], checkOuts: [], comingUp: [] })
   const [contractsNearingEnd, setContractsNearingEnd] = useState([])
   const [analytics, setAnalytics] = useState({ current: [], previous: [] })
   const [analyticsLoading, setAnalyticsLoading] = useState(true)
@@ -1113,6 +1062,7 @@ export default function DashboardPage() {
 
     const today = todayISO()
     const soon = isoDatePlusDays(NEARING_END_DAYS)
+    const weekAhead = isoDatePlusDays(COMING_UP_DAYS)
 
     try {
       const [
@@ -1124,6 +1074,7 @@ export default function DashboardPage() {
         checkInsRes,
         checkOutsRes,
         nearingEndRes,
+        comingUpRes,
       ] = await Promise.all([
         supabase.from('bookings').select('id', { count: 'exact', head: true }).is('deleted_at', null),
         supabase.from('bookings').select('id', { count: 'exact', head: true }).is('deleted_at', null).is('completed_at', null).lte('check_in', today).gte('check_out', today),
@@ -1133,11 +1084,12 @@ export default function DashboardPage() {
         supabase.from('bookings').select(`id, booking_code, guest_name, guest_email, check_in, check_out, balance, units:unit_id ( id, unit_code, building )`).is('deleted_at', null).eq('check_in', today).order('check_in', { ascending: true }).limit(LIST_LIMIT),
         supabase.from('bookings').select(`id, booking_code, guest_name, guest_email, check_in, check_out, balance, units:unit_id ( id, unit_code, building )`).is('deleted_at', null).eq('check_out', today).order('check_out', { ascending: true }).limit(LIST_LIMIT),
         supabase.from('contracts').select(`id, contract_code, effective_date, expiry_date, units:unit_id ( id, unit_code, building ), owners:owner_id ( id, name )`).gte('expiry_date', today).lte('expiry_date', soon).order('expiry_date', { ascending: true }).limit(LIST_LIMIT),
+        supabase.from('bookings').select(`id, booking_code, guest_name, guest_email, check_in, check_out, balance, units:unit_id ( id, unit_code, building )`).is('deleted_at', null).is('completed_at', null).gt('check_in', today).lte('check_in', weekAhead).order('check_in', { ascending: true }).limit(LIST_LIMIT),
       ])
 
       if (signal?.aborted) return
 
-      const firstErr = [totalRes, inHouseRes, upcomingRes, unpaidListRes, cleaningsToEvaluateRes, checkInsRes, checkOutsRes, nearingEndRes].find((r) => r.error)
+      const firstErr = [totalRes, inHouseRes, upcomingRes, unpaidListRes, cleaningsToEvaluateRes, checkInsRes, checkOutsRes, nearingEndRes, comingUpRes].find((r) => r.error)
       if (firstErr?.error) throw firstErr.error
 
       const unpaidList = unpaidListRes.data || []
@@ -1155,6 +1107,7 @@ export default function DashboardPage() {
       setTodayLists({
         checkIns: checkInsRes.data || [],
         checkOuts: checkOutsRes.data || [],
+        comingUp: comingUpRes.data || [],
       })
 
       setContractsNearingEnd(nearingEndRes.data || [])
@@ -1217,7 +1170,6 @@ export default function DashboardPage() {
   }, [navigate])
 
   const now = useMemo(() => new Date(), [])
-  const dateLabel = now.toLocaleDateString('en-PH', { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric', timeZone: 'Asia/Manila' })
   const firstName = (user?.user_metadata?.full_name || user?.email?.split('@')[0] || '').split(' ')[0]
 
   // Without an ID the link would point at Google's "file can't be opened" page, so it's hidden instead.
@@ -1276,7 +1228,7 @@ export default function DashboardPage() {
         <div className="max-w-sm">
           <AlertTriangle size={22} strokeWidth={1.75} className="mx-auto text-foreground mb-3" />
           <p className="text-sm font-semibold text-foreground">Couldn't load the dashboard</p>
-          <p className="text-xs text-muted-foreground mt-1 mb-4 break-words">{error}</p>
+          <p className="text-xs text-foreground/75 mt-1 mb-4 break-words">{error}</p>
           <button
             type="button"
             onClick={() => fetchAll(false)}
@@ -1292,124 +1244,126 @@ export default function DashboardPage() {
   const unpaidAttention = stats.unpaidBookingsCount > 0
   const cleaningsAttention = stats.cleaningsToEvaluate > 0
 
+  // One line under the greeting that says what today needs.
+  const plural = (n, one, many) => `${n} ${n === 1 ? one : many}`
+  const listCount = (rows) => (rows.length >= LIST_LIMIT ? `${LIST_LIMIT}+` : rows.length)
+  const todaySummary = loading
+    ? 'Loading today’s overview…'
+    : [
+        todayLists.checkIns.length + todayLists.checkOuts.length === 0
+          ? 'No check-ins or check-outs today'
+          : `${listCount(todayLists.checkIns)} arriving and ${listCount(todayLists.checkOuts)} leaving today`,
+        unpaidAttention && `${plural(stats.unpaidBookingsCount, 'unpaid booking', 'unpaid bookings')} (${formatMoneyCompact(stats.unpaidBookingsTotal)})`,
+        cleaningsAttention && `${plural(stats.cleaningsToEvaluate, 'cleaning', 'cleanings')} to review`,
+      ].filter(Boolean).join(' · ')
+
   return (
-    <div className={cn('h-full flex gap-5 min-h-0 px-6 py-5 md:px-8 md:py-6', CHART_VARS)}>
-      <MyActivityPanel />
+    <div className={cn('h-full overflow-y-auto', CHART_VARS)}>
+      <div className="px-6 py-5 md:px-8 md:py-6 max-w-[1600px] mx-auto space-y-4 pb-10">
 
-      <div className="flex-1 min-w-0 overflow-y-auto">
-        <div className="max-w-[1400px] space-y-5 pb-8">
+        {/* Header */}
+        <div className="flex flex-wrap items-end justify-between gap-3">
+          <div className="min-w-0">
+            <h1 className="text-[22px] font-semibold text-foreground tracking-tight leading-tight">
+              {greetingFor(now)}{firstName ? `, ${firstName}` : ''}
+            </h1>
+            <p className="text-[12.5px] text-foreground/75 mt-1 truncate">{todaySummary}</p>
+          </div>
 
-          {/* Header */}
-          <div className="flex flex-wrap items-end justify-between gap-3">
-            <div className="min-w-0">
-              <p className="text-[12px] text-muted-foreground">{dateLabel}</p>
-              <h1 className="text-[22px] font-semibold text-foreground tracking-tight mt-0.5">
-                {greetingFor(now)}{firstName ? `, ${firstName}` : ''}
-              </h1>
-            </div>
-
-            <div className="flex flex-wrap items-center gap-2">
-              <div
-                className="inline-flex items-center gap-2 h-8 pl-3 pr-1 rounded-md border border-border bg-card shadow-sm"
-                title={backupLatest?.started_at ? `${backupTotalRows.toLocaleString()} rows in the last backup` : undefined}
-              >
-                <StatusLabel tone={backupStatus.tone} icon={backupStatus.icon}>{backupStatus.label}</StatusLabel>
-                <span className="w-px h-4 bg-border" />
-                {sheetUrl && (
-                  <a
-                    href={sheetUrl}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="inline-flex items-center gap-1 h-6 px-2 rounded-md text-[11px] font-medium text-muted-foreground hover:text-foreground hover:bg-muted/60"
-                    title="Open the Google Sheets backup"
-                  >
-                    Sheets <ExternalLink size={11} />
-                  </a>
-                )}
-                <button
-                  type="button"
-                  onClick={runBackup}
-                  disabled={backupRunning}
-                  className="inline-flex items-center gap-1 h-6 px-2 rounded-md text-[11px] font-semibold text-background bg-foreground hover:opacity-90 disabled:opacity-50"
-                  title="Run a backup now"
+          <div className="flex flex-wrap items-center gap-2">
+            <div
+              className="inline-flex items-center gap-2 h-8 pl-3 pr-1 rounded-md border border-border bg-card shadow-sm"
+              title={backupLatest?.started_at ? `${backupTotalRows.toLocaleString()} rows in the last backup` : undefined}
+            >
+              <StatusLabel tone={backupStatus.tone} icon={backupStatus.icon}>{backupStatus.label}</StatusLabel>
+              <span className="w-px h-4 bg-border" />
+              {sheetUrl && (
+                <a
+                  href={sheetUrl}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="inline-flex items-center gap-1 h-6 px-2 rounded-md text-[11px] font-medium text-foreground/75 hover:text-foreground hover:bg-muted/60"
+                  title="Open the Google Sheets backup"
                 >
-                  {backupRunning ? <Loader2 size={11} className="animate-spin" /> : <RefreshCw size={11} />}
-                  Back up now
-                </button>
-              </div>
-
+                  Sheets <ExternalLink size={11} />
+                </a>
+              )}
               <button
                 type="button"
-                onClick={() => { fetchAll(true); fetchAnalytics(analyticsYear) }}
-                disabled={refreshing}
-                className="inline-flex items-center gap-1.5 h-8 px-3 rounded-md border border-border bg-card text-[12px] font-medium text-foreground hover:bg-muted/50 transition-colors disabled:opacity-50 shadow-sm"
+                onClick={runBackup}
+                disabled={backupRunning}
+                className="inline-flex items-center gap-1 h-6 px-2 rounded-md text-[11px] font-semibold text-background bg-foreground hover:opacity-90 disabled:opacity-50"
+                title="Run a backup now"
               >
-                <RefreshCw size={13} className={cn(refreshing && 'animate-spin')} />
-                Refresh
+                {backupRunning ? <Loader2 size={11} className="animate-spin" /> : <RefreshCw size={11} />}
+                Back up now
               </button>
             </div>
-          </div>
 
-          {/* KPIs */}
-          {/* All five in one row whenever there's room; wraps only on narrow screens. */}
-          <div className="grid grid-cols-[repeat(auto-fit,minmax(140px,1fr))] gap-3">
-            <StatTile icon={CalendarRange} label="Total bookings" value={stats.totalBookings.toLocaleString('en-PH')} sub="All active records" onClick={() => goto('bookings')} />
-            <StatTile icon={Home} label="In-house now" value={stats.inHouseBookings} sub="Guests staying now" onClick={() => goto('bookings', 'in-house')} />
-            <StatTile icon={CalendarClock} label="Upcoming" value={stats.upcomingBookings} sub="Future check-ins" onClick={() => goto('bookings', 'upcoming')} />
-            <StatTile
-              icon={Wallet}
-              label="Unpaid bookings"
-              value={stats.unpaidBookingsCount}
-              sub={unpaidAttention ? `${formatMoneyCompact(stats.unpaidBookingsTotal)} outstanding` : 'Nothing outstanding'}
-              attention={unpaidAttention}
-              onClick={() => goto('bookings', 'unpaid')}
-            />
-            <StatTile
-              icon={ClipboardCheck}
-              label="Cleaning reviews"
-              value={stats.cleaningsToEvaluate}
-              sub={cleaningsAttention ? 'Waiting for review' : 'All reviewed'}
-              attention={cleaningsAttention}
-              onClick={() => goto('housekeeping', 'evaluate')}
-            />
+            <button
+              type="button"
+              onClick={() => { fetchAll(true); fetchAnalytics(analyticsYear) }}
+              disabled={refreshing}
+              className="inline-flex items-center gap-1.5 h-8 px-3 rounded-md border border-border bg-card text-[12px] font-medium text-foreground hover:bg-muted/50 transition-colors disabled:opacity-50 shadow-sm"
+            >
+              <RefreshCw size={13} className={cn(refreshing && 'animate-spin')} />
+              Refresh
+            </button>
           </div>
+        </div>
 
-          {/* Today */}
-          <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-            <TodayCard
-              icon={LogIn}
-              title="Arriving today"
-              emptyTitle="No check-ins today"
-              emptyHint="New arrivals will show up here."
-              rows={todayLists.checkIns}
-              loading={loading}
-              onViewAll={() => goto('bookings')}
-            />
-            <TodayCard
-              icon={LogOut}
-              title="Leaving today"
-              emptyTitle="No check-outs today"
-              emptyHint="Departures will show up here."
-              rows={todayLists.checkOuts}
-              loading={loading}
-              onViewAll={() => goto('bookings')}
-            />
-          </div>
+        {/* KPIs */}
+        <StatStrip>
+          <StatTile icon={CalendarRange} label="Total bookings" value={stats.totalBookings.toLocaleString('en-PH')} sub="All active records" loading={loading} onClick={() => goto('bookings')} />
+          <StatTile icon={Home} label="In-house now" value={stats.inHouseBookings} sub="Guests staying now" loading={loading} onClick={() => goto('bookings', 'in-house')} />
+          <StatTile icon={CalendarClock} label="Upcoming" value={stats.upcomingBookings} sub="Future check-ins" loading={loading} onClick={() => goto('bookings', 'upcoming')} />
+          <StatTile
+            icon={Wallet}
+            label="Unpaid bookings"
+            value={stats.unpaidBookingsCount}
+            sub={unpaidAttention ? `${formatMoneyCompact(stats.unpaidBookingsTotal)} outstanding` : 'Nothing outstanding'}
+            attention={!loading && unpaidAttention}
+            loading={loading}
+            onClick={() => goto('bookings', 'unpaid')}
+          />
+          <StatTile
+            icon={ClipboardCheck}
+            label="Cleaning reviews"
+            value={stats.cleaningsToEvaluate}
+            sub={cleaningsAttention ? 'Waiting for review' : 'All reviewed'}
+            attention={!loading && cleaningsAttention}
+            loading={loading}
+            onClick={() => goto('housekeeping', 'evaluate')}
+            className="col-span-2 sm:col-span-1"
+          />
+        </StatStrip>
 
-          {/* Performance */}
+        {/* Performance beside today's movements */}
+        <div className={DASH_ROW}>
           <PerformanceCard
             year={analyticsYear}
             setYear={setAnalyticsYear}
             analytics={analytics}
             loading={analyticsLoading}
           />
+          <TodayCard
+            checkIns={todayLists.checkIns}
+            checkOuts={todayLists.checkOuts}
+            comingUp={todayLists.comingUp}
+            loading={loading}
+            onViewAll={() => goto('bookings')}
+          />
+        </div>
 
-          {/* Contracts */}
+        {/* Contracts, plus personal activity when this admin is also staff */}
+        <div className={DASH_ROW}>
           <ContractsCard
+            className={activity.linked ? undefined : 'xl:col-span-2'}
             contracts={contractsNearingEnd}
             loading={loading}
             onViewAll={() => goto('contracts')}
           />
+          {activity.linked && <MyActivityCard activity={activity} />}
         </div>
       </div>
     </div>
