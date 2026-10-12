@@ -50,6 +50,31 @@ const TOURS = [
   },
 ]
 
+// A stock walkthrough that shows what a finished tour will feel like (e.g. to
+// brief the architect). Only shown on localhost or with ?demo in the URL, and
+// always labelled, so visitors never see it presented as our work.
+// Footage: "Video of a House Interior" by Kindel Media, Pexels License.
+const SAMPLE_TOUR = {
+  key: 'sample',
+  sample: true,
+  src: `${DIR}/sample-tour.mp4`,
+  srcMobile: `${DIR}/sample-tour-mobile.mp4`,
+  eyebrow: 'Sample walkthrough',
+  label: 'Sample house tour',
+  title: 'Stroll through a home, one scroll at a time',
+  subtitle: 'A preview of how our project tours will feel. Scroll down to walk forward, scroll up to walk back.',
+  credit: 'Sample footage: Kindel Media on Pexels',
+  vh: 500,
+  beats: [
+    { from: 0.06, title: 'The entry', note: 'Into the foyer, past the staircase.' },
+    { from: 0.38, title: 'Dining area', note: 'Under the pendant lights, along the table.' },
+    { from: 0.68, title: 'Living room', note: 'Open plan, full of daylight.' },
+  ],
+}
+
+const showSample = () =>
+  import.meta.env.DEV || new URLSearchParams(window.location.search).has('demo')
+
 // Clamped linear map of v from [a, b] to [c, d]. Scroll-linked values use the
 // function form of useTransform: the array form hands opacity to the browser's
 // native scroll timeline, which maps window-scroll offsets wrong.
@@ -70,7 +95,8 @@ function beatAt(beats, v) {
 }
 
 export default function InteriorVideoTours({ skipTo }) {
-  return TOURS.map((tour) => <VideoTour key={tour.key} tour={tour} skipTo={skipTo} />)
+  const tours = showSample() ? [SAMPLE_TOUR, ...TOURS] : TOURS
+  return tours.map((tour) => <VideoTour key={tour.key} tour={tour} skipTo={skipTo} />)
 }
 
 function VideoTour({ tour, skipTo }) {
@@ -212,10 +238,21 @@ function VideoTour({ tour, skipTo }) {
         >
           <p className="text-[11px] font-bold uppercase tracking-[0.2em] text-white/70">{tour.eyebrow}</p>
           <p className="mt-2 text-lg md:text-2xl font-bold text-white">{tour.label}</p>
+          {tour.credit && <p className="md:hidden mt-1 text-[10px] text-white/60">{tour.credit}</p>}
         </motion.div>
 
+        {/* A sample is always marked as one, with its footage credit */}
+        {tour.sample && (
+          <div className="absolute z-30 right-6 md:right-12 top-8 md:top-28 flex flex-col items-end gap-1.5 pointer-events-none">
+            <span className="px-2.5 py-1 rounded-full bg-white/15 backdrop-blur-sm ring-1 ring-white/30 text-[10px] font-bold uppercase tracking-[0.18em] text-white">
+              Sample video
+            </span>
+            {tour.credit && <span className="hidden md:block text-[10px] text-white/60">{tour.credit}</span>}
+          </div>
+        )}
+
         {!videoUrl && (
-          <div className="absolute z-30 right-6 md:right-12 top-8 md:top-28 flex items-center gap-2 text-xs font-semibold text-white/70">
+          <div className={`absolute z-30 right-6 md:right-12 ${tour.sample ? 'top-24 md:top-44' : 'top-8 md:top-28'} flex items-center gap-2 text-xs font-semibold text-white/70`}>
             <Loader2 size={14} className="animate-spin" />
             Loading tour
           </div>
