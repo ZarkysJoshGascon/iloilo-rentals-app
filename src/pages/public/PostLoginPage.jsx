@@ -8,7 +8,7 @@ import { useAuth } from '@/context/AuthContext'
 export default function PostLoginPage() {
   const navigate = useNavigate()
   const { user, loading: authLoading } = useAuth()
-  const { role, loading: roleLoading } = useUserRole()
+  const { role, isOwner, loading: roleLoading } = useUserRole()
 
   useEffect(() => {
     if (!authLoading && !user) navigate('/login', { replace: true })
@@ -17,8 +17,9 @@ export default function PostLoginPage() {
   useEffect(() => {
     if (authLoading || roleLoading) return
     if (role === 'admin') navigate('/admin', { replace: true })
+    else if (isOwner) navigate('/owner', { replace: true })  // unit owners → their portal
     else navigate('/', { replace: true })  // housekeeper, both, none → home
-  }, [role, roleLoading, authLoading, navigate])
+  }, [role, isOwner, roleLoading, authLoading, navigate])
 
   return (
     <div className="min-h-screen flex items-center justify-center bg-gray-50">

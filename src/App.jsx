@@ -23,6 +23,7 @@ const PrivacyPolicyPage = lazy(() => import('./pages/public/PrivacyPolicyPage'))
 const TermsPage = lazy(() => import('./pages/public/TermsPage'))
 const UnsubscribePage = lazy(() => import('./pages/public/UnsubscribePage'))
 const AdminDashboardPage = lazy(() => import('./pages/admin/AdminDashboardPage'))
+const OwnerPortalPage = lazy(() => import('./pages/owner/OwnerPortalPage'))
 
 // First visit only: a loading screen covers the site until the page and every
 // image on it have loaded, so no photo is seen half-loaded. It gives up after
@@ -40,7 +41,8 @@ function PageLoader() {
 
 function App() {
   const location = useLocation()
-  const isAdminRoute = location.pathname.startsWith('/admin')
+  // The CRM and the owner portal have their own shell (no public navbar, footer or loading screen).
+  const isAdminRoute = location.pathname.startsWith('/admin') || location.pathname.startsWith('/owner')
   const isUnsubscribeRoute = location.pathname.startsWith('/unsubscribe')
 
   // The CRM has its own loading states, so the loading screen is for the public site.
@@ -88,6 +90,7 @@ function App() {
               />
               {/* The housekeeper task page is switched off for now; its code is kept in
                   src/pages/housekeeper/HousekeeperTasksPage.jsx. Old links go home. */}
+              <Route path="/owner" element={<OwnerPortalPage />} />
               <Route path="/hk" element={<Navigate to="/" replace />} />
             </Routes>
             {showPreloader && <PageImagesProbe onProgress={setPreloadProgress} onDone={finishPreload} />}

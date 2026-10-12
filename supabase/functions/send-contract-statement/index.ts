@@ -322,20 +322,37 @@ serve(async (req) => {
     const { data: { user }, error: authErr } = await admin.auth.getUser(token)
     if (authErr || !user) return json({ error: 'Invalid session' }, 401)
 
-    const { data: adminRow } = await admin.from('admin_users').select('user_id').eq('user_id', user.id).maybeSingle()
-    if (!adminRow) return json({ error: 'Not an admin' }, 403)
-
-    // Reads run as the admin, exactly like the CRM.
-    const db = createClient(SUPABASE_URL!, SUPABASE_ANON_KEY!, {
-      auth: { persistSession: false },
-      global: { headers: { Authorization: `Bearer ${token}` } },
-    })
-
     const body = await req.json().catch(() => ({}))
     const contractId = typeof body.contract_id === 'string' ? body.contract_id : null
     const mode = body.mode === 'send' ? 'send' : 'download'
     const force = body.force === true
     if (!contractId) return json({ error: 'contract_id is required' }, 400)
+
+    const { data: adminRow } = await admin.from('admin_users').select('user_id').eq('user_id', user.id).maybeSingle()
+
+    // Owners (owner portal) may download the statement of their own contract,
+    // but not email it. Their reads use the service client once ownership is
+    // confirmed, since the tables are admin-only.
+    let isOwnerOfContract = false
+    if (!adminRow) {
+      const { data: owned } = await admin
+        .from('contracts')
+        .select('id, owners:owner_id!inner ( user_id )')
+        .eq('id', contractId)
+        .eq('owners.user_id', user.id)
+        .maybeSingle()
+      isOwnerOfContract = !!owned
+      if (!isOwnerOfContract) return json({ error: 'Not allowed' }, 403)
+      if (mode !== 'download') return json({ error: 'Only the statement download is available to owners' }, 403)
+    }
+
+    // Admins read as themselves, exactly like the CRM.
+    const db = isOwnerOfContract
+      ? admin
+      : createClient(SUPABASE_URL!, SUPABASE_ANON_KEY!, {
+          auth: { persistSession: false },
+          global: { headers: { Authorization: `Bearer ${token}` } },
+        })
 
     const { data: contract, error: cErr } = await db
       .from('contracts')

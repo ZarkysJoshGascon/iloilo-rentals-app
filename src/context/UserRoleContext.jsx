@@ -9,6 +9,7 @@ export function UserRoleProvider({ children }) {
   const { user, loading: authLoading } = useAuth()
   const [role, setRole] = useState(null)
   const [housekeeper, setHousekeeper] = useState(null)
+  const [isOwner, setIsOwner] = useState(false)
   const [staffRoles, setStaffRoles] = useState({
     specialist: null,
     affiliate: null,
@@ -28,6 +29,7 @@ export function UserRoleProvider({ children }) {
     if (!user) {
       setRole(null)
       setHousekeeper(null)
+      setIsOwner(false)
       setStaffRoles({ specialist: null, affiliate: null, housekeeper: null, propertyManager: null })
       setLoading(false)
       return () => { cancelled = true }
@@ -54,8 +56,9 @@ export function UserRoleProvider({ children }) {
 
         if (cancelled) return
 
-        // Fetch admin row + all four staff rows in parallel
-        const [adminRes, specRes, affRes, hkRes, pmRes] = await Promise.all([
+        // Fetch admin row + all four staff rows in parallel, and whether this
+        // user is a unit owner (owner portal).
+        const [adminRes, specRes, affRes, hkRes, pmRes, ownerRes] = await Promise.all([
           supabase.from('admin_users').select('user_id').eq('user_id', user.id).maybeSingle(),
           supabase.from('specialists').select('id, code, name, email, photo_url').eq('user_id', user.id).maybeSingle(),
           supabase.from('affiliates').select('id, code, name, email, photo_url').eq('user_id', user.id).maybeSingle(),
@@ -65,12 +68,14 @@ export function UserRoleProvider({ children }) {
             .eq('user_id', user.id)
             .maybeSingle(),
           supabase.from('property_managers').select('id, code, name, email, photo_url').eq('user_id', user.id).maybeSingle(),
+          supabase.rpc('is_owner'),
         ])
 
         if (cancelled) return
 
         const isAdmin = !!adminRes.data
         const isHk = !!hkRes.data
+        setIsOwner(!ownerRes.error && ownerRes.data === true)
 
         setStaffRoles({
           specialist: specRes.data || null,
@@ -96,6 +101,7 @@ export function UserRoleProvider({ children }) {
         if (!cancelled) {
           setRole('none')
           setHousekeeper(null)
+          setIsOwner(false)
           setStaffRoles({ specialist: null, affiliate: null, housekeeper: null, propertyManager: null })
         }
       } finally {
@@ -108,7 +114,7 @@ export function UserRoleProvider({ children }) {
   }, [user, authLoading])
 
   return (
-    <UserRoleContext.Provider value={{ role, housekeeper, staffRoles, loading }}>
+    <UserRoleContext.Provider value={{ role, housekeeper, staffRoles, isOwner, loading }}>
       {children}
     </UserRoleContext.Provider>
   )

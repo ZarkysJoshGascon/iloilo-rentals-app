@@ -370,7 +370,7 @@ function pickDefaultYear(yearSections) {
 }
 
 // ─── Occupancy helpers ──────────────────────────────────────
-function nightsInMonthFromBookings(bookings, year, month1to12, contract) {
+export function nightsInMonthFromBookings(bookings, year, month1to12, contract) {
   const daysInMonth = new Date(Date.UTC(year, month1to12, 0)).getUTCDate()
   const monthStart = new Date(Date.UTC(year, month1to12 - 1, 1))
   const monthEndExclusive = new Date(Date.UTC(year, month1to12, 1))
@@ -543,7 +543,7 @@ function EmptyState({ icon: Icon = FileText, title, hint, children }) {
 }
 
 // Label, big number and a note under it (the Dashboard's summary stat).
-function SummaryStat({ label, value, children }) {
+export function SummaryStat({ label, value, children }) {
   return (
     <div className="min-w-0">
       <p className="text-[12px] font-medium text-foreground">{label}</p>
@@ -575,12 +575,14 @@ function ViewToggle({ view, onChange }) {
  *           (null when there is nothing to compare with)
  * vs        name of the earlier period, e.g. "Sep" or "Jan–Oct 2025"
  */
-function buildTrend(months, current, previous, vs) {
+export function buildTrend(months, current, previous, vs) {
   return {
     values: {
       gross: months.map((m) => m.gross),
       expenses: months.map((m) => m.expenses),
       net: months.map((m) => m.net),
+      // The owner's share, when the months carry it.
+      ...(months.length && months.every((m) => m.owner != null) ? { owner: months.map((m) => m.owner) } : {}),
     },
     current,
     previous,
@@ -608,12 +610,15 @@ function trendProps(trend, key, upIsGood, fallbackSub) {
  * totals  { gross, expenses, net, owner, company, pm }; company is the full
  *         company share, out of which the PM is paid.
  * trend   optional buildTrend() result: adds trend lines and growth
+ * ownerLabel  the owner tile's name ("Your share" in the owner portal)
+ * showPm  false leaves out the PM tile (a unit that never had a PM)
  */
-function MoneyStrip({ totals, grossSub, pmSub, trend, loading = false }) {
+export function MoneyStrip({ totals, grossSub, pmSub, trend, loading = false, ownerLabel = 'Owner share', showPm = true }) {
   const loss = !loading && totals.net < 0
   const kept = totals.company - totals.pm
+  const ownerSub = `${OWNER_SPLIT_PCT}% of net`
   return (
-    <StatStrip cols={6}>
+    <StatStrip cols={showPm ? 6 : 5}>
       <StatTile
         icon={TrendingUp}
         label="Gross revenue"
@@ -638,7 +643,14 @@ function MoneyStrip({ totals, grossSub, pmSub, trend, loading = false }) {
         valueClassName={cn(MONEY_TILE, moneyTone(totals.net))}
         {...trendProps(trend, 'net', true, loss ? 'Expenses are higher than revenue' : 'Gross minus expenses')}
       />
-      <StatTile icon={UserRound} label="Owner share" value={formatPeso(totals.owner)} sub={`${OWNER_SPLIT_PCT}% of net`} loading={loading} valueClassName={cn(MONEY_TILE, lossTone(totals.owner))} />
+      <StatTile
+        icon={UserRound}
+        label={ownerLabel}
+        value={formatPeso(totals.owner)}
+        loading={loading}
+        valueClassName={cn(MONEY_TILE, lossTone(totals.owner))}
+        {...(trend?.values?.owner ? trendProps(trend, 'owner', true, ownerSub) : { sub: ownerSub })}
+      />
       <StatTile
         icon={Building2}
         label="Company share"
@@ -646,8 +658,10 @@ function MoneyStrip({ totals, grossSub, pmSub, trend, loading = false }) {
         sub={totals.pm > 0 ? `${formatPeso(kept)} kept after PM` : `${COMPANY_SPLIT_PCT}% of net`}
         loading={loading}
         valueClassName={cn(MONEY_TILE, lossTone(totals.company))}
+        // Without the PM tile, the last tile takes the whole row on phones.
+        className={showPm ? undefined : 'col-span-2 sm:col-span-1'}
       />
-      <StatTile icon={User} label="PM payout" value={formatPeso(totals.pm)} sub={pmSub} loading={loading} valueClassName={MONEY_TILE} />
+      {showPm && <StatTile icon={User} label="PM payout" value={formatPeso(totals.pm)} sub={pmSub} loading={loading} valueClassName={MONEY_TILE} />}
     </StatStrip>
   )
 }
@@ -773,7 +787,7 @@ function CumulativeTooltip({ active, payload, label }) {
   )
 }
 
-function HalfGauge({ pct, sublabel, compact = false }) {
+export function HalfGauge({ pct, sublabel, compact = false }) {
   const clampedPct = Math.max(0, Math.min(1, pct || 0))
   const total = compact ? 44 : 60
   const filled = Math.round(clampedPct * total)
@@ -991,7 +1005,7 @@ const MonthlyOccupancyChart = memo(function MonthlyOccupancyChart({ statements, 
   )
 })
 
-const WeeklyOccupancyChart = memo(function WeeklyOccupancyChart({ statement, contract }) {
+export const WeeklyOccupancyChart = memo(function WeeklyOccupancyChart({ statement, contract }) {
   const [y, m] = statement.month.split('-').map(Number)
   const data = useMemo(
     () => weeklyOccupancyForMonth(y, m, statement.bookingsList, contract),
@@ -1015,7 +1029,7 @@ const WeeklyOccupancyChart = memo(function WeeklyOccupancyChart({ statement, con
   )
 })
 
-const WeeklyCumulativeChart = memo(function WeeklyCumulativeChart({ statement, monthlyExpenses, contract }) {
+export const WeeklyCumulativeChart = memo(function WeeklyCumulativeChart({ statement, monthlyExpenses, contract }) {
   const [y, m] = statement.month.split('-').map(Number)
   const data = useMemo(
     () => weeklyNetProfitForMonth(y, m, statement.bookingsList, statement.cleaningsList, monthlyExpenses, contract),
@@ -1132,7 +1146,7 @@ const CumulativeNetChart = memo(function CumulativeNetChart({ statements, select
 // Grid lines between days only — the card's own border draws the outer edge.
 const CAL_CELL = 'min-h-[110px] border-b border-r border-border [&:nth-child(7n)]:border-r-0 [&:nth-last-child(-n+7)]:border-b-0'
 
-function BookingCalendar({ title, subtitle, month, bookings, cleanings, selectedId, onSelect }) {
+export function BookingCalendar({ title, subtitle, month, bookings, cleanings, selectedId, onSelect }) {
   const [y, m] = month.split('-').map(Number)
   const firstDay = new Date(Date.UTC(y, m - 1, 1))
   const daysInMonth = new Date(Date.UTC(y, m, 0)).getUTCDate()
@@ -1207,6 +1221,17 @@ function BookingCalendar({ title, subtitle, month, bookings, cleanings, selected
   return (
     <Panel>
       <PanelHeader icon={CalendarDays} title={title} subtitle={subtitle} />
+      <div className="sm:hidden">
+        <CompactCalendar
+          month={month}
+          cells={cells}
+          dayItems={dayItems}
+          todayDay={todayDay}
+          selectedId={selectedId}
+          onSelect={onSelect}
+        />
+      </div>
+      <div className="hidden sm:block">
       <div className="flex items-center gap-x-4 gap-y-1.5 px-5 py-2.5 text-[11px] text-foreground border-b border-border flex-wrap">
         <span className="inline-flex items-center gap-1.5">
           <span
@@ -1293,7 +1318,130 @@ function BookingCalendar({ title, subtitle, month, bookings, cleanings, selected
           )
         })}
       </div>
+      </div>
     </Panel>
+  )
+}
+
+// Phones: the month fits the screen. Stays run as a bar across their days
+// (arriving on the right half of the check-in day, leaving on the left half of
+// the checkout day), cleanings and cancellations are dots, and tapping a day
+// lists what happens on it.
+function CompactCalendar({ month, cells, dayItems, todayDay, selectedId, onSelect }) {
+  const [y, m] = month.split('-').map(Number)
+  const selKey = selectedId ? `${selectedId.type}:${selectedId.id}` : ''
+  const [picked, setPicked] = useState(null) // { month, sel, day }: a day tapped while `sel` was selected
+
+  // The first day the selected booking or cleaning appears on.
+  const selectedDay = useMemo(() => {
+    if (!selectedId) return null
+    const found = Object.entries(dayItems).find(([, items]) => items.some((it) => it.kind === selectedId.type && it.data.id === selectedId.id))
+    return found ? Number(found[0]) : null
+  }, [dayItems, selectedId])
+  const firstBusy = Number(Object.keys(dayItems).find((d) => dayItems[d].length)) || 1
+  const day = picked && picked.month === month && picked.sel === selKey ? picked.day : (selectedDay ?? todayDay ?? firstBusy)
+  const items = dayItems[day] || []
+  const dayLabel = new Date(Date.UTC(y, m - 1, day)).toLocaleDateString('en-PH', { weekday: 'long', month: 'short', day: 'numeric', timeZone: 'UTC' })
+  const departing = 'color-mix(in srgb, var(--brand-solid) 50%, transparent)'
+
+  return (
+    <>
+      <div className="flex items-center gap-x-3 gap-y-1 px-4 py-2 text-[11px] text-foreground border-b border-border flex-wrap">
+        <span className="inline-flex items-center gap-1.5"><span className="w-3 h-1.5 rounded-full" style={{ backgroundColor: BRAND }} />Stay</span>
+        <span className="inline-flex items-center gap-1.5"><span className="w-3 h-1.5 rounded-full" style={{ backgroundColor: departing }} />Checkout</span>
+        <span className="inline-flex items-center gap-1.5"><span className="w-1.5 h-1.5 rounded-full" style={{ backgroundColor: CLEAN_COLOR }} />Cleaning</span>
+        <span className="inline-flex items-center gap-1.5"><span className="w-1.5 h-1.5 rounded-full" style={{ backgroundColor: CANCELLED_COLOR }} />Cancelled</span>
+      </div>
+      <div className="grid grid-cols-7 border-b border-border">
+        {DOW_SHORT.map((d) => (
+          <div key={d} className="text-[11px] font-semibold text-foreground text-center py-1.5">{d}</div>
+        ))}
+      </div>
+      <div className="grid grid-cols-7 border-b border-border">
+        {cells.map((d, idx) => {
+          const cell = 'relative h-12 border-b border-r border-border [&:nth-child(7n)]:border-r-0 [&:nth-last-child(-n+7)]:border-b-0'
+          if (d === null) return <div key={idx} className={cell} />
+          const list = dayItems[d] || []
+          const live = list.filter((it) => it.kind === 'booking' && !it.isCancelled)
+          const staying = live.some((it) => !it.isCheckinDay && !it.isCheckoutDay)
+          const arriving = live.some((it) => it.isCheckinDay)
+          const leaving = live.some((it) => it.isCheckoutDay && !it.isCheckinDay)
+          const cleaning = list.some((it) => it.kind === 'cleaning')
+          const cancelled = list.some((it) => it.kind === 'booking' && it.isCancelled)
+          const isPicked = d === day
+          return (
+            <button
+              key={idx}
+              type="button"
+              onClick={() => setPicked({ month, sel: selKey, day: d })}
+              aria-pressed={isPicked}
+              aria-label={`${d} ${monthLabel(month)}: ${list.length ? `${list.length} item${list.length === 1 ? '' : 's'}` : 'nothing'}`}
+              className={cn(cell, 'flex flex-col items-center pt-1', isPicked && 'bg-brand-solid/10')}
+            >
+              <span
+                className={cn(
+                  'w-6 h-6 rounded-full flex items-center justify-center text-[12px] font-semibold tabular-nums',
+                  todayDay === d ? 'bg-brand-solid text-white' : 'text-foreground',
+                )}
+              >
+                {d}
+              </span>
+              {staying && <span aria-hidden className="absolute left-0 right-0 bottom-3 h-1.5" style={{ backgroundColor: BRAND }} />}
+              {!staying && leaving && <span aria-hidden className="absolute left-0 right-1/2 bottom-3 h-1.5 rounded-r-full" style={{ backgroundColor: departing }} />}
+              {!staying && arriving && <span aria-hidden className="absolute left-1/2 right-0 bottom-3 h-1.5 rounded-l-full" style={{ backgroundColor: BRAND }} />}
+              {(cleaning || cancelled) && (
+                <span aria-hidden className="absolute bottom-0.5 left-0 right-0 flex justify-center gap-1">
+                  {cleaning && <span className="w-1.5 h-1.5 rounded-full" style={{ backgroundColor: CLEAN_COLOR }} />}
+                  {cancelled && <span className="w-1.5 h-1.5 rounded-full" style={{ backgroundColor: CANCELLED_COLOR }} />}
+                </span>
+              )}
+            </button>
+          )
+        })}
+      </div>
+
+      <p className="px-4 pt-3 pb-1.5 text-[12px] font-semibold text-foreground">{dayLabel}</p>
+      {items.length === 0 ? (
+        <p className="px-4 pb-3 text-[12px] text-foreground">No stays or cleanings this day.</p>
+      ) : (
+        items.map((it) => {
+          const isSel = selectedId?.type === it.kind && selectedId.id === it.data.id
+          let colour, name, note, amount
+          if (it.kind === 'booking') {
+            const b = it.data
+            colour = it.isCancelled ? CANCELLED_COLOR : it.isCheckoutDay && !it.isCheckinDay ? departing : BRAND
+            name = b.guest_name || b.booking_code
+            note = it.isCancelled ? 'Cancelled'
+              : it.isCheckinDay ? `Checks in from ${STAY_TIMES.checkIn.label}`
+              : it.isCheckoutDay ? `Checks out by ${STAY_TIMES.checkOut.label}`
+              : 'Staying'
+            amount = b.total_amount
+          } else {
+            const c = it.data
+            colour = CLEAN_COLOR
+            name = `${c.type ? c.type[0].toUpperCase() + c.type.slice(1) : 'Basic'} cleaning`
+            note = `${CLEANING_WINDOW.label}${c.bookings?.booking_code ? ` · after ${c.bookings.booking_code}` : ''}`
+            amount = Number(c.payment_amount || 0) + Number(c.laundry_payment_amount || 0)
+          }
+          return (
+            <button
+              key={`${it.kind}-${it.data.id}`}
+              type="button"
+              onClick={() => onSelect?.(it.kind, it.data.id)}
+              aria-pressed={isSel}
+              className={cn('w-full text-left flex items-center gap-3 px-4 py-2.5 border-t border-border', isSel ? 'bg-brand-solid/10' : 'active:bg-muted/50')}
+            >
+              <span aria-hidden className="w-1 self-stretch rounded-full flex-shrink-0" style={{ backgroundColor: colour }} />
+              <span className="min-w-0 flex-1">
+                <span className={cn('block text-[12.5px] font-semibold text-foreground truncate', it.isCancelled && 'line-through')}>{name}</span>
+                <span className={cn('block text-[11px] truncate mt-0.5', it.isCancelled ? 'font-semibold text-red-600 dark:text-red-400' : 'text-foreground')}>{note}</span>
+              </span>
+              <span className="text-[12.5px] font-semibold tabular-nums text-foreground flex-shrink-0">{formatMoney(amount)}</span>
+            </button>
+          )
+        })
+      )}
+    </>
   )
 }
 
@@ -1566,6 +1714,8 @@ function GeneralStatistics({ lifetime, statements, yearSections, selectedYear, o
     return buildTrend(recent, lifetime, null, '')
   }, [statements, lifetime])
   const since = statements.length > 24 ? 'Last 24 months shown' : statements[0] ? `Monthly since ${monthLabel(statements[0].month)}` : 'Lifetime'
+  // Full company share (before the PM's cut), month by month as the CRM rounds it.
+  const lifetimeCompany = statements.reduce((t, s) => t + Math.round(s.netProfit * COMPANY_SPLIT_PCT) / 100, 0)
   return (
     <>
       <StatStrip cols={5}>
@@ -1595,7 +1745,7 @@ function GeneralStatistics({ lifetime, statements, yearSections, selectedYear, o
             lifetimeTrend,
             'net',
             true,
-            loss ? 'Expenses are higher than revenue' : `Owner ${formatPeso(lifetime.owner)} · Company ${formatPeso(lifetime.company)}`,
+            loss ? 'Expenses are higher than revenue' : `Owner ${formatPeso(lifetime.owner)} · Company ${formatPeso(lifetimeCompany)}`,
           )}
         />
       </StatStrip>
@@ -2001,7 +2151,7 @@ function AddExpenseModal({ open, onClose, onSubmit, contractId }) {
 
 // Section heading inside the Expenses card (the Dashboard's section label,
 // with room for buttons on the right).
-function SectionBar({ icon: Icon, title, count, children }) {
+export function SectionBar({ icon: Icon, title, count, children }) {
   return (
     <div className="flex items-center justify-between gap-2 px-5 h-10 border-b border-border">
       <span className="flex items-center gap-2 min-w-0 text-[11px] font-semibold uppercase tracking-wider text-foreground">
@@ -2016,7 +2166,7 @@ function SectionBar({ icon: Icon, title, count, children }) {
 
 // One expense: icon, name and a short note, then anything extra (receipt,
 // input) and the amount.
-function ExpenseRow({ icon: Icon, label, hint, amount, editing = false, children }) {
+export function ExpenseRow({ icon: Icon, label, hint, amount, editing = false, children }) {
   return (
     <div className={cn('flex items-center gap-3 px-5 py-2.5 border-b border-border min-h-[52px]', editing && 'bg-brand-solid/5')}>
       <Icon size={15} strokeWidth={1.9} className="text-foreground flex-shrink-0" />
@@ -2032,7 +2182,7 @@ function ExpenseRow({ icon: Icon, label, hint, amount, editing = false, children
   )
 }
 
-function SubtotalRow({ label, value }) {
+export function SubtotalRow({ label, value }) {
   return (
     <div className="flex items-center justify-between gap-3 px-5 py-2.5 text-[12px]">
       <span className="text-foreground">{label}</span>
@@ -2045,7 +2195,7 @@ function SubtotalRow({ label, value }) {
 // the logo blue, with the amounts under it.
 const BREAKDOWN_SHADES = [100, 70, 45, 28, 14]
 
-function ExpenseBreakdown({ parts, total }) {
+export function ExpenseBreakdown({ parts, total }) {
   if (!(total > 0)) {
     return <p className="text-[12px] text-foreground">No expenses recorded this month.</p>
   }
@@ -2814,7 +2964,9 @@ function MonthlySection({
               expenses: statement.totalExpenses,
               net: statement.netProfit,
               owner: statement.ownerShare,
-              company: statement.companyShare,
+              // The full company share; the breakdown's companyShare is what's
+              // left after the PM, so it's worked out from net here.
+              company: Math.round(statement.netProfit * COMPANY_SPLIT_PCT) / 100,
               pm: Number(statement.pmShare) || 0,
             }}
             grossSub={`${plural(monthCounts.bookings, 'booking', 'bookings')} this month`}
