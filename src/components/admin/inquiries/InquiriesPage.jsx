@@ -13,8 +13,9 @@ import { Skeleton } from '@/components/ui/skeleton'
 import { cn } from '@/lib/utils'
 import { supabase } from '@/lib/supabase'
 import { listInquiries, updateInquiry, deleteInquiry } from '@/lib/inquiries'
+import { StatusTabs } from '@/components/admin/_shared/StatusTabs'
 
-const BRAND = '#2d568e'
+const BRAND = 'var(--brand-solid)'
 const SOFT_SHADOW = '0 20px 40px -16px rgba(15,23,42,0.24), 0 6px 16px -6px rgba(15,23,42,0.10)'
 const PAGE_SIZE = 25
 
@@ -144,62 +145,6 @@ function SummaryCards({ inquiries }) {
   )
 }
 
-function PillBar({ tabs, active, onChange, counts }) {
-  const containerRef = useRef(null)
-  const [indicator, setIndicator] = useState({ left: 0, width: 0 })
-
-  useEffect(() => {
-    const node = containerRef.current
-    if (!node) return
-    const measure = () => {
-      const activeEl = node.querySelector('[data-active="true"]')
-      if (!activeEl) { setIndicator({ left: 0, width: 0 }); return }
-      const cRect = node.getBoundingClientRect()
-      const aRect = activeEl.getBoundingClientRect()
-      setIndicator({ left: aRect.left - cRect.left, width: aRect.width })
-    }
-    measure()
-    const ro = typeof ResizeObserver !== 'undefined' ? new ResizeObserver(measure) : null
-    if (ro) ro.observe(node)
-    window.addEventListener('resize', measure)
-    return () => {
-      if (ro) ro.disconnect()
-      window.removeEventListener('resize', measure)
-    }
-  }, [active, counts])
-
-  return (
-    <div className="inline-flex items-center p-1 rounded-full bg-muted/60 border border-border/60">
-      <div ref={containerRef} className="relative inline-flex items-center gap-1">
-        <motion.div
-          className="absolute top-0 bottom-0 rounded-full bg-card shadow-sm border border-border z-0"
-          animate={{ left: indicator.left, width: indicator.width }}
-          transition={{ type: 'spring', stiffness: 350, damping: 28 }}
-        />
-        {tabs.map((tab) => {
-          const isActive = active === tab.id
-          const count = counts[tab.id] ?? 0
-          return (
-            <button
-              key={tab.id}
-              type="button"
-              data-active={isActive}
-              onClick={() => onChange(tab.id)}
-              className={cn(
-                'relative z-10 px-3.5 py-1.5 rounded-full text-[11px] font-semibold transition-colors whitespace-nowrap',
-                isActive ? 'text-foreground' : 'text-muted-foreground hover:text-foreground',
-              )}
-            >
-              {tab.label}
-              <span className={cn('ml-1 tabular-nums', isActive ? 'opacity-90' : 'opacity-60')}>{count}</span>
-            </button>
-          )
-        })}
-      </div>
-    </div>
-  )
-}
-
 function DateRangeFilter({ from, to, onFromChange, onToChange, onClear }) {
   const [open, setOpen] = useState(false)
   const wrapRef = useRef(null)
@@ -249,7 +194,7 @@ function DateRangeFilter({ from, to, onFromChange, onToChange, onClear }) {
         className={cn(
           'inline-flex items-center gap-2 h-9 px-3 rounded-lg text-xs font-semibold transition-colors border',
           hasAny
-            ? 'bg-foreground text-background border-foreground'
+            ? 'bg-brand-solid text-white border-brand-solid'
             : 'bg-card text-foreground border-border hover:bg-muted',
         )}
         title={hasAny ? summary : 'Filter by date range'}
@@ -327,7 +272,7 @@ function DateRangeFilter({ from, to, onFromChange, onToChange, onClear }) {
                 type="button"
                 onClick={apply}
                 disabled={!!localFrom && !!localTo && localTo < localFrom}
-                className="inline-flex items-center gap-1 h-7 px-3 rounded-lg bg-foreground text-background text-[11px] font-semibold hover:opacity-90 disabled:opacity-40"
+                className="inline-flex items-center gap-1 h-7 px-3 rounded-lg bg-brand-solid text-white text-[11px] font-semibold hover:bg-brand-solid/90 disabled:opacity-40"
               >
                 <Check size={11} />
                 Apply
@@ -348,10 +293,10 @@ function InquiryRow({ inquiry, selected, onClick }) {
       onClick={onClick}
       initial={false}
       animate={{
-        backgroundColor: selected ? 'rgba(45, 86, 142, 0.10)' : 'rgba(45, 86, 142, 0)',
+        backgroundColor: selected ? 'rgba(34, 81, 147, 0.10)' : 'rgba(34, 81, 147, 0)',
       }}
       transition={{ duration: 0.22 }}
-      whileHover={{ backgroundColor: selected ? 'rgba(45, 86, 142, 0.14)' : 'rgba(45, 86, 142, 0.05)' }}
+      whileHover={{ backgroundColor: selected ? 'rgba(34, 81, 147, 0.14)' : 'rgba(34, 81, 147, 0.05)' }}
       className="w-full text-left px-4 py-3 border-b border-border cursor-pointer select-none
                  grid grid-cols-[1.6fr_1.2fr_1.2fr_120px_120px] gap-4 items-center"
     >
@@ -373,7 +318,7 @@ function InquiryRow({ inquiry, selected, onClick }) {
             ? 'bg-purple-500/10 text-purple-600 dark:text-purple-400 border-purple-500/20'
             : inquiry.inquiry_type === 'both'
               ? 'bg-cyan-500/10 text-cyan-600 dark:text-cyan-400 border-cyan-500/20'
-              : 'bg-[#2d568e]/10 text-[#2d568e] dark:text-blue-400 border-[#2d568e]/20',
+              : 'bg-brand-solid/10 text-brand dark:text-blue-400 border-brand/20',
         )}>
           {INQUIRY_TYPE_LABEL[inquiry.inquiry_type] || 'Manage'}
         </span>
@@ -555,7 +500,7 @@ export default function InquiriesPage() {
         </div>
 
         <div className="flex-shrink-0 flex items-center gap-3 flex-wrap">
-          <PillBar tabs={tabs} active={statusFilter} onChange={setStatusFilter} counts={counts} />
+          <StatusTabs tabs={tabs} value={statusFilter} onChange={setStatusFilter} counts={counts} label="Filter inquiries by status" />
         </div>
 
         <div className="flex-1 min-h-0 rounded-lg border border-border shadow-sm overflow-hidden bg-card flex flex-col">
@@ -880,7 +825,7 @@ function ContactRow({ icon: Icon, label, value, href }) {
       <span className="text-[10px] uppercase tracking-wider text-muted-foreground font-semibold min-w-[52px] flex-shrink-0">
         {label}
       </span>
-      <a href={href} className="text-xs text-foreground hover:text-[#2d568e] hover:underline truncate">
+      <a href={href} className="text-xs text-foreground hover:text-brand hover:underline truncate">
         {value}
       </a>
     </div>

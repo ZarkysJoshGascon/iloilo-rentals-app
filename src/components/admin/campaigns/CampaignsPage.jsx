@@ -19,8 +19,9 @@ import {
   sendPromoCampaign,
   uploadCampaignImage,
 } from '@/lib/email'
+import { StatusTabs } from '@/components/admin/_shared/StatusTabs'
 
-const BRAND = '#2d568e'
+const BRAND = 'var(--brand-solid)'
 const SOFT_SHADOW = '0 20px 40px -16px rgba(15,23,42,0.24), 0 6px 16px -6px rgba(15,23,42,0.10)'
 const PAGE_SIZE = 25
 const MAX_RECIPIENTS = 500
@@ -179,64 +180,6 @@ const TIME_FILTERS = [
 // ─────────────────────────────────────────────────────────────
 // PillBar — matches shared shape
 // ─────────────────────────────────────────────────────────────
-function PillBar({ tabs, active, onChange, counts }) {
-  const containerRef = useRef(null)
-  const [indicator, setIndicator] = useState({ left: 0, width: 0 })
-
-  useEffect(() => {
-    const node = containerRef.current
-    if (!node) return
-    const measure = () => {
-      const activeEl = node.querySelector('[data-active="true"]')
-      if (!activeEl) { setIndicator({ left: 0, width: 0 }); return }
-      const cRect = node.getBoundingClientRect()
-      const aRect = activeEl.getBoundingClientRect()
-      setIndicator({ left: aRect.left - cRect.left, width: aRect.width })
-    }
-    measure()
-    const ro = typeof ResizeObserver !== 'undefined' ? new ResizeObserver(measure) : null
-    if (ro) ro.observe(node)
-    window.addEventListener('resize', measure)
-    return () => {
-      if (ro) ro.disconnect()
-      window.removeEventListener('resize', measure)
-    }
-  }, [active, counts])
-
-  return (
-    <div className="inline-flex items-center p-1 rounded-full bg-muted/60 border border-border/60">
-      <div ref={containerRef} className="relative inline-flex items-center gap-1">
-        <motion.div
-          className="absolute top-0 bottom-0 rounded-full bg-card shadow-sm border border-border z-0"
-          animate={{ left: indicator.left, width: indicator.width }}
-          transition={{ type: 'spring', stiffness: 350, damping: 28 }}
-        />
-        {tabs.map((tab) => {
-          const isActive = active === tab.id
-          const count = counts ? (counts[tab.id] ?? 0) : null
-          return (
-            <button
-              key={tab.id}
-              type="button"
-              data-active={isActive}
-              onClick={() => onChange(tab.id)}
-              className={cn(
-                'relative z-10 px-3.5 py-1.5 rounded-full text-[11px] font-semibold transition-colors whitespace-nowrap',
-                isActive ? 'text-foreground' : 'text-muted-foreground hover:text-foreground',
-              )}
-            >
-              {tab.label}
-              {count !== null && (
-                <span className={cn('ml-1 tabular-nums', isActive ? 'opacity-90' : 'opacity-60')}>{count}</span>
-              )}
-            </button>
-          )
-        })}
-      </div>
-    </div>
-  )
-}
-
 // ─────────────────────────────────────────────────────────────
 // DateRangeFilter — matches BookingsPage shape
 // ─────────────────────────────────────────────────────────────
@@ -281,7 +224,7 @@ function DateRangeFilter({ from, to, onFromChange, onToChange, onClear }) {
         className={cn(
           'inline-flex items-center gap-2 h-9 px-3 rounded-lg text-xs font-semibold transition-colors border',
           hasAny
-            ? 'bg-foreground text-background border-foreground'
+            ? 'bg-brand-solid text-white border-brand-solid'
             : 'bg-card text-foreground border-border hover:bg-muted',
         )}
         title={hasAny ? summary : 'Filter by date range'}
@@ -337,7 +280,7 @@ function DateRangeFilter({ from, to, onFromChange, onToChange, onClear }) {
                 Clear
               </button>
               <button type="button" onClick={apply}
-                className="inline-flex items-center gap-1 h-7 px-3 rounded-lg bg-foreground text-background text-[11px] font-semibold hover:opacity-90">
+                className="inline-flex items-center gap-1 h-7 px-3 rounded-lg bg-brand-solid text-white text-[11px] font-semibold hover:bg-brand-solid/90">
                 <Check size={11} />
                 Apply
               </button>
@@ -595,7 +538,7 @@ export default function CampaignsPage() {
         </div>
 
         <div className="flex-shrink-0 flex items-center gap-2 flex-wrap">
-          <PillBar tabs={viewTabs} active={view} onChange={handleViewChange} />
+          <StatusTabs tabs={viewTabs} value={view} onChange={handleViewChange} label="Compose or history" />
 
           <div className="relative flex-1 min-w-0">
             <Search size={13} className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground pointer-events-none" />
@@ -694,7 +637,7 @@ function ComposeView({
 
         <div className="flex-1 min-h-0 flex flex-col rounded-lg border border-border shadow-sm overflow-hidden bg-card">
           <div className="flex-shrink-0 px-3 py-2 border-b border-border space-y-2">
-            <PillBar tabs={TIME_FILTERS} active={timeFilter} onChange={setTimeFilter} />
+            <StatusTabs tabs={TIME_FILTERS} value={timeFilter} onChange={setTimeFilter} label="Last stay" />
             <div className="flex items-center justify-between gap-2">
               <button type="button" onClick={toggleAllVisible} disabled={pageItems.length === 0}
                 className="text-[11px] font-semibold text-foreground hover:underline disabled:opacity-50">

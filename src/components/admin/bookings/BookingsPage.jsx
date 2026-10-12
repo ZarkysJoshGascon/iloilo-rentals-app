@@ -41,16 +41,17 @@ import { ContextMenu } from '@/components/ui/ContextMenu'
 import { SortHeader, nextSort, ResultsBar, SearchKeyHint, useListShortcuts } from '@/components/admin/_shared/listTools'
 import { Panel, PanelHeader, SectionLabel, InitialsAvatar } from '@/components/admin/_shared/Panel'
 import { StatStrip, StatTile } from '@/components/admin/_shared/StatStrip'
+import { StatusTabs } from '@/components/admin/_shared/StatusTabs'
 
-const BRAND = '#2d568e'
+const BRAND = 'var(--brand-solid)'
 const SOFT_SHADOW = '0 20px 40px -16px rgba(15,23,42,0.24), 0 6px 16px -6px rgba(15,23,42,0.10)'
 
 const STATUS_PILLS = [
   { id: 'all',              label: 'All' },
-  { id: 'in-house',         label: 'In-House' },
+  { id: 'in-house',         label: 'In-house' },
   { id: 'upcoming',         label: 'Upcoming' },
-  { id: 'checked-out',      label: 'Checked Out' },
-  { id: 'needs-attention',  label: 'Needs Attention' },
+  { id: 'checked-out',      label: 'Checked out' },
+  { id: 'needs-attention',  label: 'Needs attention' },
   { id: 'completed',        label: 'Done' },
   { id: 'unpaid',           label: 'Unpaid' },
 ]
@@ -438,13 +439,13 @@ function RangeCalendar({
                         !selectable && 'text-muted-foreground/40 cursor-not-allowed',
 
                         // In range strip
-                        inRange && !selected && 'bg-[#2d568e]/10 text-foreground',
+                        inRange && !selected && 'bg-brand-solid/10 text-foreground',
 
                         // Occupied — red circle
                         occupied && !selected && 'bg-red-100 text-red-600 dark:bg-red-900/40 dark:text-red-400 cursor-not-allowed',
 
                         // Selected — solid blue circle
-                        selected && 'bg-[#2d568e] text-white shadow-md',
+                        selected && 'bg-brand-solid text-white shadow-md',
 
                         // Today indicator (only if not selected)
                         isToday && !selected && 'ring-2 ring-amber-400/70',
@@ -464,7 +465,7 @@ function RangeCalendar({
                   <span className="w-2.5 h-2.5 rounded-full bg-red-400" /> Occupied
                 </span>
                 <span className="inline-flex items-center gap-1">
-                  <span className="w-2.5 h-2.5 rounded-full bg-[#2d568e]" /> Selected
+                  <span className="w-2.5 h-2.5 rounded-full bg-brand-solid" /> Selected
                 </span>
               </div>
               <button
@@ -712,62 +713,6 @@ function SummaryCards({ bookings, active, onSelect }) {
   )
 }
 
-function StatusPills({ statusFilter, onStatusFilter, counts }) {
-  const containerRef = useRef(null)
-  const [indicator, setIndicator] = useState({ left: 0, width: 0 })
-
-  useEffect(() => {
-    const node = containerRef.current
-    if (!node) return
-    const measure = () => {
-      const active = node.querySelector('[data-active="true"]')
-      if (!active) { setIndicator({ left: 0, width: 0 }); return }
-      const cRect = node.getBoundingClientRect()
-      const aRect = active.getBoundingClientRect()
-      setIndicator({ left: aRect.left - cRect.left, width: aRect.width })
-    }
-    measure()
-    const ro = typeof ResizeObserver !== 'undefined' ? new ResizeObserver(measure) : null
-    if (ro) ro.observe(node)
-    window.addEventListener('resize', measure)
-    return () => {
-      if (ro) ro.disconnect()
-      window.removeEventListener('resize', measure)
-    }
-  }, [statusFilter, counts])
-
-  return (
-    <div className="inline-flex items-center p-0.5 rounded-md bg-card border border-border">
-      <div ref={containerRef} className="relative inline-flex items-center gap-1">
-        <motion.div
-          className="absolute top-0 bottom-0 rounded-md bg-foreground z-0"
-          animate={{ left: indicator.left, width: indicator.width }}
-          transition={{ type: 'spring', stiffness: 350, damping: 28 }}
-        />
-        {STATUS_PILLS.map((tab) => {
-          const isActive = statusFilter === tab.id
-          const count = counts[tab.id] ?? 0
-          return (
-            <button
-              key={tab.id}
-              type="button"
-              data-active={isActive}
-              onClick={() => onStatusFilter(tab.id)}
-              className={cn(
-                'relative z-10 px-3 h-7 rounded-md text-[12px] font-medium transition-colors duration-200 whitespace-nowrap',
-                isActive ? 'text-background' : 'text-foreground'
-              )}
-            >
-              {tab.label}
-              <span className="ml-1 font-semibold tabular-nums">{count}</span>
-            </button>
-          )
-        })}
-      </div>
-    </div>
-  )
-}
-
 function DateRangeFilter({ from, to, onFromChange, onToChange, onClear }) {
   const [open, setOpen] = useState(false)
   const wrapRef = useRef(null)
@@ -807,7 +752,7 @@ function DateRangeFilter({ from, to, onFromChange, onToChange, onClear }) {
         className={cn(
           'inline-flex items-center gap-2 h-8 px-3 rounded-lg text-xs font-semibold transition-colors border',
           hasAny
-            ? 'bg-foreground text-background border-foreground'
+            ? 'bg-brand-solid text-white border-brand-solid'
             : 'bg-card text-foreground border-border hover:bg-muted',
         )}
       >
@@ -867,7 +812,7 @@ function DateRangeFilter({ from, to, onFromChange, onToChange, onClear }) {
                 Clear
               </button>
               <button type="button" onClick={apply}
-                className="inline-flex items-center gap-1 h-7 px-3 rounded-lg bg-foreground text-background text-[11px] font-semibold hover:opacity-90">
+                className="inline-flex items-center gap-1 h-7 px-3 rounded-lg bg-brand-solid text-white text-[11px] font-semibold hover:bg-brand-solid/90">
                 <Check size={11} />
                 Apply
               </button>
@@ -946,7 +891,7 @@ function WarningChip({ icon: Icon, label, count, active, onClick, triggerRef, ch
     <div className="relative" ref={triggerRef}>
       <button type="button" onClick={onClick}
         className={cn('inline-flex items-center gap-2 h-8 px-3 rounded-lg text-xs font-medium border transition-colors',
-          active ? 'bg-foreground text-background border-foreground' : 'bg-card text-foreground border-border hover:bg-muted')}>
+          active ? 'bg-brand-solid text-white border-brand-solid' : 'bg-card text-foreground border-border hover:bg-muted')}>
         <Icon size={13} className={active ? 'opacity-90' : 'opacity-60'} />
         <span>{label}</span>
         <span className={cn('min-w-[20px] h-[18px] inline-flex items-center justify-center px-1.5 rounded text-[10px] font-semibold tabular-nums', active ? 'bg-background/20' : 'border border-border')}>{count}</span>
@@ -1034,7 +979,7 @@ function WarningsStrip({ needsAttention, endingSoon, onSelect }) {
   return (
     <div className="flex items-center gap-2">
       {naCount > 0 && (
-        <WarningChip icon={AlertTriangle} label="Needs Attention" count={naCount} active={open === 'na'}
+        <WarningChip icon={AlertTriangle} label="Needs attention" count={naCount} active={open === 'na'}
           onClick={() => toggle('na')} triggerRef={naRef}>
           <AnimatePresence>
             {open === 'na' && (
@@ -1059,7 +1004,7 @@ function WarningsStrip({ needsAttention, endingSoon, onSelect }) {
         </WarningChip>
       )}
       {esCount > 0 && (
-        <WarningChip icon={Clock} label="Ending Soon" count={esCount} active={open === 'es'}
+        <WarningChip icon={Clock} label="Ending soon" count={esCount} active={open === 'es'}
           onClick={() => toggle('es')} triggerRef={esRef}>
           <AnimatePresence>
             {open === 'es' && (
@@ -1431,13 +1376,13 @@ function BookingListRow({ booking, contracts, selected, highlighted, onClick, on
         initial={false}
         animate={{
           backgroundColor: highlighted
-            ? 'rgba(45, 86, 142, 0.16)'
+            ? 'rgba(34, 81, 147, 0.16)'
             : selected
-              ? 'rgba(45, 86, 142, 0.10)'
-              : 'rgba(45, 86, 142, 0)',
+              ? 'rgba(34, 81, 147, 0.10)'
+              : 'rgba(34, 81, 147, 0)',
         }}
         transition={{ duration: 0.4 }}
-        whileHover={{ backgroundColor: selected ? 'rgba(45, 86, 142, 0.14)' : 'rgba(45, 86, 142, 0.05)' }}
+        whileHover={{ backgroundColor: selected ? 'rgba(34, 81, 147, 0.14)' : 'rgba(34, 81, 147, 0.05)' }}
         whileTap={{ scale: 0.998 }}
         className={cn('group/row w-full text-left px-4 py-3 border-b border-border last:border-b-0 cursor-pointer select-none', ROW_GRID)}
       >
@@ -1882,8 +1827,8 @@ function BookingFormModal({ open, onClose, onSaved, units, editing, specialists,
         {/* Header */}
         <div className="flex items-center justify-between px-6 py-4 border-b border-border flex-shrink-0">
           <div className="flex items-center gap-3 min-w-0">
-            <div className="w-10 h-10 rounded-xl bg-[#2d568e]/10 flex items-center justify-center flex-shrink-0">
-              <CalendarIcon size={18} className="text-[#2d568e]" />
+            <div className="w-10 h-10 rounded-xl bg-brand-solid/10 flex items-center justify-center flex-shrink-0">
+              <CalendarIcon size={18} className="text-brand" />
             </div>
             <div className="min-w-0">
               <h2 id="booking-form-title" className="text-base font-bold text-foreground truncate">
@@ -2850,7 +2795,7 @@ export default function BookingsPage({ initialSelectedId }) {
         </div>
 
         <div className="flex-shrink-0 flex items-center justify-between gap-3 flex-wrap">
-          <StatusPills statusFilter={statusFilter} onStatusFilter={setStatusFilter} counts={counts} />
+          <StatusTabs tabs={STATUS_PILLS} value={statusFilter} onChange={setStatusFilter} counts={counts} label="Filter bookings by status" />
           <WarningsStrip needsAttention={needsAttention} endingSoon={endingSoon} onSelect={(b) => setSelectedId(b.id)} />
         </div>
 

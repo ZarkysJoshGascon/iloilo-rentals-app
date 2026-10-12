@@ -30,8 +30,12 @@ import { ContextMenu } from '@/components/ui/ContextMenu'
 import { deriveContractStatus } from '@/lib/contracts'
 import { findContractForBooking } from '@/lib/contracts'
 import { timeAgo } from '@/lib/format'
+import { StatusTabs, PeriodStepper } from '@/components/admin/_shared/StatusTabs'
 
-const BRAND = '#2d568e'
+// Logo blue: BRAND fills sit behind white text; CHART is for chart marks
+// (a lighter tint in dark mode so it reads on dark cards).
+const BRAND = 'var(--brand-solid)'
+const CHART = 'var(--brand)'
 const CLEAN_COLOR = '#10b981'
 const EXPENSE_BUCKET = 'expense-proofs'
 const ROW_GRID = 'grid grid-cols-[1.2fr_1fr_1.2fr_1fr_140px] gap-4 items-center'
@@ -108,13 +112,6 @@ const STATUS_PILLS = [
   { id: 'expiring', label: 'Expiring' },
   { id: 'expired', label: 'Expired' },
 ]
-
-const PILL_TEXT_ACTIVE = {
-  all: 'text-foreground',
-  active: 'text-emerald-700 dark:text-emerald-400',
-  expiring: 'text-amber-700 dark:text-amber-400',
-  expired: 'text-red-700 dark:text-red-400',
-}
 
 function StatusText({ status }) {
   const config = STATUS_TEXT[status] || STATUS_TEXT.inactive
@@ -485,76 +482,15 @@ function SummaryCards({ totals }) {
   )
 }
 
-function StatusPills({ statusFilter, onStatusFilter, counts }) {
-  const containerRef = useRef(null)
-  const [indicator, setIndicator] = useState({ left: 0, width: 0 })
-
-  useEffect(() => {
-    const node = containerRef.current
-    if (!node) return
-    const measure = () => {
-      const active = node.querySelector('[data-active="true"]')
-      if (!active) {
-        setIndicator({ left: 0, width: 0 })
-        return
-      }
-      const cRect = node.getBoundingClientRect()
-      const aRect = active.getBoundingClientRect()
-      setIndicator({ left: aRect.left - cRect.left, width: aRect.width })
-    }
-    measure()
-    const ro = typeof ResizeObserver !== 'undefined' ? new ResizeObserver(measure) : null
-    if (ro) ro.observe(node)
-    window.addEventListener('resize', measure)
-    return () => {
-      if (ro) ro.disconnect()
-      window.removeEventListener('resize', measure)
-    }
-  }, [statusFilter, counts])
-
-  return (
-    <div className="inline-flex items-center p-1 rounded-full bg-muted/60 border border-border/60">
-      <div ref={containerRef} className="relative inline-flex items-center gap-1">
-        <motion.div
-          className="absolute top-0 bottom-0 rounded-full bg-card shadow-sm border border-border z-0"
-          animate={{ left: indicator.left, width: indicator.width }}
-          transition={{ type: 'spring', stiffness: 350, damping: 28 }}
-        />
-        {STATUS_PILLS.map((tab) => {
-          const isActive = statusFilter === tab.id
-          const count = counts[tab.id] ?? 0
-          return (
-            <button
-              key={tab.id}
-              type="button"
-              data-active={isActive}
-              onClick={() => onStatusFilter(tab.id)}
-              className={cn(
-                'relative z-10 px-3.5 py-1.5 rounded-full text-[11px] font-semibold transition-colors duration-200 whitespace-nowrap',
-                isActive
-                  ? (PILL_TEXT_ACTIVE[tab.id] || 'text-foreground')
-                  : 'text-muted-foreground hover:text-foreground',
-              )}
-            >
-              {tab.label}
-              <span className={cn('ml-1', isActive ? 'opacity-90' : 'opacity-60')}>{count}</span>
-            </button>
-          )
-        })}
-      </div>
-    </div>
-  )
-}
-
 function ContractRow({ contract, lifetime, onClick }) {
   return (
     <motion.button
       type="button"
       onClick={onClick}
       initial={false}
-      animate={{ backgroundColor: 'rgba(45, 86, 142, 0)' }}
+      animate={{ backgroundColor: 'rgba(34, 81, 147, 0)' }}
       transition={{ duration: 0.2 }}
-      whileHover={{ backgroundColor: 'rgba(45, 86, 142, 0.05)' }}
+      whileHover={{ backgroundColor: 'rgba(34, 81, 147, 0.05)' }}
       whileTap={{ scale: 0.998 }}
       className={cn('w-full text-left px-4 py-3 border-b border-border cursor-pointer select-none', ROW_GRID)}
     >
@@ -701,7 +637,7 @@ function HalfGauge({ pct, sublabel, compact = false }) {
                 y1={y1}
                 x2={x2}
                 y2={y2}
-                stroke={active ? BRAND : '#d1d5db'}
+                stroke={active ? CHART : '#d1d5db'}
                 strokeWidth="2"
                 strokeLinecap="round"
                 initial={{ opacity: 0 }}
@@ -741,33 +677,16 @@ function YearNav({ yearSections, selectedYear, onSelectYear }) {
   const canNext = idx >= 0 && idx < yearSections.length - 1
   return (
     <div className="flex items-center justify-center">
-      <div className="inline-flex items-center gap-1 bg-muted/50 rounded-full p-1">
-        <button
-          type="button"
-          onClick={() => canPrev && onSelectYear(yearSections[idx - 1].year)}
-          disabled={!canPrev}
-          className={cn(
-            'p-1.5 rounded-full transition-colors',
-            canPrev ? 'hover:bg-muted text-foreground' : 'opacity-30 cursor-not-allowed',
-          )}
-        >
-          <ChevronLeft size={14} />
-        </button>
-        <span className="text-[12px] font-bold tabular-nums text-foreground px-3 min-w-[60px] text-center">
-          {selectedYear}
-        </span>
-        <button
-          type="button"
-          onClick={() => canNext && onSelectYear(yearSections[idx + 1].year)}
-          disabled={!canNext}
-          className={cn(
-            'p-1.5 rounded-full transition-colors',
-            canNext ? 'hover:bg-muted text-foreground' : 'opacity-30 cursor-not-allowed',
-          )}
-        >
-          <ChevronRight size={14} />
-        </button>
-      </div>
+      <PeriodStepper
+        label={selectedYear}
+        canPrev={canPrev}
+        canNext={canNext}
+        onPrev={() => canPrev && onSelectYear(yearSections[idx - 1].year)}
+        onNext={() => canNext && onSelectYear(yearSections[idx + 1].year)}
+        prevLabel="Previous year"
+        nextLabel="Next year"
+        minWidth={56}
+      />
     </div>
   )
 }
@@ -810,20 +729,20 @@ const YearlyRevenueChart = memo(function YearlyRevenueChart({ yearSections, stat
         </div>
         <div className="hidden md:flex items-center gap-3 text-[11px]">
           <span className="inline-flex items-center gap-1.5">
-            <span className="w-3 h-3 rounded-sm border" style={{ borderColor: BRAND }} />
+            <span className="w-3 h-3 rounded-sm border" style={{ borderColor: CHART }} />
             <span className="text-foreground">Gross</span>
           </span>
           <span className="inline-flex items-center gap-1.5">
             <svg width="12" height="12" viewBox="0 0 12 12">
               <pattern id="legend-hatch" width="4" height="4" patternUnits="userSpaceOnUse" patternTransform="rotate(45)">
-                <line x1="0" y1="0" x2="0" y2="4" stroke={BRAND} strokeWidth="1.2" />
+                <line x1="0" y1="0" x2="0" y2="4" stroke={CHART} strokeWidth="1.2" />
               </pattern>
               <rect width="12" height="12" fill="url(#legend-hatch)" />
             </svg>
             <span className="text-foreground">Expenses</span>
           </span>
           <span className="inline-flex items-center gap-1.5">
-            <span className="w-3 h-3 rounded-sm" style={{ backgroundColor: BRAND }} />
+            <span className="w-3 h-3 rounded-sm" style={{ backgroundColor: CHART }} />
             <span className="text-foreground">Net</span>
           </span>
         </div>
@@ -840,7 +759,7 @@ const YearlyRevenueChart = memo(function YearlyRevenueChart({ yearSections, stat
                 <ResponsiveContainer width="100%" height={320} debounce={100}>
                   <ComposedChart data={data} margin={{ top: 8, right: 8, left: 0, bottom: 0 }} barGap={2} barCategoryGap="25%">
                     <pattern id="expenses-hatch-main" width="6" height="6" patternUnits="userSpaceOnUse" patternTransform="rotate(45)">
-                      <line x1="0" y1="0" x2="0" y2="6" stroke={BRAND} strokeWidth="1.5" opacity="0.55" />
+                      <line x1="0" y1="0" x2="0" y2="6" stroke={CHART} strokeWidth="1.5" opacity="0.55" />
                     </pattern>
                     <CartesianGrid strokeDasharray="3 3" stroke="currentColor" strokeOpacity={0.1} />
                     <XAxis dataKey="label" tick={{ fontSize: 12 }} stroke="currentColor" strokeOpacity={0.4} interval={0} />
@@ -852,10 +771,10 @@ const YearlyRevenueChart = memo(function YearlyRevenueChart({ yearSections, stat
                       width={60}
                       domain={[minY, maxY]}
                     />
-                    <Tooltip content={<ChartTooltip />} animationDuration={0} cursor={{ fill: 'rgba(45, 86, 142, 0.05)' }} />
-                    <Bar dataKey="gross" fill="transparent" stroke={BRAND} strokeWidth={1.5} name="Gross" maxBarSize={40} radius={[6, 6, 0, 0]} isAnimationActive={false} />
+                    <Tooltip content={<ChartTooltip />} animationDuration={0} cursor={{ fill: 'currentColor', fillOpacity: 0.05 }} />
+                    <Bar dataKey="gross" fill="transparent" stroke={CHART} strokeWidth={1.5} name="Gross" maxBarSize={40} radius={[6, 6, 0, 0]} isAnimationActive={false} />
                     <Bar dataKey="expenses" fill="url(#expenses-hatch-main)" name="Expenses" maxBarSize={40} radius={[6, 6, 0, 0]} isAnimationActive={false} />
-                    <Bar dataKey="net" fill={BRAND} name="Net" maxBarSize={40} radius={[6, 6, 0, 0]} isAnimationActive={false} />
+                    <Bar dataKey="net" fill={CHART} name="Net" maxBarSize={40} radius={[6, 6, 0, 0]} isAnimationActive={false} />
                   </ComposedChart>
                 </ResponsiveContainer>
               </LazyChart>
@@ -914,8 +833,8 @@ const MonthlyOccupancyChart = memo(function MonthlyOccupancyChart({ statements, 
                       domain={[0, 100]}
                       ticks={[0, 25, 50, 75, 100]}
                     />
-                    <Tooltip content={<OccupancyTooltip />} animationDuration={0} cursor={{ fill: 'rgba(45, 86, 142, 0.05)' }} />
-                    <Bar dataKey="pct" fill={BRAND} radius={[6, 6, 0, 0]} maxBarSize={28} isAnimationActive={false} />
+                    <Tooltip content={<OccupancyTooltip />} animationDuration={0} cursor={{ fill: 'currentColor', fillOpacity: 0.05 }} />
+                    <Bar dataKey="pct" fill={CHART} radius={[6, 6, 0, 0]} maxBarSize={28} isAnimationActive={false} />
                   </BarChart>
                 </ResponsiveContainer>
               </LazyChart>
@@ -959,8 +878,8 @@ const WeeklyOccupancyChart = memo(function WeeklyOccupancyChart({ statement, con
                     domain={[0, 100]}
                     ticks={[0, 25, 50, 75, 100]}
                   />
-                  <Tooltip content={<OccupancyTooltip />} animationDuration={0} cursor={{ fill: 'rgba(45, 86, 142, 0.05)' }} />
-                  <Bar dataKey="pct" fill={BRAND} radius={[6, 6, 0, 0]} maxBarSize={40} isAnimationActive={false} />
+                  <Tooltip content={<OccupancyTooltip />} animationDuration={0} cursor={{ fill: 'currentColor', fillOpacity: 0.05 }} />
+                  <Bar dataKey="pct" fill={CHART} radius={[6, 6, 0, 0]} maxBarSize={40} isAnimationActive={false} />
                 </BarChart>
               </ResponsiveContainer>
             </LazyChart>
@@ -1001,9 +920,9 @@ const WeeklyCumulativeChart = memo(function WeeklyCumulativeChart({ statement, m
               <ResponsiveContainer width="100%" height={260} debounce={100}>
                 <AreaChart data={data} margin={{ top: 8, right: 8, left: 0, bottom: 0 }}>
                   <linearGradient id="weekly-cumulative-fill" x1="0" y1="0" x2="0" y2="1">
-                    <stop offset="0%" stopColor={BRAND} stopOpacity={0.45} />
-                    <stop offset="60%" stopColor={BRAND} stopOpacity={0.12} />
-                    <stop offset="100%" stopColor={BRAND} stopOpacity={0} />
+                    <stop offset="0%" stopColor={CHART} stopOpacity={0.45} />
+                    <stop offset="60%" stopColor={CHART} stopOpacity={0.12} />
+                    <stop offset="100%" stopColor={CHART} stopOpacity={0} />
                   </linearGradient>
                   <CartesianGrid strokeDasharray="3 3" stroke="currentColor" strokeOpacity={0.1} />
                   <XAxis dataKey="label" tick={{ fontSize: 11 }} stroke="currentColor" strokeOpacity={0.4} />
@@ -1015,15 +934,15 @@ const WeeklyCumulativeChart = memo(function WeeklyCumulativeChart({ statement, m
                     width={56}
                     domain={[minValue, maxValue]}
                   />
-                  <Tooltip content={<CumulativeTooltip />} animationDuration={0} cursor={{ stroke: BRAND, strokeOpacity: 0.2 }} />
+                  <Tooltip content={<CumulativeTooltip />} animationDuration={0} cursor={{ stroke: CHART, strokeOpacity: 0.2 }} />
                   <Area
                     type="monotone"
                     dataKey="cumulative"
-                    stroke={BRAND}
+                    stroke={CHART}
                     strokeWidth={2.5}
                     fill="url(#weekly-cumulative-fill)"
-                    dot={{ r: 3, fill: BRAND }}
-                    activeDot={{ r: 5, fill: BRAND }}
+                    dot={{ r: 3, fill: CHART }}
+                    activeDot={{ r: 5, fill: CHART }}
                     isAnimationActive={false}
                   />
                 </AreaChart>
@@ -1089,9 +1008,9 @@ const CumulativeNetChart = memo(function CumulativeNetChart({ statements, select
                 <ResponsiveContainer width="100%" height={260} debounce={100}>
                   <AreaChart data={data} margin={{ top: 8, right: 8, left: 0, bottom: 0 }}>
                     <linearGradient id="cumulative-fill" x1="0" y1="0" x2="0" y2="1">
-                      <stop offset="0%" stopColor={BRAND} stopOpacity={0.45} />
-                      <stop offset="60%" stopColor={BRAND} stopOpacity={0.12} />
-                      <stop offset="100%" stopColor={BRAND} stopOpacity={0} />
+                      <stop offset="0%" stopColor={CHART} stopOpacity={0.45} />
+                      <stop offset="60%" stopColor={CHART} stopOpacity={0.12} />
+                      <stop offset="100%" stopColor={CHART} stopOpacity={0} />
                     </linearGradient>
                     <CartesianGrid strokeDasharray="3 3" stroke="currentColor" strokeOpacity={0.1} />
                     <XAxis dataKey="label" tick={{ fontSize: 11 }} stroke="currentColor" strokeOpacity={0.4} interval={0} />
@@ -1104,15 +1023,15 @@ const CumulativeNetChart = memo(function CumulativeNetChart({ statements, select
                       domain={[minValue, maxValue]}
                       ticks={ticks}
                     />
-                    <Tooltip content={<CumulativeTooltip />} animationDuration={0} cursor={{ stroke: BRAND, strokeOpacity: 0.2 }} />
+                    <Tooltip content={<CumulativeTooltip />} animationDuration={0} cursor={{ stroke: CHART, strokeOpacity: 0.2 }} />
                     <Area
                       type="monotone"
                       dataKey="cumulative"
-                      stroke={BRAND}
+                      stroke={CHART}
                       strokeWidth={2.5}
                       fill="url(#cumulative-fill)"
                       dot={false}
-                      activeDot={{ r: 4, fill: BRAND }}
+                      activeDot={{ r: 4, fill: CHART }}
                       isAnimationActive={false}
                     />
                   </AreaChart>
@@ -1206,7 +1125,7 @@ function BookingCalendar({ month, bookings, cleanings, selectedId, onSelect }) {
           <span
             className="w-3 h-3 rounded-sm"
             style={{
-              backgroundColor: `${BRAND}80`,
+              backgroundColor: 'color-mix(in srgb, var(--brand-solid) 50%, transparent)',
               borderLeft: '2px dashed rgba(255,255,255,0.85)',
             }}
           />
@@ -1244,11 +1163,11 @@ function BookingCalendar({ month, bookings, cleanings, selectedId, onSelect }) {
               key={idx}
               className={cn(
                 'min-h-[110px] border-b border-r border-border last:border-r-0 p-1.5 flex flex-col gap-1',
-                todayDay === day && 'bg-[#2d568e]/5',
+                todayDay === day && 'bg-brand-solid/5',
               )}
             >
               <div className="flex items-center justify-between">
-                <span className={cn('text-[11px] font-semibold tabular-nums', todayDay === day ? 'text-[#2d568e]' : 'text-foreground')}>
+                <span className={cn('text-[11px] font-semibold tabular-nums', todayDay === day ? 'text-brand' : 'text-foreground')}>
                   {day}
                 </span>
               </div>
@@ -1313,7 +1232,7 @@ function CalendarBookingBar({ booking, selected, onSelect, isCheckinDay, isCheck
           isCancelled && 'line-through',
         )}
         style={{
-          backgroundColor: isCancelled ? '#dc2626' : isDepartureOnly ? `${BRAND}80` : BRAND,
+          backgroundColor: isCancelled ? '#dc2626' : isDepartureOnly ? 'color-mix(in srgb, var(--brand-solid) 50%, transparent)' : BRAND,
           color: 'white',
           borderLeft: isDepartureOnly ? '2px dashed rgba(255,255,255,0.85)' : undefined,
           opacity: isCancelled ? 0.75 : 1,
@@ -1448,33 +1367,16 @@ function MonthSelector({ options, selectedMonth, onSelectMonth }) {
   const currentLabel = selectedMonth ? monthLabel(selectedMonth) : 'No month'
   return (
     <div className="flex items-center justify-center">
-      <div className="inline-flex items-center gap-1 bg-muted/50 rounded-full p-1">
-        <button
-          type="button"
-          onClick={() => canPrev && onSelectMonth(options[idx + 1].month)}
-          disabled={!canPrev}
-          className={cn(
-            'p-1.5 rounded-full transition-colors',
-            canPrev ? 'hover:bg-muted text-foreground' : 'opacity-30 cursor-not-allowed',
-          )}
-        >
-          <ChevronLeft size={14} />
-        </button>
-        <span className="text-[12px] font-bold tabular-nums text-foreground px-3 min-w-[120px] text-center">
-          {currentLabel}
-        </span>
-        <button
-          type="button"
-          onClick={() => canNext && onSelectMonth(options[idx - 1].month)}
-          disabled={!canNext}
-          className={cn(
-            'p-1.5 rounded-full transition-colors',
-            canNext ? 'hover:bg-muted text-foreground' : 'opacity-30 cursor-not-allowed',
-          )}
-        >
-          <ChevronRight size={14} />
-        </button>
-      </div>
+      <PeriodStepper
+        label={currentLabel}
+        canPrev={canPrev}
+        canNext={canNext}
+        onPrev={() => canPrev && onSelectMonth(options[idx + 1].month)}
+        onNext={() => canNext && onSelectMonth(options[idx - 1].month)}
+        prevLabel="Previous month"
+        nextLabel="Next month"
+        minWidth={120}
+      />
     </div>
   )
 }
@@ -1671,10 +1573,10 @@ function MonthlyLedger({ statements, selectedMonth, onSelectMonth }) {
               className={cn(
                 'w-full text-left px-4 py-2.5 border-b border-border last:border-0 transition-colors cursor-pointer',
                 ROW,
-                isSelected ? 'bg-[#2d568e]/10 hover:bg-[#2d568e]/15' : 'hover:bg-muted/40',
+                isSelected ? 'bg-brand-solid/10 hover:bg-brand-solid/15' : 'hover:bg-muted/40',
               )}
             >
-              <span className={cn('text-xs font-semibold tabular-nums', isSelected ? 'text-[#2d568e]' : 'text-foreground')}>
+              <span className={cn('text-xs font-semibold tabular-nums', isSelected ? 'text-brand' : 'text-foreground')}>
                 {label}
               </span>
               <span className="text-xs tabular-nums text-foreground text-right">{formatMoney(s.grossRevenue)}</span>
@@ -2582,63 +2484,6 @@ function MiniSplitStat({ label, owner, company }) {
   )
 }
 
-function ListTabPills({ active, onChange, bookingsCount, cleaningsCount }) {
-  const tabs = useMemo(
-    () => [
-      { id: 'bookings', label: `Bookings · ${bookingsCount}` },
-      { id: 'cleanings', label: `Cleanings · ${cleaningsCount}` },
-    ],
-    [bookingsCount, cleaningsCount],
-  )
-  const containerRef = useRef(null)
-  const [indicator, setIndicator] = useState({ left: 0, width: 0 })
-
-  useEffect(() => {
-    const node = containerRef.current
-    if (!node) return
-    const measure = () => {
-      const activeEl = node.querySelector('[data-active="true"]')
-      if (!activeEl) return
-      const cRect = node.getBoundingClientRect()
-      const aRect = activeEl.getBoundingClientRect()
-      setIndicator({ left: aRect.left - cRect.left, width: aRect.width })
-    }
-    measure()
-    const ro = typeof ResizeObserver !== 'undefined' ? new ResizeObserver(measure) : null
-    if (ro) ro.observe(node)
-    return () => { if (ro) ro.disconnect() }
-  }, [active, tabs])
-
-  return (
-    <div className="inline-flex items-center p-1 rounded-full bg-muted/60 border border-border/60">
-      <div ref={containerRef} className="relative inline-flex items-center gap-1">
-        <motion.div
-          className="absolute top-0 bottom-0 rounded-full bg-card shadow-sm border border-border z-0"
-          animate={{ left: indicator.left, width: indicator.width }}
-          transition={{ type: 'spring', stiffness: 350, damping: 28 }}
-        />
-        {tabs.map((tab) => {
-          const isActive = active === tab.id
-          return (
-            <button
-              key={tab.id}
-              type="button"
-              data-active={isActive}
-              onClick={() => onChange(tab.id)}
-              className={cn(
-                'relative z-10 px-3.5 py-1.5 rounded-full text-[11px] font-semibold transition-colors whitespace-nowrap',
-                isActive ? 'text-foreground' : 'text-muted-foreground hover:text-foreground',
-              )}
-            >
-              {tab.label}
-            </button>
-          )
-        })}
-      </div>
-    </div>
-  )
-}
-
 function MonthlySection({
   statements,
   selectedMonth,
@@ -2887,11 +2732,12 @@ function MonthlySection({
             </div>
 
             <div className="space-y-3">
-              <ListTabPills
-                active={listTab}
+              <StatusTabs
+                tabs={[{ id: 'bookings', label: 'Bookings' }, { id: 'cleanings', label: 'Cleanings' }]}
+                value={listTab}
                 onChange={setListTab}
-                bookingsCount={allBookingsSorted.length}
-                cleaningsCount={allCleaningsSorted.length}
+                counts={{ bookings: allBookingsSorted.length, cleanings: allCleaningsSorted.length }}
+                label="Show bookings or cleanings"
               />
 
               {listTab === 'bookings' ? (
@@ -3511,9 +3357,9 @@ const MultiMetricChart = memo(function MultiMetricChart({
                 <AreaChart data={chartData} margin={{ top: 6, right: 6, left: -12, bottom: 0 }}>
                   <defs>
                     <linearGradient id={gradientId} x1="0" y1="0" x2="0" y2="1">
-                      <stop offset="0%" stopColor={BRAND} stopOpacity={0.4} />
-                      <stop offset="60%" stopColor={BRAND} stopOpacity={0.12} />
-                      <stop offset="100%" stopColor={BRAND} stopOpacity={0} />
+                      <stop offset="0%" stopColor={CHART} stopOpacity={0.4} />
+                      <stop offset="60%" stopColor={CHART} stopOpacity={0.12} />
+                      <stop offset="100%" stopColor={CHART} stopOpacity={0} />
                     </linearGradient>
                   </defs>
                   <CartesianGrid strokeDasharray="3 3" stroke="currentColor" strokeOpacity={0.1} vertical={false} />
@@ -3527,15 +3373,15 @@ const MultiMetricChart = memo(function MultiMetricChart({
                     axisLine={false}
                     width={56}
                   />
-                  <Tooltip content={<ChartTooltip />} animationDuration={0} cursor={{ stroke: BRAND, strokeOpacity: 0.2 }} />
+                  <Tooltip content={<ChartTooltip />} animationDuration={0} cursor={{ stroke: CHART, strokeOpacity: 0.2 }} />
                   <Area
                     type="monotone"
                     dataKey={solidKey}
-                    stroke={BRAND}
+                    stroke={CHART}
                     strokeWidth={2.5}
                     fill={`url(#${gradientId})`}
                     dot={false}
-                    activeDot={{ r: 4, fill: BRAND }}
+                    activeDot={{ r: 4, fill: CHART }}
                     isAnimationActive={false}
                   />
                   {secondaryKeys.map((k) => (
@@ -3543,7 +3389,7 @@ const MultiMetricChart = memo(function MultiMetricChart({
                       key={k}
                       type="monotone"
                       dataKey={k}
-                      stroke={BRAND}
+                      stroke={CHART}
                       strokeWidth={1.5}
                       strokeDasharray="4 4"
                       strokeOpacity={0.55}
@@ -3729,13 +3575,11 @@ function ContractList({
           <span className="absolute left-0 text-[11px] font-bold uppercase tracking-wider text-muted-foreground">
             Year Overview
           </span>
-          <div className="inline-flex items-center gap-1 bg-muted/50 rounded-full p-1">
-            <YearNav
-              yearSections={yearSections}
-              selectedYear={selectedYear}
-              onSelectYear={setSelectedYear}
-            />
-          </div>
+          <YearNav
+            yearSections={yearSections}
+            selectedYear={selectedYear}
+            onSelectYear={setSelectedYear}
+          />
         </div>
 
         <div className="flex-shrink-0 pt-1 pb-2">
@@ -3778,7 +3622,7 @@ function ContractList({
         </div>
 
         <div className="flex-shrink-0 flex items-center justify-between gap-3 flex-wrap">
-          <StatusPills statusFilter={statusFilter} onStatusFilter={setStatusFilter} counts={counts} />
+          <StatusTabs tabs={STATUS_PILLS} value={statusFilter} onChange={setStatusFilter} counts={counts} label="Filter contracts by status" />
           <span className="text-[11px] text-muted-foreground tabular-nums">
             {filteredSorted.length} contract{filteredSorted.length === 1 ? '' : 's'} · Page {page} of {totalPages}
           </span>

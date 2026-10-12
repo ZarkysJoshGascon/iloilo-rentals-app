@@ -114,8 +114,8 @@ function Badge({ count, active, className, style }) {
       className={cn(
         'inline-flex items-center justify-center min-w-[18px] h-[18px] px-1 rounded-full text-[10px] font-bold tabular-nums leading-none',
         active
-          ? 'bg-[#2d568e] text-white dark:bg-[#0a0a0a]'
-          : 'bg-white text-[#2d568e] dark:text-[#0a0a0a]',
+          ? 'bg-brand-solid text-white dark:bg-[#0a0a0a]'
+          : 'bg-white text-brand dark:text-[#0a0a0a]',
         className,
       )}
     >
@@ -178,7 +178,7 @@ export default function AdminSidebar({
   }
 
   // Neutral dark in dark mode — no blue tint.
-  const sidebarBg = isDark ? '#0a0a0a' : '#2d568e'
+  const sidebarBg = isDark ? '#0a0a0a' : '#225193'
 
   return (
     <aside
@@ -261,7 +261,7 @@ export default function AdminSidebar({
                       'group relative flex items-center h-10 w-full text-left gap-3 pr-3',
                       'transition-colors duration-150',
                       isActive
-                        ? 'text-[#2d568e] dark:text-[#0a0a0a]'
+                        ? 'text-brand dark:text-[#0a0a0a]'
                         : 'text-white/85 dark:text-white/70 hover:text-white',
                     ].join(' ')}
                     style={{ paddingLeft: ROW_PADDING_LEFT }}

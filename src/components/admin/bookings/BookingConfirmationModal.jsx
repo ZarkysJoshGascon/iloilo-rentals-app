@@ -17,7 +17,7 @@ import {
   BOOKING_CONFIRMATION,
 } from '@/lib/email'
 
-const BRAND = '#2d568e'
+const BRAND = 'var(--brand-solid)'
 const SOFT_SHADOW = '0 20px 40px -16px rgba(15,23,42,0.24), 0 6px 16px -6px rgba(15,23,42,0.10)'
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
 
@@ -148,7 +148,7 @@ export default function BookingConfirmationModal({ open, onClose, booking, onSen
               className={cn(
                 'inline-flex items-center gap-1.5 h-7 px-2.5 rounded text-[11px] font-semibold transition-colors border',
                 historyOpen
-                  ? 'bg-foreground text-background border-foreground'
+                  ? 'bg-brand-solid text-white border-brand-solid'
                   : 'border-border text-foreground hover:bg-muted',
               )}
               title="Sent history"

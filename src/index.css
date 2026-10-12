@@ -120,6 +120,7 @@ body.modal-open {
   --color-sidebar-foreground: var(--sidebar-foreground);
   --color-sidebar: var(--sidebar);
   --color-brand: var(--brand);
+  --color-brand-solid: var(--brand-solid);
   --color-chart-5: var(--chart-5);
   --color-chart-4: var(--chart-4);
   --color-chart-3: var(--chart-3);
@@ -155,6 +156,8 @@ body.modal-open {
 :root {
   /* Logo blue (sampled from public/Iloilo_rentals_img.png). CRM icons and charts use it. */
   --brand: #225193;
+  /* Solid logo blue behind white text: buttons and selected options. */
+  --brand-solid: #225193;
   --background: oklch(1 0 0);
   --foreground: oklch(0.145 0 0);
   --card: oklch(1 0 0);
@@ -192,6 +195,8 @@ body.modal-open {
 .dark {
   /* Lighter tint of the logo blue so it reads on dark cards (7:1 on the card colour). */
   --brand: #7ea6e6;
+  /* Brighter than the logo blue so it stands off dark cards; white text stays 4.9:1. */
+  --brand-solid: #3b6fc4;
   --background: oklch(0.145 0 0);
   --foreground: oklch(0.985 0 0);
   --card: oklch(0.205 0 0);

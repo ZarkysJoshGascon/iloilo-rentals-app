@@ -2,7 +2,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import {
-  RefreshCw, ArrowRight, Inbox, ChevronLeft, ChevronRight,
+  RefreshCw, ArrowRight, Inbox,
   Copy, Calendar, TrendingUp, FileText, Mail, Sparkles, Loader2,
   CheckCircle2, AlertTriangle, CalendarRange, Home, CalendarClock,
   Wallet, ClipboardCheck, LogIn, LogOut, Clock, ArrowUpRight, ArrowDownRight,
@@ -19,6 +19,7 @@ import { useAuth } from '@/context/AuthContext'
 import { cn } from '@/lib/utils'
 import { ContextMenu } from '@/components/ui/ContextMenu'
 import { StatStrip, StatTile } from '@/components/admin/_shared/StatStrip'
+import { StatusTabs, PeriodStepper } from '@/components/admin/_shared/StatusTabs'
 
 const NEARING_END_DAYS = 60
 const COMING_UP_DAYS = 7
@@ -559,29 +560,6 @@ function PerformanceTable({ data }) {
   )
 }
 
-function Segmented({ value, onChange, options }) {
-  return (
-    <div className="inline-flex items-center p-0.5 rounded-md bg-card border border-border">
-      {options.map((o) => (
-        <button
-          key={o.value}
-          type="button"
-          onClick={() => onChange(o.value)}
-          aria-pressed={value === o.value}
-          className={cn(
-            'px-3 h-7 rounded-md text-[12px] font-medium transition-colors',
-            value === o.value
-              ? 'bg-foreground text-background'
-              : 'text-foreground hover:bg-muted/50',
-          )}
-        >
-          {o.label}
-        </button>
-      ))}
-    </div>
-  )
-}
-
 function PerformanceCard({ year, setYear, analytics, loading }) {
   const [metric, setMetric] = useState('revenue')
   const [view, setView] = useState('chart')
@@ -609,31 +587,20 @@ function PerformanceCard({ year, setYear, analytics, loading }) {
         </div>
 
         <div className="flex flex-wrap items-center gap-2">
-          <Segmented
+          <StatusTabs
+            tabs={Object.entries(METRICS).map(([id, m]) => ({ id, label: m.label }))}
             value={metric}
             onChange={setMetric}
-            options={Object.entries(METRICS).map(([value, m]) => ({ value, label: m.label }))}
+            label="Chart metric"
           />
-          <div className="inline-flex items-center h-8 rounded-md border border-border">
-            <button
-              type="button"
-              onClick={() => setYear((y) => y - 1)}
-              className="h-full px-2 text-foreground hover:text-foreground"
-              aria-label="Previous year"
-            >
-              <ChevronLeft size={15} />
-            </button>
-            <span className="text-[12px] font-semibold tabular-nums text-foreground px-1 min-w-[44px] text-center">{year}</span>
-            <button
-              type="button"
-              onClick={() => setYear((y) => y + 1)}
-              disabled={year >= currentYear}
-              className="h-full px-2 text-foreground hover:text-foreground disabled:opacity-30 disabled:hover:text-foreground"
-              aria-label="Next year"
-            >
-              <ChevronRight size={15} />
-            </button>
-          </div>
+          <PeriodStepper
+            label={year}
+            onPrev={() => setYear((y) => y - 1)}
+            onNext={() => setYear((y) => y + 1)}
+            canNext={year < currentYear}
+            prevLabel="Previous year"
+            nextLabel="Next year"
+          />
           <button
             type="button"
             onClick={() => setView((v) => (v === 'chart' ? 'table' : 'chart'))}
@@ -1232,7 +1199,7 @@ export default function DashboardPage() {
           <button
             type="button"
             onClick={() => fetchAll(false)}
-            className="inline-flex items-center gap-1.5 h-8 px-3 rounded-md text-xs font-semibold text-background bg-foreground hover:opacity-90"
+            className="inline-flex items-center gap-1.5 h-8 px-3 rounded-md text-xs font-semibold text-white bg-brand-solid hover:bg-brand-solid/90"
           >
             <RefreshCw size={13} /> Try again
           </button>
@@ -1292,7 +1259,7 @@ export default function DashboardPage() {
                 type="button"
                 onClick={runBackup}
                 disabled={backupRunning}
-                className="inline-flex items-center gap-1 h-6 px-2 rounded-md text-[11px] font-semibold text-background bg-foreground hover:opacity-90 disabled:opacity-50"
+                className="inline-flex items-center gap-1 h-6 px-2 rounded-md text-[11px] font-semibold text-white bg-brand-solid hover:bg-brand-solid/90 disabled:opacity-50"
                 title="Run a backup now"
               >
                 {backupRunning ? <Loader2 size={11} className="animate-spin" /> : <RefreshCw size={11} />}

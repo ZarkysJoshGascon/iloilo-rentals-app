@@ -25,8 +25,9 @@ import {
   STAFF_ROLES, roleMeta, searchProfiles, isEmailRegistered,
   validateStaffEmail, createStaffMember, updateStaffMember,
 } from '@/lib/staff'
+import { StatusTabs } from '@/components/admin/_shared/StatusTabs'
 
-const BRAND = '#2d568e'
+const BRAND = 'var(--brand-solid)'
 const SOFT_SHADOW = '0 20px 40px -16px rgba(15,23,42,0.24), 0 6px 16px -6px rgba(15,23,42,0.10)'
 const PAGE_SIZE = 9
 const PM_SHARE_OF_COMPANY_PCT = 35
@@ -35,10 +36,10 @@ const PM_PDF_MAX_BYTES = 15 * 1024 * 1024
 const PM_PDF_ALLOWED = new Set(['application/pdf', 'image/jpeg', 'image/png', 'image/webp'])
 
 const TABS = [
-  { id: 'specialists',       label: 'Booking Specialists', icon: UserPlus },
+  { id: 'specialists',       label: 'Booking specialists', icon: UserPlus },
   { id: 'affiliates',        label: 'Affiliates',          icon: Award },
   { id: 'housekeepers',      label: 'Housekeepers',        icon: Users },
-  { id: 'property_managers', label: 'Property Managers',   icon: Building2 },
+  { id: 'property_managers', label: 'Property managers',   icon: Building2 },
 ]
 
 // ============================================================
@@ -184,7 +185,7 @@ function CommissionBadge({ role, completedCount, size = 'sm' }) {
   const sizeClass = size === 'lg' ? 'px-3 py-1 text-xs' : 'px-2.5 py-0.5 text-[10px]'
   if (role === 'specialists') {
     return (
-      <span className={cn('inline-flex items-center rounded-md font-bold uppercase tracking-wide', sizeClass, 'bg-[#2d568e] text-white')}>
+      <span className={cn('inline-flex items-center rounded-md font-bold uppercase tracking-wide', sizeClass, 'bg-brand-solid text-white')}>
         Flat {SPECIALIST_FLAT_RATE}%
       </span>
     )
@@ -471,65 +472,6 @@ function SummaryCards({ data, teamTotals, activeTab }) {
 // ============================================================
 // TEAM TABS
 // ============================================================
-function TeamTabs({ tabs, activeTab, onChange, counts }) {
-  const containerRef = useRef(null)
-  const [indicator, setIndicator] = useState({ left: 0, width: 0 })
-
-  useEffect(() => {
-    const node = containerRef.current
-    if (!node) return
-    const measure = () => {
-      const activeEl = node.querySelector('[data-active="true"]')
-      if (!activeEl) { setIndicator({ left: 0, width: 0 }); return }
-      const cRect = node.getBoundingClientRect()
-      const aRect = activeEl.getBoundingClientRect()
-      setIndicator({ left: aRect.left - cRect.left, width: aRect.width })
-    }
-    measure()
-    const ro = typeof ResizeObserver !== 'undefined' ? new ResizeObserver(measure) : null
-    if (ro) ro.observe(node)
-    window.addEventListener('resize', measure)
-    return () => {
-      if (ro) ro.disconnect()
-      window.removeEventListener('resize', measure)
-    }
-  }, [activeTab, counts, tabs])
-
-  return (
-    <div className="flex justify-center">
-      <div className="inline-flex items-center p-1 rounded-full bg-muted/60 border border-border/60">
-        <div ref={containerRef} className="relative inline-flex items-center gap-1">
-          <motion.div
-            className="absolute top-0 bottom-0 rounded-full bg-card shadow-sm border border-border z-0"
-            animate={{ left: indicator.left, width: indicator.width }}
-            transition={{ type: 'spring', stiffness: 350, damping: 28 }}
-          />
-          {tabs.map((tab) => {
-            const isActive = activeTab === tab.id
-            const count = counts[tab.id] ?? 0
-            return (
-              <button
-                key={tab.id}
-                type="button"
-                data-active={isActive}
-                onClick={() => onChange(tab.id)}
-                className={cn(
-                  'relative z-10 flex items-center gap-2 px-4 py-1.5 rounded-full text-[12px] font-semibold transition-colors duration-200 whitespace-nowrap',
-                  isActive ? 'text-foreground' : 'text-muted-foreground hover:text-foreground',
-                )}
-              >
-                <tab.icon size={13} />
-                {tab.label}
-                <span className={cn('tabular-nums', isActive ? 'opacity-90' : 'opacity-60')}>{count}</span>
-              </button>
-            )
-          })}
-        </div>
-      </div>
-    </div>
-  )
-}
-
 // ============================================================
 // SKELETON
 // ============================================================
@@ -581,7 +523,7 @@ function WorkerCard({ worker, role, liveCount, onClick }) {
       transition={{ type: 'spring', stiffness: 400, damping: 30 }}
       className={cn(
         'group/card relative w-full text-left rounded-xl bg-card border border-border overflow-hidden',
-        'shadow-sm hover:shadow-lg hover:border-[#2d568e]/40 transition-all duration-200 flex flex-col',
+        'shadow-sm hover:shadow-lg hover:border-brand/40 transition-all duration-200 flex flex-col',
       )}
     >
       <div className="p-5">
@@ -1363,7 +1305,7 @@ function PMCard({ pm, onClick }) {
       transition={{ type: 'spring', stiffness: 400, damping: 30 }}
       className={cn(
         'group/card relative w-full text-left rounded-xl bg-card border border-border overflow-hidden',
-        'shadow-sm hover:shadow-lg hover:border-[#2d568e]/40 transition-all duration-200 flex flex-col',
+        'shadow-sm hover:shadow-lg hover:border-brand/40 transition-all duration-200 flex flex-col',
       )}
     >
       <div className="p-5">
@@ -1595,14 +1537,13 @@ function PMFormModal({ open, onClose, onSaved, editing }) {
 
           <div>
             <label className={labelClass}>Status</label>
-            <div className="inline-flex items-center gap-1 bg-muted/60 rounded-full p-1">
-              {['active', 'inactive'].map((s) => (
-                <button key={s} type="button" onClick={() => setField('status', s)}
-                  className={cn('px-3 py-1 rounded-full text-[11px] font-semibold transition-colors capitalize',
-                    form.status === s ? 'bg-card border border-border text-foreground shadow-sm' : 'text-muted-foreground hover:text-foreground')}>
-                  {s}
-                </button>
-              ))}
+            <div>
+              <StatusTabs
+                tabs={[{ id: 'active', label: 'Active' }, { id: 'inactive', label: 'Inactive' }]}
+                value={form.status}
+                onChange={(v) => setField('status', v)}
+                label="Status"
+              />
             </div>
           </div>
 
@@ -2758,10 +2699,11 @@ export default function TeamPage() {
           <SummaryCards data={data} teamTotals={teamTotals} activeTab={activeTab} />
         </div>
 
-        <div className="flex-shrink-0 pt-1 pb-2">
-          <TeamTabs
+        <div className="flex-shrink-0 flex justify-center">
+          <StatusTabs
             tabs={TABS}
-            activeTab={activeTab}
+            value={activeTab}
+            label="Team group"
             onChange={(tab) => { setActiveTab(tab); setSelected(null); setPMSelected(null) }}
             counts={{
               specialists: data.specialists.length,

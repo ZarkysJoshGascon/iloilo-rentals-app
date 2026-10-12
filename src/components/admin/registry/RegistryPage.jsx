@@ -26,8 +26,9 @@ import { searchProfiles, isEmailRegistered } from '@/lib/staff'
 import { InitialsAvatar } from '@/components/admin/_shared/Panel'
 import { StatStrip, StatTile } from '@/components/admin/_shared/StatStrip'
 import { SortHeader, nextSort, ResultsBar, SearchKeyHint, useListShortcuts } from '@/components/admin/_shared/listTools'
+import { StatusTabs } from '@/components/admin/_shared/StatusTabs'
 
-const BRAND = '#2d568e'
+const BRAND = 'var(--brand-solid)'
 const SOFT_SHADOW = '0 20px 40px -16px rgba(15,23,42,0.24), 0 6px 16px -6px rgba(15,23,42,0.10)'
 const BTN_RADIUS = { borderRadius: 6 }
 
@@ -236,66 +237,6 @@ function ProfileEmailCombobox({
 // ─────────────────────────────────────────────────────────────
 // PillBar
 // ─────────────────────────────────────────────────────────────
-function PillBar({ tabs, active, onChange, counts, className }) {
-  const containerRef = useRef(null)
-  const [indicator, setIndicator] = useState({ left: 0, width: 0 })
-
-  useEffect(() => {
-    const node = containerRef.current
-    if (!node) return
-    const measure = () => {
-      const activeEl = node.querySelector('[data-active="true"]')
-      if (!activeEl) { setIndicator({ left: 0, width: 0 }); return }
-      const cRect = node.getBoundingClientRect()
-      const aRect = activeEl.getBoundingClientRect()
-      setIndicator({ left: aRect.left - cRect.left, width: aRect.width })
-    }
-    measure()
-    const ro = typeof ResizeObserver !== 'undefined' ? new ResizeObserver(measure) : null
-    if (ro) ro.observe(node)
-    window.addEventListener('resize', measure)
-    return () => {
-      if (ro) ro.disconnect()
-      window.removeEventListener('resize', measure)
-    }
-  }, [active, counts, tabs])
-
-  return (
-    <div className={cn('inline-flex items-center p-0.5 rounded-md bg-card border border-border', className)}>
-      <div ref={containerRef} className="relative inline-flex items-center gap-1">
-        <motion.div
-          className="absolute top-0 bottom-0 rounded-md bg-foreground z-0"
-          animate={{ left: indicator.left, width: indicator.width }}
-          transition={{ type: 'spring', stiffness: 350, damping: 28 }}
-        />
-        {tabs.map((tab) => {
-          const isActive = active === tab.id
-          const count = counts ? (counts[tab.id] ?? 0) : null
-          return (
-            <button
-              key={tab.id}
-              type="button"
-              data-active={isActive}
-              onClick={() => onChange(tab.id)}
-              className={cn(
-                'relative z-10 px-3 h-7 rounded-md text-[12px] font-medium transition-colors whitespace-nowrap',
-                isActive ? 'text-background' : 'text-foreground',
-              )}
-            >
-              {tab.label}
-              {count !== null && (
-                <span className="ml-1 tabular-nums font-semibold">
-                  {count}
-                </span>
-              )}
-            </button>
-          )
-        })}
-      </div>
-    </div>
-  )
-}
-
 // ─────────────────────────────────────────────────────────────
 // DateRangeFilter
 // ─────────────────────────────────────────────────────────────
@@ -343,7 +284,7 @@ function DateRangeFilter({ from, to, onFromChange, onToChange, onClear }) {
         className={cn(
           'inline-flex items-center gap-2 h-9 px-3.5 text-xs font-semibold transition-colors border',
           hasAny
-            ? 'bg-foreground text-background border-foreground'
+            ? 'bg-brand-solid text-white border-brand-solid'
             : 'bg-card text-foreground border-border hover:bg-muted',
         )}
         title={hasAny ? summary : 'Filter by date range'}
@@ -403,7 +344,7 @@ function DateRangeFilter({ from, to, onFromChange, onToChange, onClear }) {
               </button>
               <button type="button" onClick={apply}
                 style={BTN_RADIUS}
-                className="inline-flex items-center gap-1 h-7 px-3 bg-foreground text-background text-[11px] font-semibold hover:opacity-90">
+                className="inline-flex items-center gap-1 h-7 px-3 bg-brand-solid text-white text-[11px] font-semibold hover:bg-brand-solid/90">
                 <Check size={11} />
                 Apply
               </button>
@@ -432,7 +373,7 @@ const INTERACTION_TYPES = ['call', 'email', 'messenger', 'whatsapp', 'sms', 'in_
 const STATUS_PILLS = [
   { id: 'all', label: 'All' },
   { id: 'ACTIVE', label: 'Active' },
-  { id: 'FOR_RENEWAL', label: 'For Renewal' },
+  { id: 'FOR_RENEWAL', label: 'For renewal' },
   { id: 'INACTIVE', label: 'Inactive' },
 ]
 const DEFAULT_CHANNELS = [
@@ -762,7 +703,7 @@ function WarningChip({ icon: Icon, label, count, active, onClick, children }) {
       <button type="button" onClick={onClick}
         style={BTN_RADIUS}
         className={cn('inline-flex items-center gap-2 h-9 px-3.5 text-xs font-medium border transition-colors',
-          active ? 'bg-foreground text-background border-foreground' : 'bg-card text-foreground border-border hover:bg-muted')}>
+          active ? 'bg-brand-solid text-white border-brand-solid' : 'bg-card text-foreground border-border hover:bg-muted')}>
         <Icon size={13} className={active ? 'opacity-90' : 'opacity-60'} />
         <span>{label}</span>
         <span className={cn('min-w-[20px] h-[18px] inline-flex items-center justify-center px-1.5 rounded-full text-[10px] font-semibold tabular-nums', active ? 'bg-background/20' : 'border border-border')}>{count}</span>
@@ -1537,9 +1478,9 @@ function UnitListRow({ unit, selected, onClick }) {
       type="button"
       onClick={onClick}
       initial={false}
-      animate={{ backgroundColor: selected ? 'rgba(45, 86, 142, 0.10)' : 'rgba(45, 86, 142, 0)' }}
+      animate={{ backgroundColor: selected ? 'rgba(34, 81, 147, 0.10)' : 'rgba(34, 81, 147, 0)' }}
       transition={{ duration: 0.22, ease: [0.4, 0, 0.2, 1] }}
-      whileHover={{ backgroundColor: selected ? 'rgba(45, 86, 142, 0.14)' : 'rgba(45, 86, 142, 0.05)' }}
+      whileHover={{ backgroundColor: selected ? 'rgba(34, 81, 147, 0.14)' : 'rgba(34, 81, 147, 0.05)' }}
       whileTap={{ scale: 0.998 }}
       className={cn('group/row w-full text-left px-4 py-3 border-b border-border cursor-pointer select-none', ROW_GRID)}
     >
@@ -1780,7 +1721,7 @@ export default function RegistryPage() {
           </div>
 
           <div className="flex-shrink-0 flex items-center justify-between gap-3 flex-wrap">
-            <PillBar tabs={STATUS_PILLS} active={statusFilter} onChange={setStatusFilter} counts={counts} />
+            <StatusTabs tabs={STATUS_PILLS} value={statusFilter} onChange={setStatusFilter} counts={counts} label="Filter units by status" />
           </div>
 
           {!isFirstLoad && (

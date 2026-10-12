@@ -89,7 +89,7 @@ export default function ContractAlertBar({ alerts, onOpenContract, onOpenContrac
         <button
           type="button"
           onClick={onOpenContracts}
-          className="hidden sm:inline-flex items-center gap-1 h-7 px-2.5 rounded-md text-[12px] font-semibold text-background bg-foreground hover:opacity-90"
+          className="hidden sm:inline-flex items-center gap-1 h-7 px-2.5 rounded-md text-[12px] font-semibold text-white bg-brand-solid hover:bg-brand-solid/90"
         >
           Open Contracts <ArrowRight size={13} />
         </button>

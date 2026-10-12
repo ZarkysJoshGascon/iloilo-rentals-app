@@ -29,8 +29,9 @@ import { cn, sanitizeText, generateContractCode } from '@/lib/utils'
 import { deriveContractStatus, CONTRACT_STATUS_TEXT, EXPIRING_SOON_DAYS } from '@/lib/contracts'
 import { StatStrip, StatTile } from '@/components/admin/_shared/StatStrip'
 import { SortHeader, nextSort, ResultsBar, SearchKeyHint, useListShortcuts } from '@/components/admin/_shared/listTools'
+import { StatusTabs } from '@/components/admin/_shared/StatusTabs'
 
-const BRAND = '#2d568e'
+const BRAND = 'var(--brand-solid)'
 
 const PDF_BUCKET = 'contract-pdfs'
 const PDF_MAX_BYTES = 15 * 1024 * 1024
@@ -218,7 +219,7 @@ function DateFieldPicker({ value, onChange, placeholder, minDate, maxDate }) {
                       'relative h-8 text-[12px] rounded transition-colors flex items-center justify-center tabular-nums',
                       !selectable && 'text-muted-foreground/40 cursor-not-allowed',
                       selectable && !selected && 'hover:bg-muted text-foreground',
-                      selected && 'bg-primary text-primary-foreground font-bold',
+                      selected && 'bg-brand-solid text-white font-bold',
                       isToday && !selected && 'ring-1 ring-primary/40',
                     )}
                   >
@@ -581,62 +582,6 @@ const STATUS_PILLS = [
   { id: 'expired', label: 'Expired' },
 ]
 
-function StatusPills({ statusFilter, onStatusFilter, counts }) {
-  const containerRef = useRef(null)
-  const [indicator, setIndicator] = useState({ left: 0, width: 0 })
-
-  useEffect(() => {
-    const node = containerRef.current
-    if (!node) return
-    const measure = () => {
-      const active = node.querySelector('[data-active="true"]')
-      if (!active) { setIndicator({ left: 0, width: 0 }); return }
-      const cRect = node.getBoundingClientRect()
-      const aRect = active.getBoundingClientRect()
-      setIndicator({ left: aRect.left - cRect.left, width: aRect.width })
-    }
-    measure()
-    const ro = typeof ResizeObserver !== 'undefined' ? new ResizeObserver(measure) : null
-    if (ro) ro.observe(node)
-    window.addEventListener('resize', measure)
-    return () => {
-      if (ro) ro.disconnect()
-      window.removeEventListener('resize', measure)
-    }
-  }, [statusFilter, counts])
-
-  return (
-    <div className="inline-flex items-center p-0.5 rounded-md bg-card border border-border">
-      <div ref={containerRef} className="relative inline-flex items-center gap-1">
-        <motion.div
-          className="absolute top-0 bottom-0 rounded-md bg-foreground z-0"
-          animate={{ left: indicator.left, width: indicator.width }}
-          transition={{ type: 'spring', stiffness: 350, damping: 28 }}
-        />
-        {STATUS_PILLS.map((tab) => {
-          const isActive = statusFilter === tab.id
-          const count = counts[tab.id] ?? 0
-          return (
-            <button
-              key={tab.id}
-              type="button"
-              data-active={isActive}
-              onClick={() => onStatusFilter(tab.id)}
-              className={cn(
-                'relative z-10 px-3 h-7 rounded-md text-[12px] font-medium transition-colors duration-200 whitespace-nowrap',
-                isActive ? 'text-background' : 'text-foreground',
-              )}
-            >
-              {tab.label}
-              <span className="ml-1 font-semibold tabular-nums">{count}</span>
-            </button>
-          )
-        })}
-      </div>
-    </div>
-  )
-}
-
 // ── Filter panel ────────────────────────────────────────────
 function FilterPanel({
   open,
@@ -775,9 +720,9 @@ function ContractRow({ contract, selected, onClick }) {
       type="button"
       onClick={onClick}
       initial={false}
-      animate={{ backgroundColor: selected ? 'rgba(45, 86, 142, 0.10)' : 'rgba(45, 86, 142, 0)' }}
+      animate={{ backgroundColor: selected ? 'rgba(34, 81, 147, 0.10)' : 'rgba(34, 81, 147, 0)' }}
       transition={{ duration: 0.22, ease: [0.4, 0, 0.2, 1] }}
-      whileHover={{ backgroundColor: selected ? 'rgba(45, 86, 142, 0.14)' : 'rgba(45, 86, 142, 0.05)' }}
+      whileHover={{ backgroundColor: selected ? 'rgba(34, 81, 147, 0.14)' : 'rgba(34, 81, 147, 0.05)' }}
       whileTap={{ scale: 0.998 }}
       className={cn('group/row w-full text-left px-4 py-3 border-b border-border cursor-pointer select-none', ROW_GRID)}
     >
@@ -1668,7 +1613,7 @@ export default function ContractsPage() {
           </div>
 
           <div className="flex-shrink-0 flex items-center justify-between gap-3 flex-wrap">
-            <StatusPills statusFilter={statusFilter} onStatusFilter={setStatusFilter} counts={counts} />
+            <StatusTabs tabs={STATUS_PILLS} value={statusFilter} onChange={setStatusFilter} counts={counts} label="Filter contracts by status" />
           </div>
 
           {!isFirstLoad && (

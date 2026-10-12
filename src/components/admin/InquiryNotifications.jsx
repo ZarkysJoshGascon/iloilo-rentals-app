@@ -109,7 +109,7 @@ export function InquiryNotifications({ onNavigateTab }) {
                 className={cn(
                   'flex items-center justify-center w-7 h-7 rounded-full flex-shrink-0',
                   item.kind === 'property'
-                    ? 'bg-[#2d568e]/10 text-[#2d568e] dark:text-blue-400'
+                    ? 'bg-brand-solid/10 text-brand dark:text-blue-400'
                     : 'bg-purple-500/10 text-purple-600 dark:text-purple-400',
                 )}
               >

@@ -4,10 +4,10 @@ import { useNavigate } from 'react-router-dom'
 import { motion, AnimatePresence } from 'framer-motion'
 import {
   Plus, Search, RefreshCw, X, Check, Loader2, Trash2,
-  Sparkles, AlertTriangle, User, Camera,
+  Sparkles, AlertTriangle, Camera,
   ChevronRight, ChevronLeft, Building2, Clock,
-  Image as ImageIcon, FileText, Shirt, Wallet, Send, Coffee,
-  ZoomIn, RotateCcw, LogIn, CheckCircle2, Lock,
+  Image as ImageIcon, Shirt, Wallet, Send, Coffee,
+  ZoomIn, RotateCcw, CheckCircle2, Lock,
   Calendar as CalendarIcon, Copy, DoorOpen,
 } from 'lucide-react'
 import toast from 'react-hot-toast'
@@ -33,8 +33,9 @@ import { ContextMenu } from '@/components/ui/ContextMenu'
 import { SortHeader, nextSort, ResultsBar, SearchKeyHint, useListShortcuts } from '@/components/admin/_shared/listTools'
 import { Panel, PanelHeader, SectionLabel, InitialsAvatar } from '@/components/admin/_shared/Panel'
 import { StatStrip, StatTile } from '@/components/admin/_shared/StatStrip'
+import { StatusTabs } from '@/components/admin/_shared/StatusTabs'
 
-const BRAND = '#2d568e'
+const BRAND = 'var(--brand-solid)'
 const SOFT_SHADOW = '0 20px 40px -16px rgba(15,23,42,0.24), 0 6px 16px -6px rgba(15,23,42,0.10)'
 
 // Cleaning status is a state machine. Prevents moving backward
@@ -113,7 +114,7 @@ const STATUS_PILLS = [
   { id: 'all', label: 'All' },
   { id: 'scheduled', label: 'Scheduled' },
   { id: 'ready', label: 'Ready' },
-  { id: 'to-be-evaluated', label: 'To Be Evaluated' },
+  { id: 'to-be-evaluated', label: 'To be evaluated' },
   { id: 'completed', label: 'Completed' },
   { id: 'cancelled', label: 'Cancelled' },
 ]
@@ -607,65 +608,6 @@ function DetailSection({ title, action, children }) {
 // ─────────────────────────────────────────────────────────────
 // Status pills — same shape as Inquiries / Campaigns
 // ─────────────────────────────────────────────────────────────
-function StatusPills({ active, onChange, counts }) {
-  const containerRef = useRef(null)
-  const [indicator, setIndicator] = useState({ left: 0, width: 0 })
-
-  useEffect(() => {
-    const node = containerRef.current
-    if (!node) return
-    const measure = () => {
-      const activeEl = node.querySelector('[data-active="true"]')
-      if (!activeEl) {
-        setIndicator({ left: 0, width: 0 })
-        return
-      }
-      const cRect = node.getBoundingClientRect()
-      const aRect = activeEl.getBoundingClientRect()
-      setIndicator({ left: aRect.left - cRect.left, width: aRect.width })
-    }
-    measure()
-    const ro = typeof ResizeObserver !== 'undefined' ? new ResizeObserver(measure) : null
-    if (ro) ro.observe(node)
-    window.addEventListener('resize', measure)
-    return () => {
-      if (ro) ro.disconnect()
-      window.removeEventListener('resize', measure)
-    }
-  }, [active, counts])
-
-  return (
-    <div className="inline-flex items-center p-0.5 rounded-md bg-card border border-border">
-      <div ref={containerRef} className="relative inline-flex items-center gap-1">
-        <motion.div
-          className="absolute top-0 bottom-0 rounded-md bg-foreground z-0"
-          animate={{ left: indicator.left, width: indicator.width }}
-          transition={{ type: 'spring', stiffness: 350, damping: 28 }}
-        />
-        {STATUS_PILLS.map((tab) => {
-          const isActive = active === tab.id
-          const count = counts[tab.id] ?? 0
-          return (
-            <button
-              key={tab.id}
-              type="button"
-              data-active={isActive}
-              onClick={() => onChange(tab.id)}
-              className={cn(
-                'relative z-10 px-3 h-7 rounded-md text-[12px] font-medium transition-colors duration-200 whitespace-nowrap',
-                isActive ? 'text-background' : 'text-foreground',
-              )}
-            >
-              {tab.label}
-              <span className="ml-1 font-semibold tabular-nums">{count}</span>
-            </button>
-          )
-        })}
-      </div>
-    </div>
-  )
-}
-
 // ─────────────────────────────────────────────────────────────
 // READ-ONLY PHOTO VIEWS (for completed cleanings)
 // ─────────────────────────────────────────────────────────────
@@ -983,15 +925,15 @@ function PhotoSection({ cleaning, onChanged, onOpenPhoto }) {
 
   return (
     <DetailSection title="Cleaning Photos">
-      <div className="flex gap-1 p-2 border-b border-border bg-card">
-        {tabs.map((t) => (
-          <button key={t.id} type="button" onClick={() => setTab(t.id)}
-            className={cn('flex-1 flex items-center justify-center gap-1.5 px-3 py-1.5 rounded-full text-[11px] font-semibold transition-colors',
-              tab === t.id ? 'bg-card border border-border text-foreground shadow-sm' : 'text-foreground hover:text-foreground')}>
-            {t.label}
-            <span className="opacity-60 tabular-nums">{t.count}</span>
-          </button>
-        ))}
+      <div className="p-2 border-b border-border">
+        <StatusTabs
+          fill
+          tabs={tabs}
+          value={tab}
+          onChange={setTab}
+          counts={Object.fromEntries(tabs.map((t) => [t.id, t.count]))}
+          label="Photo set"
+        />
       </div>
       <div className="p-3">
         <PhotoGrid cleaning={cleaning} category={tab} onChanged={onChanged} onOpenPhoto={onOpenPhoto} />
@@ -2106,13 +2048,13 @@ function CleaningListRow({ cleaning, selected, highlighted, onClick, onViewBooki
         initial={false}
         animate={{
           backgroundColor: highlighted
-            ? 'rgba(45, 86, 142, 0.16)'
+            ? 'rgba(34, 81, 147, 0.16)'
             : selected
-              ? 'rgba(45, 86, 142, 0.10)'
-              : 'rgba(45, 86, 142, 0)',
+              ? 'rgba(34, 81, 147, 0.10)'
+              : 'rgba(34, 81, 147, 0)',
         }}
         transition={{ duration: 0.4 }}
-        whileHover={{ backgroundColor: selected ? 'rgba(45, 86, 142, 0.14)' : 'rgba(45, 86, 142, 0.05)' }}
+        whileHover={{ backgroundColor: selected ? 'rgba(34, 81, 147, 0.14)' : 'rgba(34, 81, 147, 0.05)' }}
         whileTap={{ scale: 0.998 }}
         className={cn('group/row w-full text-left px-4 py-3 border-b border-border last:border-b-0 cursor-pointer select-none', ROW_GRID)}
       >
@@ -2458,7 +2400,7 @@ export default function HousekeepingPage({ initialSelectedId }) {
         </div>
 
         <div className="flex-shrink-0 flex items-center justify-between gap-3 flex-wrap">
-          <StatusPills active={statusFilter} onChange={setStatusFilter} counts={counts} />
+          <StatusTabs tabs={STATUS_PILLS} value={statusFilter} onChange={setStatusFilter} counts={counts} label="Filter cleanings by status" />
         </div>
 
         {!isFirstLoad && (
