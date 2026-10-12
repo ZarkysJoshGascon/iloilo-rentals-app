@@ -36,7 +36,9 @@ export default function Contactpage() {
                 {[
                   { icon: MapPin, title: "Visit Us", detail: "Megaworld Boulevard, Iloilo City, Philippines 5000" },
                   { icon: Phone, title: "Call Us", detail: "+63 (33) 123-4567", sub: "Mon-Fri, 9AM-6PM" },
-                  { icon: Mail, title: "Email Us", detail: "info@iloilorentals.com", sub: "We'll respond within 24h" },
+                  // iloilorentals.com belongs to another company, so its address can't be shown
+                  // here; until iloilorental.com has a mailbox, visitors use the form.
+                  { icon: Mail, title: "Message Us", detail: "Use the form on this page", sub: "We'll respond within 24h" },
                   { icon: Clock, title: "Business Hours", detail: "Mon-Fri: 9AM-6PM • Sat: 10AM-4PM • Sun: Closed" }
                 ].map((item, idx) => (
                   <motion.div key={idx} whileHover={{ x: 5 }} className="flex items-start gap-3">

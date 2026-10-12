@@ -11,7 +11,7 @@ import { motion, AnimatePresence } from 'framer-motion'
 import {
   Plus, Search, RefreshCw, X, Check, Loader2, Trash2,
   FileText, Calendar, ExternalLink, User,
-  Upload, Eye, ChevronLeft, ChevronRight,
+  Upload, Eye, ChevronLeft, ChevronRight, Download,
 } from 'lucide-react'
 import { createPortal } from 'react-dom'
 import toast from 'react-hot-toast'
