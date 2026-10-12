@@ -10,6 +10,8 @@ import { cn } from '@/lib/utils'
 import { uploadInteriorImage, submitInteriorInquiry } from '@/lib/interiorDesign'
 import InteriorVideoTours from '@/components/public/InteriorVideoTours'
 import InteriorProjectTour from '@/components/public/InteriorProjectTour'
+import UnitWalkthrough from '@/components/public/UnitWalkthrough'
+import { SAINT_HONORE_9S } from '@/components/public/walkthrough/saintHonore9S'
 
 const BRAND = '#2d568e'
 const MAX_IMAGES = 5
@@ -196,6 +198,7 @@ export default function InteriorDesignPage() {
 
       {/* Past work: cinematic video tours that scrub with the scroll, then a
           photo walk through projects uploaded to Supabase Storage */}
+      <UnitWalkthrough unit={SAINT_HONORE_9S} skipTo="#inquiry-form" />
       <InteriorVideoTours skipTo="#inquiry-form" />
       <InteriorProjectTour skipTo="#inquiry-form" />
 
