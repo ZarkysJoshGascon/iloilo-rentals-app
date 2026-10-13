@@ -2763,7 +2763,7 @@ export default function TeamPage() {
 
   return (
     <div className="h-full flex min-h-0">
-      <div className="flex-1 min-w-0 min-h-0 flex flex-col px-4 py-4 md:px-8 md:py-6 gap-4">
+      <div data-page-scroll className="flex-1 min-w-0 min-h-0 flex flex-col px-4 py-4 md:px-8 md:py-6 gap-4 overflow-y-auto [&>*]:flex-shrink-0">
 
         <div className="flex-shrink-0">
           <SummaryCards
@@ -2815,7 +2815,7 @@ export default function TeamPage() {
         </div>
 
         {isAccessTab && (
-          <div className="flex-1 min-h-0 overflow-y-auto -mx-1 px-1 pb-2">
+          <div className="-mx-1 px-1 pb-2">
             <CrmAccessPanel onCount={setAccessCount} />
           </div>
         )}
@@ -2833,8 +2833,7 @@ export default function TeamPage() {
 
         <div
           hidden={isAccessTab}
-          className={cn('flex-1 min-h-0 overflow-y-auto -mx-1 px-1 pb-2 transition-opacity', refreshing && 'opacity-60')}
-          style={{ scrollbarGutter: 'stable' }}
+          className={cn('-mx-1 px-1 pb-2 transition-opacity', refreshing && 'opacity-60')}
         >
           {showSkeleton ? (
             <WorkerCardSkeletonGrid count={6} />

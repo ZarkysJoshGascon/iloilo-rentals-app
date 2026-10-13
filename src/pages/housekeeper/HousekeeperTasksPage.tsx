@@ -1,52 +1,85 @@
 // src/pages/housekeeper/HousekeeperTasksPage.tsx
+// The housekeeper's own tasks, in the CRM's look: header bar, stat tiles,
+// status tabs, a sortable list, and a detail panel beside the list (full
+// screen on phones) where the cleaning is filled in and submitted.
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useNavigate } from 'react-router'
-import { motion } from 'framer-motion'
+import { AnimatePresence, motion } from 'framer-motion'
 import {
-  ArrowLeft, Camera, X, Trash2,
-  AlertTriangle, CheckCircle2, Image as ImageIcon,
-  Plus, Home, Clock, Sparkles, Coffee, Shirt, Wallet, Send,
-  Lock,
+  ArrowLeft, Camera, X, Trash2, AlertTriangle, Image as ImageIcon, Plus, Clock, Sparkles,
+  Coffee, Shirt, Wallet, Send, Lock, Search, RefreshCw, Moon, Sun, LogOut, DoorOpen,
+  CheckCircle2, Hourglass, Home,
 } from 'lucide-react'
 import toast from 'react-hot-toast'
 import { supabase } from '@/lib/supabase'
 import { useAuth } from '@/context/AuthContext'
+import { useTheme } from '@/context/ThemeContext'
 import { useUserRole } from '@/hooks/useUserRole'
-import {
-  submitCleaning, parseInventory,
-  getSignedUrl, getSignedUrls,
-} from '@/lib/cleanings'
+import { submitCleaning, parseInventory, getSignedUrl, getSignedUrls } from '@/lib/cleanings'
 import { cn } from '@/lib/utils'
+import { Input } from '@/components/ui/input'
+import { Textarea } from '@/components/ui/textarea'
+import { Skeleton } from '@/components/ui/skeleton'
+import { StatStrip, StatTile } from '@/components/admin/_shared/StatStrip'
+import { StatusTabs } from '@/components/admin/_shared/StatusTabs'
+import { PageScrollHelper } from '@/components/admin/_shared/PageScrollHelper'
+import {
+  SortHeader, nextSort, ResultsBar, SearchKeyHint, useListShortcuts,
+  CARD_ON_PHONE, MobileSort, useListCap, useSidePanelMotion,
+} from '@/components/admin/_shared/listTools'
 import type { ReactNode } from 'react'
 import type { LucideIcon } from 'lucide-react'
 
 const PHOTO_LIMITS = { before: 15, after: 15, report: 10 }
+const PANEL_WIDTH = 520
+const ROW_GRID = `grid grid-cols-[minmax(0,1.2fr)_minmax(0,1.3fr)_minmax(0,0.6fr)_minmax(0,1fr)_120px] gap-4 items-center ${CARD_ON_PHONE}`
 
-const STATUS_META = {
-  scheduled: { label: 'Scheduled', badge: 'bg-amber-600 text-white' },
-  ready:     { label: 'Ready',     badge: 'bg-blue-600 text-white' },
-  submitted: { label: 'Submitted', badge: 'bg-violet-600 text-white' },
-  completed: { label: 'Completed', badge: 'bg-emerald-600 text-white' },
+// Same colours as the CRM's housekeeping list.
+const STATUS_TEXT = {
+  ready:     { label: 'Ready to clean', className: 'text-blue-600 dark:text-blue-400' },
+  scheduled: { label: 'Scheduled',      className: 'text-amber-600 dark:text-amber-400' },
+  submitted: { label: 'Submitted',      className: 'text-fuchsia-600 dark:text-fuchsia-400' },
+  completed: { label: 'Approved',       className: 'text-emerald-600 dark:text-emerald-400' },
+  cancelled: { label: 'Cancelled',      className: 'text-red-600 dark:text-red-400' },
+}
+const TYPE_TEXT = {
+  basic: { label: 'Basic', className: 'text-blue-600 dark:text-blue-400' },
+  deep:  { label: 'Deep',  className: 'text-purple-600 dark:text-purple-400' },
 }
 
+const STATUS_ORDER = ['ready', 'scheduled', 'submitted', 'completed', 'cancelled']
+const SORT_VALUE = {
+  code:      (c) => c.cleaning_code || '',
+  booking:   (c) => c.bookings?.booking_code || '',
+  type:      (c) => c.type || '',
+  scheduled: (c) => c.scheduled_date || '',
+  status:    (c) => STATUS_ORDER.indexOf(getEffectiveStatus(c)),
+}
+const SORT_DEFAULT_DIR = { scheduled: 'asc' }
+
 function getEffectiveStatus(cleaning) {
-  if (cleaning.status === 'submitted' || cleaning.status === 'completed') return cleaning.status
+  if (cleaning.status === 'submitted' || cleaning.status === 'completed' || cleaning.status === 'cancelled') return cleaning.status
   if (!cleaning.bookings?.check_out) return 'ready'
   const today = new Date(); today.setHours(0, 0, 0, 0)
   const co = new Date(cleaning.bookings.check_out); co.setHours(0, 0, 0, 0)
   return co <= today ? 'ready' : 'scheduled'
 }
 
-function formatDateShort(d) {
+function formatDate(d) {
   if (!d) return '—'
-  const dt = new Date(d)
+  return new Date(d).toLocaleDateString('en-PH', { month: 'short', day: 'numeric', year: 'numeric' })
+}
+
+/** "Today", "Tomorrow", "Yesterday", "In 3 days", "4 days ago" */
+function relativeDay(d) {
+  if (!d) return ''
   const today = new Date(); today.setHours(0, 0, 0, 0)
   const target = new Date(d); target.setHours(0, 0, 0, 0)
   const diff = Math.round((target.getTime() - today.getTime()) / 86400000)
   if (diff === 0) return 'Today'
   if (diff === 1) return 'Tomorrow'
   if (diff === -1) return 'Yesterday'
-  return dt.toLocaleDateString('en-PH', { month: 'short', day: 'numeric' })
+  return diff > 0 ? `In ${diff} days` : `${-diff} days ago`
 }
 
 function formatDateTime(d) {
@@ -57,89 +90,82 @@ function formatDateTime(d) {
   })
 }
 
-function initials(name) {
-  if (!name) return '?'
-  return name.trim().split(/\s+/).slice(0, 2).map((p) => p[0]?.toUpperCase() || '').join('') || '?'
+function greetingFor(date) {
+  const hour = date.getHours()
+  if (hour < 12) return 'Good morning'
+  if (hour < 18) return 'Good afternoon'
+  return 'Good evening'
 }
 
-type HousekeeperAvatarProps = {
-  name: any
-  photo_url: any
-  size?: string
+function photoCount(cleaning) {
+  return (cleaning.photos_before?.length || 0) + (cleaning.photos_after?.length || 0) + (cleaning.photos_report?.length || 0)
 }
 
-function HousekeeperAvatar({ name, photo_url, size = 'md' }: HousekeeperAvatarProps) {
-  const sizeClasses = size === 'lg' ? 'w-12 h-12 text-base' : size === 'sm' ? 'w-8 h-8 text-[11px]' : 'w-10 h-10 text-sm'
-  if (photo_url) {
-    return <img src={photo_url} alt={name} className={cn('rounded-full object-cover flex-shrink-0', sizeClasses)} />
-  }
-  return (
-    <div className={cn('rounded-full flex items-center justify-center font-semibold flex-shrink-0 bg-[#2d568e] text-white', sizeClasses)}>
-      {initials(name)}
-    </div>
-  )
+function StatusText({ cleaning, className }: { cleaning: any; className?: string }) {
+  const config = STATUS_TEXT[getEffectiveStatus(cleaning)] || STATUS_TEXT.scheduled
+  return <span className={cn('text-[12px] font-semibold', config.className, className)}>{config.label}</span>
 }
 
-type SectionCardProps = {
+function TypeText({ type }: { type: any }) {
+  const config = TYPE_TEXT[type] || TYPE_TEXT.basic
+  return <span className={cn('text-[12px] font-semibold', config.className)}>{config.label}</span>
+}
+
+// ─────────────────────────────────────────────────────────────
+// Detail panel building blocks (the CRM detail panel's look)
+// ─────────────────────────────────────────────────────────────
+
+type DetailSectionProps = {
   title: string
-  icon: LucideIcon
+  icon?: LucideIcon
+  action?: ReactNode
   children: ReactNode
-  className?: string
 }
 
-function SectionCard({ title, icon: Icon, children, className }: SectionCardProps) {
+function DetailSection({ title, icon: Icon, action, children }: DetailSectionProps) {
   return (
-    <div className={cn('rounded-md bg-card border border-border overflow-hidden', className)}>
-      <div className="flex items-center gap-2 px-3 py-2 border-b border-border bg-muted/30">
-        {Icon && <Icon size={13} className="text-muted-foreground flex-shrink-0" />}
-        <h4 className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground">{title}</h4>
+    <section>
+      <div className="flex items-center justify-between gap-2 mb-2 px-0.5">
+        <h4 className="flex items-center gap-1.5 text-[10px] font-bold uppercase tracking-wider text-foreground">
+          {Icon && <Icon size={12} className="text-foreground" />}
+          {title}
+        </h4>
+        {action}
       </div>
-      <div className="p-3 space-y-0.5">{children}</div>
+      <div className="rounded-md bg-card border border-border shadow-sm overflow-hidden">{children}</div>
+    </section>
+  )
+}
+
+function InfoRow({ label, children }: { label: string; children: ReactNode }) {
+  return (
+    <div className="flex items-center justify-between py-1 gap-3">
+      <span className="text-[10px] uppercase tracking-wider text-foreground font-semibold min-w-[72px] flex-shrink-0">{label}</span>
+      <span className="text-xs text-foreground text-right min-w-0 truncate">{children}</span>
     </div>
   )
 }
 
-type SkeletonBlockProps = {
-  className: string
-}
-
-function SkeletonBlock({ className }: SkeletonBlockProps) {
-  return <div className={cn('animate-pulse rounded-md bg-muted', className)} />
-}
-
-function TaskCardSkeleton() {
+function SubLabel({ children, right }: { children: ReactNode; right?: ReactNode }) {
   return (
-    <div className="w-full bg-card border border-border rounded-md p-4">
-      <div className="flex items-start justify-between gap-3 mb-3">
-        <div className="min-w-0 flex-1">
-          <SkeletonBlock className="h-4 w-24 mb-2" />
-          <SkeletonBlock className="h-3 w-32" />
-        </div>
-        <SkeletonBlock className="h-5 w-20 rounded-full" />
-      </div>
-      <SkeletonBlock className="h-3 w-40 mt-3" />
-      <div className="flex items-center justify-between mt-3">
-        <SkeletonBlock className="h-3 w-16" />
-        <SkeletonBlock className="h-3 w-10" />
-      </div>
+    <div className="flex items-center justify-between mb-2">
+      <p className="text-[10px] font-bold uppercase tracking-wider text-foreground">{children}</p>
+      {right}
     </div>
   )
 }
 
-function TaskListSkeleton() {
+function Notice({ icon: Icon, tone = 'plain', title, children }: { icon: LucideIcon; tone?: 'plain' | 'good' | 'bad'; title: string; children: ReactNode }) {
+  const toneText = tone === 'good' ? 'text-emerald-700 dark:text-emerald-400' : tone === 'bad' ? 'text-red-700 dark:text-red-400' : 'text-foreground'
   return (
-    <div className="space-y-3">
-      {[0, 1, 2, 3].map((i) => <TaskCardSkeleton key={i} />)}
+    <div className="rounded-md bg-card border border-border shadow-sm p-3 flex items-start gap-2">
+      <Icon size={14} className={cn('flex-shrink-0 mt-0.5', toneText)} />
+      <div className="min-w-0">
+        <p className={cn('text-xs font-semibold', toneText)}>{title}</p>
+        <p className="text-[11px] text-foreground mt-0.5">{children}</p>
+      </div>
     </div>
   )
-}
-
-function PhotoTileSkeleton() {
-  return <SkeletonBlock className="aspect-square w-full rounded-md" />
-}
-
-function SinglePhotoSkeleton() {
-  return <SkeletonBlock className="aspect-video w-full rounded-md" />
 }
 
 function useSignedUrls(photos) {
@@ -188,34 +214,18 @@ function useSignedUrl(photo) {
   return { url, loading }
 }
 
-type ReadOnlyPhotoGridProps = {
-  photos: any
-  label: string
-}
-
 // ─────────────────────────────────────────────────────────────
-// READ-ONLY VIEWS (used when cleaning is completed/locked)
+// Read-only views (approved or cancelled cleanings)
 // ─────────────────────────────────────────────────────────────
 
-function ReadOnlyPhotoGrid({ photos, label }: ReadOnlyPhotoGridProps) {
+function ReadOnlyPhotoGrid({ photos, label }: { photos: any; label: string }) {
   const safePhotos = Array.isArray(photos) ? photos : []
   const { map: signedMap, loading } = useSignedUrls(safePhotos)
-
-  if (safePhotos.length === 0) {
-    return (
-      <div className="rounded-md border border-dashed border-border bg-muted/20 py-6 text-center">
-        <ImageIcon size={16} className="text-muted-foreground/40 mx-auto mb-1" />
-        <p className="text-[11px] text-muted-foreground italic">No {label.toLowerCase()} photos</p>
-      </div>
-    )
-  }
+  if (safePhotos.length === 0) return null
 
   return (
     <div>
-      <div className="flex items-center justify-between mb-2">
-        <p className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground">{label}</p>
-        <span className="text-[10px] text-muted-foreground tabular-nums">{safePhotos.length}</span>
-      </div>
+      <SubLabel right={<span className="text-[10px] text-foreground tabular-nums">{safePhotos.length}</span>}>{label}</SubLabel>
       <div className="grid grid-cols-3 gap-2">
         {safePhotos.map((p, i) => {
           const src = signedMap[p.path]
@@ -224,11 +234,9 @@ function ReadOnlyPhotoGrid({ photos, label }: ReadOnlyPhotoGridProps) {
               {src ? (
                 <img src={src} alt="" className="w-full h-full object-cover" loading="lazy" />
               ) : loading ? (
-                <PhotoTileSkeleton />
+                <Skeleton className="w-full h-full rounded-none" />
               ) : (
-                <div className="w-full h-full flex items-center justify-center text-muted-foreground">
-                  <ImageIcon size={16} />
-                </div>
+                <div className="w-full h-full flex items-center justify-center text-foreground"><ImageIcon size={16} /></div>
               )}
             </div>
           )
@@ -238,57 +246,35 @@ function ReadOnlyPhotoGrid({ photos, label }: ReadOnlyPhotoGridProps) {
   )
 }
 
-type ReadOnlySinglePhotoProps = {
-  photo: any
-  label: string
-}
-
-function ReadOnlySinglePhoto({ photo, label }: ReadOnlySinglePhotoProps) {
+function ReadOnlySinglePhoto({ photo }: { photo: any }) {
   const { url, loading } = useSignedUrl(photo)
-
   if (!photo) {
     return (
-      <div>
-        <p className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground mb-2">{label}</p>
-        <div className="w-full aspect-video rounded-md border border-dashed border-border bg-muted/20 flex items-center justify-center">
-          <ImageIcon size={16} className="text-muted-foreground/40" />
-        </div>
+      <div className="w-full aspect-video rounded-md border border-dashed border-border flex items-center justify-center">
+        <ImageIcon size={16} className="text-foreground" />
       </div>
     )
   }
-
   return (
-    <div>
-      <p className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground mb-2">{label}</p>
-      <div className="aspect-video rounded-md overflow-hidden border border-border bg-muted">
-        {url ? (
-          <img src={url} alt="" className="w-full h-full object-cover" loading="lazy" />
-        ) : loading ? (
-          <SinglePhotoSkeleton />
-        ) : (
-          <div className="w-full h-full flex items-center justify-center text-muted-foreground">
-            <ImageIcon size={16} />
-          </div>
-        )}
-      </div>
+    <div className="aspect-video rounded-md overflow-hidden border border-border bg-muted">
+      {url ? (
+        <img src={url} alt="" className="w-full h-full object-cover" loading="lazy" />
+      ) : loading ? (
+        <Skeleton className="w-full h-full rounded-none" />
+      ) : (
+        <div className="w-full h-full flex items-center justify-center text-foreground"><ImageIcon size={16} /></div>
+      )}
     </div>
   )
 }
 
-type ReadOnlyItemsListProps = {
-  items: any
-  emptyLabel?: string
-}
-
-function ReadOnlyItemsList({ items, emptyLabel = 'No items' }: ReadOnlyItemsListProps) {
+function ReadOnlyItemsList({ items }: { items: any }) {
   const parsed = parseInventory(items)
-  if (parsed.length === 0) {
-    return <p className="text-[11px] italic text-muted-foreground text-center py-1">{emptyLabel}</p>
-  }
+  if (parsed.length === 0) return <p className="text-[11px] italic text-foreground py-1">No items</p>
   return (
-    <div className="space-y-1">
+    <div className="divide-y divide-border">
       {parsed.map((it, i) => (
-        <div key={i} className="flex items-center justify-between px-2 py-1 rounded bg-muted/40 text-xs">
+        <div key={i} className="flex items-center justify-between py-1.5 text-xs">
           <span className="text-foreground truncate">{it.name}</span>
           <span className="text-foreground font-semibold tabular-nums">×{it.quantity}</span>
         </div>
@@ -297,158 +283,109 @@ function ReadOnlyItemsList({ items, emptyLabel = 'No items' }: ReadOnlyItemsList
   )
 }
 
-type CompletedSummaryProps = {
-  cleaning: any
-}
-
-function CompletedSummary({ cleaning }: CompletedSummaryProps) {
-  const hasBefore = Array.isArray(cleaning.photos_before) && cleaning.photos_before.length > 0
-  const hasAfter = Array.isArray(cleaning.photos_after) && cleaning.photos_after.length > 0
-  const hasReport = Array.isArray(cleaning.photos_report) && cleaning.photos_report.length > 0
-
-  const amenitiesUsedItems = parseInventory(cleaning.amenities_used_items)
-  const amenitiesReplacedItems = parseInventory(cleaning.amenities_replaced_items)
-  const laundryUsedItems = parseInventory(cleaning.laundry_used_items)
-  const laundryReplacedItems = parseInventory(cleaning.laundry_replaced_items)
-
-  const laundryAmount = Number(cleaning.laundry_payment_amount || 0)
-  const hasLaundryPayment = laundryAmount > 0
-
+function ReadOnlyUsedReplaced({ cleaning, prefix }: { cleaning: any; prefix: 'amenities' | 'laundry' }) {
   return (
-    <div className="space-y-3">
-      {/* Lock banner */}
-      <div className="rounded-md bg-emerald-500/10 border border-emerald-500/30 p-3 flex items-start gap-2">
-        <Lock size={14} className="text-emerald-600 dark:text-emerald-400 flex-shrink-0 mt-0.5" />
-        <div className="min-w-0">
-          <p className="text-xs font-semibold text-emerald-700 dark:text-emerald-400">
-            Approved by admin · locked
-          </p>
-          <p className="text-[11px] text-emerald-700/80 dark:text-emerald-400/80 mt-0.5">
-            This cleaning is complete and cannot be edited. Contact admin if corrections are needed.
-          </p>
+    <div className="p-3 grid grid-cols-1 sm:grid-cols-2 gap-4">
+      {(['used', 'replaced'] as const).map((side) => (
+        <div key={side}>
+          <SubLabel>{side === 'used' ? 'Used' : 'Replaced'}</SubLabel>
+          <ReadOnlySinglePhoto photo={cleaning[`${prefix}_${side}_photo`]} />
+          <div className="mt-2"><ReadOnlyItemsList items={cleaning[`${prefix}_${side}_items`]} /></div>
         </div>
-      </div>
-
-      {/* Cleaning photos */}
-      <SectionCard title="Cleaning Photos" icon={ImageIcon}>
-        <div className="space-y-3">
-          {hasBefore && <ReadOnlyPhotoGrid photos={cleaning.photos_before} label="Before" />}
-          {hasAfter && <ReadOnlyPhotoGrid photos={cleaning.photos_after} label="After" />}
-          {hasReport && <ReadOnlyPhotoGrid photos={cleaning.photos_report} label="Report" />}
-          {!hasBefore && !hasAfter && !hasReport && (
-            <p className="text-[11px] italic text-muted-foreground text-center py-2">
-              No photos on file
-            </p>
-          )}
-        </div>
-      </SectionCard>
-
-      {/* Amenities */}
-      {(amenitiesUsedItems.length > 0 ||
-        amenitiesReplacedItems.length > 0 ||
-        cleaning.amenities_used_photo ||
-        cleaning.amenities_replaced_photo) && (
-        <SectionCard title="Amenities" icon={Coffee}>
-          <div className="grid grid-cols-2 gap-3">
-            <div>
-              <p className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground mb-2">Used</p>
-              <ReadOnlySinglePhoto photo={cleaning.amenities_used_photo} label="Photo" />
-              <div className="mt-2">
-                <ReadOnlyItemsList items={cleaning.amenities_used_items} />
-              </div>
-            </div>
-            <div>
-              <p className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground mb-2">Replaced</p>
-              <ReadOnlySinglePhoto photo={cleaning.amenities_replaced_photo} label="Photo" />
-              <div className="mt-2">
-                <ReadOnlyItemsList items={cleaning.amenities_replaced_items} />
-              </div>
-            </div>
-          </div>
-        </SectionCard>
-      )}
-
-      {/* Laundry */}
-      {(laundryUsedItems.length > 0 ||
-        laundryReplacedItems.length > 0 ||
-        cleaning.laundry_used_photo ||
-        cleaning.laundry_replaced_photo) && (
-        <SectionCard title="Laundry" icon={Shirt}>
-          <div className="grid grid-cols-2 gap-3">
-            <div>
-              <p className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground mb-2">Used</p>
-              <ReadOnlySinglePhoto photo={cleaning.laundry_used_photo} label="Photo" />
-              <div className="mt-2">
-                <ReadOnlyItemsList items={cleaning.laundry_used_items} />
-              </div>
-            </div>
-            <div>
-              <p className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground mb-2">Replaced</p>
-              <ReadOnlySinglePhoto photo={cleaning.laundry_replaced_photo} label="Photo" />
-              <div className="mt-2">
-                <ReadOnlyItemsList items={cleaning.laundry_replaced_items} />
-              </div>
-            </div>
-          </div>
-        </SectionCard>
-      )}
-
-      {/* ✅ Laundry Payment — read-only, always shown */}
-      <SectionCard title="Laundry Payment" icon={Wallet}>
-        {hasLaundryPayment ? (
-          <div className="space-y-2">
-            <div className="flex justify-between text-xs">
-              <span className="text-muted-foreground">Amount</span>
-              <span className="text-foreground font-semibold tabular-nums">
-                {`₱${laundryAmount.toLocaleString('en-PH', { minimumFractionDigits: 0, maximumFractionDigits: 2 })}`}
-              </span>
-            </div>
-            {cleaning.laundry_payment_method && (
-              <div className="flex justify-between text-xs">
-                <span className="text-muted-foreground">Method</span>
-                <span className="text-foreground">{cleaning.laundry_payment_method}</span>
-              </div>
-            )}
-            {cleaning.laundry_payment_reference && (
-              <div className="flex justify-between text-xs">
-                <span className="text-muted-foreground">Reference</span>
-                <span className="text-foreground font-mono text-[11px] break-all text-right ml-3">
-                  {cleaning.laundry_payment_reference}
-                </span>
-              </div>
-            )}
-            {cleaning.laundry_payment_note && (
-              <div className="pt-2 mt-2 border-t border-border">
-                <p className="text-[10px] uppercase tracking-wider text-muted-foreground font-semibold mb-1">Note</p>
-                <p className="text-xs text-foreground whitespace-pre-wrap break-words">{cleaning.laundry_payment_note}</p>
-              </div>
-            )}
-            {cleaning.laundry_paid_at && (
-              <div className="flex justify-between text-[10px] text-muted-foreground pt-2 border-t border-border">
-                <span>Paid at</span>
-                <span className="tabular-nums">{formatDateTime(cleaning.laundry_paid_at)}</span>
-              </div>
-            )}
-          </div>
-        ) : (
-          <p className="text-[11px] italic text-muted-foreground text-center py-2">
-            No laundry payment was recorded.
-          </p>
-        )}
-      </SectionCard>
-
-      {/* Notes */}
-      {cleaning.notes && (
-        <SectionCard title="Notes" icon={Sparkles}>
-          <p className="text-xs text-foreground whitespace-pre-wrap break-words">{cleaning.notes}</p>
-        </SectionCard>
-      )}
+      ))}
     </div>
   )
 }
 
+function LockedSummary({ cleaning }: { cleaning: any }) {
+  const hasAny = ['photos_before', 'photos_after', 'photos_report'].some((k) => Array.isArray(cleaning[k]) && cleaning[k].length > 0)
+  const has = (prefix) =>
+    parseInventory(cleaning[`${prefix}_used_items`]).length > 0 ||
+    parseInventory(cleaning[`${prefix}_replaced_items`]).length > 0 ||
+    cleaning[`${prefix}_used_photo`] || cleaning[`${prefix}_replaced_photo`]
+  const laundryAmount = Number(cleaning.laundry_payment_amount || 0)
+
+  return (
+    <>
+      <DetailSection title="Cleaning photos" icon={ImageIcon}>
+        <div className="p-3 space-y-3">
+          <ReadOnlyPhotoGrid photos={cleaning.photos_before} label="Before" />
+          <ReadOnlyPhotoGrid photos={cleaning.photos_after} label="After" />
+          <ReadOnlyPhotoGrid photos={cleaning.photos_report} label="Report" />
+          {!hasAny && <p className="text-[11px] italic text-foreground text-center py-2">No photos on file</p>}
+        </div>
+      </DetailSection>
+
+      {has('amenities') && (
+        <DetailSection title="Amenities" icon={Coffee}>
+          <ReadOnlyUsedReplaced cleaning={cleaning} prefix="amenities" />
+        </DetailSection>
+      )}
+
+      {has('laundry') && (
+        <DetailSection title="Laundry" icon={Shirt}>
+          <ReadOnlyUsedReplaced cleaning={cleaning} prefix="laundry" />
+        </DetailSection>
+      )}
+
+      <DetailSection title="Laundry payment" icon={Wallet}>
+        <div className="p-3">
+          {laundryAmount > 0 ? (
+            <div className="space-y-0.5">
+              <InfoRow label="Amount">
+                <span className="font-semibold tabular-nums">
+                  {`₱${laundryAmount.toLocaleString('en-PH', { minimumFractionDigits: 0, maximumFractionDigits: 2 })}`}
+                </span>
+              </InfoRow>
+              {cleaning.laundry_payment_method && <InfoRow label="Method">{cleaning.laundry_payment_method}</InfoRow>}
+              {cleaning.laundry_payment_reference && <InfoRow label="Reference"><span className="font-mono">{cleaning.laundry_payment_reference}</span></InfoRow>}
+              {cleaning.laundry_paid_at && <InfoRow label="Paid at"><span className="tabular-nums">{formatDateTime(cleaning.laundry_paid_at)}</span></InfoRow>}
+              {cleaning.laundry_payment_note && (
+                <div className="pt-2 mt-1 border-t border-border">
+                  <p className="text-[10px] uppercase tracking-wider text-foreground font-semibold mb-1">Note</p>
+                  <p className="text-xs text-foreground whitespace-pre-wrap break-words">{cleaning.laundry_payment_note}</p>
+                </div>
+              )}
+            </div>
+          ) : (
+            <p className="text-[11px] italic text-foreground text-center py-1">No laundry payment was recorded.</p>
+          )}
+        </div>
+      </DetailSection>
+
+      {cleaning.notes && (
+        <DetailSection title="Notes" icon={Sparkles}>
+          <p className="p-3 text-xs text-foreground whitespace-pre-wrap break-words">{cleaning.notes}</p>
+        </DetailSection>
+      )}
+    </>
+  )
+}
+
+// ─────────────────────────────────────────────────────────────
+// Editable pieces (until the admin approves the cleaning)
+// ─────────────────────────────────────────────────────────────
+
+function PickPhotoButtons({ onFiles, multiple = false }: { onFiles: (e: any) => void; multiple?: boolean }) {
+  const cameraRef = useRef(null)
+  const galleryRef = useRef(null)
+  const button = 'flex items-center justify-center gap-2 h-10 rounded-md border border-dashed border-border text-foreground text-xs font-medium hover:bg-muted/60 active:bg-muted transition-colors'
+  return (
+    <>
+      <input ref={cameraRef} type="file" accept="image/jpeg,image/png,image/webp" capture="environment" multiple={multiple} className="hidden" onChange={onFiles} />
+      <input ref={galleryRef} type="file" accept="image/jpeg,image/png,image/webp" multiple={multiple} className="hidden" onChange={onFiles} />
+      <div className="grid grid-cols-2 gap-2">
+        <button type="button" onClick={() => cameraRef.current?.click()} className={button}><Camera size={14} /> Take photo</button>
+        <button type="button" onClick={() => galleryRef.current?.click()} className={button}><ImageIcon size={14} /> Gallery</button>
+      </div>
+    </>
+  )
+}
+
+const NEW_TAG = 'text-[9px] font-bold uppercase tracking-wider bg-brand-solid text-white px-1.5 py-0.5 rounded'
+const REMOVE_PHOTO = 'absolute top-1 right-1 w-7 h-7 rounded-full bg-black/60 text-white flex items-center justify-center active:scale-90 transition-transform'
+
 type PhotoGridLocalProps = {
-  label: string
   existing?: any
   newFiles?: any
   limit?: number
@@ -457,16 +394,8 @@ type PhotoGridLocalProps = {
   onRemoveNew: (i: any) => void
 }
 
-// ─────────────────────────────────────────────────────────────
-// EDITABLE COMPONENTS (only shown when NOT completed)
-// ─────────────────────────────────────────────────────────────
-
-function PhotoGridLocal({ label, existing = [], newFiles = [], limit = 15, onAdd, onRemoveExisting, onRemoveNew }: PhotoGridLocalProps) {
-  const cameraRef = useRef(null)
-  const galleryRef = useRef(null)
+function PhotoGridLocal({ existing = [], newFiles = [], limit = 15, onAdd, onRemoveExisting, onRemoveNew }: PhotoGridLocalProps) {
   const total = existing.length + newFiles.length
-  const canUpload = total < limit
-
   const { map: signedMap } = useSignedUrls(existing)
 
   const handleFiles = (e) => {
@@ -480,76 +409,42 @@ function PhotoGridLocal({ label, existing = [], newFiles = [], limit = 15, onAdd
 
   return (
     <div>
-      <div className="flex items-center justify-between mb-2">
-        <p className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground">{label}</p>
-        <span className="text-xs text-muted-foreground tabular-nums">{total}/{limit}</span>
-      </div>
-      {(existing.length > 0 || newFiles.length > 0) && (
+      <p className="text-[11px] text-foreground tabular-nums mb-2">{total} of {limit} photos</p>
+      {total > 0 && (
         <div className="grid grid-cols-3 gap-2 mb-3">
           {existing.map((p, i) => {
             const src = signedMap[p.path]
             return (
               <div key={`e-${p.path || i}`} className="relative aspect-square rounded-md overflow-hidden bg-muted border border-border">
-                {src ? (
-                  <img src={src} alt="" className="w-full h-full object-cover" />
-                ) : (
-                  <PhotoTileSkeleton />
-                )}
-                <button type="button" onClick={() => onRemoveExisting(p)}
-                  className="absolute top-1 right-1 w-7 h-7 rounded-full bg-black/60 text-white flex items-center justify-center active:scale-90 transition-transform">
-                  <X size={14} />
-                </button>
+                {src ? <img src={src} alt="" className="w-full h-full object-cover" /> : <Skeleton className="w-full h-full rounded-none" />}
+                <button type="button" onClick={() => onRemoveExisting(p)} className={REMOVE_PHOTO} aria-label="Remove photo"><X size={14} /></button>
               </div>
             )
           })}
           {newFiles.map((f, i) => (
-            <div key={`n-${i}`} className="relative aspect-square rounded-md overflow-hidden bg-muted border-2 border-dashed border-primary/40">
+            <div key={`n-${i}`} className="relative aspect-square rounded-md overflow-hidden bg-muted border-2 border-dashed border-brand-solid/50">
               <img src={f.preview} alt="" className="w-full h-full object-cover" />
-              <span className="absolute bottom-1 left-1 text-[9px] font-bold uppercase tracking-wider bg-primary text-primary-foreground px-1.5 py-0.5 rounded">NEW</span>
-              <button type="button" onClick={() => onRemoveNew(i)}
-                className="absolute top-1 right-1 w-7 h-7 rounded-full bg-black/60 text-white flex items-center justify-center active:scale-90 transition-transform">
-                <X size={14} />
-              </button>
+              <span className={cn('absolute bottom-1 left-1', NEW_TAG)}>New</span>
+              <button type="button" onClick={() => onRemoveNew(i)} className={REMOVE_PHOTO} aria-label="Remove photo"><X size={14} /></button>
             </div>
           ))}
         </div>
       )}
-      {canUpload && (
-        <>
-          <input ref={cameraRef} type="file" accept="image/jpeg,image/png,image/webp" capture="environment" multiple className="hidden" onChange={handleFiles} />
-          <input ref={galleryRef} type="file" accept="image/jpeg,image/png,image/webp" multiple className="hidden" onChange={handleFiles} />
-          <div className="grid grid-cols-2 gap-2">
-            <button type="button" onClick={() => cameraRef.current?.click()}
-              className="flex items-center justify-center gap-2 py-3 rounded-md border-2 border-dashed border-border text-muted-foreground text-xs font-medium active:bg-muted/50 transition-colors">
-              <Camera size={14} /> Take Photo
-            </button>
-            <button type="button" onClick={() => galleryRef.current?.click()}
-              className="flex items-center justify-center gap-2 py-3 rounded-md border-2 border-dashed border-border text-muted-foreground text-xs font-medium active:bg-muted/50 transition-colors">
-              <ImageIcon size={14} /> Gallery
-            </button>
-          </div>
-        </>
-      )}
+      {total < limit && <PickPhotoButtons onFiles={handleFiles} multiple />}
     </div>
   )
 }
 
 type SinglePhotoLocalProps = {
-  label: string
   existing: any
   newFile: any
-  onPick: any
-  onClear: any
+  onPick: (f: any) => void
+  onClear: () => void
 }
 
-function SinglePhotoLocal({ label, existing, newFile, onPick, onClear }: SinglePhotoLocalProps) {
-  const cameraRef = useRef(null)
-  const galleryRef = useRef(null)
-
+function SinglePhotoLocal({ existing, newFile, onPick, onClear }: SinglePhotoLocalProps) {
   const { url: signedUrl, loading: signedLoading } = useSignedUrl(existing)
-
   const preview = newFile?.preview || signedUrl || null
-  const isNew = !!newFile
 
   const handleFiles = (e) => {
     const f = e.target.files?.[0]
@@ -558,47 +453,23 @@ function SinglePhotoLocal({ label, existing, newFile, onPick, onClear }: SingleP
     if (e.target) e.target.value = ''
   }
 
-  return (
-    <div>
-      <div className="flex items-center justify-between mb-2">
-        <p className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground">{label}</p>
-        {preview && (
-          <button type="button" onClick={onClear} className="text-[10px] font-semibold uppercase tracking-wider text-red-500">Remove</button>
-        )}
+  if (preview) {
+    return (
+      <div className="relative aspect-video rounded-md overflow-hidden bg-muted border border-border">
+        <img src={preview} alt="" className="w-full h-full object-cover" />
+        {newFile && <span className={cn('absolute top-2 left-2', NEW_TAG)}>New</span>}
+        <button type="button" onClick={onClear} className={REMOVE_PHOTO} aria-label="Remove photo"><X size={14} /></button>
       </div>
-      {preview ? (
-        <div className="relative aspect-video rounded-md overflow-hidden bg-muted border border-border">
-          <img src={preview} alt="" className="w-full h-full object-cover" />
-          {isNew && (
-            <span className="absolute top-2 left-2 text-[9px] font-bold uppercase tracking-wider bg-primary text-primary-foreground px-1.5 py-0.5 rounded">NEW</span>
-          )}
-        </div>
-      ) : existing && signedLoading ? (
-        <SinglePhotoSkeleton />
-      ) : (
-        <>
-          <input ref={cameraRef} type="file" accept="image/jpeg,image/png,image/webp" capture="environment" className="hidden" onChange={handleFiles} />
-          <input ref={galleryRef} type="file" accept="image/jpeg,image/png,image/webp" className="hidden" onChange={handleFiles} />
-          <div className="grid grid-cols-2 gap-2">
-            <button type="button" onClick={() => cameraRef.current?.click()}
-              className="flex items-center justify-center gap-2 py-3 rounded-md border-2 border-dashed border-border text-muted-foreground text-xs font-medium active:bg-muted/50 transition-colors">
-              <Camera size={14} /> Take Photo
-            </button>
-            <button type="button" onClick={() => galleryRef.current?.click()}
-              className="flex items-center justify-center gap-2 py-3 rounded-md border-2 border-dashed border-border text-muted-foreground text-xs font-medium active:bg-muted/50 transition-colors">
-              <ImageIcon size={14} /> Gallery
-            </button>
-          </div>
-        </>
-      )}
-    </div>
-  )
+    )
+  }
+  if (existing && signedLoading) return <Skeleton className="aspect-video w-full" />
+  return <PickPhotoButtons onFiles={handleFiles} />
 }
 
 type ListEditorProps = {
   items: any
-  onChange: any
-  placeholder?: any
+  onChange: (items: any) => void
+  placeholder?: string
 }
 
 function ListEditor({ items, onChange, placeholder = 'Item name' }: ListEditorProps) {
@@ -616,43 +487,30 @@ function ListEditor({ items, onChange, placeholder = 'Item name' }: ListEditorPr
   }
 
   const handleRemove = (i) => onChange(items.filter((_, idx) => idx !== i))
-  const handleQtyChange = (i, q) => {
-    const next = items.map((it, idx) => idx === i ? { ...it, quantity: Math.max(0, Math.min(9999, Number(q) || 0)) } : it)
-    onChange(next)
-  }
-  const handleNameChange = (i, n) => {
-    const next = items.map((it, idx) => idx === i ? { ...it, name: n.slice(0, 80) } : it)
-    onChange(next)
-  }
+  const handleQtyChange = (i, q) => onChange(items.map((it, idx) => idx === i ? { ...it, quantity: Math.max(0, Math.min(9999, Number(q) || 0)) } : it))
+  const handleNameChange = (i, n) => onChange(items.map((it, idx) => idx === i ? { ...it, name: n.slice(0, 80) } : it))
 
   return (
     <div className="space-y-2">
-      {items.length === 0 ? (
-        <p className="text-xs text-muted-foreground italic py-2 text-center">No items yet</p>
-      ) : (
-        <div className="space-y-1">
+      {items.length > 0 && (
+        <div className="space-y-1.5">
           {items.map((it, i) => (
-            <div key={i} className="flex items-center gap-2 bg-background rounded border border-border px-3 py-2">
-              <input type="text" value={it.name} maxLength={80} onChange={(e) => handleNameChange(i, e.target.value)}
-                className="flex-1 text-sm bg-transparent border-0 focus:outline-none text-foreground" />
-              <input type="number" min={0} max={9999} value={it.quantity} onChange={(e) => handleQtyChange(i, e.target.value)}
-                className="w-16 text-right text-sm tabular-nums bg-background border border-border rounded px-2 py-1 focus:outline-none focus:ring-2 focus:ring-ring/30" />
-              <button type="button" onClick={() => handleRemove(i)} className="p-1.5 text-muted-foreground active:text-red-500">
+            <div key={i} className="flex items-center gap-2">
+              <Input value={it.name} maxLength={80} onChange={(e) => handleNameChange(i, e.target.value)} aria-label="Item name" className="flex-1 h-9 text-xs rounded-md" />
+              <Input type="number" min={0} max={9999} value={it.quantity} onChange={(e) => handleQtyChange(i, e.target.value)} aria-label="Quantity" className="w-16 h-9 text-xs text-right tabular-nums rounded-md" />
+              <button type="button" onClick={() => handleRemove(i)} className="w-9 h-9 inline-flex items-center justify-center rounded-md text-foreground hover:text-red-600 hover:bg-muted" aria-label="Remove item">
                 <Trash2 size={14} />
               </button>
             </div>
           ))}
         </div>
       )}
-      <div className="flex items-center gap-2 pt-2 border-t border-border">
-        <input type="text" value={name} maxLength={80} onChange={(e) => setName(e.target.value)}
-          onKeyDown={(e) => e.key === 'Enter' && handleAdd()}
-          placeholder={placeholder}
-          className="flex-1 text-sm bg-background border border-border rounded px-3 py-2 focus:outline-none focus:ring-2 focus:ring-ring/30" />
-        <input type="number" min={1} max={9999} value={qty} onChange={(e) => setQty(e.target.value)}
-          onKeyDown={(e) => e.key === 'Enter' && handleAdd()}
-          className="w-16 text-center text-sm bg-background border border-border rounded px-2 py-2 focus:outline-none focus:ring-2 focus:ring-ring/30 tabular-nums" />
-        <button type="button" onClick={handleAdd} className="p-2.5 rounded bg-primary text-primary-foreground active:scale-95 transition-transform">
+      <div className="flex items-center gap-2">
+        <Input value={name} maxLength={80} onChange={(e) => setName(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && handleAdd()}
+          placeholder={placeholder} aria-label="New item name" className="flex-1 h-9 text-xs rounded-md" />
+        <Input type="number" min={1} max={9999} value={qty} onChange={(e) => setQty(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && handleAdd()}
+          aria-label="New item quantity" className="w-16 h-9 text-xs text-center tabular-nums rounded-md" />
+        <button type="button" onClick={handleAdd} className="w-9 h-9 inline-flex items-center justify-center rounded-md bg-brand-solid text-white hover:opacity-90 active:scale-95 transition" aria-label="Add item">
           <Plus size={14} />
         </button>
       </div>
@@ -660,61 +518,50 @@ function ListEditor({ items, onChange, placeholder = 'Item name' }: ListEditorPr
   )
 }
 
-type CategoryCardProps = {
-  title: string
-  Icon: LucideIcon
-  usedPhoto: any
-  replacedPhoto: any
+type UsedReplacedEditorProps = {
+  used: { existing: any; newFile: any }
+  replaced: { existing: any; newFile: any }
   onPickUsed: (f: any) => void
   onPickReplaced: (f: any) => void
   onClearUsed: () => void
   onClearReplaced: () => void
   usedItems: any
   replacedItems: any
-  onUsedItemsChange: (...args: any[]) => any
-  onReplacedItemsChange: (...args: any[]) => any
-  usedPlaceholder: string
-  replacedPlaceholder: string
+  onUsedItemsChange: (items: any) => void
+  onReplacedItemsChange: (items: any) => void
+  placeholder: string
 }
 
-function CategoryCard({ title, Icon, usedPhoto, replacedPhoto, onPickUsed, onPickReplaced, onClearUsed, onClearReplaced,
-  usedItems, replacedItems, onUsedItemsChange, onReplacedItemsChange, usedPlaceholder, replacedPlaceholder }: CategoryCardProps) {
+function UsedReplacedEditor({ used, replaced, onPickUsed, onPickReplaced, onClearUsed, onClearReplaced,
+  usedItems, replacedItems, onUsedItemsChange, onReplacedItemsChange, placeholder }: UsedReplacedEditorProps) {
   return (
-    <div className="rounded-md bg-card border border-border overflow-hidden">
-      <div className="flex items-center gap-2 px-3 py-2 border-b border-border bg-muted/30">
-        <Icon size={13} className="text-muted-foreground" />
-        <h4 className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground">{title}</h4>
+    <div className="divide-y divide-border">
+      <div className="p-3">
+        <SubLabel>Used</SubLabel>
+        <SinglePhotoLocal existing={used.existing} newFile={used.newFile} onPick={onPickUsed} onClear={onClearUsed} />
+        <div className="mt-3"><ListEditor items={usedItems} onChange={onUsedItemsChange} placeholder={placeholder} /></div>
       </div>
-      <div className="p-3 space-y-4">
-        <div>
-          <p className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground mb-2">Used</p>
-          <SinglePhotoLocal label="Photo" existing={usedPhoto?.existing} newFile={usedPhoto?.newFile}
-            onPick={onPickUsed} onClear={onClearUsed} />
-          <div className="mt-3">
-            <ListEditor items={usedItems} onChange={onUsedItemsChange} placeholder={usedPlaceholder} />
-          </div>
-        </div>
-        <div className="border-t border-border" />
-        <div>
-          <p className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground mb-2">Replaced</p>
-          <SinglePhotoLocal label="Photo" existing={replacedPhoto?.existing} newFile={replacedPhoto?.newFile}
-            onPick={onPickReplaced} onClear={onClearReplaced} />
-          <div className="mt-3">
-            <ListEditor items={replacedItems} onChange={onReplacedItemsChange} placeholder={replacedPlaceholder} />
-          </div>
-        </div>
+      <div className="p-3">
+        <SubLabel>Replaced</SubLabel>
+        <SinglePhotoLocal existing={replaced.existing} newFile={replaced.newFile} onPick={onPickReplaced} onClear={onClearReplaced} />
+        <div className="mt-3"><ListEditor items={replacedItems} onChange={onReplacedItemsChange} placeholder={placeholder} /></div>
       </div>
     </div>
   )
 }
 
-type CleaningDetailProps = {
+// ─────────────────────────────────────────────────────────────
+// Detail panel
+// ─────────────────────────────────────────────────────────────
+
+type CleaningPanelProps = {
   cleaning: any
-  onBack: () => void
-  onChanged: () => Promise<void>
+  onClose: () => void
+  onChanged: () => void
 }
 
-function CleaningDetail({ cleaning, onBack, onChanged }: CleaningDetailProps) {
+function CleaningPanel({ cleaning, onClose, onChanged }: CleaningPanelProps) {
+  const panelMotion = useSidePanelMotion(PANEL_WIDTH)
   const [photoTab, setPhotoTab] = useState('before')
   const [submitting, setSubmitting] = useState(false)
 
@@ -788,11 +635,11 @@ function CleaningDetail({ cleaning, onBack, onChanged }: CleaningDetailProps) {
   }, [])
 
   const effective = getEffectiveStatus(cleaning)
-  const meta = STATUS_META[effective] || STATUS_META.scheduled
-  const isLocked = effective === 'completed'
+  const isApproved = effective === 'completed'
+  const isCancelled = effective === 'cancelled'
+  const isLocked = isApproved || isCancelled
 
   const toPreview = (file) => ({ file, preview: URL.createObjectURL(file) })
-
   const handleAddBefore = (files) => setNewBefore((p) => [...p, ...files.map(toPreview)])
   const handleAddAfter = (files) => setNewAfter((p) => [...p, ...files.map(toPreview)])
   const handleAddReport = (files) => setNewReport((p) => [...p, ...files.map(toPreview)])
@@ -806,13 +653,17 @@ function CleaningDetail({ cleaning, onBack, onChanged }: CleaningDetailProps) {
     })
   }
 
+  const handleRemoveExisting = (setter, existingArr) => (photo) => {
+    if (!window.confirm('Remove this photo? It will be deleted when you Submit.')) return
+    setter(existingArr.filter((p) => p.path !== photo.path))
+  }
+
   const handleSubmit = async () => {
-    // ✅ Client-side guard: never submit an approved cleaning.
+    // Never submit an approved or cancelled cleaning.
     if (isLocked) {
-      toast.error('This cleaning has been approved by admin and can no longer be edited.')
+      toast.error(isCancelled ? 'This cleaning was cancelled.' : 'This cleaning has been approved by admin and can no longer be edited.')
       return
     }
-
     const ok = window.confirm('Submit this cleaning? You can still edit after submitting.')
     if (!ok) return
     setSubmitting(true)
@@ -849,272 +700,271 @@ function CleaningDetail({ cleaning, onBack, onChanged }: CleaningDetailProps) {
     }
   }
 
-  const handleRemoveExisting = (setter, existingArr) => (photo) => {
-    if (!window.confirm('Remove this photo? It will be deleted when you Submit.')) return
-    setter(existingArr.filter((p) => p.path !== photo.path))
-  }
-
   const booking = cleaning.bookings
   const unit = cleaning.units
+  const photoTabs = [
+    { id: 'before', label: 'Before' },
+    { id: 'after', label: 'After' },
+    { id: 'report', label: 'Report' },
+  ]
+  const photoCounts = {
+    before: keepBefore.length + newBefore.length,
+    after: keepAfter.length + newAfter.length,
+    report: keepReport.length + newReport.length,
+  }
+  const fieldLabel = 'text-[10px] uppercase tracking-wider text-foreground font-semibold mb-1 block'
 
   return (
-    <div className="min-h-screen bg-muted/30 pb-28">
-      <header className="sticky top-0 z-20 bg-card border-b border-border">
-        <div className="flex items-center gap-3 px-4 py-3">
-          <button onClick={onBack} className="p-2 -ml-2 rounded-full active:bg-muted">
-            <ArrowLeft size={20} className="text-foreground" />
-          </button>
-          <div className="flex-1 min-w-0">
-            <p className="font-mono text-sm font-bold text-foreground truncate">
-              {cleaning.cleaning_code || '—'}
-            </p>
-            <p className="text-[11px] text-muted-foreground truncate mt-0.5">
-              {unit?.unit_code || '—'}
-              {unit?.building ? ` · ${unit.building}` : ''}
-            </p>
-          </div>
-          <span className={cn('inline-flex items-center px-2.5 py-0.5 rounded-full text-[11px] font-semibold', meta.badge)}>
-            {meta.label}
-          </span>
-        </div>
-      </header>
-
-      <div className="p-4 space-y-3">
-        {/* Overview — always shown */}
-        <SectionCard title="Overview" icon={Clock}>
-          <div className="space-y-1">
-            <div className="flex items-center justify-between py-0.5">
-              <span className="text-[10px] uppercase tracking-wider text-muted-foreground font-semibold">Code</span>
-              <span className="text-xs font-mono font-semibold text-foreground">{cleaning.cleaning_code || '—'}</span>
-            </div>
-            <div className="flex items-center justify-between py-0.5">
-              <span className="text-[10px] uppercase tracking-wider text-muted-foreground font-semibold">Type</span>
-              <span className="text-xs font-semibold text-foreground capitalize">{cleaning.type}</span>
-            </div>
-            {booking && (
-              <>
-                <div className="flex items-center justify-between py-0.5">
-                  <span className="text-[10px] uppercase tracking-wider text-muted-foreground font-semibold">Booking</span>
-                  <span className="text-xs font-mono text-foreground">{booking.booking_code}</span>
-                </div>
-                <div className="flex items-center justify-between py-0.5">
-                  <span className="text-[10px] uppercase tracking-wider text-muted-foreground font-semibold">Guest</span>
-                  <span className="text-xs text-foreground truncate ml-3">{booking.guest_name}</span>
-                </div>
-              </>
-            )}
-            {!booking && (
-              <div className="text-xs italic text-muted-foreground text-center py-1">Standalone deep clean</div>
-            )}
-            <div className="flex items-center justify-between py-0.5">
-              <span className="text-[10px] uppercase tracking-wider text-muted-foreground font-semibold">Scheduled</span>
-              <span className="text-xs text-foreground">{formatDateShort(cleaning.scheduled_date)}</span>
-            </div>
-          </div>
-        </SectionCard>
-
-        {isLocked ? (
-          <CompletedSummary cleaning={cleaning} />
-        ) : (
-          <>
-            <div className="rounded-md bg-card border border-border overflow-hidden">
-              <div className="flex items-center gap-2 px-3 py-2 border-b border-border bg-muted/30">
-                <ImageIcon size={13} className="text-muted-foreground" />
-                <h4 className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground">Cleaning Photos</h4>
-              </div>
-              <div className="flex gap-1 p-2 border-b border-border bg-muted/20">
-                {['before', 'after', 'report'].map((t) => {
-                  const existing = t === 'before' ? keepBefore : t === 'after' ? keepAfter : keepReport
-                  const added = t === 'before' ? newBefore : t === 'after' ? newAfter : newReport
-                  const count = existing.length + added.length
-                  return (
-                    <button key={t} onClick={() => setPhotoTab(t)}
-                      className={cn('flex-1 text-[11px] font-semibold py-1.5 rounded-full transition-colors',
-                        photoTab === t ? 'bg-card border border-border text-foreground shadow-sm' : 'text-muted-foreground hover:text-foreground')}>
-                      {t.charAt(0).toUpperCase() + t.slice(1)} ({count})
-                    </button>
-                  )
-                })}
-              </div>
-              <div className="p-3">
-                {photoTab === 'before' && <PhotoGridLocal label="Before" existing={keepBefore} newFiles={newBefore} limit={PHOTO_LIMITS.before} onAdd={handleAddBefore} onRemoveExisting={handleRemoveExisting(setKeepBefore, keepBefore)} onRemoveNew={removeNew(setNewBefore)} />}
-                {photoTab === 'after' && <PhotoGridLocal label="After" existing={keepAfter} newFiles={newAfter} limit={PHOTO_LIMITS.after} onAdd={handleAddAfter} onRemoveExisting={handleRemoveExisting(setKeepAfter, keepAfter)} onRemoveNew={removeNew(setNewAfter)} />}
-                {photoTab === 'report' && <PhotoGridLocal label="Report" existing={keepReport} newFiles={newReport} limit={PHOTO_LIMITS.report} onAdd={handleAddReport} onRemoveExisting={handleRemoveExisting(setKeepReport, keepReport)} onRemoveNew={removeNew(setNewReport)} />}
-              </div>
-            </div>
-
-            <CategoryCard
-              title="Amenities"
-              Icon={Coffee}
-              usedPhoto={{ existing: amenitiesUsedExisting, newFile: amenitiesUsedFile }}
-              replacedPhoto={{ existing: amenitiesReplacedExisting, newFile: amenitiesReplacedFile }}
-              onPickUsed={(f) => setAmenitiesUsedFile({ file: f, preview: URL.createObjectURL(f) })}
-              onPickReplaced={(f) => setAmenitiesReplacedFile({ file: f, preview: URL.createObjectURL(f) })}
-              onClearUsed={() => { setAmenitiesUsedFile(null); setAmenitiesUsedExisting(null) }}
-              onClearReplaced={() => { setAmenitiesReplacedFile(null); setAmenitiesReplacedExisting(null) }}
-              usedItems={amenitiesUsedItems}
-              replacedItems={amenitiesReplacedItems}
-              onUsedItemsChange={setAmenitiesUsedItems}
-              onReplacedItemsChange={setAmenitiesReplacedItems}
-              usedPlaceholder="e.g. Coffee, Water"
-              replacedPlaceholder="e.g. Coffee, Water"
-            />
-
-            <CategoryCard
-              title="Laundry"
-              Icon={Shirt}
-              usedPhoto={{ existing: laundryUsedExisting, newFile: laundryUsedFile }}
-              replacedPhoto={{ existing: laundryReplacedExisting, newFile: laundryReplacedFile }}
-              onPickUsed={(f) => setLaundryUsedFile({ file: f, preview: URL.createObjectURL(f) })}
-              onPickReplaced={(f) => setLaundryReplacedFile({ file: f, preview: URL.createObjectURL(f) })}
-              onClearUsed={() => { setLaundryUsedFile(null); setLaundryUsedExisting(null) }}
-              onClearReplaced={() => { setLaundryReplacedFile(null); setLaundryReplacedExisting(null) }}
-              usedItems={laundryUsedItems}
-              replacedItems={laundryReplacedItems}
-              onUsedItemsChange={setLaundryUsedItems}
-              onReplacedItemsChange={setLaundryReplacedItems}
-              usedPlaceholder="e.g. Bath towel, Bedsheet"
-              replacedPlaceholder="e.g. Bath towel, Bedsheet"
-            />
-
-            <SectionCard title="Laundry Payment (optional)" icon={Wallet}>
-              <p className="text-[10px] text-muted-foreground mb-2">
-                If the laundry shop was paid for replacement, enter the details here. Admin can also fill this in.
+    <motion.div {...panelMotion}>
+      <div className="h-full rounded-md border border-border bg-card shadow-lg overflow-hidden flex flex-col">
+        <div className="flex-shrink-0 px-5 py-4 border-b border-border">
+          <div className="flex items-start gap-3">
+            <div className="min-w-0 flex-1">
+              <p className="font-mono text-sm font-bold text-foreground truncate">{cleaning.cleaning_code || '—'}</p>
+              <p className="text-xs text-foreground truncate mt-0.5">
+                {unit?.unit_code || '—'}
+                {unit?.building ? ` · ${unit.building}` : ''}
               </p>
-              <div className="grid grid-cols-2 gap-3">
-                <div>
-                  <label className="text-[10px] uppercase tracking-wider text-muted-foreground font-semibold mb-1 block">Amount (₱)</label>
-                  <input
-                    type="number" min={0}
-                    value={laundryAmount}
-                    onChange={(e) => setLaundryAmount(e.target.value)}
-                    className="w-full h-8 text-xs bg-background border border-border rounded px-2 focus:outline-none focus:ring-2 focus:ring-ring/30"
-                    placeholder="0"
-                  />
-                </div>
-                <div>
-                  <label className="text-[10px] uppercase tracking-wider text-muted-foreground font-semibold mb-1 block">Method</label>
-                  <input
-                    type="text" maxLength={60}
-                    value={laundryMethod}
-                    onChange={(e) => setLaundryMethod(e.target.value)}
-                    className="w-full h-8 text-xs bg-background border border-border rounded px-2 focus:outline-none focus:ring-2 focus:ring-ring/30"
-                    placeholder="GCash, Cash…"
-                  />
-                </div>
+              <div className="flex items-center gap-3 mt-2 flex-wrap">
+                <TypeText type={cleaning.type} />
+                <StatusText cleaning={cleaning} />
               </div>
-              <div className="grid grid-cols-1 gap-3 mt-3">
-                <div>
-                  <label className="text-[10px] uppercase tracking-wider text-muted-foreground font-semibold mb-1 block">Reference</label>
-                  <input
-                    type="text" maxLength={100}
-                    value={laundryReference}
-                    onChange={(e) => setLaundryReference(e.target.value)}
-                    className="w-full h-8 text-xs bg-background border border-border rounded px-2 focus:outline-none focus:ring-2 focus:ring-ring/30"
-                  />
-                </div>
-                <div>
-                  <label className="text-[10px] uppercase tracking-wider text-muted-foreground font-semibold mb-1 block">Note</label>
-                  <textarea
-                    maxLength={2000}
-                    value={laundryNote}
-                    onChange={(e) => setLaundryNote(e.target.value)}
-                    rows={2}
-                    className="w-full text-xs bg-background border border-border rounded px-2 py-1.5 focus:outline-none focus:ring-2 focus:ring-ring/30 resize-none"
-                  />
-                </div>
-              </div>
-            </SectionCard>
+            </div>
+            <button onClick={onClose} className="p-1 rounded hover:bg-muted text-foreground flex-shrink-0" aria-label="Close"><X size={16} /></button>
+          </div>
+        </div>
 
-            <SectionCard title="Notes" icon={Sparkles}>
-              <textarea maxLength={2000} value={notesDraft} onChange={(e) => setNotesDraft(e.target.value)} rows={3}
-                placeholder="Any notes about this cleaning…"
-                className="w-full text-xs bg-background border border-border rounded px-3 py-2 focus:outline-none focus:ring-2 focus:ring-ring/30 resize-none" />
-            </SectionCard>
+        <div className="flex-1 min-h-0 overflow-y-auto p-4 space-y-4">
+          {isApproved && (
+            <Notice icon={Lock} tone="good" title="Approved by admin · locked">
+              This cleaning is complete and can't be edited. Contact the admin if something needs fixing.
+            </Notice>
+          )}
+          {isCancelled && (
+            <Notice icon={X} tone="bad" title="This cleaning was cancelled">
+              Cancelled cleanings are locked. Nothing to do here.
+            </Notice>
+          )}
+          {effective === 'submitted' && (
+            <Notice icon={Hourglass} title="Submitted · waiting for the admin">
+              You can still fix anything below and resubmit.
+            </Notice>
+          )}
+          {effective === 'scheduled' && (
+            <Notice icon={Clock} title="Guest is still in the unit">
+              Clean after check-out{booking?.check_out ? ` (${formatDate(booking.check_out)})` : ''}.
+            </Notice>
+          )}
 
-            {effective === 'submitted' && (
-              <div className="rounded-md bg-violet-500/10 border border-violet-500/30 p-3">
-                <p className="text-xs text-violet-700 dark:text-violet-300">
-                  Submitted — waiting for admin approval. You can still fix and resubmit.
-                </p>
-              </div>
-            )}
-          </>
+          <DetailSection title="Overview" icon={Clock}>
+            <div className="p-3 space-y-0.5">
+              <InfoRow label="Code"><span className="font-mono font-semibold">{cleaning.cleaning_code || '—'}</span></InfoRow>
+              <InfoRow label="Type"><TypeText type={cleaning.type} /></InfoRow>
+              {booking ? (
+                <>
+                  <InfoRow label="Booking"><span className="font-mono">{booking.booking_code}</span></InfoRow>
+                  <InfoRow label="Guest">{booking.guest_name}</InfoRow>
+                  <InfoRow label="Stay"><span className="tabular-nums">{formatDate(booking.check_in)} → {formatDate(booking.check_out)}</span></InfoRow>
+                </>
+              ) : (
+                <InfoRow label="Booking"><span className="italic">Standalone deep clean</span></InfoRow>
+              )}
+              <InfoRow label="Scheduled">
+                <span className="tabular-nums">{formatDate(cleaning.scheduled_date)}{relativeDay(cleaning.scheduled_date) ? ` · ${relativeDay(cleaning.scheduled_date)}` : ''}</span>
+              </InfoRow>
+            </div>
+          </DetailSection>
+
+          {isLocked ? (
+            <LockedSummary cleaning={cleaning} />
+          ) : (
+            <>
+              <DetailSection title="Cleaning photos" icon={ImageIcon}>
+                <div className="p-3 border-b border-border">
+                  <StatusTabs tabs={photoTabs} value={photoTab} onChange={setPhotoTab} counts={photoCounts} label="Photo set" fill />
+                </div>
+                <div className="p-3">
+                  {photoTab === 'before' && <PhotoGridLocal existing={keepBefore} newFiles={newBefore} limit={PHOTO_LIMITS.before} onAdd={handleAddBefore} onRemoveExisting={handleRemoveExisting(setKeepBefore, keepBefore)} onRemoveNew={removeNew(setNewBefore)} />}
+                  {photoTab === 'after' && <PhotoGridLocal existing={keepAfter} newFiles={newAfter} limit={PHOTO_LIMITS.after} onAdd={handleAddAfter} onRemoveExisting={handleRemoveExisting(setKeepAfter, keepAfter)} onRemoveNew={removeNew(setNewAfter)} />}
+                  {photoTab === 'report' && <PhotoGridLocal existing={keepReport} newFiles={newReport} limit={PHOTO_LIMITS.report} onAdd={handleAddReport} onRemoveExisting={handleRemoveExisting(setKeepReport, keepReport)} onRemoveNew={removeNew(setNewReport)} />}
+                </div>
+              </DetailSection>
+
+              <DetailSection title="Amenities" icon={Coffee}>
+                <UsedReplacedEditor
+                  used={{ existing: amenitiesUsedExisting, newFile: amenitiesUsedFile }}
+                  replaced={{ existing: amenitiesReplacedExisting, newFile: amenitiesReplacedFile }}
+                  onPickUsed={(f) => setAmenitiesUsedFile({ file: f, preview: URL.createObjectURL(f) })}
+                  onPickReplaced={(f) => setAmenitiesReplacedFile({ file: f, preview: URL.createObjectURL(f) })}
+                  onClearUsed={() => { setAmenitiesUsedFile(null); setAmenitiesUsedExisting(null) }}
+                  onClearReplaced={() => { setAmenitiesReplacedFile(null); setAmenitiesReplacedExisting(null) }}
+                  usedItems={amenitiesUsedItems}
+                  replacedItems={amenitiesReplacedItems}
+                  onUsedItemsChange={setAmenitiesUsedItems}
+                  onReplacedItemsChange={setAmenitiesReplacedItems}
+                  placeholder="e.g. Coffee, Water"
+                />
+              </DetailSection>
+
+              <DetailSection title="Laundry" icon={Shirt}>
+                <UsedReplacedEditor
+                  used={{ existing: laundryUsedExisting, newFile: laundryUsedFile }}
+                  replaced={{ existing: laundryReplacedExisting, newFile: laundryReplacedFile }}
+                  onPickUsed={(f) => setLaundryUsedFile({ file: f, preview: URL.createObjectURL(f) })}
+                  onPickReplaced={(f) => setLaundryReplacedFile({ file: f, preview: URL.createObjectURL(f) })}
+                  onClearUsed={() => { setLaundryUsedFile(null); setLaundryUsedExisting(null) }}
+                  onClearReplaced={() => { setLaundryReplacedFile(null); setLaundryReplacedExisting(null) }}
+                  usedItems={laundryUsedItems}
+                  replacedItems={laundryReplacedItems}
+                  onUsedItemsChange={setLaundryUsedItems}
+                  onReplacedItemsChange={setLaundryReplacedItems}
+                  placeholder="e.g. Bath towel, Bedsheet"
+                />
+              </DetailSection>
+
+              <DetailSection title="Laundry payment (optional)" icon={Wallet}>
+                <div className="p-3 space-y-3">
+                  <p className="text-[11px] text-foreground">
+                    If the laundry shop was paid for a replacement, enter it here. The admin can fill this in too.
+                  </p>
+                  <div className="grid grid-cols-2 gap-3">
+                    <div>
+                      <label className={fieldLabel} htmlFor="hk-laundry-amount">Amount (₱)</label>
+                      <Input id="hk-laundry-amount" type="number" min={0} value={laundryAmount} onChange={(e) => setLaundryAmount(e.target.value)} placeholder="0" className="h-9 text-xs rounded-md" />
+                    </div>
+                    <div>
+                      <label className={fieldLabel} htmlFor="hk-laundry-method">Method</label>
+                      <Input id="hk-laundry-method" maxLength={60} value={laundryMethod} onChange={(e) => setLaundryMethod(e.target.value)} placeholder="GCash, Cash…" className="h-9 text-xs rounded-md" />
+                    </div>
+                  </div>
+                  <div>
+                    <label className={fieldLabel} htmlFor="hk-laundry-ref">Reference</label>
+                    <Input id="hk-laundry-ref" maxLength={100} value={laundryReference} onChange={(e) => setLaundryReference(e.target.value)} className="h-9 text-xs rounded-md" />
+                  </div>
+                  <div>
+                    <label className={fieldLabel} htmlFor="hk-laundry-note">Note</label>
+                    <Textarea id="hk-laundry-note" maxLength={2000} value={laundryNote} onChange={(e) => setLaundryNote(e.target.value)} rows={2} className="text-xs rounded-md resize-none" />
+                  </div>
+                </div>
+              </DetailSection>
+
+              <DetailSection title="Notes" icon={Sparkles}>
+                <div className="p-3">
+                  <Textarea maxLength={2000} value={notesDraft} onChange={(e) => setNotesDraft(e.target.value)} rows={3}
+                    placeholder="Anything the admin should know about this cleaning…" aria-label="Notes" className="text-xs rounded-md resize-none" />
+                </div>
+              </DetailSection>
+            </>
+          )}
+        </div>
+
+        {!isLocked && (
+          <div className="flex-shrink-0 border-t border-border p-3">
+            <button type="button" onClick={handleSubmit} disabled={submitting}
+              className="w-full h-10 rounded-md bg-brand-solid text-white font-semibold text-[13px] flex items-center justify-center gap-2 hover:opacity-90 active:scale-[0.99] transition disabled:opacity-50">
+              <Send size={15} />
+              {submitting ? 'Submitting…' : effective === 'submitted' ? 'Resubmit' : 'Submit cleaning'}
+            </button>
+          </div>
         )}
       </div>
-
-      {!isLocked && (
-        <div className="fixed bottom-0 left-0 right-0 p-4 bg-card border-t border-border z-30"
-          style={{ paddingBottom: 'calc(1rem + env(safe-area-inset-bottom, 0px))' }}>
-          <button onClick={handleSubmit} disabled={submitting}
-            className="w-full py-3 rounded-md bg-emerald-600 text-white font-semibold text-sm flex items-center justify-center gap-2 active:scale-[0.98] transition-transform disabled:opacity-50">
-            <Send size={16} />
-            {submitting ? 'Submitting…' : effective === 'submitted' ? 'Resubmit' : 'Submit Cleaning'}
-          </button>
-        </div>
-      )}
-    </div>
+    </motion.div>
   )
 }
 
-type CleaningCardProps = {
+// ─────────────────────────────────────────────────────────────
+// List
+// ─────────────────────────────────────────────────────────────
+
+type TaskRowProps = {
   cleaning: any
+  selected: boolean
   onClick: () => void
 }
 
-function CleaningCard({ cleaning, onClick }: CleaningCardProps) {
-  const effective = getEffectiveStatus(cleaning)
-  const meta = STATUS_META[effective] || STATUS_META.scheduled
+function TaskRow({ cleaning, selected, onClick }: TaskRowProps) {
   const unit = cleaning.units
   const booking = cleaning.bookings
-  const photoCount =
-    (cleaning.photos_before?.length || 0) +
-    (cleaning.photos_after?.length || 0) +
-    (cleaning.photos_report?.length || 0)
-
+  const photos = photoCount(cleaning)
+  const rel = relativeDay(cleaning.scheduled_date)
   return (
-    <button onClick={onClick} className="w-full text-left bg-card border border-border rounded-md p-4 active:bg-muted/50 transition-colors">
-      <div className="flex items-start justify-between gap-3 mb-2">
-        <div className="min-w-0 flex-1">
-          <p className="font-mono text-xs font-bold text-foreground truncate">
-            {cleaning.cleaning_code || '—'}
-          </p>
-          <p className="text-[11px] text-muted-foreground truncate mt-0.5">
-            {unit?.unit_code || '—'}
-            {unit?.building ? ` · ${unit.building}` : ''}
-          </p>
-        </div>
-        <span className={cn('inline-flex items-center px-2.5 py-0.5 rounded-full text-[10px] font-semibold flex-shrink-0', meta.badge)}>
-          {meta.label}
+    <motion.button
+      type="button"
+      onClick={onClick}
+      data-row
+      initial={false}
+      animate={{ backgroundColor: selected ? 'rgba(34, 81, 147, 0.10)' : 'rgba(34, 81, 147, 0)' }}
+      transition={{ duration: 0.22 }}
+      whileHover={{ backgroundColor: selected ? 'rgba(34, 81, 147, 0.14)' : 'rgba(34, 81, 147, 0.05)' }}
+      className={cn('w-full text-left px-4 py-3 border-b border-border cursor-pointer select-none', ROW_GRID)}
+    >
+      <div className="min-w-0">
+        <span className="font-mono text-[12.5px] font-bold text-foreground truncate block">{cleaning.cleaning_code || '—'}</span>
+        <span className="text-[11.5px] text-foreground truncate block">
+          {unit?.unit_code || '—'}
+          {unit?.building ? ` · ${unit.building}` : ''}
         </span>
       </div>
-      <div className="flex items-center gap-2 text-[11px] text-muted-foreground mt-1">
-        <span className="capitalize font-semibold text-foreground">{cleaning.type}</span>
-        {booking && (<><span className="text-muted-foreground/40">·</span><span className="font-mono truncate">{booking.booking_code}</span></>)}
-      </div>
-      <div className="flex items-center justify-between mt-2">
-        <span className="text-[11px] text-muted-foreground">{formatDateShort(cleaning.scheduled_date)}</span>
-        {photoCount > 0 && (
-          <span className="text-[11px] text-muted-foreground flex items-center gap-1"><Camera size={11} />{photoCount}</span>
+      <div className="min-w-0 max-md:col-span-2">
+        {booking ? (
+          <>
+            <span className="font-mono text-[12px] text-foreground truncate block">{booking.booking_code}</span>
+            <span className="text-[11.5px] text-foreground truncate block">
+              {booking.guest_name}{booking.check_out ? ` · out ${formatDate(booking.check_out)}` : ''}
+            </span>
+          </>
+        ) : (
+          <span className="text-[11.5px] italic text-foreground">Standalone</span>
         )}
       </div>
-    </button>
+      <div className="min-w-0"><TypeText type={cleaning.type} /></div>
+      <div className="min-w-0 tabular-nums">
+        <span className="text-[12.5px] font-medium text-foreground truncate block">{formatDate(cleaning.scheduled_date)}</span>
+        <span className="text-[11.5px] text-foreground truncate block">
+          {[rel, photos > 0 ? `${photos} photo${photos === 1 ? '' : 's'}` : ''].filter(Boolean).join(' · ')}
+        </span>
+      </div>
+      <div className="flex items-center justify-end min-w-0">
+        <StatusText cleaning={cleaning} />
+      </div>
+    </motion.button>
   )
 }
+
+const STATUS_TABS = [
+  { id: 'all', label: 'All' },
+  { id: 'ready', label: 'Ready' },
+  { id: 'scheduled', label: 'Scheduled' },
+  { id: 'submitted', label: 'Submitted' },
+  { id: 'completed', label: 'Approved' },
+]
 
 export default function HousekeeperTasksPage() {
   const navigate = useNavigate()
   const { signOut } = useAuth()
+  const { isDark, toggleTheme } = useTheme()
   const { housekeeper } = useUserRole()
+  const listCap = useListCap()
+  const rootRef = useRef<HTMLDivElement>(null)
+  const searchRef = useRef(null)
+
   const [cleanings, setCleanings] = useState([])
   const [loading, setLoading] = useState(true)
-  const [selectedId, setSelectedId] = useState(null)
+  const [refreshing, setRefreshing] = useState(false)
   const [fetchError, setFetchError] = useState(null)
+  const [selectedId, setSelectedId] = useState(null)
+  const [statusFilter, setStatusFilter] = useState('all')
+  const [search, setSearch] = useState('')
+  const [sort, setSort] = useState({ key: 'status', dir: 'asc' })
+  const [now] = useState(() => new Date())
+  const hasLoaded = useRef(false)
 
-  const fetchData = useCallback(async (hkId) => {
+  const fetchData = useCallback(async (hkId?) => {
     const id = hkId || housekeeper?.id
     if (!id) { setCleanings([]); setLoading(false); return }
-    setLoading(true); setFetchError(null)
+    if (hasLoaded.current) setRefreshing(true)
+    else setLoading(true)
+    setFetchError(null)
     try {
       const { data, error } = await supabase
         .from('cleanings')
@@ -1123,10 +973,14 @@ export default function HousekeeperTasksPage() {
         .order('scheduled_date', { ascending: true, nullsFirst: false })
       if (error) throw error
       setCleanings(data || [])
+      hasLoaded.current = true
     } catch (err) {
       console.error('Fetch cleanings failed:', err)
       setFetchError(err?.message || 'Failed to load')
-    } finally { setLoading(false) }
+    } finally {
+      setLoading(false)
+      setRefreshing(false)
+    }
   }, [housekeeper?.id])
 
   useEffect(() => {
@@ -1144,53 +998,184 @@ export default function HousekeeperTasksPage() {
     return () => { supabase.removeChannel(channel) }
   }, [housekeeper?.id, fetchData])
 
+  const closePanel = useCallback(() => setSelectedId(null), [])
+  useListShortcuts({ searchRef, onEscape: closePanel })
+
+  const counts = useMemo(() => {
+    const c = { all: cleanings.length, ready: 0, scheduled: 0, submitted: 0, completed: 0, cancelled: 0 }
+    for (const x of cleanings) c[getEffectiveStatus(x)]++
+    return c
+  }, [cleanings])
+
+  const tabs = counts.cancelled > 0 ? [...STATUS_TABS, { id: 'cancelled', label: 'Cancelled' }] : STATUS_TABS
+
+  const sorted = useMemo(() => {
+    const q = search.trim().toLowerCase()
+    const rows = cleanings.filter((c) => {
+      if (statusFilter !== 'all' && getEffectiveStatus(c) !== statusFilter) return false
+      if (!q) return true
+      return [c.cleaning_code, c.units?.unit_code, c.units?.building, c.bookings?.booking_code, c.bookings?.guest_name, c.type]
+        .some((v) => String(v || '').toLowerCase().includes(q))
+    })
+    const value = SORT_VALUE[sort.key] || SORT_VALUE.status
+    const dir = sort.dir === 'asc' ? 1 : -1
+    return rows.sort((a, b) => {
+      const va = value(a), vb = value(b)
+      if (va < vb) return -dir
+      if (va > vb) return dir
+      return String(a.scheduled_date || '').localeCompare(String(b.scheduled_date || ''))
+    })
+  }, [cleanings, statusFilter, search, sort])
+
+  const onSort = (key) => setSort((s) => nextSort(s, key, SORT_DEFAULT_DIR))
+  const pick = (id) => setStatusFilter((cur) => (cur === id ? 'all' : id))
   const selected = cleanings.find((c) => c.id === selectedId) || null
 
-  if (selected) {
-    return <CleaningDetail cleaning={selected} onBack={() => setSelectedId(null)} onChanged={() => fetchData(housekeeper?.id)} />
-  }
+  const firstName = (housekeeper?.name || '').trim().split(/\s+/)[0]
+  const summary = [
+    counts.ready > 0 && `${counts.ready} ready to clean`,
+    counts.scheduled > 0 && `${counts.scheduled} scheduled`,
+    counts.submitted > 0 && `${counts.submitted} waiting for review`,
+  ].filter(Boolean).join(' · ') || (loading ? ' ' : 'Nothing to clean right now')
+
+  const chips = []
+  if (statusFilter !== 'all') chips.push({ key: 'status', label: tabs.find((t) => t.id === statusFilter)?.label || statusFilter, onRemove: () => setStatusFilter('all') })
+  if (search.trim()) chips.push({ key: 'search', label: `"${search.trim()}"`, onRemove: () => setSearch('') })
+
+  const headerButton = 'inline-flex items-center justify-center gap-1.5 h-8 rounded-md border border-border text-[12px] font-medium text-foreground transition-colors hover:bg-black/[0.04] dark:hover:bg-white/[0.06]'
 
   return (
-    <div className="min-h-screen bg-muted/30 pb-8">
-      <header className="sticky top-0 z-20 bg-card border-b border-border">
-        <div className="flex items-center justify-between px-4 py-3 gap-2">
-          <div className="flex items-center gap-2 min-w-0 flex-1">
-            <HousekeeperAvatar name={housekeeper?.name} photo_url={housekeeper?.photo_url} size="md" />
-            <div className="min-w-0 flex-1">
-              <p className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground">Housekeeping</p>
-              <p className="text-sm font-semibold text-foreground truncate">{housekeeper?.name || 'Tasks'}</p>
-            </div>
-          </div>
-          <button onClick={() => navigate('/')} className="p-2 rounded-md active:bg-muted" title="Back to main site"><Home size={16} className="text-muted-foreground" /></button>
-          <button onClick={async () => { await signOut(); navigate('/') }} className="text-[11px] font-medium text-muted-foreground hover:text-red-500 active:text-red-500 px-2 py-2">Sign out</button>
+    <div className="fixed inset-0 flex flex-col bg-white dark:bg-[#070a12] text-foreground">
+      <header className="flex-shrink-0 h-14 flex items-center justify-between gap-3 px-4 md:px-5 border-b border-[#e1e7ef] dark:border-white/[0.07] bg-white dark:bg-[#0f131c]">
+        <div className="flex items-center gap-2.5 min-w-0">
+          <Sparkles size={18} strokeWidth={1.75} className="text-foreground flex-shrink-0" />
+          <h2 className="text-[15px] font-semibold text-foreground truncate tracking-tight">Housekeeping tasks</h2>
+          <span className="hidden md:inline text-[11px] text-foreground tabular-nums whitespace-nowrap ml-1">
+            <span className="mx-1.5">·</span>
+            {now.toLocaleDateString('en-PH', { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric' })}
+          </span>
+        </div>
+        <div className="flex items-center gap-2 flex-shrink-0">
+          <button onClick={() => navigate('/')} className={cn(headerButton, 'w-8 sm:w-auto sm:px-3')} aria-label="Back to site" title="Back to site">
+            <ArrowLeft size={13} className="hidden sm:block" />
+            <Home size={14} className="sm:hidden" />
+            <span className="hidden sm:inline">Back to site</span>
+          </button>
+          <button onClick={toggleTheme} className={cn(headerButton, 'w-8')} aria-label="Toggle theme" title={isDark ? 'Light mode' : 'Dark mode'}>
+            {isDark ? <Sun size={14} /> : <Moon size={14} />}
+          </button>
+          <button onClick={async () => { await signOut(); navigate('/') }} className={cn(headerButton, 'w-8 sm:w-auto sm:px-3 hover:text-red-600')} aria-label="Sign out" title="Sign out">
+            <LogOut size={13} />
+            <span className="hidden sm:inline">Sign out</span>
+          </button>
         </div>
       </header>
 
-      <main className="p-4 space-y-3">
-        {loading ? (
-          <TaskListSkeleton />
-        ) : fetchError ? (
-          <div className="text-center py-16 px-4">
-            <AlertTriangle className="w-12 h-12 text-red-300 mx-auto mb-3" />
-            <p className="text-sm font-medium text-red-500">Failed to load</p>
-            <p className="text-xs text-muted-foreground mt-1 break-words">{fetchError}</p>
+      <div ref={rootRef} className="flex-1 min-h-0 flex relative">
+        <div data-page-scroll className="flex-1 min-w-0 overflow-y-auto">
+          <div className="px-4 py-4 md:px-8 md:py-6 max-w-[1600px] mx-auto flex flex-col gap-4">
+            <div className="min-w-0">
+              <h1 className="text-[22px] font-semibold text-foreground tracking-tight leading-tight">
+                {greetingFor(now)}{firstName ? `, ${firstName}` : ''}
+              </h1>
+              <p className="text-[12.5px] text-foreground mt-1 truncate">{summary}</p>
+            </div>
+
+            {fetchError ? (
+              <div className="rounded-md border border-border bg-card shadow-sm text-center py-14 px-4">
+                <AlertTriangle size={32} className="text-red-600 dark:text-red-400 mx-auto mb-3" />
+                <p className="text-sm font-semibold text-red-600 dark:text-red-400">Couldn't load your cleanings</p>
+                <p className="text-xs text-foreground mt-1 break-words">{fetchError}</p>
+                <button type="button" onClick={() => fetchData()} className="mt-4 inline-flex items-center gap-1.5 h-8 px-3 rounded-md border border-border text-xs font-semibold text-foreground hover:bg-muted">
+                  <RefreshCw size={12} /> Try again
+                </button>
+              </div>
+            ) : !loading && !housekeeper ? (
+              <div className="rounded-md border border-border bg-card shadow-sm text-center py-14 px-4">
+                <AlertTriangle size={32} className="text-foreground mx-auto mb-3" />
+                <p className="text-sm font-semibold text-foreground">Account not linked</p>
+                <p className="text-xs text-foreground mt-1">Ask the admin to link your account to your housekeeper profile.</p>
+              </div>
+            ) : (
+              <>
+                <StatStrip cols={4}>
+                  <StatTile icon={DoorOpen} label="Ready to clean" value={counts.ready} loading={loading}
+                    sub={counts.ready > 0 ? 'Guest has left · clean these next' : 'Nothing waiting'}
+                    attention={counts.ready > 0} active={statusFilter === 'ready'} onClick={() => pick('ready')} />
+                  <StatTile icon={Clock} label="Scheduled" value={counts.scheduled} loading={loading}
+                    sub="Guest still in the unit" active={statusFilter === 'scheduled'} onClick={() => pick('scheduled')} />
+                  <StatTile icon={Hourglass} label="Submitted" value={counts.submitted} loading={loading}
+                    sub="Waiting for admin review" active={statusFilter === 'submitted'} onClick={() => pick('submitted')} />
+                  <StatTile icon={CheckCircle2} label="Approved" value={counts.completed} loading={loading}
+                    sub="Done and locked" active={statusFilter === 'completed'} onClick={() => pick('completed')} />
+                </StatStrip>
+
+                <div className="flex items-center gap-2">
+                  <div className="relative flex-1 min-w-0">
+                    <Search size={13} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-foreground" />
+                    <Input ref={searchRef} placeholder="Search code, unit, booking, guest…" value={search} onChange={(e) => setSearch(e.target.value)} className="pl-8 pr-9 h-8 text-xs rounded" />
+                    {!search && <SearchKeyHint />}
+                  </div>
+                  <button type="button" onClick={() => fetchData()} disabled={refreshing || loading} className="h-8 w-8 inline-flex items-center justify-center rounded border border-border bg-card text-foreground hover:bg-muted disabled:opacity-60" aria-label="Refresh" title="Refresh">
+                    <RefreshCw size={13} className={cn(refreshing && 'animate-spin')} />
+                  </button>
+                </div>
+
+                <StatusTabs tabs={tabs} value={statusFilter} onChange={setStatusFilter} counts={counts} label="Filter cleanings by status" />
+
+                {!loading && (
+                  <ResultsBar shown={sorted.length} total={cleanings.length} noun={cleanings.length === 1 ? 'cleaning' : 'cleanings'}
+                    chips={chips} onClearAll={() => { setStatusFilter('all'); setSearch('') }} hint="Click a column to sort · Press / to search" />
+                )}
+
+                <div className="rounded-md border border-border shadow-sm overflow-hidden bg-card">
+                  <div {...listCap} className="overflow-y-auto">
+                    <MobileSort
+                      options={[{ key: 'code', label: 'Code · Unit' }, { key: 'booking', label: 'Booking' }, { key: 'type', label: 'Type' }, { key: 'scheduled', label: 'Scheduled' }, { key: 'status', label: 'Status' }]}
+                      sort={sort}
+                      onSort={onSort}
+                      className="sticky top-0 z-10"
+                    />
+                    <div className={cn('sticky top-0 z-10 px-4 py-2.5 border-b border-border bg-card max-md:hidden', ROW_GRID)}>
+                      <SortHeader label="Code · Unit" sortKey="code" sort={sort} onSort={onSort} />
+                      <SortHeader label="Booking" sortKey="booking" sort={sort} onSort={onSort} />
+                      <SortHeader label="Type" sortKey="type" sort={sort} onSort={onSort} />
+                      <SortHeader label="Scheduled" sortKey="scheduled" sort={sort} onSort={onSort} />
+                      <SortHeader label="Status" sortKey="status" sort={sort} onSort={onSort} align="right" />
+                    </div>
+
+                    {loading ? (
+                      <div className="space-y-2 p-3">{[...Array(4)].map((_, i) => <Skeleton key={i} className="h-14 w-full" />)}</div>
+                    ) : sorted.length === 0 ? (
+                      <div className="text-center py-12 px-4">
+                        <Sparkles size={32} strokeWidth={1.5} className="text-foreground mx-auto mb-3" />
+                        <p className="text-sm font-semibold text-foreground">
+                          {cleanings.length === 0 ? 'No cleanings assigned to you' : 'No cleanings match'}
+                        </p>
+                        <p className="text-xs text-foreground mt-1">
+                          {cleanings.length === 0 ? "You're all caught up. New ones show up here as soon as they're assigned." : 'Try another status or clear the search.'}
+                        </p>
+                      </div>
+                    ) : (
+                      sorted.map((c) => (
+                        <TaskRow key={c.id} cleaning={c} selected={selectedId === c.id} onClick={() => setSelectedId((id) => (id === c.id ? null : c.id))} />
+                      ))
+                    )}
+                  </div>
+                </div>
+              </>
+            )}
           </div>
-        ) : !housekeeper ? (
-          <div className="text-center py-16">
-            <AlertTriangle className="w-12 h-12 text-muted-foreground/40 mx-auto mb-3" />
-            <p className="text-sm font-medium text-muted-foreground">Account not linked</p>
-            <p className="text-xs text-muted-foreground mt-1">Contact your administrator</p>
-          </div>
-        ) : cleanings.length === 0 ? (
-          <div className="text-center py-16">
-            <Sparkles className="w-12 h-12 text-muted-foreground/40 mx-auto mb-3" />
-            <p className="text-sm font-medium text-muted-foreground">No cleanings assigned</p>
-            <p className="text-xs text-muted-foreground mt-1">You're all caught up</p>
-          </div>
-        ) : (
-          cleanings.map((c) => <CleaningCard key={c.id} cleaning={c} onClick={() => setSelectedId(c.id)} />)
-        )}
-      </main>
+        </div>
+
+        <AnimatePresence initial={false}>
+          {selected && (
+            <CleaningPanel key="panel" cleaning={selected} onClose={closePanel} onChanged={() => fetchData()} />
+          )}
+        </AnimatePresence>
+
+        <PageScrollHelper rootRef={rootRef} bottom="20px" />
+      </div>
     </div>
   )
 }

@@ -21,6 +21,7 @@ import { InquiryNotifications } from '../../components/admin/InquiryNotification
 import ContractAlertBar from '../../components/admin/ContractAlertBar'
 import { useContractAlerts } from '../../hooks/useContractAlerts'
 import { useIsPhone } from '../../hooks/useIsPhone'
+import { PageScrollHelper } from '../../components/admin/_shared/PageScrollHelper'
 
 // ─────────────────────────────────────────────────────────────
 // Lazy pages
@@ -349,6 +350,7 @@ export default function AdminDashboardPage() {
   const contentPush = sidebarCollapsed ? 0 : SIDEBAR_PUSH_DELTA
   // Phones: no rail; a bottom tab bar, with the page full width above it.
   const phone = useIsPhone()
+  const contentRef = useRef<HTMLDivElement>(null)
 
   const surface = isDark ? C.surfaceDark : C.surface
   const border = isDark ? C.borderDark : C.border
@@ -492,6 +494,7 @@ export default function AdminDashboardPage() {
           )}
 
           <div
+            ref={contentRef}
             className="flex-1 min-h-0 relative"
             style={{
               backgroundColor: isDark ? C.pageBgDark : C.pageBg,
@@ -519,6 +522,10 @@ export default function AdminDashboardPage() {
                 </Suspense>
               </motion.div>
             </AnimatePresence>
+            <PageScrollHelper
+              rootRef={contentRef}
+              bottom={phone ? `calc(${MOBILE_NAV_HEIGHT + 12}px + env(safe-area-inset-bottom, 0px))` : '20px'}
+            />
           </div>
         </div>
       </div>

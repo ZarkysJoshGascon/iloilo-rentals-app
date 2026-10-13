@@ -1357,7 +1357,7 @@ export default function DashboardPage() {
       ].filter(Boolean).join(' · ')
 
   return (
-    <div className={cn('h-full overflow-y-auto', CHART_VARS)}>
+    <div data-page-scroll className={cn('h-full overflow-y-auto', CHART_VARS)}>
       <div className="px-4 py-4 md:px-8 md:py-6 max-w-[1600px] mx-auto space-y-4 pb-10">
 
         {/* Header */}

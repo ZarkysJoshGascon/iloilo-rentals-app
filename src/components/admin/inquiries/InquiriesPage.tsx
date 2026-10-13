@@ -15,7 +15,7 @@ import { listInquiries, updateInquiry, deleteInquiry } from '@/lib/inquiries'
 import { StatusTabs } from '@/components/admin/_shared/StatusTabs'
 import { StatStrip, StatTile } from '@/components/admin/_shared/StatStrip'
 import { InitialsAvatar } from '@/components/admin/_shared/Panel'
-import { SortHeader, nextSort, ResultsBar, SearchKeyHint, useListShortcuts, CARD_ON_PHONE, MobileSort, useSidePanelMotion } from '@/components/admin/_shared/listTools'
+import { SortHeader, nextSort, ResultsBar, SearchKeyHint, useListShortcuts, CARD_ON_PHONE, MobileSort, useSidePanelMotion, useListCap } from '@/components/admin/_shared/listTools'
 import { DateRangeFilter } from '@/components/admin/_shared/DateRangeFilter'
 import type { ReactNode } from 'react'
 import type { LucideIcon } from 'lucide-react'
@@ -156,6 +156,7 @@ function InquiryRow({ inquiry, selected, onClick }: InquiryRowProps) {
       }}
       transition={{ duration: 0.22 }}
       whileHover={{ backgroundColor: selected ? 'rgba(34, 81, 147, 0.14)' : 'rgba(34, 81, 147, 0.05)' }}
+      data-row
       className={cn('w-full text-left px-4 py-3 border-b border-border cursor-pointer select-none', ROW_GRID)}
     >
       <div className="flex items-center gap-2.5 min-w-0">
@@ -184,6 +185,7 @@ function InquiryRow({ inquiry, selected, onClick }: InquiryRowProps) {
 }
 
 export default function InquiriesPage() {
+  const listCap = useListCap()
   const [inquiries, setInquiries] = useState([])
   const [loading, setLoading] = useState(true)
   const [refreshing, setRefreshing] = useState(false)
@@ -334,7 +336,7 @@ export default function InquiriesPage() {
   return (
     <div className="h-full flex min-h-0">
       <div className="flex-1 min-h-0 flex flex-col overflow-hidden">
-        <div className="px-4 py-4 md:px-8 md:py-6 flex-1 min-h-0 flex flex-col gap-4">
+        <div data-page-scroll className="px-4 py-4 md:px-8 md:py-6 flex-1 min-h-0 flex flex-col gap-4 overflow-y-auto [&>*]:flex-shrink-0">
           <div className="flex-shrink-0">
             <SummaryCards inquiries={inquiries} active={statusFilter} onSelect={setStatusFilter} />
           </div>
@@ -382,8 +384,8 @@ export default function InquiriesPage() {
             />
           )}
 
-          <div className="flex-1 min-h-0 rounded-md border border-border shadow-sm overflow-hidden bg-card">
-            <div className="h-full overflow-y-auto" style={{ scrollbarGutter: 'stable' }}>
+          <div className="rounded-md border border-border shadow-sm overflow-hidden bg-card">
+            <div {...listCap} className="overflow-y-auto">
               <MobileSort
                 options={[{ key: 'owner', label: 'Owner' }, { key: 'property', label: 'Property' }, { key: 'intent', label: 'Intent' }, { key: 'received', label: 'Received' }, { key: 'status', label: 'Status' }]}
                 sort={sort}

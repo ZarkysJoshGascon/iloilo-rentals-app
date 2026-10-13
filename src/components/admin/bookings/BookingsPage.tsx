@@ -38,7 +38,7 @@ import {
 import { sendBookingConfirmation } from '@/lib/email'
 import BookingConfirmationModal from './BookingConfirmationModal'
 import { ContextMenu } from '@/components/ui/ContextMenu'
-import { SortHeader, nextSort, ResultsBar, SearchKeyHint, useListShortcuts, CARD_ON_PHONE, MobileSort, useSidePanelMotion } from '@/components/admin/_shared/listTools'
+import { SortHeader, nextSort, ResultsBar, SearchKeyHint, useListShortcuts, CARD_ON_PHONE, MobileSort, useSidePanelMotion, useListCap } from '@/components/admin/_shared/listTools'
 import { Panel, PanelHeader, SectionLabel, InitialsAvatar } from '@/components/admin/_shared/Panel'
 import { StatStrip, StatTile } from '@/components/admin/_shared/StatStrip'
 import { StatusTabs } from '@/components/admin/_shared/StatusTabs'
@@ -1507,6 +1507,7 @@ function BookingListRow({ booking, contracts, selected, highlighted, onClick, on
       <motion.button
         type="button"
         data-booking-id={booking.id}
+        data-row
         onClick={onClick}
         initial={false}
         animate={{
@@ -2679,6 +2680,7 @@ type BookingsPageProps = {
 }
 
 export default function BookingsPage({ initialSelectedId }: BookingsPageProps) {
+  const listCap = useListCap()
   const navigate = useNavigate()
   const [bookings, setBookings] = useState([])
   const [units, setUnits] = useState([])
@@ -2949,7 +2951,7 @@ export default function BookingsPage({ initialSelectedId }: BookingsPageProps) {
 
   return (
     <div className="h-full flex min-h-0">
-      <div className="flex-1 min-h-0 flex flex-col px-4 py-4 md:px-8 md:py-6 gap-4 overflow-y-auto">
+      <div data-page-scroll className="flex-1 min-h-0 flex flex-col px-4 py-4 md:px-8 md:py-6 gap-4 overflow-y-auto [&>*]:flex-shrink-0">
 
         <div className="flex-shrink-0 pt-1 pb-2">
           <SummaryCards bookings={bookings} active={statusFilter} onSelect={setStatusFilter} />
@@ -2991,7 +2993,7 @@ export default function BookingsPage({ initialSelectedId }: BookingsPageProps) {
           />
         )}
 
-        <div className="flex-1 min-h-[420px] rounded-md border border-border shadow-sm overflow-hidden bg-card flex flex-col">
+        <div className="rounded-md border border-border shadow-sm overflow-hidden bg-card flex flex-col">
           <MobileSort
             options={[{ key: 'guest', label: 'Guest' }, { key: 'code', label: 'Code' }, { key: 'unit', label: 'Unit' }, { key: 'checkin', label: 'Check-in → Check-out' }, { key: 'payment', label: 'Payment' }, { key: 'status', label: 'Status' }]}
             sort={sort}
@@ -3007,7 +3009,7 @@ export default function BookingsPage({ initialSelectedId }: BookingsPageProps) {
             <SortHeader label="Status" sortKey="status" sort={sort} onSort={onSort} align="right" />
           </div>
 
-          <div className="flex-1 min-h-0 overflow-y-auto" style={{ scrollbarGutter: 'stable' }}>
+          <div {...listCap} className="overflow-y-auto">
             {isFirstLoad ? (
               <div className="space-y-2 p-3">{[...Array(5)].map((_, i) => <Skeleton key={i} className="h-14 w-full" />)}</div>
             ) : sorted.length === 0 ? (

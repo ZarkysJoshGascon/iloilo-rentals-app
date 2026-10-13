@@ -30,7 +30,7 @@ import {
   purgeCleaningPhotos,
 } from '@/lib/cleanings'
 import { ContextMenu } from '@/components/ui/ContextMenu'
-import { SortHeader, nextSort, ResultsBar, SearchKeyHint, useListShortcuts, CARD_ON_PHONE, MobileSort, useSidePanelMotion } from '@/components/admin/_shared/listTools'
+import { SortHeader, nextSort, ResultsBar, SearchKeyHint, useListShortcuts, CARD_ON_PHONE, MobileSort, useSidePanelMotion, useListCap } from '@/components/admin/_shared/listTools'
 import { Panel, PanelHeader, SectionLabel, InitialsAvatar } from '@/components/admin/_shared/Panel'
 import { StatStrip, StatTile } from '@/components/admin/_shared/StatStrip'
 import { StatusTabs } from '@/components/admin/_shared/StatusTabs'
@@ -2194,6 +2194,7 @@ function CleaningListRow({ cleaning, selected, highlighted, onClick, onViewBooki
       <motion.button
         type="button"
         data-cleaning-id={cleaning.id}
+        data-row
         onClick={onClick}
         initial={false}
         animate={{
@@ -2256,6 +2257,7 @@ type HousekeepingPageProps = {
 }
 
 export default function HousekeepingPage({ initialSelectedId, fromBookingId }: HousekeepingPageProps) {
+  const listCap = useListCap()
   const navigate = useNavigate()
   const [cleanings, setCleanings] = useState([])
   const [units, setUnits] = useState([])
@@ -2536,7 +2538,7 @@ export default function HousekeepingPage({ initialSelectedId, fromBookingId }: H
 
   return (
     <div className="h-full flex min-h-0">
-      <div className="flex-1 min-h-0 flex flex-col px-4 py-4 md:px-8 md:py-6 gap-4 overflow-y-auto">
+      <div data-page-scroll className="flex-1 min-h-0 flex flex-col px-4 py-4 md:px-8 md:py-6 gap-4 overflow-y-auto [&>*]:flex-shrink-0">
 
         <div className="flex-shrink-0 pt-1 pb-2">
           <SummaryCards cleanings={cleanings} active={statusFilter} onSelect={setStatusFilter} />
@@ -2583,7 +2585,7 @@ export default function HousekeepingPage({ initialSelectedId, fromBookingId }: H
           />
         )}
 
-        <div className="flex-1 min-h-[420px] rounded-md border border-border shadow-sm overflow-hidden bg-card flex flex-col">
+        <div className="rounded-md border border-border shadow-sm overflow-hidden bg-card flex flex-col">
           <MobileSort
             options={[{ key: 'code', label: 'Code · Unit' }, { key: 'booking', label: 'Booking' }, { key: 'type', label: 'Type' }, { key: 'housekeeper', label: 'Housekeeper' }, { key: 'scheduled', label: 'Scheduled' }, { key: 'status', label: 'Status' }]}
             sort={sort}
@@ -2599,7 +2601,7 @@ export default function HousekeepingPage({ initialSelectedId, fromBookingId }: H
             <SortHeader label="Status" sortKey="status" sort={sort} onSort={onSort} align="right" />
           </div>
 
-          <div className="flex-1 min-h-0 overflow-y-auto" style={{ scrollbarGutter: 'stable' }}>
+          <div {...listCap} className="overflow-y-auto">
             {isFirstLoad ? (
               <div className="space-y-2 p-3">{[...Array(5)].map((_, i) => <Skeleton key={i} className="h-14 w-full" />)}</div>
             ) : sorted.length === 0 ? (

@@ -2,8 +2,9 @@
 // Small helpers shared by the CRM lists: sortable column headers, the
 // "Showing X of Y" line with removable filters, keyboard shortcuts (/ to
 // search, Esc to close the detail panel), and the phone layout (rows as
-// cards, a sort picker in place of the headers, full-screen detail panels).
-import { useEffect } from 'react'
+// cards, a sort picker in place of the headers, full-screen detail panels)
+// and the row cap that gives every list the same height.
+import { useEffect, useLayoutEffect, useState, type CSSProperties } from 'react'
 import { ArrowDown, ArrowUp, ChevronDown, ChevronUp, ChevronsUpDown, X } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { useIsPhone } from '@/hooks/useIsPhone'
@@ -56,6 +57,53 @@ export function MobileSort({ options, sort, onSort, className }: MobileSortProps
       </button>
     </div>
   )
+}
+
+// A list shows this many rows, then scrolls inside itself.
+const LIST_ROWS = { phone: 4, desktop: 8 }
+// How much of the next row stays visible, so the list reads as scrollable.
+const ROW_PEEK = 28
+// Screen height kept free for the page around a list (app header, bottom
+// tabs on phones, and a band of page), so the page can always be scrolled
+// past it.
+const PAGE_ROOM = { phone: 236, desktop: 176 }
+
+/**
+ * Caps a list's scroll box at N rows plus a peek of the next one; shorter
+ * lists just fit their rows. Rows are the elements marked `data-row`. Spread
+ * the result onto the scrolling element (it brings its own style):
+ * `<div {...listCap} className="overflow-y-auto">`
+ */
+export function useListCap(rows?: number) {
+  const phone = useIsPhone()
+  const n = rows ?? (phone ? LIST_ROWS.phone : LIST_ROWS.desktop)
+  const [el, setEl] = useState<HTMLElement | null>(null)
+  const [cap, setCap] = useState<number | null>(null)
+
+  useLayoutEffect(() => {
+    if (!el) return
+    let frame = 0
+    const measure = () => {
+      cancelAnimationFrame(frame)
+      frame = requestAnimationFrame(() => {
+        const items = el.querySelectorAll('[data-row]')
+        if (items.length <= n) { setCap(null); return }
+        // Distance from the top of the scrolled content to row N+1.
+        const top = el.getBoundingClientRect().top - el.scrollTop
+        setCap(Math.round(items[n].getBoundingClientRect().top - top + ROW_PEEK))
+      })
+    }
+    measure()
+    const resize = new ResizeObserver(measure)
+    resize.observe(el)
+    const rowsChange = new MutationObserver(measure)
+    rowsChange.observe(el, { childList: true, subtree: true })
+    return () => { cancelAnimationFrame(frame); resize.disconnect(); rowsChange.disconnect() }
+  }, [el, n])
+
+  const room = `calc(100dvh - ${phone ? PAGE_ROOM.phone : PAGE_ROOM.desktop}px)`
+  const style: CSSProperties = { scrollbarGutter: 'stable', maxHeight: cap == null ? room : `min(${cap}px, ${room})` }
+  return { ref: setEl, 'data-table-scroll': '', style }
 }
 
 const PANEL_EASE = [0.4, 0, 0.2, 1] as const

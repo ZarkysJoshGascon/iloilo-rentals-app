@@ -38,7 +38,7 @@ import {
 import { StatStrip, StatTile } from '@/components/admin/_shared/StatStrip'
 import { InitialsAvatar } from '@/components/admin/_shared/Panel'
 import { StatementActions } from '@/components/admin/_shared/StatementActions'
-import { SortHeader, nextSort, ResultsBar, SearchKeyHint, useListShortcuts, CARD_ON_PHONE, MobileSort, PHONE_LABEL, useSidePanelMotion } from '@/components/admin/_shared/listTools'
+import { SortHeader, nextSort, ResultsBar, SearchKeyHint, useListShortcuts, CARD_ON_PHONE, MobileSort, PHONE_LABEL, useSidePanelMotion, useListCap } from '@/components/admin/_shared/listTools'
 import { StatusTabs } from '@/components/admin/_shared/StatusTabs'
 import type { ReactNode } from 'react'
 
@@ -806,6 +806,7 @@ function ContractRow({ contract, selected, onClick }: ContractRowProps) {
       transition={{ duration: 0.22, ease: [0.4, 0, 0.2, 1] }}
       whileHover={{ backgroundColor: selected ? 'rgba(34, 81, 147, 0.14)' : 'rgba(34, 81, 147, 0.05)' }}
       whileTap={{ scale: 0.998 }}
+      data-row
       className={cn('group/row w-full text-left px-4 py-3 border-b border-border cursor-pointer select-none', ROW_GRID)}
     >
       <div className="min-w-0">
@@ -2085,6 +2086,7 @@ function ContractDetailPanel({ contract, contracts, units, owners, onClose, onCh
 
 // ── Main page ───────────────────────────────────────────────
 export default function ContractsPage() {
+  const listCap = useListCap()
   const [searchParams, setSearchParams] = useSearchParams()
   const filterUnitId = searchParams.get('unit')
   const initialContractId = searchParams.get('contract')
@@ -2328,7 +2330,7 @@ export default function ContractsPage() {
   return (
     <div className="h-full flex min-h-0">
       <div className="flex-1 min-h-0 flex flex-col overflow-hidden">
-        <div className="px-4 py-4 md:px-8 md:py-6 flex-1 min-h-0 flex flex-col gap-4">
+        <div data-page-scroll className="px-4 py-4 md:px-8 md:py-6 flex-1 min-h-0 flex flex-col gap-4 overflow-y-auto [&>*]:flex-shrink-0">
           <div className="flex-shrink-0">
             <SummaryCards contracts={contracts} active={statusFilter} onSelect={setStatusFilter} />
           </div>
@@ -2407,8 +2409,8 @@ export default function ContractsPage() {
             />
           )}
 
-          <div className="flex-1 min-h-0 rounded-md border border-border shadow-sm overflow-hidden bg-card">
-            <div className="h-full overflow-y-auto" style={{ scrollbarGutter: 'stable' }}>
+          <div className="rounded-md border border-border shadow-sm overflow-hidden bg-card">
+            <div {...listCap} className="overflow-y-auto">
               <MobileSort
                 options={[{ key: 'contract', label: 'Contract' }, { key: 'unit', label: 'Unit' }, { key: 'effective', label: 'Effective' }, { key: 'expiry', label: 'Expiry' }, { key: 'status', label: 'Status' }]}
                 sort={sort}

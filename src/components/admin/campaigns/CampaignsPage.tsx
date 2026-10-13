@@ -22,7 +22,7 @@ import {
 import { StatusTabs } from '@/components/admin/_shared/StatusTabs'
 import { StatStrip, StatTile } from '@/components/admin/_shared/StatStrip'
 import { Panel, PanelHeader, InitialsAvatar } from '@/components/admin/_shared/Panel'
-import { SearchKeyHint, useListShortcuts } from '@/components/admin/_shared/listTools'
+import { SearchKeyHint, useListShortcuts, useListCap } from '@/components/admin/_shared/listTools'
 import { DateRangeFilter } from '@/components/admin/_shared/DateRangeFilter'
 
 const BRAND = 'var(--brand-solid)'
@@ -135,7 +135,7 @@ function RecipientRow({ guest, checked, onToggle, disabled }: RecipientRowProps)
   }, [guest.last_check_out, now])
 
   return (
-    <button type="button" disabled={disabled} onClick={onToggle} aria-pressed={checked}
+    <button type="button" disabled={disabled} onClick={onToggle} aria-pressed={checked} data-row
       className={cn(
         'w-full text-left px-5 py-3 border-b border-border last:border-0 transition-colors flex items-center gap-3',
         disabled ? 'opacity-50 cursor-not-allowed' : checked ? 'bg-brand-solid/5 hover:bg-brand-solid/10' : 'hover:bg-muted/40',
@@ -411,7 +411,7 @@ export default function CampaignsPage() {
 
   return (
     <div className="h-full flex min-h-0">
-      <div className="flex-1 min-w-0 min-h-0 flex flex-col px-4 py-4 md:px-8 md:py-6 gap-4">
+      <div data-page-scroll className="flex-1 min-w-0 min-h-0 flex flex-col px-4 py-4 md:px-8 md:py-6 gap-4 overflow-y-auto [&>*]:flex-shrink-0">
         <div className="flex-shrink-0">
           <SummaryCards guests={guests} campaigns={campaigns} view={view} onView={handleViewChange} />
         </div>
@@ -540,6 +540,7 @@ function ComposeView({
   heroImage, setHeroImage, imageInputRef, uploadingImage, handleImagePick,
   sending, sendProgress, onSend,
 }: ComposeViewProps) {
+  const listCap = useListCap()
   const labelClass = 'text-[11px] font-semibold text-foreground mb-1.5 block'
   const helpClass = 'text-[11px] text-foreground mt-1'
   const pagerButton = (disabled) => cn(
@@ -548,7 +549,7 @@ function ComposeView({
   )
 
   return (
-    <div className="flex-1 min-h-0 grid grid-cols-1 lg:grid-cols-[1fr_1.2fr] gap-4">
+    <div className="grid grid-cols-1 lg:grid-cols-[1fr_1.2fr] gap-4 items-start">
       <Panel className="min-h-0">
         <PanelHeader
           icon={Users}
@@ -569,7 +570,7 @@ function ComposeView({
           </button>
         </div>
 
-        <div className="flex-1 min-h-0 overflow-y-auto">
+        <div {...listCap} className="overflow-y-auto">
           {loading ? (
             <div className="space-y-2 p-3">{[...Array(6)].map((_, i) => <Skeleton key={i} className="h-12 w-full" />)}</div>
           ) : pageItems.length === 0 ? (
@@ -614,7 +615,7 @@ function ComposeView({
             : 'Pick recipients on the left first'}
         />
 
-        <div className="flex-1 min-h-0 overflow-y-auto p-5 space-y-4">
+        <div className="p-5 space-y-4">
           <div>
             <label className={labelClass}>Campaign name *</label>
             <Input value={campaignName} onChange={(e) => setCampaignName(e.target.value)}
@@ -721,6 +722,7 @@ type HistoryViewProps = {
 }
 
 function HistoryView({ campaigns, totalCampaigns, loading, onDeleted }: HistoryViewProps) {
+  const listCap = useListCap()
   const [deletingId, setDeletingId] = useState(null)
   const [clearingAll, setClearingAll] = useState(false)
 
@@ -768,7 +770,7 @@ function HistoryView({ campaigns, totalCampaigns, loading, onDeleted }: HistoryV
   const busy = clearingAll || deletingId !== null
 
   return (
-    <Panel className="flex-1 min-h-0">
+    <Panel>
       <PanelHeader
         icon={History}
         title="Campaign history"
@@ -782,7 +784,7 @@ function HistoryView({ campaigns, totalCampaigns, loading, onDeleted }: HistoryV
         )}
       />
 
-      <div className="flex-1 min-h-0 overflow-y-auto">
+      <div {...listCap} className="overflow-y-auto">
         {loading ? (
           <div className="space-y-2 p-3">{[...Array(5)].map((_, i) => <Skeleton key={i} className="h-16 w-full" />)}</div>
         ) : campaigns.length === 0 ? (
@@ -798,7 +800,7 @@ function HistoryView({ campaigns, totalCampaigns, loading, onDeleted }: HistoryV
             const isDeleting = deletingId === c.id
             const hasFailures = (c.failed_count || 0) > 0
             return (
-              <div key={c.id}
+              <div key={c.id} data-row
                 className={cn('group/history px-5 py-3 border-b border-border last:border-0 transition-colors flex items-start gap-3',
                   isDeleting ? 'opacity-50' : 'hover:bg-muted/40')}>
                 <div className="min-w-0 flex-1">

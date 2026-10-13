@@ -33,7 +33,7 @@ import { StatStrip, StatTile } from '@/components/admin/_shared/StatStrip'
 import { Sparkline } from '@/components/admin/_shared/Sparkline'
 import { StatementActions } from '@/components/admin/_shared/StatementActions'
 import { Panel, PanelHeader, SectionLabel, InitialsAvatar } from '@/components/admin/_shared/Panel'
-import { SortHeader, nextSort, ResultsBar, SearchKeyHint, useListShortcuts, CARD_ON_PHONE, MobileSort, PHONE_LABEL } from '@/components/admin/_shared/listTools'
+import { SortHeader, nextSort, ResultsBar, SearchKeyHint, useListShortcuts, CARD_ON_PHONE, MobileSort, PHONE_LABEL, useListCap } from '@/components/admin/_shared/listTools'
 import type { CSSProperties, ReactNode } from 'react'
 import type { LucideIcon } from 'lucide-react'
 
@@ -732,6 +732,7 @@ function ContractRow({ contract, lifetime, onClick }: ContractRowProps) {
     <button
       type="button"
       onClick={onClick}
+      data-row
       className={cn(ROW_GRID, 'w-full text-left px-5 py-3 border-b border-border last:border-0 hover:bg-muted/40 transition-colors cursor-pointer')}
     >
       <div className="min-w-0">
@@ -3335,7 +3336,7 @@ function MonthlySection({
                 />
               </div>
               <div className="relative flex-1 min-h-[320px]">
-                <div className="max-h-[520px] lg:max-h-none lg:absolute lg:inset-0 overflow-y-auto overscroll-contain flex flex-col">
+                <div className="max-h-[520px] lg:max-h-none lg:absolute lg:inset-0 overflow-y-auto flex flex-col">
                   {listTab === 'bookings' ? (
                     allBookingsSorted.length === 0 ? (
                       <EmptyState icon={Calendar} title="No bookings yet" hint="Bookings on this unit show here." />
@@ -3746,7 +3747,7 @@ const ContractDetail = memo(function ContractDetail({ contract, terms = [], life
 
   if ((loading || statementsLoading) && statements.length === 0) {
     return (
-      <div className="h-full overflow-y-auto">
+      <div data-page-scroll className="h-full overflow-y-auto">
         <div className={PAGE}>
           {header}
           <div className="py-24 flex items-center justify-center">
@@ -3758,7 +3759,7 @@ const ContractDetail = memo(function ContractDetail({ contract, terms = [], life
   }
 
   return (
-    <div className="h-full overflow-y-auto">
+    <div data-page-scroll className="h-full overflow-y-auto">
       <div className={PAGE}>
         {header}
 
@@ -4137,6 +4138,7 @@ function ContractList({
   selectedYear,
   setSelectedYear,
 }: ContractListProps) {
+  const listCap = useListCap()
   const [debouncedSearch, setDebouncedSearch] = useState(search)
   const [analyticsData, setAnalyticsData] = useState([])
   const [analyticsPrev, setAnalyticsPrev] = useState([])
@@ -4280,7 +4282,7 @@ function ContractList({
       ].filter(Boolean).join(' · ')
 
   return (
-    <div className="h-full overflow-y-auto">
+    <div data-page-scroll className="h-full overflow-y-auto">
       <div className={PAGE}>
 
         {/* Header */}
@@ -4351,7 +4353,7 @@ function ContractList({
 
         <Panel>
           <div className="overflow-x-auto">
-            <div className="md:min-w-[780px] max-h-[600px] overflow-y-auto" style={{ scrollbarGutter: 'stable' }}>
+            <div {...listCap} className="md:min-w-[780px] overflow-y-auto">
               <MobileSort
                 options={[{ key: 'unit', label: 'Unit' }, { key: 'owner', label: 'Owner' }, { key: 'effective', label: 'Term' }, { key: 'gross', label: 'Gross' }, { key: 'net', label: 'Net' }, { key: 'status', label: 'Status' }]}
                 sort={sort}
