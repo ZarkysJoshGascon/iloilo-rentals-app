@@ -1,5 +1,5 @@
 import { useEffect, useState, useRef } from 'react'
-import { useNavigate, useSearchParams } from 'react-router-dom'
+import { useNavigate, useSearchParams } from 'react-router'
 import { motion } from 'framer-motion'
 import { supabase } from "../../lib/supabase";
 import { useAuth } from "../../context/AuthContext";

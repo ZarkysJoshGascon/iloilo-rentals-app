@@ -1,6 +1,6 @@
 // src/components/admin/accounting/AccountingPage.jsx
 import { useCallback, useEffect, useMemo, useRef, useState, memo, useLayoutEffect } from 'react'
-import { useNavigate } from 'react-router-dom'
+import { useNavigate } from 'react-router'
 import { motion, AnimatePresence } from 'framer-motion'
 import {
   Search, RefreshCw, X, Loader2, TrendingUp, ChevronLeft,

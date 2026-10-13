@@ -1,6 +1,6 @@
 import { Fragment, useEffect, useState, useRef, useLayoutEffect, useMemo } from 'react'
 import { createPortal } from 'react-dom'
-import { useNavigate } from 'react-router-dom'
+import { useNavigate } from 'react-router'
 import { motion, useScroll, useTransform, useReducedMotion, AnimatePresence } from 'framer-motion'
 import Footer from '../../components/layout/Footer'
 import { Photo } from '@/components/ui/photo'

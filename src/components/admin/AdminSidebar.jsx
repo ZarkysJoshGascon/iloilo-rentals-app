@@ -1,6 +1,6 @@
 // src/components/admin/AdminSidebar.jsx
 import { useCallback, useEffect, useState } from 'react'
-import { useNavigate } from 'react-router-dom'
+import { useNavigate } from 'react-router'
 import { useAuth } from "../../context/AuthContext";
 import { useTheme } from "../../context/ThemeContext";
 import {

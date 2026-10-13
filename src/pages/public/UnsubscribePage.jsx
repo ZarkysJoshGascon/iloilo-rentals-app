@@ -2,7 +2,7 @@
 // (only the changed parts shown — everything else stays the same)
 
 import { useEffect, useState } from 'react'
-import { useSearchParams, Link } from 'react-router-dom'
+import { useSearchParams, Link } from 'react-router'
 import { motion } from 'framer-motion'
 import { Mail, Check, Loader2, AlertTriangle, ArrowLeft } from 'lucide-react'
 import toast from 'react-hot-toast'

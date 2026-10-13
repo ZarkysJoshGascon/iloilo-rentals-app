@@ -1,6 +1,6 @@
 // src/components/admin/housekeeping/HousekeepingPage.jsx
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { useNavigate } from 'react-router-dom'
+import { useNavigate } from 'react-router'
 import { motion, AnimatePresence } from 'framer-motion'
 import {
   Plus, Search, RefreshCw, X, Check, Loader2, Trash2,

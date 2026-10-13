@@ -1,5 +1,5 @@
 import * as React from 'react'
-import { Link } from 'react-router-dom'
+import { Link } from 'react-router'
 import { motion, useScroll, useTransform, useSpring, useReducedMotion } from 'framer-motion'
 import { cn } from '@/lib/utils'
 import { Photo } from '@/components/ui/photo'

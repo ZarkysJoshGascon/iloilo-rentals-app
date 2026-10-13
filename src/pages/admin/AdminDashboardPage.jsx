@@ -1,6 +1,6 @@
 // src/pages/admin/AdminDashboardPage.jsx
 import { useEffect, useState, useCallback, useRef, lazy, Suspense, memo } from 'react'
-import { useNavigate, useSearchParams } from 'react-router-dom'
+import { useNavigate, useSearchParams } from 'react-router'
 import { motion, AnimatePresence, MotionConfig, useReducedMotion } from 'framer-motion'
 import { useTheme } from "../../context/ThemeContext";
 import { useAuth } from "../../context/AuthContext";

@@ -6,7 +6,7 @@ import {
   Plus, RefreshCw, Search, X, Pencil,
   CheckCircle2, AlertTriangle, Trash2, PhoneCall, Building2, Ban,
 } from 'lucide-react'
-import { useNavigate } from 'react-router-dom'
+import { useNavigate } from 'react-router'
 import toast from 'react-hot-toast'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'

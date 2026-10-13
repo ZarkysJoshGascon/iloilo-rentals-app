@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
-import { Link } from 'react-router-dom'
+import { Link } from 'react-router'
 import {
   Send, Loader2, Check, Plus, X, Image as ImageIcon,
   ArrowLeft, MapPin, Home, Palette,

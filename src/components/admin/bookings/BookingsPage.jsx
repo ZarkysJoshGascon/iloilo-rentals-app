@@ -1,7 +1,7 @@
 // src/components/admin/bookings/BookingsPage.jsx
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
-import { useNavigate } from 'react-router-dom'
+import { useNavigate } from 'react-router'
 import { motion, AnimatePresence } from 'framer-motion'
 import {
   Check, Loader2,

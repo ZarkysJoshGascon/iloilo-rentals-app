@@ -20,7 +20,7 @@
 // transforms straight to the DOM. 0 is the ring, 1 is the drum with item 0 at
 // the front, and every whole number after that is one more item turned past.
 import * as React from 'react'
-import { Link } from 'react-router-dom'
+import { Link } from 'react-router'
 import { ArrowUpRight } from 'lucide-react'
 
 import { cn } from '@/lib/utils'

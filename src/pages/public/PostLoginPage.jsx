@@ -1,5 +1,5 @@
 import { useEffect } from 'react'
-import { useNavigate } from 'react-router-dom'
+import { useNavigate } from 'react-router'
 import { motion } from 'framer-motion'
 import { Shield, Loader2 } from 'lucide-react'
 import { useUserRole } from '@/hooks/useUserRole'

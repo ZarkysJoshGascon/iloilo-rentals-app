@@ -1,6 +1,6 @@
 // src/components/admin/dashboard/DashboardPage.jsx
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { useNavigate } from 'react-router-dom'
+import { useNavigate } from 'react-router'
 import {
   RefreshCw, ArrowRight, Inbox,
   Copy, Calendar, TrendingUp, FileText, Mail, Sparkles, Loader2,

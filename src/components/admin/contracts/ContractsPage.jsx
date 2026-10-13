@@ -10,7 +10,7 @@
 // Terms on a unit never overlap, so Accounting never counts a month twice.
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { useSearchParams, useNavigate } from 'react-router-dom'
+import { useSearchParams, useNavigate } from 'react-router'
 import { motion, AnimatePresence } from 'framer-motion'
 import {
   Plus, Search, RefreshCw, X, Check, Loader2, Trash2,

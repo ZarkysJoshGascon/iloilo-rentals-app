@@ -1,5 +1,5 @@
 import { lazy, Suspense, useCallback, useEffect, useState } from 'react'
-import { Routes, Route, useLocation, Navigate } from 'react-router-dom'
+import { Routes, Route, useLocation, Navigate } from 'react-router'
 import { Toaster } from 'react-hot-toast'
 import { Loader2 } from 'lucide-react'
 import { ThemeProvider } from './context/ThemeContext'

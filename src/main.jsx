@@ -8,7 +8,7 @@ import '@fontsource/inter/600.css'
 import '@fontsource/inter/700.css'
 import { StrictMode } from 'react'
 import { createRoot } from 'react-dom/client'
-import { BrowserRouter } from 'react-router-dom'
+import { BrowserRouter } from 'react-router'
 import './index.css'
 import App from './App.jsx'
 import { AuthProvider } from './context/AuthContext'
@@ -25,12 +25,7 @@ createRoot(document.getElementById('root')).render(
     <ErrorBoundary>
       <AuthProvider>
         <UserRoleProvider>
-          <BrowserRouter
-            future={{
-              v7_startTransition: true,
-              v7_relativeSplatPath: true,
-            }}
-          >
+          <BrowserRouter>
             <App />
           </BrowserRouter>
         </UserRoleProvider>

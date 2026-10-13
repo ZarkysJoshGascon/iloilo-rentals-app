@@ -4,7 +4,7 @@
 // page shows them: this year across all units, one card per unit, and each
 // contract in detail (?contract=<id>). Built in the CRM's style, phone first.
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { Link, useNavigate, useSearchParams } from 'react-router-dom'
+import { Link, useNavigate, useSearchParams } from 'react-router'
 import {
   ArrowLeft, Building2, CalendarClock, Globe, Home, Landmark, Loader2, LogOut, Moon, RefreshCw,
   Sun, TrendingUp, UserRound, Wallet, AlertTriangle, ChevronRight,
