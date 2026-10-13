@@ -31,10 +31,11 @@ const OwnerPortalPage = lazy(() => import('./pages/owner/OwnerPortalPage'))
 const PRELOAD_MAX_MS = 8000
 const LOGO = '/Iloilo_rentals_img.png'
 
-function PageLoader() {
+function PageLoader({ walkthrough = false }) {
   return (
-    <div className="min-h-screen flex items-center justify-center bg-gray-50">
-      <Loader2 className="w-8 h-8 animate-spin text-[#2d568e]" />
+    <div role="status" aria-live="polite" className={`min-h-screen flex flex-col items-center justify-center gap-4 ${walkthrough ? 'bg-[#0b0f17] text-white' : 'bg-gray-50 text-[#2d568e]'}`}>
+      <Loader2 className="w-8 h-8 animate-spin" aria-hidden />
+      {walkthrough ? <><p className="text-lg font-semibold">Loading your walkthrough</p><p className="text-sm text-white/60">Preparing Saint Honore Unit 9S</p></> : <span className="sr-only">Loading page</span>}
     </div>
   )
 }
@@ -44,12 +45,19 @@ function App() {
   // The CRM and the owner portal have their own shell (no public navbar, footer or loading screen).
   const isAdminRoute = location.pathname.startsWith('/admin') || location.pathname.startsWith('/owner')
   const isUnsubscribeRoute = location.pathname.startsWith('/unsubscribe')
+  const isWalkthroughRoute = location.pathname.replace(/\/+$/, '') === '/interior-design'
 
   // The CRM has its own loading states, so the loading screen is for the public site.
   const [preloaded, setPreloaded] = useState(false)
   const [preloadProgress, setPreloadProgress] = useState(0)
   const finishPreload = useCallback(() => setPreloaded(true), [])
-  const showPreloader = !preloaded && !isAdminRoute
+  // The walkthrough reports its own asset and scene loading. Let that
+  // progress appear immediately instead of hiding it behind site photos.
+  const showPreloader = !preloaded && !isAdminRoute && !isWalkthroughRoute
+
+  useEffect(() => {
+    if (isWalkthroughRoute) finishPreload()
+  }, [isWalkthroughRoute, finishPreload])
 
   useEffect(() => {
     if (!showPreloader) return
@@ -68,7 +76,7 @@ function App() {
       <div className="min-h-screen bg-gray-50 flex flex-col">
         {!isAdminRoute && !isUnsubscribeRoute && <Navbar />}
         <main className="flex-grow">
-          <Suspense fallback={<PageLoader />}>
+          <Suspense fallback={<PageLoader walkthrough={isWalkthroughRoute} />}>
             <Routes>
               <Route path="/" element={<HomePage />} />
               <Route path="/login" element={<LoginPage />} />
