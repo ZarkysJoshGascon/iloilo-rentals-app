@@ -38,7 +38,7 @@ import {
 import { sendBookingConfirmation } from '@/lib/email'
 import BookingConfirmationModal from './BookingConfirmationModal'
 import { ContextMenu } from '@/components/ui/ContextMenu'
-import { SortHeader, nextSort, ResultsBar, SearchKeyHint, useListShortcuts } from '@/components/admin/_shared/listTools'
+import { SortHeader, nextSort, ResultsBar, SearchKeyHint, useListShortcuts, CARD_ON_PHONE, MobileSort, useSidePanelMotion } from '@/components/admin/_shared/listTools'
 import { Panel, PanelHeader, SectionLabel, InitialsAvatar } from '@/components/admin/_shared/Panel'
 import { StatStrip, StatTile } from '@/components/admin/_shared/StatStrip'
 import { StatusTabs } from '@/components/admin/_shared/StatusTabs'
@@ -71,7 +71,7 @@ const SORT_VALUE = {
 }
 const SORT_DEFAULT_DIR = { checkin: 'desc', payment: 'desc' }
 
-const ROW_GRID = 'grid grid-cols-[minmax(0,1.6fr)_minmax(0,0.8fr)_minmax(0,1.1fr)_minmax(0,1fr)_minmax(0,1.1fr)_130px] gap-4 items-center'
+const ROW_GRID = `grid grid-cols-[minmax(0,1.6fr)_minmax(0,0.8fr)_minmax(0,1.1fr)_minmax(0,1fr)_minmax(0,1.1fr)_130px] gap-4 items-center ${CARD_ON_PHONE}`
 const PANEL_WIDTH = 448
 
 const MONTHS = ['January','February','March','April','May','June','July','August','September','October','November','December']
@@ -1200,15 +1200,10 @@ function BookingDetailPanel({
   const editedAgo = timeAgo(booking.updated_at)
   const wasEdited = booking.updated_at && booking.created_at && booking.updated_at !== booking.created_at
 
+  const panelMotion = useSidePanelMotion(PANEL_WIDTH)
+
   return (
-    <motion.div
-      initial={{ width: 0, opacity: 0 }}
-      animate={{ width: PANEL_WIDTH, opacity: 1 }}
-      exit={{ width: 0, opacity: 0 }}
-      transition={{ width: { duration: 0.32, ease: [0.4, 0, 0.2, 1] }, opacity: { duration: 0.2, ease: 'easeOut' } }}
-      className="h-full flex-shrink-0 p-3"
-      style={{ maxWidth: '100%', width: PANEL_WIDTH + 24 }}
-    >
+    <motion.div {...panelMotion}>
       <div className="h-full rounded-md border border-border bg-card shadow-lg overflow-hidden flex flex-col">
         <AnimatePresence mode="wait" initial={false}>
           <motion.div
@@ -1508,7 +1503,7 @@ function BookingListRow({ booking, contracts, selected, highlighted, onClick, on
   ]
 
   return (
-    <ContextMenu items={contextItems}>
+    <ContextMenu items={contextItems} className="border-b border-border last:border-b-0">
       <motion.button
         type="button"
         data-booking-id={booking.id}
@@ -1524,7 +1519,7 @@ function BookingListRow({ booking, contracts, selected, highlighted, onClick, on
         transition={{ duration: 0.4 }}
         whileHover={{ backgroundColor: selected ? 'rgba(34, 81, 147, 0.14)' : 'rgba(34, 81, 147, 0.05)' }}
         whileTap={{ scale: 0.998 }}
-        className={cn('group/row w-full text-left px-4 py-3 border-b border-border last:border-b-0 cursor-pointer select-none', ROW_GRID)}
+        className={cn('group/row w-full text-left px-4 py-3 cursor-pointer select-none', ROW_GRID)}
       >
         <div className="flex items-center gap-3 min-w-0">
           <GuestAvatar name={booking.guest_name} size="sm" />
@@ -2954,7 +2949,7 @@ export default function BookingsPage({ initialSelectedId }: BookingsPageProps) {
 
   return (
     <div className="h-full flex min-h-0">
-      <div className="flex-1 min-h-0 flex flex-col px-6 py-5 md:px-8 md:py-6 gap-4 overflow-y-auto">
+      <div className="flex-1 min-h-0 flex flex-col px-4 py-4 md:px-8 md:py-6 gap-4 overflow-y-auto">
 
         <div className="flex-shrink-0 pt-1 pb-2">
           <SummaryCards bookings={bookings} active={statusFilter} onSelect={setStatusFilter} />
@@ -2997,7 +2992,13 @@ export default function BookingsPage({ initialSelectedId }: BookingsPageProps) {
         )}
 
         <div className="flex-1 min-h-[420px] rounded-md border border-border shadow-sm overflow-hidden bg-card flex flex-col">
-          <div className={cn('flex-shrink-0 px-4 py-2.5 border-b border-border', ROW_GRID)}>
+          <MobileSort
+            options={[{ key: 'guest', label: 'Guest' }, { key: 'code', label: 'Code' }, { key: 'unit', label: 'Unit' }, { key: 'checkin', label: 'Check-in → Check-out' }, { key: 'payment', label: 'Payment' }, { key: 'status', label: 'Status' }]}
+            sort={sort}
+            onSort={onSort}
+            className="flex-shrink-0"
+          />
+          <div className={cn('flex-shrink-0 px-4 py-2.5 border-b border-border max-md:hidden', ROW_GRID)}>
             <SortHeader label="Guest" sortKey="guest" sort={sort} onSort={onSort} />
             <SortHeader label="Code" sortKey="code" sort={sort} onSort={onSort} />
             <SortHeader label="Unit" sortKey="unit" sort={sort} onSort={onSort} />

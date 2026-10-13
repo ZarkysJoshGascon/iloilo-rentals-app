@@ -4,7 +4,7 @@ import { useNavigate } from 'react-router'
 import { useAuth } from "../../context/AuthContext";
 import { useTheme } from "../../context/ThemeContext";
 import {
-  LogOut, ScrollText, Calendar, Users, Sparkles, FileText, TrendingUp,
+  LogOut, ScrollText, Calendar, Users, Sparkles, FileText, TrendingUp, Menu, X, ArrowLeft,
   LayoutDashboard, Megaphone, Inbox, Palette,
 } from 'lucide-react'
 import { motion, AnimatePresence } from 'framer-motion'
@@ -379,5 +379,169 @@ export default function AdminSidebar({
         </div>
       </div>
     </aside>
+  )
+}
+
+// ── Phones ────────────────────────────────────────────────────────
+// A bottom tab bar in the sidebar's blue with the day-to-day tabs, and a
+// "More" sheet with every tab (grouped as in the sidebar), the account,
+// Back to site and Sign out.
+
+export const MOBILE_NAV_HEIGHT = 60
+const MOBILE_PRIMARY = ['dashboard', 'bookings', 'housekeeping', 'inquiries']
+const SHORT_LABELS = { housekeeping: 'Cleanings' }
+const ALL_ITEMS = NAV_GROUPS.flatMap((g) => g.items)
+
+type AdminMobileNavProps = {
+  activeTab: string
+  setActiveTab: (tab: any) => void
+  prefetch: any
+  user: any
+  onSignOut: () => Promise<void>
+  contractAlertCount?: number
+}
+
+export function AdminMobileNav({ activeTab, setActiveTab, prefetch, user, onSignOut, contractAlertCount = 0 }: AdminMobileNavProps) {
+  const navigate = useNavigate()
+  const badges = { ...useNavBadges(), contracts: contractAlertCount }
+  const [moreOpen, setMoreOpen] = useState(false)
+  const primary = MOBILE_PRIMARY.map((id) => ALL_ITEMS.find((item) => item.id === id))
+  const activeInMore = !MOBILE_PRIMARY.includes(activeTab)
+  const moreBadge = ALL_ITEMS.some((item) => !MOBILE_PRIMARY.includes(item.id) && badges[item.id] > 0)
+
+  useEffect(() => {
+    if (!moreOpen) return undefined
+    const onKey = (e) => { if (e.key === 'Escape') setMoreOpen(false) }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [moreOpen])
+
+  const go = (id) => {
+    try { prefetch?.[id]?.() } catch { /* ignore */ }
+    setActiveTab(id)
+    setMoreOpen(false)
+  }
+  const signOut = async () => {
+    setMoreOpen(false)
+    await onSignOut()
+    toast.success('Signed out')
+  }
+
+  const tabClass = (active) => cn(
+    'relative flex-1 min-w-0 flex flex-col items-center justify-center gap-1 h-full text-[10.5px] font-medium transition-colors',
+    active ? 'text-white' : 'text-white/65 active:text-white',
+  )
+
+  return (
+    <>
+      <nav
+        aria-label="CRM sections"
+        className="fixed inset-x-0 bottom-0 z-40 bg-brand-solid dark:bg-[#0f1115] border-t border-white/10"
+        style={{ paddingBottom: 'env(safe-area-inset-bottom, 0px)' }}
+      >
+        <div className="flex items-stretch px-1" style={{ height: MOBILE_NAV_HEIGHT }}>
+          {primary.map(({ id, label, icon: Icon }) => {
+            const active = activeTab === id
+            return (
+              <button key={id} type="button" onClick={() => go(id)} aria-current={active ? 'page' : undefined} className={tabClass(active)}>
+                {active && <motion.span layoutId="crm-mobile-tab" className="absolute top-0 inset-x-4 h-[3px] rounded-b-full bg-white" transition={PILL_SPRING} />}
+                <span className="relative">
+                  <Icon size={20} strokeWidth={active ? 2.1 : 1.8} />
+                  {badges[id] > 0 && <Badge count={badges[id]} active={false} className="absolute -top-2 -right-3 min-w-[16px] h-4 text-[9px]" />}
+                </span>
+                <span className="truncate max-w-full px-0.5">{SHORT_LABELS[id] || label}</span>
+              </button>
+            )
+          })}
+          <button type="button" onClick={() => setMoreOpen(true)} aria-haspopup="dialog" aria-expanded={moreOpen} className={tabClass(activeInMore)}>
+            {activeInMore && <motion.span layoutId="crm-mobile-tab" className="absolute top-0 inset-x-4 h-[3px] rounded-b-full bg-white" transition={PILL_SPRING} />}
+            <span className="relative">
+              <Menu size={20} strokeWidth={activeInMore ? 2.1 : 1.8} />
+              {moreBadge && <span className="absolute -top-0.5 -right-1 w-2 h-2 rounded-full bg-white" aria-label="Something is waiting" />}
+            </span>
+            <span className="truncate max-w-full px-0.5">{activeInMore ? ALL_ITEMS.find((i) => i.id === activeTab)?.label || 'More' : 'More'}</span>
+          </button>
+        </div>
+      </nav>
+
+      <AnimatePresence>
+        {moreOpen && (
+          <div className="fixed inset-0 z-50 flex items-end" role="dialog" aria-modal="true" aria-label="All sections">
+            <motion.div
+              className="absolute inset-0 bg-black/40"
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              onClick={() => setMoreOpen(false)}
+            />
+            <motion.div
+              className="relative w-full max-h-[85vh] overflow-y-auto rounded-t-2xl bg-white dark:bg-[#15171c] text-foreground shadow-2xl"
+              style={{ paddingBottom: 'calc(env(safe-area-inset-bottom, 0px) + 12px)' }}
+              initial={{ y: '100%' }}
+              animate={{ y: 0 }}
+              exit={{ y: '100%' }}
+              transition={{ type: 'spring', damping: 30, stiffness: 320 }}
+            >
+              <div className="flex items-center gap-3 px-5 pt-4 pb-3 border-b border-border">
+                {user?.avatar ? (
+                  <img src={user.avatar} alt="" className="w-9 h-9 flex-shrink-0 rounded-full object-cover" />
+                ) : (
+                  <span className="w-9 h-9 flex-shrink-0 rounded-full bg-brand-solid text-white flex items-center justify-center text-[12px] font-semibold">
+                    {initialsOf(user?.name)}
+                  </span>
+                )}
+                <div className="flex-1 min-w-0">
+                  <p className="text-[14px] font-semibold truncate">{user?.name || 'Admin'}</p>
+                  <p className="text-[12px] text-foreground/75 truncate">{user?.email || 'Administrator'}</p>
+                </div>
+                <button type="button" onClick={() => setMoreOpen(false)} aria-label="Close" className="flex-shrink-0 w-9 h-9 -mr-2 rounded-full flex items-center justify-center hover:bg-black/[0.04] dark:hover:bg-white/[0.06]">
+                  <X size={18} />
+                </button>
+              </div>
+
+              <div className="px-3 py-2">
+                {NAV_GROUPS.map((group) => (
+                  <div key={group.id} className="py-1">
+                    {group.label && <p className="px-3 pt-2 pb-1 text-[11px] font-semibold uppercase tracking-[0.1em] text-foreground/70">{group.label}</p>}
+                    {group.items.map(({ id, label, icon: Icon }) => {
+                      const active = activeTab === id
+                      return (
+                        <button
+                          key={id}
+                          type="button"
+                          onClick={() => go(id)}
+                          aria-current={active ? 'page' : undefined}
+                          className={cn(
+                            'w-full flex items-center gap-3 h-12 px-3 rounded-xl text-left text-[14px] font-medium transition-colors',
+                            active ? 'text-brand font-semibold' : 'text-foreground active:bg-black/[0.04] dark:active:bg-white/[0.06]',
+                          )}
+                        >
+                          <Icon size={19} strokeWidth={1.8} className="flex-shrink-0" />
+                          <span className="flex-1 truncate">{label}</span>
+                          {badges[id] > 0 && (
+                            <span className="text-[12px] font-semibold tabular-nums text-brand" title={BADGE_HINTS[id]}>{badges[id]} waiting</span>
+                          )}
+                        </button>
+                      )
+                    })}
+                  </div>
+                ))}
+              </div>
+
+              <div className="px-5 pt-2 border-t border-border flex items-center gap-3">
+                <button type="button" onClick={() => navigate('/')} className="flex-1 inline-flex items-center justify-center gap-2 h-11 rounded-xl border border-border text-[13px] font-medium">
+                  <ArrowLeft size={15} />
+                  Back to site
+                </button>
+                <button type="button" onClick={signOut} className="flex-1 inline-flex items-center justify-center gap-2 h-11 rounded-xl border border-border text-[13px] font-medium text-red-600">
+                  <LogOut size={15} />
+                  Sign out
+                </button>
+              </div>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
+    </>
   )
 }

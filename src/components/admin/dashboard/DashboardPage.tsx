@@ -20,6 +20,7 @@ import { cn } from '@/lib/utils'
 import { ContextMenu, type ContextMenuItem } from '@/components/ui/ContextMenu'
 import { StatStrip, StatTile } from '@/components/admin/_shared/StatStrip'
 import { StatusTabs, PeriodStepper } from '@/components/admin/_shared/StatusTabs'
+import { CARD_ON_PHONE, PHONE_LABEL } from '@/components/admin/_shared/listTools'
 import type { ReactNode } from 'react'
 import type { LucideIcon } from 'lucide-react'
 
@@ -555,7 +556,7 @@ function PerformanceChart({ data, metric }: PerformanceChartProps) {
         tick={AXIS_TICK}
         tickLine={false}
         axisLine={false}
-        interval={0}
+        interval="preserveStartEnd"
         dy={6}
         padding={metric === 'occupancy' ? { left: 14, right: 14 } : undefined}
       />
@@ -770,7 +771,7 @@ function PerformanceCard({ year, setYear, analytics, loading }: PerformanceCardP
 // Contracts nearing end
 // ─────────────────────────────────────────────────────────────
 
-const CONTRACT_COLS = 'grid grid-cols-[1.4fr_1.4fr_0.9fr_0.9fr_auto] gap-4 items-center'
+const CONTRACT_COLS = `grid grid-cols-[1.4fr_1.4fr_0.9fr_0.9fr_auto] gap-4 items-center ${CARD_ON_PHONE}`
 
 type ContractRowProps = {
   contract: any
@@ -806,12 +807,18 @@ function ContractRow({ contract }: ContractRowProps) {
           <span className="font-mono text-[12px] font-semibold text-foreground truncate block">{contract.contract_code || '—'}</span>
           <span className="text-[11px] text-foreground truncate block mt-0.5">{contract.owners?.name || 'No owner'}</span>
         </div>
-        <div className="min-w-0">
+        <div className="min-w-0 max-md:col-span-2">
           <span className="text-[12px] font-semibold text-foreground truncate block">{contract.units?.unit_code || '—'}</span>
           <span className="text-[11px] text-foreground truncate block mt-0.5">{contract.units?.building || '—'}</span>
         </div>
-        <span className="text-[12px] tabular-nums text-foreground truncate">{formatDateShort(contract.effective_date)}</span>
-        <span className="text-[12px] tabular-nums text-foreground truncate">{formatDateShort(contract.expiry_date)}</span>
+        <div className="min-w-0">
+          <span className={PHONE_LABEL}>Started</span>
+          <span className="text-[12px] tabular-nums text-foreground truncate block">{formatDateShort(contract.effective_date)}</span>
+        </div>
+        <div className="min-w-0">
+          <span className={PHONE_LABEL}>Ends</span>
+          <span className="text-[12px] tabular-nums text-foreground truncate block">{formatDateShort(contract.expiry_date)}</span>
+        </div>
         <div className="flex justify-end min-w-[96px]">
           {days != null && days <= 7 ? (
             <StatusLabel tone="critical">{left}</StatusLabel>
@@ -849,8 +856,8 @@ function ContractsCard({ contracts, loading, onViewAll, className }: ContractsCa
         <EmptyState icon={CalendarClock} title="Nothing ending soon" hint={`No contracts end in the next ${NEARING_END_DAYS} days.`} />
       ) : (
         <div className="overflow-x-auto">
-          <div className="min-w-[640px]">
-            <div className={cn(CONTRACT_COLS, 'px-5 py-2.5 border-b border-border text-[11px] font-semibold text-foreground')}>
+          <div className="md:min-w-[640px]">
+            <div className={cn(CONTRACT_COLS, 'px-5 py-2.5 border-b border-border text-[11px] font-semibold text-foreground max-md:hidden')}>
               <span>Contract</span>
               <span>Unit</span>
               <span>Started</span>
@@ -1351,7 +1358,7 @@ export default function DashboardPage() {
 
   return (
     <div className={cn('h-full overflow-y-auto', CHART_VARS)}>
-      <div className="px-6 py-5 md:px-8 md:py-6 max-w-[1600px] mx-auto space-y-4 pb-10">
+      <div className="px-4 py-4 md:px-8 md:py-6 max-w-[1600px] mx-auto space-y-4 pb-10">
 
         {/* Header */}
         <div className="flex flex-wrap items-end justify-between gap-3">

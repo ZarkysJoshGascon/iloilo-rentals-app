@@ -123,7 +123,7 @@ function PerformanceCard({ months, selectedMonth, onSelectMonth }: PerformanceCa
             <ResponsiveContainer width="100%" height="100%">
               <BarChart data={data} margin={{ top: 8, right: 8, left: 0, bottom: 0 }} barCategoryGap="28%">
                 <CartesianGrid stroke="currentColor" strokeOpacity={0.08} vertical={false} />
-                <XAxis dataKey="label" tick={AXIS_TICK} tickLine={false} axisLine={false} interval={0} dy={6} />
+                <XAxis dataKey="label" tick={AXIS_TICK} tickLine={false} axisLine={false} interval="preserveStartEnd" dy={6} />
                 <YAxis
                   tick={AXIS_TICK} tickLine={false} axisLine={false} width={52}
                   tickFormatter={(v) => (Math.abs(v) >= 1000 ? `₱${Math.round(v / 1000)}k` : `₱${v}`)}

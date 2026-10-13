@@ -33,7 +33,7 @@ import { StatStrip, StatTile } from '@/components/admin/_shared/StatStrip'
 import { Sparkline } from '@/components/admin/_shared/Sparkline'
 import { StatementActions } from '@/components/admin/_shared/StatementActions'
 import { Panel, PanelHeader, SectionLabel, InitialsAvatar } from '@/components/admin/_shared/Panel'
-import { SortHeader, nextSort, ResultsBar, SearchKeyHint, useListShortcuts } from '@/components/admin/_shared/listTools'
+import { SortHeader, nextSort, ResultsBar, SearchKeyHint, useListShortcuts, CARD_ON_PHONE, MobileSort, PHONE_LABEL } from '@/components/admin/_shared/listTools'
 import type { CSSProperties, ReactNode } from 'react'
 import type { LucideIcon } from 'lucide-react'
 
@@ -54,7 +54,7 @@ const PARENT_REFRESH_DEBOUNCE_MS = 1200
 const DETAIL_REFRESH_DEBOUNCE_MS = 800
 
 // Page and card layout, as on the Dashboard.
-const PAGE = 'px-6 py-5 md:px-8 md:py-6 max-w-[1600px] mx-auto space-y-4 pb-10'
+const PAGE = 'px-4 py-4 md:px-8 md:py-6 max-w-[1600px] mx-auto space-y-4 pb-10'
 const DASH_ROW = 'grid grid-cols-1 xl:grid-cols-[minmax(0,2fr)_minmax(0,1fr)] gap-4'
 
 // Peso amounts are longer than the Dashboard's counts, so KPI numbers are a
@@ -73,7 +73,7 @@ const SOFT_SHADOW = '0 20px 40px -16px rgba(15,23,42,0.24), 0 6px 16px -6px rgba
 
 // Contract list: sortable columns. "Status" puts expired contracts first,
 // then ones ending soon, then active ones.
-const ROW_GRID = 'grid grid-cols-[minmax(0,0.9fr)_minmax(0,1.4fr)_minmax(0,1fr)_minmax(0,0.9fr)_minmax(0,0.9fr)_88px] gap-4 items-center'
+const ROW_GRID = `grid grid-cols-[minmax(0,0.9fr)_minmax(0,1.4fr)_minmax(0,1fr)_minmax(0,0.9fr)_minmax(0,0.9fr)_88px] gap-4 items-center ${CARD_ON_PHONE}`
 const STATUS_RANK = { expired: 0, expiring: 1, active: 2, renewed: 3 }
 const CONTRACT_SORT_VALUE = {
   unit:      ({ contract }) => contract.units?.unit_code || '',
@@ -749,10 +749,16 @@ function ContractRow({ contract, lifetime, onClick }: ContractRowProps) {
         <span className="text-[12px] truncate block">{formatDateShort(contract.effective_date)}</span>
         <span className="text-[11px] truncate block mt-0.5">→ {contract.expiry_date ? formatDateShort(contract.expiry_date) : 'Open-ended'}</span>
       </div>
-      <span className="text-[12px] tabular-nums text-foreground text-right truncate">{formatMoney(lifetime?.gross || 0)}</span>
-      <span className={cn('text-[12px] font-semibold tabular-nums text-right truncate', moneyTone(lifetime?.net))}>
-        {formatMoney(lifetime?.net || 0)}
-      </span>
+      <div className="min-w-0 md:text-right">
+        <span className={PHONE_LABEL}>Gross</span>
+        <span className="text-[12px] tabular-nums text-foreground truncate block">{formatMoney(lifetime?.gross || 0)}</span>
+      </div>
+      <div className="min-w-0 md:text-right">
+        <span className={PHONE_LABEL}>Net</span>
+        <span className={cn('text-[12px] font-semibold tabular-nums truncate block', moneyTone(lifetime?.net))}>
+          {formatMoney(lifetime?.net || 0)}
+        </span>
+      </div>
       <div className="flex justify-end">
         <StatusText status={deriveContractStatus(contract)} />
       </div>
@@ -1070,7 +1076,7 @@ const YearlyRevenueChart = memo(function YearlyRevenueChart({ yearSections, stat
               </pattern>
             </defs>
             <CartesianGrid {...GRID} />
-            <XAxis dataKey="label" {...X_AXIS} interval={0} />
+            <XAxis dataKey="label" {...X_AXIS} interval="preserveStartEnd" />
             <YAxis {...Y_AXIS} tickFormatter={formatMoneyCompact} width={56} domain={[minY, maxY]} />
             <Tooltip content={<ChartTooltip />} animationDuration={0} cursor={{ fill: 'currentColor', fillOpacity: 0.04 }} />
             <Bar dataKey="gross" fill="transparent" stroke={CHART} strokeWidth={1.5} name="Gross" maxBarSize={28} radius={[4, 4, 0, 0]} isAnimationActive={false} />
@@ -1113,7 +1119,7 @@ const MonthlyOccupancyChart = memo(function MonthlyOccupancyChart({ statements, 
         <ResponsiveContainer width="100%" height={CHART_HEIGHT} debounce={100}>
           <BarChart data={data} margin={{ top: 8, right: 8, left: 0, bottom: 0 }} barCategoryGap="30%">
             <CartesianGrid {...GRID} />
-            <XAxis dataKey="label" {...X_AXIS} interval={0} />
+            <XAxis dataKey="label" {...X_AXIS} interval="preserveStartEnd" />
             <YAxis {...Y_AXIS} tickFormatter={(v) => `${v}%`} width={44} domain={[0, 100]} ticks={[0, 25, 50, 75, 100]} />
             <Tooltip content={<OccupancyTooltip />} animationDuration={0} cursor={{ fill: 'currentColor', fillOpacity: 0.04 }} />
             <Bar dataKey="pct" fill={CHART} radius={[4, 4, 0, 0]} maxBarSize={24} isAnimationActive={false} />
@@ -1257,7 +1263,7 @@ const CumulativeNetChart = memo(function CumulativeNetChart({ statements, select
               </linearGradient>
             </defs>
             <CartesianGrid {...GRID} />
-            <XAxis dataKey="label" {...X_AXIS} interval={0} padding={{ left: 10, right: 10 }} />
+            <XAxis dataKey="label" {...X_AXIS} interval="preserveStartEnd" padding={{ left: 10, right: 10 }} />
             <YAxis {...Y_AXIS} tickFormatter={formatMoneyCompact} width={52} domain={[minValue, maxValue]} ticks={ticks} />
             <Tooltip content={<CumulativeTooltip />} animationDuration={0} cursor={{ stroke: 'currentColor', strokeOpacity: 0.2 }} />
             <Area
@@ -4064,7 +4070,7 @@ function YearPerformanceCard({ year, rows, loading, error, onRetry }: YearPerfor
                 <ResponsiveContainer width="100%" height={260} debounce={100}>
                   <BarChart data={data} margin={{ top: 8, right: 8, left: 0, bottom: 0 }} barCategoryGap="30%">
                     <CartesianGrid {...GRID} />
-                    <XAxis dataKey="label" {...X_AXIS} interval={0} />
+                    <XAxis dataKey="label" {...X_AXIS} interval="preserveStartEnd" />
                     <YAxis
                       {...Y_AXIS}
                       width={56}
@@ -4345,8 +4351,14 @@ function ContractList({
 
         <Panel>
           <div className="overflow-x-auto">
-            <div className="min-w-[780px] max-h-[600px] overflow-y-auto" style={{ scrollbarGutter: 'stable' }}>
-              <div className={cn('sticky top-0 z-10 px-5 py-2.5 border-b border-border bg-card', ROW_GRID)}>
+            <div className="md:min-w-[780px] max-h-[600px] overflow-y-auto" style={{ scrollbarGutter: 'stable' }}>
+              <MobileSort
+                options={[{ key: 'unit', label: 'Unit' }, { key: 'owner', label: 'Owner' }, { key: 'effective', label: 'Term' }, { key: 'gross', label: 'Gross' }, { key: 'net', label: 'Net' }, { key: 'status', label: 'Status' }]}
+                sort={sort}
+                onSort={onSort}
+                className="sticky top-0 z-10"
+              />
+              <div className={cn('sticky top-0 z-10 px-5 py-2.5 border-b border-border bg-card max-md:hidden', ROW_GRID)}>
                 <SortHeader label="Unit" sortKey="unit" sort={sort} onSort={onSort} />
                 <SortHeader label="Owner" sortKey="owner" sort={sort} onSort={onSort} />
                 <SortHeader label="Term" sortKey="effective" sort={sort} onSort={onSort} />

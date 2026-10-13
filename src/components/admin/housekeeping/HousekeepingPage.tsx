@@ -30,7 +30,7 @@ import {
   purgeCleaningPhotos,
 } from '@/lib/cleanings'
 import { ContextMenu } from '@/components/ui/ContextMenu'
-import { SortHeader, nextSort, ResultsBar, SearchKeyHint, useListShortcuts } from '@/components/admin/_shared/listTools'
+import { SortHeader, nextSort, ResultsBar, SearchKeyHint, useListShortcuts, CARD_ON_PHONE, MobileSort, useSidePanelMotion } from '@/components/admin/_shared/listTools'
 import { Panel, PanelHeader, SectionLabel, InitialsAvatar } from '@/components/admin/_shared/Panel'
 import { StatStrip, StatTile } from '@/components/admin/_shared/StatStrip'
 import { StatusTabs } from '@/components/admin/_shared/StatusTabs'
@@ -139,7 +139,7 @@ const CLEANING_SORT_VALUE = {
 }
 const CLEANING_SORT_DEFAULT_DIR = { scheduled: 'desc' }
 
-const ROW_GRID = 'grid grid-cols-[minmax(0,1.3fr)_minmax(0,1.1fr)_minmax(0,0.7fr)_minmax(0,1.2fr)_minmax(0,0.9fr)_150px] gap-4 items-center'
+const ROW_GRID = `grid grid-cols-[minmax(0,1.3fr)_minmax(0,1.1fr)_minmax(0,0.7fr)_minmax(0,1.2fr)_minmax(0,0.9fr)_150px] gap-4 items-center ${CARD_ON_PHONE}`
 const PANEL_WIDTH = 480
 
 function formatDate(d) {
@@ -1878,16 +1878,11 @@ function CleaningDetailPanel({ cleaning, onClose, onChanged, onDelete, housekeep
   const isCompleted = cleaning.status === 'completed'
   const isCancelled = cleaning.status === 'cancelled'
 
+  const panelMotion = useSidePanelMotion(PANEL_WIDTH)
+
   return (
     <>
-      <motion.div
-        initial={{ width: 0, opacity: 0 }}
-        animate={{ width: PANEL_WIDTH, opacity: 1 }}
-        exit={{ width: 0, opacity: 0 }}
-        transition={{ width: { duration: 0.32, ease: [0.4, 0, 0.2, 1] }, opacity: { duration: 0.2, ease: 'easeOut' } }}
-        className="h-full flex-shrink-0 p-3"
-        style={{ maxWidth: '100%', width: PANEL_WIDTH + 24 }}
-      >
+      <motion.div {...panelMotion}>
         <div className="h-full rounded-md border border-border bg-card shadow-lg overflow-hidden flex flex-col">
           <AnimatePresence mode="wait" initial={false}>
             <motion.div
@@ -2195,7 +2190,7 @@ function CleaningListRow({ cleaning, selected, highlighted, onClick, onViewBooki
   ]
 
   return (
-    <ContextMenu items={contextItems}>
+    <ContextMenu items={contextItems} className="border-b border-border last:border-b-0">
       <motion.button
         type="button"
         data-cleaning-id={cleaning.id}
@@ -2211,7 +2206,7 @@ function CleaningListRow({ cleaning, selected, highlighted, onClick, onViewBooki
         transition={{ duration: 0.4 }}
         whileHover={{ backgroundColor: selected ? 'rgba(34, 81, 147, 0.14)' : 'rgba(34, 81, 147, 0.05)' }}
         whileTap={{ scale: 0.998 }}
-        className={cn('group/row w-full text-left px-4 py-3 border-b border-border last:border-b-0 cursor-pointer select-none', ROW_GRID)}
+        className={cn('group/row w-full text-left px-4 py-3 cursor-pointer select-none', ROW_GRID)}
       >
         <div className="min-w-0">
           <span className="font-mono text-[12.5px] font-bold text-foreground truncate block">
@@ -2541,7 +2536,7 @@ export default function HousekeepingPage({ initialSelectedId, fromBookingId }: H
 
   return (
     <div className="h-full flex min-h-0">
-      <div className="flex-1 min-h-0 flex flex-col px-6 py-5 md:px-8 md:py-6 gap-4 overflow-y-auto">
+      <div className="flex-1 min-h-0 flex flex-col px-4 py-4 md:px-8 md:py-6 gap-4 overflow-y-auto">
 
         <div className="flex-shrink-0 pt-1 pb-2">
           <SummaryCards cleanings={cleanings} active={statusFilter} onSelect={setStatusFilter} />
@@ -2589,7 +2584,13 @@ export default function HousekeepingPage({ initialSelectedId, fromBookingId }: H
         )}
 
         <div className="flex-1 min-h-[420px] rounded-md border border-border shadow-sm overflow-hidden bg-card flex flex-col">
-          <div className={cn('flex-shrink-0 px-4 py-2.5 border-b border-border', ROW_GRID)}>
+          <MobileSort
+            options={[{ key: 'code', label: 'Code · Unit' }, { key: 'booking', label: 'Booking' }, { key: 'type', label: 'Type' }, { key: 'housekeeper', label: 'Housekeeper' }, { key: 'scheduled', label: 'Scheduled' }, { key: 'status', label: 'Status' }]}
+            sort={sort}
+            onSort={onSort}
+            className="flex-shrink-0"
+          />
+          <div className={cn('flex-shrink-0 px-4 py-2.5 border-b border-border max-md:hidden', ROW_GRID)}>
             <SortHeader label="Code · Unit" sortKey="code" sort={sort} onSort={onSort} />
             <SortHeader label="Booking" sortKey="booking" sort={sort} onSort={onSort} />
             <SortHeader label="Type" sortKey="type" sort={sort} onSort={onSort} />

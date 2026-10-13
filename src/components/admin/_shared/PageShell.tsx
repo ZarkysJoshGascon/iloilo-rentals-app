@@ -11,7 +11,7 @@ type PageShellProps = {
 export default function PageShell({ children, className = '' }: PageShellProps) {
   return (
     <div className={`h-full min-h-0 overflow-y-auto ${className}`}>
-      <div className="px-6 py-5 md:px-8 md:py-6 max-w-[1600px] mx-auto">
+      <div className="px-4 py-4 md:px-8 md:py-6 max-w-[1600px] mx-auto">
         {children}
       </div>
     </div>
@@ -27,7 +27,7 @@ type PageShellFlexProps = {
 // (e.g. master-detail pages with a fixed panel).
 export function PageShellFlex({ children, className = '' }: PageShellFlexProps) {
   return (
-    <div className={`h-full min-h-0 flex flex-col px-6 py-5 md:px-8 md:py-6 ${className}`}>
+    <div className={`h-full min-h-0 flex flex-col px-4 py-4 md:px-8 md:py-6 ${className}`}>
       {children}
     </div>
   )

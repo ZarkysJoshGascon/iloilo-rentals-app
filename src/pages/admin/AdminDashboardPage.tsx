@@ -10,6 +10,8 @@ import {
   ScrollText,
 } from 'lucide-react'
 import AdminSidebar, {
+  AdminMobileNav,
+  MOBILE_NAV_HEIGHT,
   SIDEBAR_COLLAPSED_WIDTH,
   SIDEBAR_PUSH_DELTA,
   SIDEBAR_SLIDE_MS,
@@ -18,6 +20,7 @@ import AdminSidebar, {
 import { InquiryNotifications } from '../../components/admin/InquiryNotifications'
 import ContractAlertBar from '../../components/admin/ContractAlertBar'
 import { useContractAlerts } from '../../hooks/useContractAlerts'
+import { useIsPhone } from '../../hooks/useIsPhone'
 
 // ─────────────────────────────────────────────────────────────
 // Lazy pages
@@ -344,6 +347,8 @@ export default function AdminDashboardPage() {
   const title = tabTitles[activeTab] || 'Dashboard'
 
   const contentPush = sidebarCollapsed ? 0 : SIDEBAR_PUSH_DELTA
+  // Phones: no rail; a bottom tab bar, with the page full width above it.
+  const phone = useIsPhone()
 
   const surface = isDark ? C.surfaceDark : C.surface
   const border = isDark ? C.borderDark : C.border
@@ -373,21 +378,39 @@ export default function AdminDashboardPage() {
       <div className="fixed inset-0 overflow-hidden text-foreground">
         <InquiryNotifications onNavigateTab={handleTabChange} />
 
-        <AdminSidebar
-          activeTab={activeTab}
-          setActiveTab={handleTabChange}
-          collapsed={sidebarCollapsed}
-          onMouseEnter={() => setSidebarCollapsed(false)}
-          onMouseLeave={() => setSidebarCollapsed(true)}
-          prefetch={PREFETCH}
-          user={adminUser}
-          onSignOut={handleSignOut}
-          contractAlertCount={contractAlerts.total}
-        />
+        {phone ? (
+          <AdminMobileNav
+            activeTab={activeTab}
+            setActiveTab={handleTabChange}
+            prefetch={PREFETCH}
+            user={adminUser}
+            onSignOut={handleSignOut}
+            contractAlertCount={contractAlerts.total}
+          />
+        ) : (
+          <AdminSidebar
+            activeTab={activeTab}
+            setActiveTab={handleTabChange}
+            collapsed={sidebarCollapsed}
+            onMouseEnter={() => setSidebarCollapsed(false)}
+            onMouseLeave={() => setSidebarCollapsed(true)}
+            prefetch={PREFETCH}
+            user={adminUser}
+            onSignOut={handleSignOut}
+            contractAlertCount={contractAlerts.total}
+          />
+        )}
 
         <div
           className="h-full flex flex-col"
-          style={{
+          style={phone ? {
+            position: 'absolute',
+            top: 0,
+            left: 0,
+            right: 0,
+            bottom: `calc(${MOBILE_NAV_HEIGHT}px + env(safe-area-inset-bottom, 0px))`,
+            height: 'auto',
+          } : {
             position: 'absolute',
             top: 0,
             bottom: 0,
@@ -400,7 +423,7 @@ export default function AdminDashboardPage() {
           }}
         >
           <header
-            className="flex-shrink-0 flex items-center justify-between gap-4 px-5"
+            className="flex-shrink-0 flex items-center justify-between gap-3 px-4 md:gap-4 md:px-5"
             style={{
               height: 56,
               backgroundColor: surface,

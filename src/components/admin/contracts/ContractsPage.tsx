@@ -38,7 +38,7 @@ import {
 import { StatStrip, StatTile } from '@/components/admin/_shared/StatStrip'
 import { InitialsAvatar } from '@/components/admin/_shared/Panel'
 import { StatementActions } from '@/components/admin/_shared/StatementActions'
-import { SortHeader, nextSort, ResultsBar, SearchKeyHint, useListShortcuts } from '@/components/admin/_shared/listTools'
+import { SortHeader, nextSort, ResultsBar, SearchKeyHint, useListShortcuts, CARD_ON_PHONE, MobileSort, PHONE_LABEL, useSidePanelMotion } from '@/components/admin/_shared/listTools'
 import { StatusTabs } from '@/components/admin/_shared/StatusTabs'
 import type { ReactNode } from 'react'
 
@@ -774,7 +774,7 @@ function FilterPanel({
 }
 
 // ── Row ─────────────────────────────────────────────────────
-const ROW_GRID = 'grid grid-cols-[1.3fr_1.5fr_1fr_1fr_140px] gap-4 items-center'
+const ROW_GRID = `grid grid-cols-[1.3fr_1.5fr_1fr_1fr_140px] gap-4 items-center ${CARD_ON_PHONE}`
 
 // Sortable columns. "Status" puts contracts waiting for renewal first, then
 // ones ending soon, then active ones, then past (renewed) terms.
@@ -816,7 +816,7 @@ function ContractRow({ contract, selected, onClick }: ContractRowProps) {
           {contract.owners?.name || 'No owner'}
         </span>
       </div>
-      <div className="min-w-0">
+      <div className="min-w-0 max-md:col-span-2">
         <span className="font-mono text-xs font-bold text-foreground truncate block">
           {contract.units?.unit_code || '—'}
         </span>
@@ -825,9 +825,11 @@ function ContractRow({ contract, selected, onClick }: ContractRowProps) {
         </span>
       </div>
       <div className="text-[11px] tabular-nums text-foreground min-w-0">
+        <span className={PHONE_LABEL}>Effective</span>
         <div className="truncate">{formatDate(contract.effective_date)}</div>
       </div>
       <div className="text-[11px] tabular-nums text-foreground min-w-0">
+        <span className={PHONE_LABEL}>Expiry</span>
         <div className="truncate">{formatDate(contract.expiry_date)}</div>
       </div>
       <div className="flex items-center justify-end flex-shrink-0">
@@ -1885,15 +1887,10 @@ function ContractDetailPanel({ contract, contracts, units, owners, onClose, onCh
   const unit = contract.units
   const owner = contract.owners
 
+  const panelMotion = useSidePanelMotion(PANEL_WIDTH)
+
   return (
-    <motion.div
-      initial={{ width: 0, opacity: 0 }}
-      animate={{ width: PANEL_WIDTH, opacity: 1 }}
-      exit={{ width: 0, opacity: 0 }}
-      transition={{ width: { duration: 0.32, ease: [0.4, 0, 0.2, 1] }, opacity: { duration: 0.2, ease: 'easeOut' } }}
-      className="h-full flex-shrink-0 p-3"
-      style={{ maxWidth: '100%', width: PANEL_WIDTH + 24 }}
-    >
+    <motion.div {...panelMotion}>
       <div className="h-full rounded-md border border-border bg-card shadow-lg overflow-hidden flex flex-col">
         <AnimatePresence mode="wait" initial={false}>
           <motion.div
@@ -2331,7 +2328,7 @@ export default function ContractsPage() {
   return (
     <div className="h-full flex min-h-0">
       <div className="flex-1 min-h-0 flex flex-col overflow-hidden">
-        <div className="px-6 py-5 md:px-8 md:py-6 flex-1 min-h-0 flex flex-col gap-4">
+        <div className="px-4 py-4 md:px-8 md:py-6 flex-1 min-h-0 flex flex-col gap-4">
           <div className="flex-shrink-0">
             <SummaryCards contracts={contracts} active={statusFilter} onSelect={setStatusFilter} />
           </div>
@@ -2412,7 +2409,13 @@ export default function ContractsPage() {
 
           <div className="flex-1 min-h-0 rounded-md border border-border shadow-sm overflow-hidden bg-card">
             <div className="h-full overflow-y-auto" style={{ scrollbarGutter: 'stable' }}>
-              <div className={cn('sticky top-0 z-10 px-4 py-2.5 border-b border-border bg-card', ROW_GRID)}>
+              <MobileSort
+                options={[{ key: 'contract', label: 'Contract' }, { key: 'unit', label: 'Unit' }, { key: 'effective', label: 'Effective' }, { key: 'expiry', label: 'Expiry' }, { key: 'status', label: 'Status' }]}
+                sort={sort}
+                onSort={onSort}
+                className="sticky top-0 z-10"
+              />
+              <div className={cn('sticky top-0 z-10 px-4 py-2.5 border-b border-border bg-card max-md:hidden', ROW_GRID)}>
                 <SortHeader label="Contract" sortKey="contract" sort={sort} onSort={onSort} />
                 <SortHeader label="Unit" sortKey="unit" sort={sort} onSort={onSort} />
                 <SortHeader label="Effective" sortKey="effective" sort={sort} onSort={onSort} />

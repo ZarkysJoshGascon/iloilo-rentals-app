@@ -26,7 +26,7 @@ import { cn, sanitizeText, sanitizeEmail } from '@/lib/utils'
 import { searchProfiles, isEmailRegistered } from '@/lib/staff'
 import { InitialsAvatar } from '@/components/admin/_shared/Panel'
 import { StatStrip, StatTile } from '@/components/admin/_shared/StatStrip'
-import { SortHeader, nextSort, ResultsBar, SearchKeyHint, useListShortcuts } from '@/components/admin/_shared/listTools'
+import { SortHeader, nextSort, ResultsBar, SearchKeyHint, useListShortcuts, CARD_ON_PHONE, MobileSort, useSidePanelMotion } from '@/components/admin/_shared/listTools'
 import { StatusTabs } from '@/components/admin/_shared/StatusTabs'
 import type { ReactNode } from 'react'
 import type { LucideIcon } from 'lucide-react'
@@ -416,7 +416,7 @@ const UNIT_SORT_VALUE = {
   },
 }
 
-const ROW_GRID = 'grid grid-cols-[1.4fr_1fr_1.6fr_220px] gap-4 items-center'
+const ROW_GRID = `grid grid-cols-[1.4fr_1fr_1.6fr_220px] gap-4 items-center ${CARD_ON_PHONE}`
 const PANEL_WIDTH = 448
 const EXPIRING_SOON_DAYS = 60
 
@@ -1245,15 +1245,10 @@ function RegistryDetailPanel({
   }
   const goToContracts = () => navigate(`/admin?tab=contracts&unit=${unit.id}`)
 
+  const panelMotion = useSidePanelMotion(PANEL_WIDTH)
+
   return (
-    <motion.div
-      initial={{ width: 0, opacity: 0 }}
-      animate={{ width: PANEL_WIDTH, opacity: 1 }}
-      exit={{ width: 0, opacity: 0 }}
-      transition={{ width: { duration: 0.32, ease: [0.4, 0, 0.2, 1] }, opacity: { duration: 0.2 } }}
-      className="h-full flex-shrink-0 p-3"
-      style={{ maxWidth: '100%', width: PANEL_WIDTH + 24 }}
-    >
+    <motion.div {...panelMotion}>
       <div
         className="h-full border border-border overflow-hidden flex flex-col bg-background"
         style={{
@@ -1822,7 +1817,7 @@ export default function RegistryPage() {
   return (
     <div className="h-full flex min-h-0">
       <div className="flex-1 min-h-0 flex flex-col overflow-hidden">
-        <div className="px-6 py-5 md:px-8 md:py-6 flex-1 min-h-0 flex flex-col gap-4">
+        <div className="px-4 py-4 md:px-8 md:py-6 flex-1 min-h-0 flex flex-col gap-4">
 
           <div className="flex-shrink-0">
             <SummaryCards units={allUnits} active={statusFilter} onSelect={setStatusFilter} />
@@ -1872,7 +1867,13 @@ export default function RegistryPage() {
 
           <div style={BTN_RADIUS} className="flex-1 min-h-0 border border-border shadow-sm overflow-hidden bg-card">
             <div className="h-full overflow-y-auto" style={{ scrollbarGutter: 'stable' }}>
-              <div className={cn('sticky top-0 z-10 px-4 py-2.5 border-b border-border bg-card', ROW_GRID)}>
+              <MobileSort
+                options={[{ key: 'building', label: 'Building' }, { key: 'unit', label: 'Unit' }, { key: 'owner', label: 'Owner' }, { key: 'status', label: 'Status' }]}
+                sort={sort}
+                onSort={onSort}
+                className="sticky top-0 z-10"
+              />
+              <div className={cn('sticky top-0 z-10 px-4 py-2.5 border-b border-border bg-card max-md:hidden', ROW_GRID)}>
                 <SortHeader label="Building" sortKey="building" sort={sort} onSort={onSort} />
                 <SortHeader label="Unit" sortKey="unit" sort={sort} onSort={onSort} />
                 <SortHeader label="Owner" sortKey="owner" sort={sort} onSort={onSort} />

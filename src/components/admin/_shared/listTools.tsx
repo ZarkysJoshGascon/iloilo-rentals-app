@@ -1,10 +1,94 @@
 // src/components/admin/_shared/listTools.tsx
-// Small helpers shared by the Bookings and Housekeeping lists: sortable column
-// headers, the "Showing X of Y" line with removable filters, and keyboard
-// shortcuts (/ to search, Esc to close the detail panel).
+// Small helpers shared by the CRM lists: sortable column headers, the
+// "Showing X of Y" line with removable filters, keyboard shortcuts (/ to
+// search, Esc to close the detail panel), and the phone layout (rows as
+// cards, a sort picker in place of the headers, full-screen detail panels).
 import { useEffect } from 'react'
-import { ChevronDown, ChevronUp, ChevronsUpDown, X } from 'lucide-react'
+import { ArrowDown, ArrowUp, ChevronDown, ChevronUp, ChevronsUpDown, X } from 'lucide-react'
 import { cn } from '@/lib/utils'
+import { useIsPhone } from '@/hooks/useIsPhone'
+
+/**
+ * Add to a list row's grid so it reads as a card on phones: the first cell
+ * runs the full width (leaving room on the right), the last cell (the status)
+ * is pinned top-right, and the cells between sit two to a line.
+ */
+export const CARD_ON_PHONE =
+  'max-md:relative max-md:grid-cols-2 max-md:gap-x-3 max-md:gap-y-2.5 max-md:items-start ' +
+  'max-md:[&>:first-child]:col-span-2 max-md:[&>:first-child]:pr-32 ' +
+  'max-md:[&>:last-child]:absolute max-md:[&>:last-child]:top-3 max-md:[&>:last-child]:right-4 ' +
+  'max-md:[&>:last-child]:max-w-[7.5rem] max-md:[&>:last-child]:text-right'
+
+/** A cell's column name, shown only on phones where the headers are hidden. */
+export const PHONE_LABEL = 'md:hidden block text-[10px] font-semibold uppercase tracking-wider text-foreground/75'
+
+type MobileSortProps = {
+  options: { key: string; label: string }[]
+  sort: any
+  onSort: (key: string) => void
+  className?: string
+}
+
+/** Phones hide the column headers; this keeps sorting within reach. */
+export function MobileSort({ options, sort, onSort, className }: MobileSortProps) {
+  const known = options.some((o) => o.key === sort.key)
+  const asc = sort.dir === 'asc'
+  const Icon = asc ? ArrowUp : ArrowDown
+  return (
+    <div className={cn('md:hidden flex items-center gap-2 px-4 py-2 border-b border-border bg-card', className)}>
+      <span className="text-[11px] font-semibold text-foreground flex-shrink-0">Sort by</span>
+      <select
+        value={sort.key}
+        onChange={(e) => onSort(e.target.value)}
+        aria-label="Sort by"
+        className="h-8 flex-1 min-w-0 rounded-md border border-border bg-card px-2 text-[12px] font-medium text-foreground"
+      >
+        {!known && <option value={sort.key}>Default order</option>}
+        {options.map((o) => <option key={o.key} value={o.key}>{o.label}</option>)}
+      </select>
+      <button
+        type="button"
+        onClick={() => onSort(sort.key)}
+        aria-label={asc ? 'Ascending, tap for descending' : 'Descending, tap for ascending'}
+        className="h-8 w-8 flex-shrink-0 inline-flex items-center justify-center rounded-md border border-border bg-card text-foreground"
+      >
+        <Icon size={14} />
+      </button>
+    </div>
+  )
+}
+
+const PANEL_EASE = [0.4, 0, 0.2, 1] as const
+
+/**
+ * Motion props for a list's detail panel. On a desktop it opens beside the
+ * list at `width`; on a phone it slides up and covers the screen (above the
+ * bottom tabs, below dialogs).
+ */
+export function useSidePanelMotion(width: number) {
+  const phone = useIsPhone()
+  if (phone) {
+    return {
+      initial: { y: '100%' },
+      animate: { y: 0 },
+      exit: { y: '100%' },
+      transition: { duration: 0.28, ease: PANEL_EASE },
+      className: 'fixed inset-0 z-[45] p-2 bg-background',
+      style: {
+        paddingTop: 'max(0.5rem, env(safe-area-inset-top))',
+        paddingBottom: 'max(0.5rem, env(safe-area-inset-bottom))',
+      },
+    }
+  }
+  return {
+    initial: { width: 0, opacity: 0 },
+    animate: { width, opacity: 1 },
+    exit: { width: 0, opacity: 0 },
+    transition: { width: { duration: 0.32, ease: PANEL_EASE }, opacity: { duration: 0.2, ease: 'easeOut' as const } },
+    className: 'h-full flex-shrink-0 p-3',
+    style: { maxWidth: '100%', width: width + 24 },
+  }
+}
 
 type SortHeaderProps = {
   label: string

@@ -2763,7 +2763,7 @@ export default function TeamPage() {
 
   return (
     <div className="h-full flex min-h-0">
-      <div className="flex-1 min-h-0 flex flex-col px-6 py-5 md:px-8 md:py-6 gap-4">
+      <div className="flex-1 min-w-0 min-h-0 flex flex-col px-4 py-4 md:px-8 md:py-6 gap-4">
 
         <div className="flex-shrink-0">
           <SummaryCards

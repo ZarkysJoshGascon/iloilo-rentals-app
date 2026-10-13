@@ -15,13 +15,13 @@ import { listInquiries, updateInquiry, deleteInquiry } from '@/lib/inquiries'
 import { StatusTabs } from '@/components/admin/_shared/StatusTabs'
 import { StatStrip, StatTile } from '@/components/admin/_shared/StatStrip'
 import { InitialsAvatar } from '@/components/admin/_shared/Panel'
-import { SortHeader, nextSort, ResultsBar, SearchKeyHint, useListShortcuts } from '@/components/admin/_shared/listTools'
+import { SortHeader, nextSort, ResultsBar, SearchKeyHint, useListShortcuts, CARD_ON_PHONE, MobileSort, useSidePanelMotion } from '@/components/admin/_shared/listTools'
 import { DateRangeFilter } from '@/components/admin/_shared/DateRangeFilter'
 import type { ReactNode } from 'react'
 import type { LucideIcon } from 'lucide-react'
 
 const PANEL_WIDTH = 448
-const ROW_GRID = 'grid grid-cols-[minmax(0,1.6fr)_minmax(0,1.2fr)_minmax(0,0.8fr)_120px_110px] gap-4 items-center'
+const ROW_GRID = `grid grid-cols-[minmax(0,1.6fr)_minmax(0,1.2fr)_minmax(0,0.8fr)_120px_110px] gap-4 items-center ${CARD_ON_PHONE}`
 
 function fmtDate(iso) {
   if (!iso) return '—'
@@ -165,7 +165,7 @@ function InquiryRow({ inquiry, selected, onClick }: InquiryRowProps) {
           <p className="text-[11px] text-foreground truncate">{inquiry.owner_email}</p>
         </div>
       </div>
-      <div className="min-w-0">
+      <div className="min-w-0 max-md:col-span-2">
         <p className="text-[12px] text-foreground truncate">{inquiry.building || inquiry.location || '—'}</p>
         <p className="text-[11px] text-foreground truncate">{inquiry.property_type || 'Property TBD'}</p>
       </div>
@@ -334,7 +334,7 @@ export default function InquiriesPage() {
   return (
     <div className="h-full flex min-h-0">
       <div className="flex-1 min-h-0 flex flex-col overflow-hidden">
-        <div className="px-6 py-5 md:px-8 md:py-6 flex-1 min-h-0 flex flex-col gap-4">
+        <div className="px-4 py-4 md:px-8 md:py-6 flex-1 min-h-0 flex flex-col gap-4">
           <div className="flex-shrink-0">
             <SummaryCards inquiries={inquiries} active={statusFilter} onSelect={setStatusFilter} />
           </div>
@@ -384,7 +384,13 @@ export default function InquiriesPage() {
 
           <div className="flex-1 min-h-0 rounded-md border border-border shadow-sm overflow-hidden bg-card">
             <div className="h-full overflow-y-auto" style={{ scrollbarGutter: 'stable' }}>
-              <div className={cn('sticky top-0 z-10 px-4 py-2.5 border-b border-border bg-card', ROW_GRID)}>
+              <MobileSort
+                options={[{ key: 'owner', label: 'Owner' }, { key: 'property', label: 'Property' }, { key: 'intent', label: 'Intent' }, { key: 'received', label: 'Received' }, { key: 'status', label: 'Status' }]}
+                sort={sort}
+                onSort={onSort}
+                className="sticky top-0 z-10"
+              />
+              <div className={cn('sticky top-0 z-10 px-4 py-2.5 border-b border-border bg-card max-md:hidden', ROW_GRID)}>
                 <SortHeader label="Owner" sortKey="owner" sort={sort} onSort={onSort} />
                 <SortHeader label="Property" sortKey="property" sort={sort} onSort={onSort} />
                 <SortHeader label="Intent" sortKey="intent" sort={sort} onSort={onSort} />
@@ -491,18 +497,10 @@ function InquiryDetailPanel({ inquiry, onClose, onUpdate, onDelete }: InquiryDet
 
   const images = Array.isArray(inquiry.images) ? inquiry.images : []
 
+  const panelMotion = useSidePanelMotion(PANEL_WIDTH)
+
   return (
-    <motion.div
-      initial={{ width: 0, opacity: 0 }}
-      animate={{ width: PANEL_WIDTH, opacity: 1 }}
-      exit={{ width: 0, opacity: 0 }}
-      transition={{
-        width: { duration: 0.32, ease: [0.4, 0, 0.2, 1] },
-        opacity: { duration: 0.2 },
-      }}
-      className="h-full flex-shrink-0 p-3"
-      style={{ maxWidth: '100%', width: PANEL_WIDTH + 24 }}
-    >
+    <motion.div {...panelMotion}>
       <div className="h-full rounded-md border border-border bg-card shadow-lg overflow-hidden flex flex-col">
         <AnimatePresence mode="wait" initial={false}>
           <motion.div
