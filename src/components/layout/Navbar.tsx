@@ -6,8 +6,9 @@ import { useAuth } from "../../context/AuthContext";
 import { useUserRole } from '@/hooks/useUserRole'
 import {
   Menu, X, User, Home, Phone, Info, FileText, Shield, LogOut, Building2, Palette, LayoutDashboard,
-  KeyRound, ChevronRight,
+  KeyRound, ChevronRight, ChevronDown, LayoutGrid, Sparkles,
 } from 'lucide-react'
+import type { LucideIcon } from 'lucide-react'
 
 // Mobile pill buttons, and the full-width buttons in the mobile menu.
 const pillClass = (active) =>
@@ -16,13 +17,90 @@ const pillClass = (active) =>
   }`
 const sheetButton = 'w-full flex items-center justify-center gap-2 h-11 px-4 rounded-xl bg-[#2d568e] text-white font-medium text-sm'
 
+type AccessItem = { path: string; label: string; hint: string; icon: LucideIcon }
+
+// The places a signed-in account can open, as menu rows.
+function AccessLinks({ items, onPick, compact = false }: { items: AccessItem[]; onPick: () => void; compact?: boolean }) {
+  return items.map(({ path, label, hint, icon: Icon }) => (
+    <Link
+      key={path}
+      to={path}
+      role="menuitem"
+      onClick={onPick}
+      className={`flex items-center gap-3 rounded-xl px-3 ${compact ? 'py-2.5' : 'py-3'} text-left hover:bg-gray-50 active:bg-gray-100 focus-visible:outline-2 focus-visible:outline-[#2d568e]`}
+    >
+      <Icon size={18} className="flex-shrink-0 text-[#2d568e]" aria-hidden />
+      <span className="min-w-0 flex-1">
+        <span className="block text-sm font-semibold text-gray-900">{label}</span>
+        <span className="block text-xs text-gray-500 truncate">{hint}</span>
+      </span>
+      <ChevronRight size={15} className="flex-shrink-0 text-gray-400" aria-hidden />
+    </Link>
+  ))
+}
+
+/**
+ * "Workspace": a menu of what this account can open (the CRM, the unit
+ * portal, housekeeping tasks), in any combination. `placement` puts it under
+ * the desktop bar or over the mobile one.
+ */
+function AccessMenu({ items, placement, triggerClass, label }: { items: AccessItem[]; placement: 'below' | 'above'; triggerClass: string; label: React.ReactNode }) {
+  const [open, setOpen] = useState(false)
+  const ref = useRef(null)
+  const location = useLocation()
+  useEffect(() => { setOpen(false) }, [location.pathname])
+  useEffect(() => {
+    if (!open) return undefined
+    const onDown = (e) => { if (!ref.current?.contains(e.target)) setOpen(false) }
+    const onKey = (e) => { if (e.key === 'Escape') setOpen(false) }
+    document.addEventListener('pointerdown', onDown)
+    window.addEventListener('keydown', onKey)
+    return () => {
+      document.removeEventListener('pointerdown', onDown)
+      window.removeEventListener('keydown', onKey)
+    }
+  }, [open])
+  return (
+    <div ref={ref} className="relative">
+      <button type="button" aria-haspopup="menu" aria-expanded={open} title="Your workspace" onClick={() => setOpen((v) => !v)} className={triggerClass}>
+        {label}
+      </button>
+      <AnimatePresence>
+        {open && (
+          <motion.div
+            role="menu"
+            aria-label="Workspace"
+            initial={{ opacity: 0, y: placement === 'below' ? -6 : 6, scale: 0.98 }}
+            animate={{ opacity: 1, y: 0, scale: 1 }}
+            exit={{ opacity: 0, y: placement === 'below' ? -6 : 6, scale: 0.98 }}
+            transition={{ duration: 0.15, ease: 'easeOut' }}
+            className={`absolute right-0 z-50 w-80 max-w-[calc(100vw-24px)] rounded-2xl border border-gray-200 bg-white p-1.5 shadow-xl shadow-black/10 ${
+              placement === 'below' ? 'top-full mt-3 origin-top-right' : 'bottom-full mb-3 origin-bottom-right'
+            }`}
+          >
+            <p className="px-3 pt-2 pb-1 text-[10px] font-bold uppercase tracking-wider text-gray-400">Your workspace</p>
+            <AccessLinks items={items} onPick={() => setOpen(false)} compact />
+          </motion.div>
+        )}
+      </AnimatePresence>
+    </div>
+  )
+}
+
 export default function Navbar() {
   const { user, signOut } = useAuth()
   const { role, isOwner } = useUserRole()
-  // Admins get a CRM link in the navbar's account area (and in the mobile menu);
-  // unit owners get a link to their owner portal.
+  // The access menu lists what this account can open: the CRM for admins,
+  // the unit portal for owners, housekeeping tasks for housekeepers. An
+  // account can have any of these, all of them, or none (no menu).
   const isAdmin = !!user && (role === 'admin' || role === 'both')
+  const isHousekeeper = !!user && (role === 'housekeeper' || role === 'both')
   const showOwnerLink = !!user && isOwner
+  const accessItems: AccessItem[] = [
+    isAdmin && { path: '/admin', label: 'CRM', hint: 'Bookings, contracts, accounting', icon: LayoutDashboard },
+    showOwnerLink && { path: '/owner', label: 'Unit portal', hint: 'Your units and statements', icon: KeyRound },
+    isHousekeeper && { path: '/housekeeping', label: 'Housekeeping tasks', hint: 'Cleanings assigned to you', icon: Sparkles },
+  ].filter(Boolean)
   const navigate = useNavigate()
   const location = useLocation()
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false)
@@ -93,7 +171,7 @@ export default function Navbar() {
     window.addEventListener('resize', measure)
     document.fonts?.ready.then(measure)
     return () => window.removeEventListener('resize', measure)
-  }, [user, isAdmin, showOwnerLink])
+  }, [user, accessItems.length])
 
   const userAvatar = user?.user_metadata?.avatar_url || null
   const userName = user?.user_metadata?.full_name || user?.email?.split('@')[0] || 'User'
@@ -154,27 +232,17 @@ export default function Navbar() {
             <div className="pr-2">
               {user ? (
                 <div className="flex items-center gap-2">
-                  {isAdmin && (
-                    <Link
-                      to="/admin"
-                      title="Open the admin CRM"
-                      aria-label="CRM"
-                      className="flex items-center gap-2 px-3 py-2 rounded-full text-sm font-medium transition-colors text-[color:var(--nav-fg)] hover:text-[color:var(--nav-fg-strong)] hover:bg-gray-900/5"
-                    >
-                      <LayoutDashboard size={15} />
-                      <span className="hidden lg:inline">CRM</span>
-                    </Link>
-                  )}
-                  {showOwnerLink && (
-                    <Link
-                      to="/owner"
-                      title="Your units and earnings"
-                      aria-label="My units"
-                      className="flex items-center gap-2 px-3 py-2 rounded-full text-sm font-medium transition-colors text-[color:var(--nav-fg)] hover:text-[color:var(--nav-fg-strong)] hover:bg-gray-900/5"
-                    >
-                      <KeyRound size={15} />
-                      <span className="hidden lg:inline">My units</span>
-                    </Link>
+                  {accessItems.length > 0 && (
+                    <AccessMenu
+                      items={accessItems}
+                      placement="below"
+                      triggerClass="flex items-center gap-2 px-3 py-2 rounded-full text-sm font-medium transition-colors text-[color:var(--nav-fg)] hover:text-[color:var(--nav-fg-strong)] hover:bg-gray-900/5 aria-expanded:bg-gray-900/5 aria-expanded:text-[color:var(--nav-fg-strong)]"
+                      label={<>
+                        <LayoutGrid size={15} aria-hidden />
+                        <span className="hidden lg:inline">Workspace</span>
+                        <ChevronDown size={14} aria-hidden className="transition-transform [[aria-expanded=true]>&]:rotate-180" />
+                      </>}
+                    />
                   )}
                   <div className="w-9 h-9 rounded-full overflow-hidden bg-[color:var(--nav-line)] flex items-center justify-center flex-shrink-0 ring-1 ring-[color:var(--nav-line)]">
                     {userAvatar ? (
@@ -225,16 +293,13 @@ export default function Navbar() {
                 <User size={15} />
                 <span>Sign In</span>
               </Link>
-            ) : isAdmin ? (
-              <Link to="/admin" className={pillClass(false)}>
-                <LayoutDashboard size={15} />
-                <span>CRM</span>
-              </Link>
-            ) : showOwnerLink ? (
-              <Link to="/owner" className={pillClass(false)}>
-                <KeyRound size={15} />
-                <span>My units</span>
-              </Link>
+            ) : accessItems.length > 0 ? (
+              <AccessMenu
+                items={accessItems}
+                placement="above"
+                triggerClass={`${pillClass(false)} aria-expanded:bg-gray-100 aria-expanded:text-gray-900`}
+                label={<><LayoutGrid size={15} aria-hidden /><span>Workspace</span></>}
+              />
             ) : (
               <button type="button" onClick={() => setMobileMenuOpen(true)} className={pillClass(false)}>
                 <User size={15} />
@@ -318,27 +383,21 @@ export default function Navbar() {
                 </button>
               </div>
 
-              {/* Shortcuts */}
-              <div className={`px-5 pb-3 grid gap-2 ${isAdmin && showOwnerLink ? 'grid-cols-2' : 'grid-cols-1'}`}>
-                {!user && (
+              {/* Sign in, or this account's workspace */}
+              {!user && (
+                <div className="px-5 pb-3">
                   <Link to="/login" onClick={() => setMobileMenuOpen(false)} className={sheetButton}>
                     <User size={16} />
                     Sign In
                   </Link>
-                )}
-                {isAdmin && (
-                  <Link to="/admin" onClick={() => setMobileMenuOpen(false)} className={sheetButton}>
-                    <LayoutDashboard size={16} />
-                    Open CRM
-                  </Link>
-                )}
-                {showOwnerLink && (
-                  <Link to="/owner" onClick={() => setMobileMenuOpen(false)} className={sheetButton}>
-                    <KeyRound size={16} />
-                    My units
-                  </Link>
-                )}
-              </div>
+                </div>
+              )}
+              {accessItems.length > 0 && (
+                <div className="px-3 pb-2" role="menu" aria-label="Workspace">
+                  <p className="px-3 pb-1 text-[10px] font-bold uppercase tracking-wider text-gray-400">Your workspace</p>
+                  <AccessLinks items={accessItems} onPick={() => setMobileMenuOpen(false)} />
+                </div>
+              )}
 
               {/* Pages */}
               <nav className="px-3 pt-2 border-t border-gray-100">

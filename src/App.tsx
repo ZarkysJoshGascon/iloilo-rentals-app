@@ -7,6 +7,7 @@ import { supabase } from './lib/supabase'
 import Navbar from './components/layout/Navbar'
 import Footer from './components/layout/Footer'
 import AdminRoute from './components/admin/AdminRoute'
+import HousekeeperRoute from './components/housekeeper/HousekeeperRoute'
 import { Preloader } from './components/ui/preloader'
 import { PageImagesProbe } from './components/common/PageImagesProbe'
 import { PageRevealContext } from './lib/pageReveal'
@@ -24,6 +25,7 @@ const TermsPage = lazy(() => import('./pages/public/TermsPage'))
 const UnsubscribePage = lazy(() => import('./pages/public/UnsubscribePage'))
 const AdminDashboardPage = lazy(() => import('./pages/admin/AdminDashboardPage'))
 const OwnerPortalPage = lazy(() => import('./pages/owner/OwnerPortalPage'))
+const HousekeeperTasksPage = lazy(() => import('./pages/housekeeper/HousekeeperTasksPage'))
 
 // First visit only: a loading screen covers the site until the page and every
 // image on it have loaded, so no photo is seen half-loaded. It gives up after
@@ -46,8 +48,9 @@ function PageLoader({ walkthrough = false }: PageLoaderProps) {
 
 function App() {
   const location = useLocation()
-  // The CRM and the owner portal have their own shell (no public navbar, footer or loading screen).
-  const isAdminRoute = location.pathname.startsWith('/admin') || location.pathname.startsWith('/owner')
+  // The CRM, the owner portal and the housekeeping tasks have their own shell
+  // (no public navbar, footer or loading screen).
+  const isAdminRoute = ['/admin', '/owner', '/housekeeping'].some((p) => location.pathname.startsWith(p))
   const isUnsubscribeRoute = location.pathname.startsWith('/unsubscribe')
   const isWalkthroughRoute = location.pathname.replace(/\/+$/, '') === '/interior-design'
 
@@ -100,10 +103,17 @@ function App() {
                   </AdminRoute>
                 }
               />
-              {/* The housekeeper task page is switched off for now; its code is kept in
-                  src/pages/housekeeper/HousekeeperTasksPage.tsx. Old links go home. */}
               <Route path="/owner" element={<OwnerPortalPage />} />
-              <Route path="/hk" element={<Navigate to="/" replace />} />
+              {/* Housekeepers' assigned cleanings; /hk was its old address. */}
+              <Route
+                path="/housekeeping"
+                element={
+                  <HousekeeperRoute>
+                    <HousekeeperTasksPage />
+                  </HousekeeperRoute>
+                }
+              />
+              <Route path="/hk" element={<Navigate to="/housekeeping" replace />} />
             </Routes>
             {showPreloader && <PageImagesProbe onProgress={setPreloadProgress} onDone={finishPreload} />}
           </Suspense>

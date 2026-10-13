@@ -8,7 +8,7 @@ import { useAuth } from '@/context/AuthContext'
 export default function PostLoginPage() {
   const navigate = useNavigate()
   const { user, loading: authLoading } = useAuth()
-  const { role, isOwner, loading: roleLoading } = useUserRole()
+  const { role, loading: roleLoading } = useUserRole()
 
   useEffect(() => {
     if (!authLoading && !user) navigate('/login', { replace: true })
@@ -16,10 +16,11 @@ export default function PostLoginPage() {
 
   useEffect(() => {
     if (authLoading || roleLoading) return
+    // Admins go straight to the CRM. Everyone else lands on the website; the
+    // navbar's access menu opens their unit portal or housekeeping tasks.
     if (role === 'admin') navigate('/admin', { replace: true })
-    else if (isOwner) navigate('/owner', { replace: true })  // unit owners → their portal
-    else navigate('/', { replace: true })  // housekeeper, both, none → home
-  }, [role, isOwner, roleLoading, authLoading, navigate])
+    else navigate('/', { replace: true })
+  }, [role, roleLoading, authLoading, navigate])
 
   return (
     <div className="min-h-screen flex items-center justify-center bg-gray-50">
