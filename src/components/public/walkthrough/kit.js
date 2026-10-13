@@ -2,7 +2,7 @@
 // Building blocks for the 3D unit walkthroughs: helpers to add boxes, panels,
 // tubes, plants and loaded models to a scene in metres; photo textures laid on
 // at their real-world size; and a few surfaces drawn on a canvas (shoji paper,
-// slats, city windows, brushed steel, a cooktop). three.js is passed
+// slats, city windows, brushed steel, a cooktop, quartz). three.js is passed
 // in, so it loads only with the walkthrough.
 
 /** Seeded random numbers, so a surface looks the same on every visit. */
@@ -139,6 +139,23 @@ export function createKit(THREE, renderer, { RoundedBoxGeometry } = {}) {
     return c
   }
 
+  /** Engineered quartz: a pale ground with fine grey, white and dark grains. */
+  function quartz({ base = 0xcfccc9, seed = 31 } = {}) {
+    const [c, ctx] = canvas(512, 512)
+    ctx.fillStyle = hex(base)
+    ctx.fillRect(0, 0, 512, 512)
+    const rand = seeded(seed)
+    for (let i = 0; i < 16000; i++) {
+      const v = rand()
+      if (v < 0.6) ctx.fillStyle = `rgba(120,116,112,${0.12 + rand() * 0.3})`
+      else if (v < 0.9) ctx.fillStyle = `rgba(255,255,255,${0.3 + rand() * 0.4})`
+      else ctx.fillStyle = `rgba(70,66,62,${0.25 + rand() * 0.4})`
+      const s = 0.8 + rand() * 1.8
+      ctx.fillRect(rand() * 512, rand() * 512, s, s)
+    }
+    return c
+  }
+
   // ── Materials ─────────────────────────────────────────────
   function material(params, Kind = THREE.MeshStandardMaterial) {
     const m = new Kind(params)
@@ -253,6 +270,44 @@ export function createKit(THREE, renderer, { RoundedBoxGeometry } = {}) {
     sphere(scene, { at: b, r: r1, mat, detail: 8 }) // a smooth joint
     return m
   }
+  /** Many plain boxes ([min, max] corner pairs) as one mesh: a lattice, railing bars. */
+  function boxes(scene, list, mat, opts = {}) {
+    const pos = []
+    const nrm = []
+    const index = []
+    for (const [[x0, y0, z0], [x1, y1, z1]] of list) {
+      const g = new THREE.BoxGeometry(x1 - x0, y1 - y0, z1 - z0)
+      g.translate((x0 + x1) / 2, (y0 + y1) / 2, (z0 + z1) / 2)
+      const base = pos.length / 3
+      pos.push(...g.attributes.position.array)
+      nrm.push(...g.attributes.normal.array)
+      for (const k of g.index.array) index.push(base + k)
+      g.dispose()
+    }
+    const g = new THREE.BufferGeometry()
+    g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3))
+    g.setAttribute('normal', new THREE.Float32BufferAttribute(nrm, 3))
+    g.setIndex(index)
+    worldUV(g, new THREE.Vector3(), opts.tile || 1, opts.turn)
+    geometries.push(g)
+    return add(scene, new THREE.Mesh(g, mat), opts)
+  }
+  /** A pleated curtain hanging in the plane z, across x0 → x1, from y0 up to y1. */
+  function drape(scene, { x0, x1, y0, y1, z, folds = 6, depth = 0.06, mat, tile }) {
+    const w = x1 - x0
+    const g = new THREE.PlaneGeometry(w, y1 - y0, folds * 12, 1)
+    const p = g.attributes.position
+    for (let i = 0; i < p.count; i++) {
+      const u = p.getX(i) / w + 0.5
+      p.setZ(i, Math.sin(u * folds * Math.PI * 2) * depth * 0.5)
+    }
+    g.computeVertexNormals()
+    geometries.push(g)
+    const m = new THREE.Mesh(g, mat)
+    m.position.set((x0 + x1) / 2, (y0 + y1) / 2, z)
+    if (tile) worldUV(g, m.position, tile)
+    return add(scene, m)
+  }
 
   // ── Plants ────────────────────────────────────────────────
   // One leaf, 1 m long down +y: pointed at both ends, folded along the
@@ -363,11 +418,11 @@ export function createKit(THREE, renderer, { RoundedBoxGeometry } = {}) {
 
   return {
     // surfaces
-    shoji, slats, windows, brushed, hob, tex,
+    shoji, slats, windows, brushed, hob, quartz, tex,
     // materials
     material, surface, glow,
     // shapes
-    block, panel, flat, cylinder, sphere, tube, limb, foliage, model, add,
+    block, panel, flat, cylinder, sphere, tube, limb, boxes, drape, foliage, model, add,
     track: { textures, geometries, materials },
     dispose,
   }

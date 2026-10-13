@@ -20,10 +20,13 @@ const path = [
   // Past the fridge and the kitchen wall before turning into the room.
   { pos: [3.35, 1.6, 2.55], look: [2.6, 1.3, 5.5] },
   { pos: [2.7, 1.6, 3.3], look: [0.05, 1.35, 4.25], caption: { title: 'Living room', note: 'A cherry-blossom feature wall behind a low lounge' } },
-  { pos: [2.25, 1.58, 3.6], look: [0.05, 1.3, 4.25] },
-  // Between the coffee table and the dining table, turning to the TV wall.
-  { pos: [2.4, 1.58, 3.85], look: [1.15, 1.2, 5.78], caption: { title: 'Media wall', note: 'The TV wall, framed in the same artwork' } },
-  { pos: [3.15, 1.6, 5.1], look: [3.0, 1.4, 7.6], caption: { title: 'Into the bedroom', note: 'Through the black-framed doorway' } },
+  { pos: [2.2, 1.58, 3.75], look: [0.05, 1.3, 4.3] },
+  // In the middle of the room, turning one way all round: back toward the
+  // lattice wall, across to the dining wall, then to the TV.
+  { pos: [2.0, 1.5, 5.15], look: [1.9, 1.3, 2.93], caption: { title: 'Feature wall', note: 'A timber lattice beside the blossom panel' } },
+  { pos: [1.6, 1.45, 4.2], look: [4.0, 1.25, 4.2], caption: { title: 'Dining', note: 'An oak table under a cluster of globe lights' } },
+  { pos: [2.3, 1.58, 4.0], look: [1.15, 1.2, 5.78], caption: { title: 'Media wall', note: 'The TV wall, framed in the same artwork' } },
+  { pos: [3.0, 1.6, 5.05], look: [3.0, 1.4, 7.6], caption: { title: 'Into the bedroom', note: 'Through the black-framed doorway' } },
   { pos: [3.1, 1.6, 6.3], look: [0.05, 1.15, 7.2], caption: { title: 'Bedroom', note: 'Soft light layered around the headboard wall' } },
   { pos: [2.95, 1.58, 7.2], look: [0.05, 1.1, 7.25] },
   { pos: [2.4, 1.6, 8.3], look: [2.3, 1.3, 14], caption: { title: 'Balcony', note: 'Out to the city lights' } },
@@ -42,6 +45,7 @@ export const SAINT_HONORE_9S = {
   plan: { src: `${DIR}/plan.png`, x0: 0.3152, x1: 0.6576, y0: 0.222, y1: 0.9002, width: 4, depth: 9 },
   textures: {
     blossom: `${DIR}/blossom.jpg`,
+    blossomWide: `${DIR}/tex/blossom-wide.jpg`,
     floor: `${DIR}/tex/floor.jpg`,
     floorN: data('floor-n'),
     floorR: data('floor-r'),
@@ -54,6 +58,9 @@ export const SAINT_HONORE_9S = {
     walnut: `${DIR}/tex/walnut.jpg`,
     walnutR: data('walnut-r'),
     teak: `${DIR}/tex/teak.jpg`,
+    oak: `${DIR}/tex/oak.jpg`,
+    oakR: data('oak-r'),
+    velvetN: data('velvet-n'),
   },
   models: { pachira: `${DIR}/pachira.glb` },
   // Where the room's own reflections are captured from: mid living room.
@@ -63,7 +70,7 @@ export const SAINT_HONORE_9S = {
 }
 
 function build(THREE, kit, scene, { tex, models }) {
-  const { block, panel, flat, cylinder, sphere, tube, limb, foliage, model, material, surface, glow } = kit
+  const { block, panel, flat, cylinder, sphere, tube, limb, boxes, drape, foliage, model, material, glow } = kit
   // Shiny materials reflect a capture of the room itself (UnitWalkthrough
   // makes it once the room is built); `amount` scales the reflection.
   const mirror = []
@@ -80,11 +87,13 @@ function build(THREE, kit, scene, { tex, models }) {
   const wall = material({ color: 0xe9e3da, roughness: 0.92, ...bump(tex.stuccoN, 0.3) })
   const W = { tile: 2 }
   const taupe = material({ color: 0x7c736a, roughness: 0.9, ...bump(tex.plasterN, 0.7) })
-  const ceiling = material({ color: 0xf2eee8, roughness: 0.96 })
+  const ceiling = material({ color: 0xf2eee8, roughness: 0.96, ...bump(tex.plasterN, 0.4) })
   const floor = shiny(material({ map: tex.floor, roughnessMap: tex.floorR, roughness: 0.9, ...bump(tex.floorN, 0.5), clearcoat: 0.25, clearcoatRoughness: 0.3 }, THREE.MeshPhysicalMaterial), 0.8)
   const walnut = material({ map: tex.walnut, roughnessMap: tex.walnutR, roughness: 0.85 })
   const lacquer = shiny(material({ map: tex.walnut, color: 0x6e6e6e, roughness: 0.45, clearcoat: 0.9, clearcoatRoughness: 0.12 }, THREE.MeshPhysicalMaterial), 0.7)
   const teak = material({ map: tex.teak, roughness: 0.55 })
+  const oak = material({ map: tex.oak, roughnessMap: tex.oakR, roughness: 0.75 })
+  const latticeWood = material({ map: tex.oak, color: 0xe6ddd2, roughness: 0.8 })
   const blackFrame = material({ color: 0x171513, roughness: 0.55 })
   const concrete = material({ color: 0xb9b3aa, roughness: 0.95 })
   const sofa = material({ color: 0xebe8e2, roughness: 1, ...bump(tex.linenN, 0.8) })
@@ -106,31 +115,44 @@ function build(THREE, kit, scene, { tex, models }) {
   const chrome = shiny(material({ color: 0xe0e3e6, metalness: 1, roughness: 0.12 }))
   const glass = shiny(material({ color: 0xc8dbe2, roughness: 0.05, metalness: 0.1, transparent: true, opacity: 0.16, depthWrite: false }))
   const doorWhite = material({ color: 0xe6e1d9, roughness: 0.5 })
-  const curtain = surface(kit.slats({ base: 0x3d3128, count: 9 }), { roughness: 1 })
+  // Curtains: dark brown velvet drapes and a warm sheer, both double-sided.
+  const drapeMat = material({ color: 0x3b2e25, roughness: 1, side: THREE.DoubleSide, ...bump(tex.velvetN, 0.9) })
+  const sheer = material({ color: 0xe9dfcf, roughness: 1, side: THREE.DoubleSide, transparent: true, opacity: 0.55, depthWrite: false, ...bump(tex.linenN, 0.6) })
+  const velvet = (color) => material({ color, roughness: 0.95, ...bump(tex.velvetN, 0.8) })
   const blossomMat = material({ map: tex.blossom, roughness: 0.75 })
-  // The bedroom's blossom paper runs wall to wall: the upper middle of the
-  // artwork, mirrored side to side so the repeats meet without a seam.
-  const blossomWide = tex.blossom.clone()
-  blossomWide.wrapS = THREE.MirroredRepeatWrapping
-  blossomWide.repeat.set(2.5, 0.37)
-  blossomWide.offset.set(0, 0.5)
-  blossomWide.needsUpdate = true
-  kit.track.textures.push(blossomWide)
-  const blossomPaper = material({ map: blossomWide, roughness: 0.8 })
+  // The bedroom's blossom paper runs wall to wall (a wide strip made from the
+  // artwork, see tex/blossom-wide.jpg).
+  const blossomPaper = material({ map: tex.blossomWide, roughness: 0.8 })
+  // The same artwork on a panel of any shape: cropped to fill it without
+  // stretching, from `across` (0 left → 1 right), optionally flipped.
+  const blossomPanel = (w, h, { across = 0.5, flip = false } = {}) => {
+    const t = tex.blossom.clone()
+    const a = 0.625 // the artwork's width / height
+    const rx = Math.min(1, w / h / a)
+    const ry = Math.min(1, a / (w / h))
+    t.repeat.set(flip ? -rx : rx, ry)
+    t.offset.set((1 - rx) * across + (flip ? rx : 0), (1 - ry) / 2)
+    t.needsUpdate = true
+    kit.track.textures.push(t)
+    return material({ map: t, roughness: 0.75 })
+  }
   const shojiTex = kit.tex(kit.shoji({ cols: 4, rows: 3 }))
   const shojiLight = material({ map: shojiTex, emissive: 0xffe3bd, emissiveMap: shojiTex, emissiveIntensity: 1.1, roughness: 1 })
   const shojiScreen = material({ map: kit.tex(kit.shoji({ cols: 3, rows: 6, wood: 0x1d1a17, line: 8 })), roughness: 0.95, transparent: true, opacity: 0.96 })
   const led = glow(0xffd29a, 2.2)
   const bulb = glow(0xfff0d6, 2.6)
+  const globe = glow(0xfff0d6, 1.4) // pendant globes: softer, so they don't flare
   const lampGlass = glow(0xffd8a6, 1.5)
   const bronze = material({ color: 0x6b5233, metalness: 0.8, roughness: 0.4 })
   const corridorTile = material({ color: 0x9a948c, roughness: 0.7 })
+  const whiteFrame = material({ color: 0xecebe7, roughness: 0.4 })
+  const darkBacking = material({ color: 0x15120f, roughness: 0.95 })
   // Kitchen finishes, from the render.
   const lowerFront = material({ color: 0x857d79, roughness: 0.6 })
   const upperFront = material({ color: 0xdcd1cb, roughness: 0.5 })
   const carcass = material({ color: 0x1d1a18, roughness: 0.8 })
   const bulkhead = material({ color: 0x2b2522, roughness: 0.75 })
-  const counterTop = shiny(material({ color: 0xcfccc9, roughness: 0.3 }), 0.5)
+  const counterTop = shiny(material({ map: kit.tex(kit.quartz()), roughness: 0.3 }), 0.5)
   const splash = shiny(material({ color: 0xdedbd8, roughness: 0.1 }), 0.6)
   const hobGlass = shiny(material({ map: kit.tex(kit.hob()), roughness: 0.08 }))
   const ceramicWhite = material({ color: 0xece8e2, roughness: 0.35 })
@@ -173,9 +195,21 @@ function build(THREE, kit, scene, { tex, models }) {
   block(scene, [0, 0, 2.825], [0.7, H, 2.925], wall, W) // T&B front wall
   block(scene, [0.7, DOOR, 2.825], [1.425, H, 2.925], wall, W)
   block(scene, [0.72, 0, 2.86], [1.405, DOOR - 0.02, 2.9], walnut, { tile: 1 }) // T&B door (closed)
-  sphere(scene, { at: [1.3, 1.0, 2.93], r: 0.025, mat: chrome })
+  block(scene, [1.25, 1.0, 2.9], [1.37, 1.016, 2.935], chrome) // lever handle
   doorFrame(0.7, 1.425, 2.825, 2.925, 'z')
+  block(scene, [1.425, 0, 2.825], [2.24, H, 2.925], wall, W) // closet face, flush
   block(scene, [2.24, 0, 2.825], [2.86, H, 2.925], wall, W)
+  // The opening from the kitchen passage, framed in black like the others.
+  block(scene, [2.86, 2.4, 2.825], [4, H, 2.925], wall, W)
+  doorFrame(2.86, 4, 2.825, 2.925, 'z', 2.4)
+  // Feature wall facing the living room, as in the render: a timber lattice
+  // and a blossom panel floor to ceiling beside the T&B door, and a tree in
+  // a rock pot against the white wall next to them.
+  block(scene, [1.425, 0, 2.925], [1.81, H, 2.932], darkBacking, { cast: false })
+  lattice(1.43, 1.805, 2.932, 2.952)
+  panel(scene, { at: [2.075, H / 2, 2.934], size: [0.53, H], facing: '+z', mat: blossomPanel(0.53, H, { across: 0.42 }) })
+  block(scene, [2.338, 0, 2.925], [2.346, H, 2.94], blackFrame, { cast: false })
+  rockTree(2.6, 3.13)
   kitchen()
   fridge()
   flat(scene, { x0: 2.22, z0: 0.42, x1: 2.8, z1: 1.55, y: 0.008, mat: rugMat, tile: 0.27 }) // mat at the counter
@@ -216,23 +250,33 @@ function build(THREE, kit, scene, { tex, models }) {
   // Pendants over the coffee table: white globes with dark caps.
   for (const [x, y, z] of [[0.95, 1.95, 4.12], [1.06, 1.72, 4.32], [0.9, 1.6, 3.98]]) {
     cylinder(scene, { at: [x, y + 0.08, z], r: 0.003, h: H - y - 0.08, mat: blackFrame, seg: 4, cast: false })
-    sphere(scene, { at: [x, y, z], r: 0.075, mat: bulb, cast: false })
+    sphere(scene, { at: [x, y, z], r: 0.075, mat: globe, cast: false })
     sphere(scene, { at: [x, y + 0.085, z], r: 0.03, mat: blackFrame })
   }
   // Shoji ceiling light.
   block(scene, [1.45, 2.62, 3.75], [2.55, 2.7, 4.65], teak, { cast: false, tile: 1 })
   flat(scene, { x0: 1.5, z0: 3.8, x1: 2.5, z1: 4.6, y: 2.615, mat: shojiLight, down: true })
-  // Dining table for four.
-  block(scene, [2.6, 0.72, 3.8], [3.7, 0.76, 4.6], teak, { round: 0.012, tile: 1 })
-  for (const [x, z] of [[2.66, 3.86], [3.64, 3.86], [2.66, 4.54], [3.64, 4.54]]) block(scene, [x - 0.025, 0, z - 0.025], [x + 0.025, 0.72, z + 0.025], walnut, { tile: 1 })
-  for (const [x, z, back] of [[2.85, 3.47, -1], [3.45, 3.47, -1], [2.85, 4.93, 1], [3.45, 4.93, 1]]) {
-    block(scene, [x - 0.21, 0.43, z - 0.2], [x + 0.21, 0.47, z + 0.2], walnut, { tile: 1 })
-    block(scene, [x - 0.19, 0, z - 0.18], [x + 0.19, 0.43, z + 0.18], blackFrame, { cast: false })
-    block(scene, [x - 0.21, 0.47, z + back * 0.18 - 0.02], [x + 0.21, 0.92, z + back * 0.18 + 0.02], walnut, { tile: 1 })
+  // Dining, as in the render: the wall behind papered floor to ceiling in the
+  // blossom artwork under a lit cove, a light oak table on splayed legs, four
+  // chairs with white frames and velvet bolster backs, globe lights hung in a
+  // cluster, and a cloud-pruned pine in the middle of the table.
+  panel(scene, { at: [3.995, H / 2, 3.975], size: [1.95, H], facing: '-x', mat: blossomPanel(1.95, H) })
+  block(scene, [3.975, 2.64, 3.0], [3.99, 2.65, 4.95], led, { cast: false })
+  flat(scene, { x0: 2.62, z0: 3.12, x1: 3.95, z1: 5.28, y: 0.006, mat: rugMat, ...F })
+  block(scene, [2.95, 0.72, 3.5], [3.75, 0.755, 4.9], oak, { round: 0.01, tile: 1.83 })
+  for (const [x, z, dx, dz] of [[3.05, 3.62, -1, -1], [3.65, 3.62, 1, -1], [3.05, 4.78, -1, 1], [3.65, 4.78, 1, 1]]) {
+    limb(scene, [x + dx * 0.05, 0, z + dz * 0.05], [x, 0.72, z], 0.013, 0.021, oak)
   }
-  cylinder(scene, { at: [3.15, 1.95, 4.2], r: 0.003, h: H - 1.95, mat: blackFrame, seg: 4, cast: false })
-  cylinder(scene, { at: [3.15, 1.82, 4.2], r: 0.16, r2: 0.05, h: 0.13, mat: blackFrame })
-  sphere(scene, { at: [3.15, 1.84, 4.2], r: 0.05, mat: bulb, cast: false })
+  chair(2.68, 3.92, 1, 0, 0x8a8c8f)
+  chair(2.68, 4.48, 1, 0, 0x7d8590)
+  chair(3.35, 3.27, 0, 1, 0x9aa592)
+  chair(3.35, 5.13, 0, -1, 0xa47b5a)
+  cloudPine(3.35, 0.755, 4.2)
+  for (const [x, y, z] of [[3.3, 1.8, 4.05], [3.42, 1.63, 4.22], [3.27, 1.5, 4.36], [3.4, 1.94, 4.44]]) {
+    cylinder(scene, { at: [x, y + 0.09, z], r: 0.003, h: H - y - 0.09, mat: blackFrame, seg: 4, cast: false })
+    sphere(scene, { at: [x, y, z], r: 0.065, mat: globe, cast: false })
+    sphere(scene, { at: [x, y + 0.09, z], r: 0.025, mat: blackFrame })
+  }
 
   // ── Wall between living room and bedroom (5.775 m) ────────
   block(scene, [0, 0, 5.775], [2.15, H, 5.875], wall, W)
@@ -295,17 +339,21 @@ function build(THREE, kit, scene, { tex, models }) {
   block(scene, [1.13, 0.76, 5.9], [1.16, 0.96, 6.08], cocoa)
   sphere(scene, { at: [1.55, 0.83, 6.0], r: 0.07, mat: ceramicWhite, scale: [1, 1.1, 1] })
   cylinder(scene, { at: [1.85, 0.76, 6.02], r: 0.04, h: 0.08, mat: ceramicDark })
-  // Wardrobe and desk.
-  block(scene, [2.86, 0, 8.4], [3.76, 2.4, 9], walnut, { tile: 1 })
-  block(scene, [3.305, 0.05, 8.395], [3.315, 2.35, 8.4], blackFrame, { cast: false })
+  // Wardrobe (where the plan puts it, clear of the window wall) and desk.
+  block(scene, [2.86, 0, 8.25], [3.76, 2.4, 8.85], walnut, { tile: 1 })
+  block(scene, [3.305, 0.05, 8.245], [3.315, 2.35, 8.25], blackFrame, { cast: false })
   block(scene, [3.55, 0.72, 6.8], [4, 0.76, 7.6], teak, { tile: 1 })
   block(scene, [3.97, 0.95, 6.9], [3.99, 1.75, 7.5], screen, { cast: false }) // mirror
   // Shoji ceiling light.
   block(scene, [0.9, 2.62, 6.75], [2.0, 2.7, 7.65], teak, { cast: false, tile: 1 })
   flat(scene, { x0: 0.95, z0: 6.8, x1: 1.95, z1: 7.6, y: 2.615, mat: shojiLight, down: true })
-  // Curtains either side of the balcony doors.
-  panel(scene, { at: [1.0, 1.25, 8.93], size: [0.45, 2.5], facing: '-z', mat: curtain, cast: true })
-  panel(scene, { at: [3.0, 1.25, 8.93], size: [0.45, 2.5], facing: '-z', mat: curtain, cast: true })
+  // Curtains either side of the balcony doors, on a slim black track:
+  // pleated velvet drapes in front of warm sheers.
+  block(scene, [0.68, 2.5, 8.86], [3.34, 2.52, 8.98], blackFrame, { cast: false })
+  drape(scene, { x0: 0.7, x1: 1.28, y0: 0.02, y1: 2.5, z: 8.88, folds: 5, depth: 0.08, mat: drapeMat, tile: 0.28 })
+  drape(scene, { x0: 2.76, x1: 3.34, y0: 0.02, y1: 2.5, z: 8.88, folds: 5, depth: 0.08, mat: drapeMat, tile: 0.28 })
+  drape(scene, { x0: 1.15, x1: 1.62, y0: 0.02, y1: 2.5, z: 8.95, folds: 7, depth: 0.04, mat: sheer, tile: 0.27 })
+  drape(scene, { x0: 2.58, x1: 2.9, y0: 0.02, y1: 2.5, z: 8.95, folds: 5, depth: 0.04, mat: sheer, tile: 0.27 })
 
   // ── Balcony and the view ──────────────────────────────────
   block(scene, [1.0, -0.2, 9.15], [3.1, 0, 10.15], concrete)
@@ -372,6 +420,9 @@ function build(THREE, kit, scene, { tex, models }) {
   spot([2.2, 2.62, 1.5], [1.9, 1.5, 1.5], 0xfff0dc, 13, false, 0.5)
   spot([3.2, 2.62, 0.6], [3.2, 0, 0.9], 0xfff0dc, 10)
   spot([3.0, 2.62, 4.2], [3.0, 0.7, 4.2], 0xffe2bd, 12)
+  // Downlights grazing the dining wall's artwork.
+  spot([3.62, 2.62, 3.45], [4.0, 1.1, 3.5], 0xffd09a, 12, false, 0.5)
+  spot([3.62, 2.62, 4.5], [4.0, 1.1, 4.5], 0xffd09a, 12, false, 0.5)
   function point(at, color, intensity, distance = 5) {
     const p = new THREE.PointLight(color, intensity * L, distance, 2)
     p.position.set(...at)
@@ -379,7 +430,7 @@ function build(THREE, kit, scene, { tex, models }) {
     return p
   }
   point([1.0, 1.8, 4.15], 0xffcf9a, 5)
-  point([3.15, 1.75, 4.2], 0xffd4a3, 3)
+  point([3.35, 1.62, 4.25], 0xffd4a3, 3) // globe cluster
   point([0.4, 1.7, 5.6], 0xffcf9a, 1.2, 2.5)
   point([2.0, 1.7, 5.6], 0xffcf9a, 1.2, 2.5)
   point([0.24, 0.78, 8.31], 0xffc98f, 2, 3) // bedside lamp
@@ -425,7 +476,7 @@ function build(THREE, kit, scene, { tex, models }) {
     lower(0.33, 0.66, 0.1, 0.82) // two doors under the hob
     lower(0, 0.33, 0.1, 0.82)
     // Worktop around an undermount sink; a low glass splash with a dark edge.
-    const top = (x0, z0, x1, z1) => block(scene, [x0, 0.86, z0], [x1, 0.9, z1], counterTop)
+    const top = (x0, z0, x1, z1) => block(scene, [x0, 0.86, z0], [x1, 0.9, z1], counterTop, { tile: 0.6 })
     top(1.51, 0, 2.145, 1.42)
     top(1.51, 1.86, 2.145, Z1)
     top(1.51, 1.42, 1.66, 1.86)
@@ -544,6 +595,87 @@ function build(THREE, kit, scene, { tex, models }) {
       size: 0.024,
       colors: [0x1c301d, 0x3e5a30],
       seed: 5,
+    })
+  }
+
+  // A floor-to-ceiling timber lattice of small square openings, x0 → x1,
+  // standing between z0 and z1 (one mesh).
+  function lattice(x0, x1, z0, z1) {
+    const cols = 7
+    const pitch = (x1 - x0) / cols
+    const bar = 0.012
+    const list = []
+    for (let i = 0; i <= cols; i++) {
+      const x = x0 + i * pitch
+      list.push([[Math.max(x0, x - bar / 2), 0, z0], [Math.min(x1, x + bar / 2), H, z1]])
+    }
+    for (let y = 0; y <= H; y += pitch) list.push([[x0, Math.max(0, y - bar / 2), z0], [x1, Math.min(H, y + bar / 2), z1]])
+    boxes(scene, list, latticeWood, { tile: 0.6 })
+  }
+
+  // A delicate, wide-crowned tree in a dark rock of a pot (the feature wall).
+  function rockTree(x, z) {
+    sphere(scene, { at: [x, 0.11, z], r: 0.15, mat: potDark, scale: [1.15, 0.75, 0.95], detail: 5 })
+    const crown = [x - 0.03, 0.62, z + 0.02]
+    limb(scene, [x, 0.17, z], [x + 0.02, 0.45, z], 0.03, 0.022, bark)
+    limb(scene, [x + 0.02, 0.45, z], crown, 0.022, 0.016, bark)
+    for (const tip of [[x - 0.3, 0.9, z + 0.05], [x + 0.32, 0.86, z], [x - 0.05, 1.04, z + 0.03], [x + 0.15, 0.97, z + 0.08], [x - 0.18, 0.8, z - 0.02]]) {
+      limb(scene, crown, tip, 0.012, 0.005, bark)
+    }
+    foliage(scene, {
+      clusters: [
+        { at: [x - 0.22, 0.95, z + 0.04], r: [0.2, 0.09, 0.14], count: 160 },
+        { at: [x + 0.24, 0.92, z + 0.02], r: [0.2, 0.08, 0.13], count: 160 },
+        { at: [x, 1.05, z + 0.03], r: [0.18, 0.1, 0.13], count: 150 },
+      ],
+      size: 0.03,
+      colors: [0x18261a, 0x34502e],
+      seed: 61,
+    })
+  }
+
+  // A dining chair at (x, z) facing (fx, fz): a slim white frame, a velvet
+  // seat and a round velvet bolster for a back, as in the render.
+  function chair(x, z, fx, fz, color) {
+    const cloth = velvet(color)
+    const [sx, sz] = [-fz, fx] // across the seat
+    const [bx, bz] = [x - fx * 0.19, z - fz * 0.19] // its back edge
+    for (const [a, b] of [[1, 1], [1, -1], [-1, 1], [-1, -1]]) {
+      const lx = x + fx * 0.17 * a + sx * 0.17 * b
+      const lz = z + fz * 0.17 * a + sz * 0.17 * b
+      limb(scene, [lx, 0, lz], [lx, 0.42, lz], 0.011, 0.011, whiteFrame)
+    }
+    block(scene, [x - 0.21, 0.42, z - 0.21], [x + 0.21, 0.5, z + 0.21], cloth, { round: 0.035, tile: 0.28 })
+    for (const b of [1, -1]) limb(scene, [bx + sx * 0.16 * b, 0.5, bz + sz * 0.16 * b], [bx + sx * 0.16 * b, 0.79, bz + sz * 0.16 * b], 0.009, 0.009, whiteFrame)
+    const end = [bx + sx * 0.2, 0.82, bz + sz * 0.2]
+    limb(scene, end, [bx - sx * 0.2, 0.82, bz - sz * 0.2], 0.055, 0.055, cloth)
+    sphere(scene, { at: end, r: 0.055, mat: cloth })
+  }
+
+  // A cloud-pruned pine in a small white pot (the dining table): a twisting
+  // trunk with flat tiers of needles spreading to either side.
+  function cloudPine(x, y, z) {
+    cylinder(scene, { at: [x, y, z], r: 0.07, r2: 0.08, h: 0.07, mat: potWhite })
+    const t = y + 0.07
+    const trunk = [[x, t, z], [x, t + 0.12, z + 0.03], [x + 0.02, t + 0.24, z - 0.02], [x - 0.01, t + 0.36, z + 0.02], [x, t + 0.48, z]]
+    let r = 0.022
+    for (let i = 1; i < trunk.length; i++) {
+      limb(scene, trunk[i - 1], trunk[i], r, r * 0.8, bark)
+      r *= 0.8
+    }
+    const pads = [
+      [[x + 0.02, t + 0.2, z - 0.18], [0.1, 0.045, 0.13], 260, 1],
+      [[x - 0.02, t + 0.27, z + 0.16], [0.09, 0.045, 0.12], 240, 2],
+      [[x + 0.03, t + 0.36, z - 0.11], [0.09, 0.04, 0.1], 200, 3],
+      [[x - 0.02, t + 0.43, z + 0.1], [0.08, 0.04, 0.09], 180, 3],
+      [[x, t + 0.53, z], [0.08, 0.045, 0.08], 170, 4],
+    ]
+    for (const [at, , , from] of pads) limb(scene, trunk[from], at, 0.009, 0.004, bark)
+    foliage(scene, {
+      clusters: pads.map(([at, size, count]) => ({ at, r: size, count })),
+      size: 0.028,
+      colors: [0x15281a, 0x2f4a2a],
+      seed: 77,
     })
   }
 
