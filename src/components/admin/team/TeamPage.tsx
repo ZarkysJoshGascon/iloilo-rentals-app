@@ -2220,13 +2220,14 @@ function PMDetailModal({ pm, onClose, onChanged, units }: PMDetailModalProps) {
     return () => window.removeEventListener('keydown', onKey)
   }, [onClose])
 
+  const pmId = pm?.id
   const load = useCallback(async () => {
-    if (!pm?.id) return
+    if (!pmId) return
     setLoading(true)
-    try { setContracts(await fetchContractsForPM(pm.id)) }
+    try { setContracts(await fetchContractsForPM(pmId)) }
     catch (err) { console.error(err); toast.error('Failed to load') }
     finally { setLoading(false) }
-  }, [pm?.id])
+  }, [pmId])
 
   useEffect(() => { load() }, [load])
 

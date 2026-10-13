@@ -684,7 +684,7 @@ function OtaEditor({ unit, onSave, channelOptions = [] }: OtaEditorProps) {
       await persist([...listings, { channel, name }])
       if (!DEFAULT_CHANNELS.includes(channel)) supabase.from('ota_channel_names').insert({ name: channel }).then(() => {}, () => {})
       setDrafting(false); setDraftChannel(''); setDraftName(''); setDraftErrors({ channel: '', name: '' })
-    } catch {}
+    } catch { /* persist already showed the error */ }
   }
   const commitEdit = async (i) => {
     const nm = editDraft.trim()
@@ -692,9 +692,9 @@ function OtaEditor({ unit, onSave, channelOptions = [] }: OtaEditorProps) {
     try {
       await persist(listings.map((l, idx) => idx === i ? { ...l, name: nm } : l))
       setEditingIndex(null); setEditError('')
-    } catch {}
+    } catch { /* persist already showed the error */ }
   }
-  const removeAt = async (i) => { try { await persist(listings.filter((_, idx) => idx !== i)) } catch {} }
+  const removeAt = async (i) => { try { await persist(listings.filter((_, idx) => idx !== i)) } catch { /* persist already showed the error */ } }
   const dupes = findDuplicateChannels(listings)
 
   return (

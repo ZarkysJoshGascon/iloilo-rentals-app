@@ -122,15 +122,17 @@ type RecipientRowProps = {
 }
 
 function RecipientRow({ guest, checked, onToggle, disabled }: RecipientRowProps) {
+  // "Stayed 3mo ago" is measured from when the row first showed.
+  const [now] = useState(Date.now)
   const staysAgo = useMemo(() => {
     if (!guest.last_check_out) return ''
     const then = new Date(`${guest.last_check_out}T00:00:00Z`).getTime()
-    const days = Math.floor((Date.now() - then) / 86_400_000)
+    const days = Math.floor((now - then) / 86_400_000)
     if (days < 30) return `${days}d ago`
     const months = Math.floor(days / 30)
     if (months < 12) return `${months}mo ago`
     return `${Math.floor(months / 12)}y ago`
-  }, [guest.last_check_out])
+  }, [guest.last_check_out, now])
 
   return (
     <button type="button" disabled={disabled} onClick={onToggle} aria-pressed={checked}

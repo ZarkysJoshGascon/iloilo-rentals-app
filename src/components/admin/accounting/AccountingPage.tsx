@@ -3461,7 +3461,6 @@ const ContractDetail = memo(function ContractDetail({ contract, terms = [], life
 
   const contractId = contract?.id
   const contractUnitId = contract?.unit_id
-  const reactId = useRef(Math.random().toString(36).slice(2, 8)).current
 
   const prevContractIdRef = useRef(contractId)
   useEffect(() => {
@@ -3532,7 +3531,7 @@ const ContractDetail = memo(function ContractDetail({ contract, terms = [], life
       timer = setTimeout(() => fetchDetailData(), DETAIL_REFRESH_DEBOUNCE_MS)
     }
     const ch = supabase
-      .channel(`contract-detail-${contractId}-${reactId}`)
+      .channel(`contract-detail-${contractId}-${Math.random().toString(36).slice(2, 8)}`)
       .on('postgres_changes',
         { event: '*', schema: 'public', table: 'bookings', filter: `unit_id=eq.${contractUnitId}` },
         schedule)
@@ -4413,7 +4412,6 @@ export default function AccountingPage({ initialSelectedId }: AccountingPageProp
 
   const hasLoadedOnce = useRef(false)
   const realtimeDebounceRef = useRef(null)
-  const channelIdRef = useRef(Math.random().toString(36).slice(2, 8))
 
   const fetchAll = useCallback(async (signal?) => {
     if (!hasLoadedOnce.current) setIsFirstLoad(true)
@@ -4458,7 +4456,7 @@ export default function AccountingPage({ initialSelectedId }: AccountingPageProp
 
   useEffect(() => {
     const ch = supabase
-      .channel(`accounting-contracts-${channelIdRef.current}`)
+      .channel(`accounting-contracts-${Math.random().toString(36).slice(2, 8)}`)
       .on('postgres_changes', { event: '*', schema: 'public', table: 'contracts' }, () => {
         if (realtimeDebounceRef.current) clearTimeout(realtimeDebounceRef.current)
         realtimeDebounceRef.current = setTimeout(() => {

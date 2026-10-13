@@ -175,7 +175,7 @@ const ActiveTab = memo(function ActiveTab({
     case 'bookings':
       return <BookingsPage initialSelectedId={bookingId} />
     case 'housekeeping':
-      return <HousekeepingPage initialSelectedId={cleaningId} />
+      return <HousekeepingPage initialSelectedId={cleaningId} fromBookingId={fromBookingId} />
     case 'inquiries':
       return <InquiriesPage />
     case 'interior':

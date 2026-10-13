@@ -255,7 +255,6 @@ function useSignedUrls(photos) {
         if (!cancelled) toast.error('Failed to load photos')
       })
     return () => { cancelled = true }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [key])
 
   return map
@@ -305,7 +304,6 @@ function PhotoLightbox({ photos, initialIndex, onClose }: PhotoLightboxProps) {
         if (!cancelled) { setLoading(false); toast.error('Failed to load photos') }
       })
     return () => { cancelled = true }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [paths.join('|')])
 
   useEffect(() => {
@@ -2257,10 +2255,12 @@ function CleaningListRow({ cleaning, selected, highlighted, onClick, onViewBooki
 }
 
 type HousekeepingPageProps = {
-  initialSelectedId?: any
+  initialSelectedId?: string
+  // Set by "See in Housekeeping" on a booking: open that booking's cleaning.
+  fromBookingId?: string
 }
 
-export default function HousekeepingPage({ initialSelectedId }: HousekeepingPageProps) {
+export default function HousekeepingPage({ initialSelectedId, fromBookingId }: HousekeepingPageProps) {
   const navigate = useNavigate()
   const [cleanings, setCleanings] = useState([])
   const [units, setUnits] = useState([])
@@ -2292,20 +2292,22 @@ export default function HousekeepingPage({ initialSelectedId }: HousekeepingPage
     }
   }, [])
 
-  useEffect(() => {
-    if (initialSelectedId && initialSelectedId !== selectedId) {
-      setSelectedId(initialSelectedId)
-      setHighlightedId(initialSelectedId)
-      if (highlightTimeoutRef.current) clearTimeout(highlightTimeoutRef.current)
-      highlightTimeoutRef.current = setTimeout(() => setHighlightedId(null), 2000)
+  // Select a cleaning, flash it and scroll it into view.
+  const focusCleaning = useCallback((id) => {
+    setSelectedId(id)
+    setHighlightedId(id)
+    if (highlightTimeoutRef.current) clearTimeout(highlightTimeoutRef.current)
+    highlightTimeoutRef.current = setTimeout(() => setHighlightedId(null), 2000)
+    requestAnimationFrame(() => {
       requestAnimationFrame(() => {
-        requestAnimationFrame(() => {
-          const el = document.querySelector(`[data-cleaning-id="${initialSelectedId}"]`)
-          if (el) el.scrollIntoView({ behavior: 'smooth', block: 'center' })
-        })
+        const el = document.querySelector(`[data-cleaning-id="${id}"]`)
+        if (el) el.scrollIntoView({ behavior: 'smooth', block: 'center' })
       })
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+    })
+  }, [])
+
+  useEffect(() => {
+    if (initialSelectedId && initialSelectedId !== selectedId) focusCleaning(initialSelectedId)
   }, [initialSelectedId])
 
   const fetchData = useCallback(async (signal?) => {
@@ -2357,6 +2359,17 @@ export default function HousekeepingPage({ initialSelectedId }: HousekeepingPage
       .subscribe()
     return () => { supabase.removeChannel(ch) }
   }, [fetchData])
+
+  // Arriving from a booking: once the cleanings are in, open its cleaning
+  // (the latest scheduled, if there are several). Once per booking id.
+  const openedForBookingRef = useRef(null)
+  useEffect(() => {
+    if (!fromBookingId || isFirstLoad || openedForBookingRef.current === fromBookingId) return
+    openedForBookingRef.current = fromBookingId
+    const match = cleanings.find((c) => c.booking_id === fromBookingId)
+    if (match) focusCleaning(match.id)
+    else toast('This booking has no cleaning scheduled yet.')
+  }, [fromBookingId, isFirstLoad, cleanings, focusCleaning])
 
   const counts = useMemo(() => {
     const q = debouncedSearch.trim().toLowerCase()

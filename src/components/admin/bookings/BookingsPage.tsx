@@ -2744,7 +2744,6 @@ export default function BookingsPage({ initialSelectedId }: BookingsPageProps) {
         })
       })
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [initialSelectedId])
 
   const fetchData = useCallback(async (signal?) => {

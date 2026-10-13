@@ -27,6 +27,11 @@ export default defineConfig([
       'react-refresh/only-export-components': 'off',
     },
   },
+  // Node scripts: data imports and asset pipelines.
+  {
+    files: ['scripts/**/*.{js,mjs}'],
+    languageOptions: { globals: globals.node },
+  },
   // TypeScript: parse ts/tsx and turn off the core rules the compiler already
   // covers (no-undef and friends). Type errors come from `npm run typecheck`.
   {

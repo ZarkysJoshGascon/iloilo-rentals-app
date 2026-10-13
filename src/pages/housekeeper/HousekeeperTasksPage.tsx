@@ -162,7 +162,6 @@ function useSignedUrls(photos) {
         if (!cancelled) setLoading(false)
       })
     return () => { cancelled = true }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [key])
 
   return { map, loading }
@@ -786,7 +785,6 @@ function CleaningDetail({ cleaning, onBack, onChanged }: CleaningDetailProps) {
       if (laundryUsedFile?.preview) URL.revokeObjectURL(laundryUsedFile.preview)
       if (laundryReplacedFile?.preview) URL.revokeObjectURL(laundryReplacedFile.preview)
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
   const effective = getEffectiveStatus(cleaning)
