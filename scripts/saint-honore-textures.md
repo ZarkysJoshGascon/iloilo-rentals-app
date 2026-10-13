@@ -110,19 +110,86 @@ light and AO maps on a second UV set, so the artwork, timber and fabric keep
 their own texture scale. Shared room fills replace ceiling and window area
 lights; the kitchen retains its under-cabinet area strip.
 
-There is no post-processing pass (no ambient occlusion, bloom or FXAA): the
-scene renders straight into the multisampled canvas, with ACES tone mapping and
-sRGB conversion in the material shaders. The pixel ratio starts at
-min(1.5, devicePixelRatio), drops by 15% steps during sustained slow frames but
-never below 1, and returns to full detail 180 ms after the camera settles.
-Rendering stops when the camera is still. Frame rate depends on the device and
-display; the canvas's `data-*` diagnostics provide measured render timing and
-draw counts.
+### Detail, planting and light
 
-Check on 2026-10-13 against the production build in headless Chrome: the tour
-loaded, walked from the entrance to the balcony and rendered every caption stop
-at 1440 × 900 and at a 390 × 844 phone viewport, with no runtime errors. Warm
-frames took 1–4 ms of CPU render time with 30–123 draw calls. On a throttled
-1.5 MB/s connection the staged loading screen stayed up for about 19 seconds
-before the tour opened. These are measurements from one machine, not a guarantee
-for every display or GPU.
+- **Detailed pieces:** `walkthrough/details.ts` builds the detailed
+  furniture and styling. The sofa has legs, a base rail, deep arms, piped
+  cushions and throw pillows. The coffee table and the TV and media console
+  have shadow gaps, a soundbar and a status light. The bed has a channel-tufted
+  headboard and a knit throw. There are a floating nightstand with a turned
+  ceramic lamp, a two-door wardrobe, door levers and hinges, switch plates,
+  rug edges, books and lathe-turned ceramics.
+- **Plants:** `kit.foliage({ fine: true })` grows thousands of small folded
+  leaves per plant. 3D noise clumps them into pom-pom pads, the way
+  cloud-pruned bonsai and ficus crowns grow. They come in three tones (shade,
+  mid green and sunlit tips), and each plant stays inside an explicit clear
+  box, so no leaf passes through furniture.
+- **Lattice:** pale birch-coloured timber on a 9-column grid, as on the
+  boards.
+- **Wallpaper:** the blossom paper carries a cool grey tint toward the boards'
+  grey-sage.
+- **Downlight scallops:** `referenceLighting.wallLight({ scallops })` bakes
+  downlight scallops into the wall light maps: the arched cone where a
+  ceiling downlight meets the wall, with irradiance falling off as the cosine
+  over distance squared. They cost nothing at runtime. The living room's
+  taupe wall has one either side of the blossom panel, under matching ceiling
+  fittings.
+
+### Floor reflections
+
+`walkthrough/floorReflection.ts` adds planar reflections to the lacquered
+floor. Each frame the room renders, without the leaves, from a camera
+mirrored in the floor plane, at 35% resolution, into a mipmapped HDR texture.
+The floor blends it in: rippled by its normal map, blurred by its roughness
+map, and stronger at grazing angles. The room probe still lights the other
+glossy surfaces, and the floor's probe reflection is turned down to 0.2 so it
+isn't counted twice.
+
+### Quality tier, resolution and frame rate
+
+The view always renders at one fixed resolution, so walking and resting look
+identical. That is never below one pixel per CSS pixel, and up to 1.5 on
+high-density screens when the GPU can afford it. Lower resolution while
+walking was tried, and read as blur.
+
+On the loading screen, one GPU-synced frame of the full pipeline is timed, and
+the result picks the tier for the whole visit:
+
+- **Full pipeline** (frame within about 14 ms, i.e. strong GPUs): HDR
+  half-float buffers through `postprocessing`. N8AO ambient occlusion runs at
+  half resolution (about 0.5 m deep, "Low" quality). Bloom glows only above
+  HDR 1.0, then ACES tone mapping at exposure 1.25. AgX looked grey and
+  Neutral looked flat next to the boards. SMAA is merged into the same effect
+  pass.
+- **Direct** (integrated graphics and phones): the scene renders straight into
+  the multisampled canvas, with ACES tone mapping in the material shaders.
+
+`?walkQuality=full` or `?walkQuality=direct` forces a tier. Both tiers keep
+the floor reflections, the baked scallops and contact shadows, and a CSS
+vignette and film grain, which cost the GPU nothing.
+
+Every material is precompiled on the loading screen for the buffers it really
+renders into, so no shader compiles mid-walk. A resize clears the canvas, so
+every resize is followed by a render before the browser paints, which
+prevents blank-frame blinks.
+
+The canvas's `data-*` attributes report measured render time, draw counts,
+resolution, the tier and the timed cost of a full-pipeline frame.
+
+### Measurements
+
+Measured on 2026-10-13 in headless Chrome on Intel UHD Graphics, 1440 × 900,
+with GPU timer queries:
+
+| Stage | GPU time per frame |
+| --- | --- |
+| Scene, direct path, with 4× MSAA | 23–27 ms |
+| Scene before the detail pass | 20–25 ms |
+| Floor reflection | 2–3 ms |
+| N8AO, full tier only | 7–10 ms |
+| SMAA, bloom and tone mapping | about 5 ms |
+
+This machine takes the direct tier: a full-pipeline frame times at about
+60 ms. Scrolling ran at about 37–38 FPS against 46 before the detail pass,
+always at full resolution. These are measurements from one machine, not a
+guarantee for every display or GPU.

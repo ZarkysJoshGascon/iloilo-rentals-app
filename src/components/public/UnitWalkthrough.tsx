@@ -14,6 +14,7 @@ import {
 } from 'framer-motion'
 import { ArrowDown, ArrowRight, Check, Loader2, RotateCcw } from 'lucide-react'
 import { createKit } from './walkthrough/kit'
+import { createFloorReflection } from './walkthrough/floorReflection'
 import { supportsWebGL } from './DepthWalkthrough'
 
 const SCROLL_VH = 1000 // length of the walk, in screen heights
@@ -22,6 +23,8 @@ const WALK_TO = 0.93 // …and where it ends (outro after)
 const EASE = [0.16, 1, 0.3, 1] as const
 
 const clamp01 = (v) => Math.min(1, Math.max(0, v))
+// Fine film grain (an SVG noise tile), laid over the 3D view in CSS.
+const GRAIN = `url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='180' height='180'><filter id='g'><feTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='2' stitchTiles='stitch'/><feColorMatrix type='saturate' values='0'/></filter><rect width='100%25' height='100%25' filter='url(%23g)'/></svg>")`
 const INITIAL_LOAD = { progress: 0, stage: 'engine', detail: 'Preparing your tour' }
 const LOAD_STAGES = [
   { key: 'assets', title: 'Photo textures' },
@@ -159,10 +162,12 @@ function Walk({ unit, skipTo }: WalkProps) {
       import('three/addons/lights/RectAreaLightUniformsLib.js'),
       import('three/addons/geometries/RoundedBoxGeometry.js'),
       import('three/addons/loaders/GLTFLoader.js'),
+      import('postprocessing'),
+      import('n8ao'),
     ])
-      .then(async ([THREE, { RoomEnvironment }, { RectAreaLightUniformsLib }, { RoundedBoxGeometry }, { GLTFLoader }]) => {
+      .then(async ([THREE, { RoomEnvironment }, { RectAreaLightUniformsLib }, { RoundedBoxGeometry }, { GLTFLoader }, post, { N8AOPostPass }]) => {
         if (controller.signal.aborted || !mountRef.current) return
-        const addons = { RoomEnvironment, RectAreaLightUniformsLib, RoundedBoxGeometry, GLTFLoader }
+        const addons = { RoomEnvironment, RectAreaLightUniformsLib, RoundedBoxGeometry, GLTFLoader, post, N8AOPostPass }
         await startScene(THREE, addons, mountRef.current, unit, walk, dotRef, onRoute, {
           signal: controller.signal,
           onCleanup: (cleanup) => { teardown = cleanup },
@@ -211,6 +216,9 @@ function Walk({ unit, skipTo }: WalkProps) {
     >
       <div className="sticky top-0 h-svh overflow-hidden">
         <div ref={mountRef} className="absolute inset-0" aria-hidden="true" />
+        {/* A lens vignette and fine grain over the 3D view: CSS, so the GPU pays nothing. */}
+        <div aria-hidden className="pointer-events-none absolute inset-0" style={{ background: 'radial-gradient(ellipse at 50% 48%, transparent 55%, rgba(0, 0, 0, 0.3) 100%)' }} />
+        <div aria-hidden className="pointer-events-none absolute inset-0 opacity-[0.06] mix-blend-overlay" style={{ backgroundImage: GRAIN }} />
         {status !== 'ready' && <LoadingView unit={unit} loading={loading} failed={status === 'failed'} onRetry={() => setAttempt((value) => value + 1)} skipTo={skipTo} />}
         {status === 'ready' && <>
         {/* Legibility shades */}
@@ -325,15 +333,19 @@ function disposeResources(roots, tracked: { geometries?: any[]; materials?: any[
 
 async function startScene(THREE, addons, mount, unit, walk, dotRef, onRoute, { signal, onCleanup, onProgress, onError }) {
   const mobile = window.matchMedia('(max-width: 767px), (pointer: coarse)').matches
+  // One fixed resolution, chosen on the loading screen, so the walk looks the
+  // same moving and at rest. Never below one pixel per CSS pixel; up to 1.5
+  // on high-density screens when the GPU can afford it.
   const maxRatio = Math.min(1.5, Math.max(1, window.devicePixelRatio || 1))
-  const minRatio = 1
   let pixelRatio = maxRatio
-  // Native multisampling cleans silhouette edges without FXAA blurring the
-  // fabric weave and photo textures across the whole image.
+  // Two image paths, chosen once on the loading screen (see "Quality tier"):
+  // a full HDR pipeline with ambient occlusion and glow for strong GPUs, or a
+  // direct render into the multisampled canvas, tone mapped in the material
+  // shaders, for integrated graphics and phones. The canvas keeps depth and
+  // multisampling for the direct path.
   const renderer = new THREE.WebGLRenderer({ antialias: true, powerPreference: 'high-performance', alpha: false, stencil: false })
-  let scene, kit, pmrem, environment, roomReflection, observer, unsubscribe
+  let scene, kit, pmrem, environment, roomReflection, observer, unsubscribe, composer, floorReflection
   let frame = 0
-  let settleTimer = 0
   let disposed = false
   let rendering = false
   const modelSources = []
@@ -344,10 +356,11 @@ async function startScene(THREE, addons, mount, unit, walk, dotRef, onRoute, { s
     signal.removeEventListener('abort', cleanup)
     renderer.domElement.removeEventListener('webglcontextlost', contextLost)
     if (frame) cancelAnimationFrame(frame)
-    if (settleTimer) window.clearTimeout(settleTimer)
     unsubscribe?.()
     observer?.disconnect()
     disposeResources([scene, ...modelSources], kit?.track)
+    composer?.dispose()
+    floorReflection?.dispose()
     roomReflection?.dispose()
     environment?.dispose()
     pmrem?.dispose()
@@ -363,8 +376,10 @@ async function startScene(THREE, addons, mount, unit, walk, dotRef, onRoute, { s
   const checkpoint = () => { if (signal.aborted || disposed) throw new DOMException('Walkthrough cancelled', 'AbortError') }
   try {
     renderer.setPixelRatio(pixelRatio)
-    renderer.toneMapping = THREE.ACESFilmicToneMapping
-    renderer.toneMappingExposure = 1.0
+    // ACES at 1.25 either way: in the full pipeline's last pass, or in the
+    // material shaders on the direct path.
+    renderer.toneMapping = THREE.NoToneMapping
+    renderer.toneMappingExposure = 1.25
     renderer.outputColorSpace = THREE.SRGBColorSpace
     renderer.shadowMap.enabled = true
     // Filter the static maps for soft light transitions. Their depth maps
@@ -436,9 +451,47 @@ async function startScene(THREE, addons, mount, unit, walk, dotRef, onRoute, { s
         material.needsUpdate = true
       })
     }
+    // After the probe, so the probe captures the floor as it was.
+    if (built?.floor) floorReflection = createFloorReflection(THREE, renderer, scene, built.floor, { scale: 0.35 })
     checkpoint()
 
     const camera = new THREE.PerspectiveCamera(60, 1, 0.06, 120)
+
+    // ── Full image pipeline (strong GPUs; see "Quality tier") ──────
+    // The room renders in HDR, then gets ambient occlusion (soft contact
+    // shadows in corners, under and between furniture), a glow around the
+    // lamps, ACES filmic tone mapping, and SMAA on the edges (hardware
+    // multisampling doesn't mix with screen-space occlusion). The vignette
+    // and grain are a CSS overlay, on both paths.
+    const post = addons.post
+    composer = new post.EffectComposer(renderer, { frameBufferType: THREE.HalfFloatType })
+    composer.addPass(new post.RenderPass(scene, camera))
+    const occlusion = new addons.N8AOPostPass(scene, camera, 1, 1)
+    occlusion.setQualityMode('Low')
+    Object.assign(occlusion.configuration, {
+      aoRadius: 0.5, // metres: about a hand's span into corners and under furniture
+      distanceFalloff: 1,
+      intensity: 3,
+      color: new THREE.Color(0x0e0b08),
+      halfRes: true, // a soft effect: half resolution looks the same at a third of the cost
+    })
+    composer.addPass(occlusion)
+    const bloom = new post.BloomEffect({ mipmapBlur: true, luminanceThreshold: 1, luminanceSmoothing: 0.3, intensity: 0.55, radius: 0.7, resolutionScale: 0.5 })
+    const toneMap = new post.ToneMappingEffect({ mode: post.ToneMappingMode.ACES_FILMIC })
+    // SMAA merges into the same pass (bloom is not a convolution effect),
+    // which saves a full-screen pass and a buffer copy every frame.
+    const smaa = new post.SMAAEffect({ preset: post.SMAAPreset.HIGH })
+    composer.addPass(new post.EffectPass(camera, smaa, bloom, toneMap))
+    // Switch to the direct path: no composer; ACES in the material shaders.
+    const useDirectPath = () => {
+      composer.dispose()
+      composer = null
+      renderer.toneMapping = THREE.ACESFilmicToneMapping
+      renderer.domElement.dataset.tier = 'direct'
+    }
+    renderer.domElement.dataset.tier = 'full'
+    const forced = new URLSearchParams(window.location.search).get('walkQuality')
+    if (forced === 'direct' || (forced !== 'full' && mobile)) useDirectPath()
     const posCurve = new THREE.CatmullRomCurve3(unit.path.map((point) => new THREE.Vector3(...point.pos)), false, 'centripetal')
     const lookCurve = new THREE.CatmullRomCurve3(unit.path.map((point) => new THREE.Vector3(...point.look)), false, 'centripetal')
     const SAMPLES = 800
@@ -467,19 +520,20 @@ async function startScene(THREE, addons, mount, unit, walk, dotRef, onRoute, { s
     const lengthAt = (i) => lengths[Math.round((i / (count - 1)) * SAMPLES)]
     onRoute(unit.path.map((point, i) => ({ point, i })).filter(({ point }) => point.caption).map(({ i }) => (i === 0 ? 0 : (lengthAt(i - 1) + lengthAt(i)) / 2) / total))
 
-    // Render straight into the multisampled canvas. ACES and sRGB conversion
-    // happen once in the material shaders, with no full-screen blur pass.
     const position = new THREE.Vector3()
     const lookAt = new THREE.Vector3()
     const previousPosition = new THREE.Vector3(...unit.path[0].pos)
     let marker = null, cone = null
-    let frames = 0, lastDrawAt = 0, averageWork = 0, averageFrame = 16.7, qualitySamples = 0
+    let frames = 0, lastDrawAt = 0, averageWork = 0, averageFrame = 16.7
     let width = 1, height = 1
+    // Development only: QA scripts can pin the camera (see __walkDebug below).
+    let viewOverride = null
     const updateCamera = () => {
       const s = sAt(walk.get())
       posCurve.getPoint(s, position)
       lookCurve.getPoint(s, lookAt)
       built?.constrainCamera?.(position, previousPosition, lookAt)
+      if (viewOverride) { position.set(...viewOverride.pos); lookAt.set(...viewOverride.look) }
       camera.position.copy(position)
       camera.lookAt(lookAt)
       previousPosition.copy(position)
@@ -490,7 +544,9 @@ async function startScene(THREE, addons, mount, unit, walk, dotRef, onRoute, { s
       width = Math.max(1, mount.clientWidth)
       height = Math.max(1, mount.clientHeight)
       renderer.setPixelRatio(pixelRatio)
-      renderer.setSize(width, height, false)
+      if (composer) composer.setSize(width, height, false) // resizes the canvas and every pass
+      else renderer.setSize(width, height, false)
+      floorReflection?.setSize()
       renderer.domElement.dataset.quality = pixelRatio.toFixed(2)
       camera.aspect = width / height
       camera.fov = width / height < 0.8 ? 76 : 64
@@ -499,7 +555,9 @@ async function startScene(THREE, addons, mount, unit, walk, dotRef, onRoute, { s
     const renderView = () => {
       updateCamera()
       renderer.info.reset()
-      renderer.render(scene, camera)
+      floorReflection?.update(camera)
+      if (composer) composer.render()
+      else renderer.render(scene, camera)
       // Furniture and lamps stay fixed: their shadow maps need only one draw.
       renderer.shadowMap.autoUpdate = false
       renderer.shadowMap.needsUpdate = false
@@ -512,26 +570,21 @@ async function startScene(THREE, addons, mount, unit, walk, dotRef, onRoute, { s
         if (cone) cone.style.transform = `rotate(${Math.atan2(lookAt.z - position.z, lookAt.x - position.x) * 180 / Math.PI}deg)`
       }
     }
-    // Window resizes and the settle timer redraw on the spot.
+    // Window resizes redraw on the spot.
     const resize = () => {
       applySize()
       if (rendering && !disposed && !signal.aborted) renderView()
     }
-    // A quality change decided during a frame waits for the next frame, where
-    // the resize lands just before that frame's render.
-    let pendingRatio = 0
     const draw = (now) => {
       if (disposed || signal.aborted) return
       const started = performance.now()
-      if (pendingRatio) { pixelRatio = pendingRatio; pendingRatio = 0; applySize() }
       renderView()
       const work = performance.now() - started
       const interval = lastDrawAt ? now - lastDrawAt : 0
-      const continuous = interval > 0 && interval < 90
       lastDrawAt = now
       frames++
       averageWork = averageWork ? averageWork * 0.88 + work * 0.12 : work
-      if (continuous) { averageFrame = averageFrame * 0.88 + interval * 0.12; qualitySamples++ }
+      if (interval > 0 && interval < 90) averageFrame = averageFrame * 0.88 + interval * 0.12
       // Keep diagnostics off the UI; QA can inspect the canvas while walking.
       if (frames === 1 || frames % 12 === 0) {
         const data = renderer.domElement.dataset
@@ -549,16 +602,6 @@ async function startScene(THREE, addons, mount, unit, walk, dotRef, onRoute, { s
         data.lookY = lookAt.y.toFixed(3)
         data.lookZ = lookAt.z.toFixed(3)
       }
-      // Moving views may shed supersampling, but never render below one
-      // physical pixel per CSS pixel. Restore full detail when motion rests.
-      if (frames > 24 && qualitySamples >= 24) {
-        let nextRatio = pixelRatio
-        if (averageWork > 12.5 || averageFrame > 17.8) nextRatio = Math.max(minRatio, pixelRatio * 0.85)
-        // Recover detail slowly after sustained 60 FPS; RAF itself is capped
-        // at 16.7 ms on a 60 Hz display, so require stable pacing and low work.
-        else if (averageWork < 5.5 && averageFrame < 17.2 && qualitySamples >= 240) nextRatio = Math.min(maxRatio, pixelRatio + 0.04)
-        if (Math.abs(nextRatio - pixelRatio) > 0.02) { pendingRatio = nextRatio; qualitySamples = 0 }
-      }
     }
     function schedule() {
       if (!rendering || frame || disposed || signal.aborted) return
@@ -567,28 +610,63 @@ async function startScene(THREE, addons, mount, unit, walk, dotRef, onRoute, { s
         try { draw(now) } catch (error) { console.warn('Unit walkthrough could not render:', error); onError() }
       })
     }
-    const onMotion = () => {
-      schedule()
-      if (settleTimer) window.clearTimeout(settleTimer)
-      settleTimer = window.setTimeout(() => {
-        settleTimer = 0
-        pendingRatio = 0
-        if (disposed || signal.aborted || pixelRatio === maxRatio) return
-        pixelRatio = maxRatio
-        qualitySamples = 0
-        resize()
-      }, 180)
-    }
+    const onMotion = () => schedule()
+    // Development only (stripped from production builds): lets QA scripts
+    // place the camera, re-render and time frames against the reference boards.
+    if (import.meta.env.DEV) (window as any).__walkDebug = { THREE, scene, renderer, get composer() { return composer }, camera, occlusion, floorReflection, render: () => renderView(), setView: (pos, look, fov) => { viewOverride = pos ? { pos, look } : null; if (fov) { camera.fov = fov; camera.updateProjectionMatrix() } renderView() } }
     resize()
     updateCamera()
     onProgress({ progress: 0.88, stage: 'compile', detail: 'Preparing the final view' })
     await nextPaint(signal)
-    // Warm the same screen/ACES shader variants used by the first frame.
-    renderer.setRenderTarget(null)
-    await renderer.compileAsync(scene, camera)
-    checkpoint()
+    // Reading a pixel waits for the GPU, which makes a frame timeable.
+    const gl = renderer.getContext()
+    const pixel = new Uint8Array(4)
+    const timeFrame = () => {
+      const started = performance.now()
+      renderView()
+      gl.readPixels(0, 0, 1, 1, gl.RGBA, gl.UNSIGNED_BYTE, pixel)
+      return performance.now() - started
+    }
+    // Warm every material for the buffers it really renders into: the HDR
+    // pipeline's input or the canvas, and the floor reflection. Otherwise
+    // each shader compiles, with a visible hitch, the first time it comes
+    // into view while walking.
+    const warm = async () => {
+      for (const target of [composer ? composer.inputBuffer : null, floorReflection?.target]) {
+        if (target === undefined) continue
+        renderer.setRenderTarget(target)
+        await renderer.compileAsync(scene, camera)
+      }
+      renderer.setRenderTarget(null)
+      checkpoint()
+    }
+    await warm()
+    // ── Quality tier ──────────────────────────────────────────────
+    // Time a frame of the full pipeline. If it runs over about 14 ms (as on
+    // integrated graphics), take the direct path for the whole visit, so the
+    // walk stays smooth and looks the same moving and at rest.
+    if (composer && forced !== 'full') {
+      timeFrame()
+      const fullCost = Math.min(timeFrame(), timeFrame())
+      renderer.domElement.dataset.fullCost = fullCost.toFixed(1)
+      if (fullCost > 14) {
+        useDirectPath()
+        applySize()
+        await warm()
+      }
+    }
     onProgress({ progress: 0.96, stage: 'compile', detail: 'Opening your walkthrough' })
     await nextPaint(signal)
+    // On a high-density screen, time a frame at full density and settle on
+    // the highest resolution that should fit in about 16 ms, never below one
+    // pixel per CSS pixel. Cost scales with pixel count, so with the square
+    // of the ratio.
+    if (maxRatio > 1) {
+      timeFrame()
+      const frameCost = Math.min(timeFrame(), timeFrame())
+      const fitted = Math.min(maxRatio, Math.max(1, maxRatio * Math.sqrt(16 / frameCost)))
+      if (Math.abs(fitted - pixelRatio) > 0.02) { pixelRatio = fitted; applySize() }
+    }
     draw(performance.now())
     // Keep the loader until the fully textured first frame reaches the screen.
     await nextPaint(signal)

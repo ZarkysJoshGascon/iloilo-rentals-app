@@ -719,27 +719,93 @@ export function createKit(THREE, renderer, { RoundedBoxGeometry }: { RoundedBoxG
    * `clipBox`) is a world-space [min, max] box: entire leaves must fit.
    * Tiny leaves receive shadows but do not cast them by default.
    */
-  function foliage(scene, { clusters, size = 0.045, colors = [0x24391f, 0x4f6b35], seed = 1, mat, bounds, clipBox, cast = false, receive = true }) {
+  // A small ovate leaf folded along its midrib, for the fine-leaved plants
+  // (bonsai, ficus): 1 unit long, about 0.42 wide.
+  let fineLeafGeo = null
+  function fineLeafGeometry() {
+    if (fineLeafGeo) return fineLeafGeo
+    const rows = 6
+    const pos = []
+    for (let i = 0; i <= rows; i++) {
+      const t = i / rows
+      const w = 0.21 * Math.pow(Math.sin(Math.PI * Math.min(1, 0.06 + t * 0.98)), 0.75)
+      const curl = -0.12 * t * t
+      pos.push(-w, t, curl + w * 0.55, 0, t, curl, w, t, curl + w * 0.55)
+    }
+    const index = []
+    for (let i = 0; i < rows; i++) {
+      const a = i * 3
+      const b = a + 3
+      index.push(a, a + 1, b, a + 1, b + 1, b, a + 1, a + 2, b + 1, a + 2, b + 2, b + 1)
+    }
+    fineLeafGeo = new THREE.BufferGeometry()
+    fineLeafGeo.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3))
+    fineLeafGeo.setIndex(index)
+    fineLeafGeo.computeVertexNormals()
+    fineLeafGeo.computeBoundingBox()
+    geometries.push(fineLeafGeo)
+    return fineLeafGeo
+  }
+
+  // Smooth 3D value noise in [-1, 1], for the lumpy crowns.
+  function noise3(seed) {
+    const hash = (x, y, z) => {
+      let h = (x * 374761393 + y * 668265263 + z * 2147483647 + seed * 144269) | 0
+      h = Math.imul(h ^ (h >>> 13), 1274126177)
+      return ((h ^ (h >>> 16)) >>> 0) / 4294967296
+    }
+    const fade = (t) => t * t * (3 - 2 * t)
+    return (x, y, z) => {
+      const xi = Math.floor(x), yi = Math.floor(y), zi = Math.floor(z)
+      const xf = fade(x - xi), yf = fade(y - yi), zf = fade(z - zi)
+      let v = 0
+      for (let dx = 0; dx <= 1; dx++) for (let dy = 0; dy <= 1; dy++) for (let dz = 0; dz <= 1; dz++) {
+        v += hash(xi + dx, yi + dy, zi + dz) * (dx ? xf : 1 - xf) * (dy ? yf : 1 - yf) * (dz ? zf : 1 - zf)
+      }
+      return v * 2 - 1
+    }
+  }
+
+  /**
+   * `fine: true` uses small folded leaves and a lumpy crown: noise pushes
+   * leaves out into pom-pom clumps (cloud-pruned bonsai, ficus) and shades
+   * the hollows darker; `lumps` is the clump size in metres. `colors` may
+   * hold three tones: shade, mid green and sunlit tips.
+   */
+  function foliage(scene, { clusters, size = 0.045, colors = [0x24391f, 0x4f6b35], seed = 1, mat, bounds, clipBox, cast = false, receive = true, fine = false, lumps = 0.05, flatBottom = 0 }) {
     const rand = seeded(seed)
     const total = clusters.reduce((n, c) => n + c.count, 0)
     if (!mat && !leafMaterial) leafMaterial = material({ color: 0xffffff, roughness: 0.7, side: THREE.DoubleSide })
     const leafMat = mat || leafMaterial
-    const mesh = new THREE.InstancedMesh(leafGeometry(), leafMat, total)
+    const mesh = new THREE.InstancedMesh(fine ? fineLeafGeometry() : leafGeometry(), leafMat, total)
     instances.push(mesh)
     const limit = bounds || clipBox
     const box = limit ? (limit.isBox3 ? limit : new THREE.Box3(new THREE.Vector3(...limit[0]), new THREE.Vector3(...limit[1]))) : null
     const leafBox = new THREE.Box3()
     const dummy = new THREE.Object3D()
     const out = new THREE.Vector3()
-    const dark = new THREE.Color(colors[0])
-    const light = new THREE.Color(colors[1])
+    const tones = colors.map((c) => new THREE.Color(c))
     const color = new THREE.Color()
+    const lump = noise3(seed)
+    const shadeAt = (t) => {
+      // shade → mid → tips across t in 0..1
+      if (tones.length < 3) return color.copy(tones[0]).lerp(tones[1], t)
+      return t < 0.6 ? color.copy(tones[0]).lerp(tones[1], t / 0.6) : color.copy(tones[1]).lerp(tones[2], (t - 0.6) / 0.4)
+    }
     let i = 0
     for (const { at, r, count } of clusters) {
       for (let k = 0; k < count; k++) {
         // A direction biased upward and outward; leaves sit near the surface.
         out.set(rand() * 2 - 1, rand() * 1.6 - 0.5, rand() * 2 - 1).normalize()
-        const depth = 0.7 + rand() * 0.3
+        // Cloud pads are flatter underneath.
+        if (flatBottom && out.y < 0) out.y *= 1 - flatBottom
+        let depth = 0.7 + rand() * 0.3
+        let bump = 0
+        if (fine) {
+          const px = at[0] + out.x * r[0], py = at[1] + out.y * r[1], pz = at[2] + out.z * r[2]
+          bump = lump(px / lumps, py / lumps, pz / lumps)
+          depth = 0.78 + bump * 0.2 + rand() * 0.14
+        }
         dummy.position.set(at[0] + out.x * r[0] * depth, at[1] + out.y * r[1] * depth, at[2] + out.z * r[2] * depth)
         dummy.lookAt(dummy.position.x + out.x, dummy.position.y + out.y + 0.4, dummy.position.z + out.z)
         dummy.rotateZ(rand() * Math.PI * 2)
@@ -749,9 +815,9 @@ export function createKit(THREE, renderer, { RoundedBoxGeometry }: { RoundedBoxG
         dummy.updateMatrix()
         if (box && !box.containsBox(leafBox.copy(mesh.geometry.boundingBox).applyMatrix4(dummy.matrix))) continue
         mesh.setMatrixAt(i, dummy.matrix)
-        // Lighter on top, darker underneath and inside.
-        color.copy(dark).lerp(light, Math.min(1, Math.max(0, 0.35 + out.y * 0.4 + (rand() - 0.5) * 0.5)))
-        mesh.setColorAt(i, color)
+        // Lighter on top and on the clumps, darker underneath and in hollows.
+        const lit = 0.35 + out.y * 0.4 + (rand() - 0.5) * (fine ? 0.35 : 0.5) + bump * (fine ? 0.35 : 0)
+        mesh.setColorAt(i, shadeAt(Math.min(1, Math.max(0, lit))))
         i++
       }
     }
@@ -949,6 +1015,7 @@ export function createKit(THREE, renderer, { RoundedBoxGeometry }: { RoundedBoxG
     material, surface, glow,
     // shapes
     block, cushion, panel, flat, cylinder, sphere, tube, limb, boxes, drape, foliage, model, add, batch,
+    RoundedBox: RoundedBoxGeometry,
     track: { textures, geometries, materials },
     dispose,
   }

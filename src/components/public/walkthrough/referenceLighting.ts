@@ -69,9 +69,31 @@ export function createReferenceLighting(THREE, kit, mirrors = []) {
   }
   // Warm ceiling bounce falls off smoothly down the photographed feature
   // walls; it is not an exposed strip pretending to illuminate a whole room.
-  function wallLight(across, height, { start, end, top = 2.6, strength = 1.5, base = 0.16 }) {
+  // `scallops` are downlights just off the wall: { at } along the wall, with
+  // the fitting `gap` metres out at height `top`. Each lights the wall as a
+  // spot cone does (an arched top fanning out below, fading with distance),
+  // as the scallops in the reference renders.
+  function wallLight(across, height, { start, end, top = 2.6, strength = 1.5, base = 0.16, scallops = [] }: {
+    start: number
+    end: number
+    top?: number
+    strength?: number
+    base?: number
+    scallops?: { at: number; top?: number; gap?: number; power?: number }[]
+  }) {
     const endFalloff = clamp((across - start) / 0.12) * clamp((end - across) / 0.12)
-    const wash = strength * Math.exp(-Math.abs(top - height) / 0.28) * endFalloff
+    let wash = strength * Math.exp(-Math.abs(top - height) / 0.28) * endFalloff
+    for (const { at, top: lampY = 2.6, gap = 0.32, power = 1 } of scallops) {
+      const dx = across - at, dy = lampY - height
+      const distance = Math.sqrt(dx * dx + dy * dy + gap * gap)
+      if (dy <= 0) continue
+      // Angle from the beam axis (straight down): 35° full, 52° edge.
+      const cosAngle = dy / distance
+      const t = clamp((cosAngle - Math.cos(0.91)) / (Math.cos(0.61) - Math.cos(0.91)))
+      const cone = t * t * (3 - 2 * t)
+      // Irradiance on the wall: cosine of incidence over distance squared.
+      wash += power * cone * (gap / distance) / (distance * distance) * 0.3
+    }
     return [base + wash, base * 0.88 + wash * 0.77, base * 0.7 + wash * 0.46]
   }
   function ceilingLight(x, z) {
