@@ -109,9 +109,17 @@ function finishCanvases(base, size, sample) {
   return { color, roughness }
 }
 
-export function createKit(THREE, renderer, { RoundedBoxGeometry }: { RoundedBoxGeometry?: typeof RoundedBoxGeometryType } = {}) {
+/**
+ * detail  scales the generated fabric maps (1 = full size). Phones use 0.5:
+ * a repeating weave looks the same at their screen size for a quarter of the
+ * graphics memory.
+ */
+export function createKit(THREE, renderer, { RoundedBoxGeometry, detail = 1 }: { RoundedBoxGeometry?: typeof RoundedBoxGeometryType; detail?: number } = {}) {
   const maxAniso = renderer.capabilities.getMaxAnisotropy()
   const textures = []
+  // One upload per drawn canvas, however many textures (repeats) use it.
+  const canvasSources = new WeakMap()
+  const fabricCache = new Map()
   const geometries = []
   const materials = []
   const instances = []
@@ -131,6 +139,8 @@ export function createKit(THREE, renderer, { RoundedBoxGeometry }: { RoundedBoxG
 
   function tex(c, { repeat = [1, 1], color = true } = {}) {
     const t = new THREE.CanvasTexture(c)
+    if (canvasSources.has(c)) t.source = canvasSources.get(c)
+    else canvasSources.set(c, t.source)
     t.wrapS = t.wrapT = THREE.RepeatWrapping
     t.repeat.set(repeat[0], repeat[1])
     t.anisotropy = maxAniso
@@ -263,9 +273,19 @@ export function createKit(THREE, renderer, { RoundedBoxGeometry }: { RoundedBoxG
    * Broad pile/yarn variation survives mipmapping, while fine cross-weave
    * appears when approaching the furniture. All three maps are periodic.
    */
-  function fabric({ base = 0xebe8e2, weave = 'linen', threads = 72, contrast = 1, roughness = 0.92, seed = 53, size = 1024, tile = 0.27 } = {}) {
-    const edge = Math.min(1024, Math.max(128, Math.round(size)))
-    const count = Math.min(Math.floor(edge / 12) * 2, Math.max(8, Math.round(threads / 2) * 2))
+  function fabric(options: Parameters<typeof drawFabric>[0] = {}) {
+    // The same fabric asked for twice is drawn once.
+    const key = JSON.stringify(options)
+    if (!fabricCache.has(key)) fabricCache.set(key, drawFabric(options))
+    return fabricCache.get(key)
+  }
+
+  function drawFabric({ base = 0xebe8e2, weave = 'linen', threads = 72, contrast = 1, roughness = 0.92, seed = 53, size = 1024, tile = 0.27 } = {}) {
+    // The weave count follows the full size, so a reduced map keeps the
+    // same pattern, just with fewer pixels per thread.
+    const full = Math.min(1024, Math.max(128, Math.round(size)))
+    const edge = Math.max(128, Math.round(full * detail))
+    const count = Math.min(Math.floor(full / 12) * 2, Math.max(8, Math.round(threads / 2) * 2))
     const tau = Math.PI * 2
     const [color, colorCtx] = canvas(edge, edge)
     const [rough, roughCtx] = canvas(edge, edge)
@@ -1008,6 +1028,15 @@ export function createKit(THREE, renderer, { RoundedBoxGeometry }: { RoundedBoxG
     new Set(materials).forEach((m) => m.dispose())
   }
 
+  // Once every texture is on the GPU, the canvases they were drawn on are
+  // dead weight: Chrome keeps each one in graphics memory as well. Shrinking
+  // a canvas frees that copy; nothing redraws these textures afterwards.
+  function releaseCanvases() {
+    for (const t of textures) {
+      if (t.image instanceof HTMLCanvasElement) t.image.width = t.image.height = 0
+    }
+  }
+
   return {
     // surfaces
     shoji, slats, windows, brushed, hob, quartz, plaster, fabric, lacquer, tex,
@@ -1017,6 +1046,8 @@ export function createKit(THREE, renderer, { RoundedBoxGeometry }: { RoundedBoxG
     block, cushion, panel, flat, cylinder, sphere, tube, limb, boxes, drape, foliage, model, add, batch,
     RoundedBox: RoundedBoxGeometry,
     track: { textures, geometries, materials },
+    detail,
+    releaseCanvases,
     dispose,
   }
 }

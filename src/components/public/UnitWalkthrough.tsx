@@ -196,7 +196,17 @@ function Walk({ unit, skipTo }: WalkProps) {
         readyRef.current = false
         setStatus('failed')
       })
+    // A reload or a closed tab doesn't unmount React. Free the GPU as the page
+    // goes, so a reload never holds two tours at once. (A page kept in the
+    // back/forward cache keeps its tour.)
+    const onPageHide = (event: PageTransitionEvent) => {
+      if (event.persisted) return
+      controller.abort()
+      teardown()
+    }
+    window.addEventListener('pagehide', onPageHide)
     return () => {
+      window.removeEventListener('pagehide', onPageHide)
       controller.abort()
       readyRef.current = false
       teardown()
@@ -396,7 +406,7 @@ async function startScene(THREE, addons, mount, unit, walk, dotRef, onRoute, { s
     addons.RectAreaLightUniformsLib.init()
     scene = new THREE.Scene()
     scene.background = new THREE.Color(0x0b0f17)
-    kit = createKit(THREE, renderer, { RoundedBoxGeometry: addons.RoundedBoxGeometry })
+    kit = createKit(THREE, renderer, { RoundedBoxGeometry: addons.RoundedBoxGeometry, detail: mobile ? 0.5 : 1 })
 
     const loader = new THREE.TextureLoader()
     const gltf = new addons.GLTFLoader()
@@ -454,6 +464,11 @@ async function startScene(THREE, addons, mount, unit, walk, dotRef, onRoute, { s
     // After the probe, so the probe captures the floor as it was.
     if (built?.floor) floorReflection = createFloorReflection(THREE, renderer, scene, built.floor, { scale: 0.35 })
     checkpoint()
+    // Put every texture on the GPU now, then free the canvases the generated
+    // ones were drawn on. Holding both doubled the tour's graphics memory
+    // (about 1.3 GB), and phones killed the tab when the page was reloaded.
+    kit.track.textures.forEach((texture) => renderer.initTexture(texture))
+    kit.releaseCanvases()
 
     const camera = new THREE.PerspectiveCamera(60, 1, 0.06, 120)
 

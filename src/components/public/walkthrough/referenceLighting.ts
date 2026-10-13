@@ -13,7 +13,8 @@ export function createReferenceLighting(THREE, kit, mirrors = []) {
     intensity?: number
   }) {
     const [u0, v0, u1, v1] = bounds
-    const [width, height] = size
+    // Soft gradients: phones bake them at the kit's reduced detail.
+    const [width, height] = size.map((n) => Math.max(64, Math.round(n * kit.detail)))
     const makeCanvas = (): [HTMLCanvasElement, CanvasRenderingContext2D] => {
       const canvas = document.createElement('canvas')
       canvas.width = width
