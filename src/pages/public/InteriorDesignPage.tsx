@@ -9,7 +9,6 @@ import toast from 'react-hot-toast'
 import { cn } from '@/lib/utils'
 import { uploadInteriorImage, submitInteriorInquiry } from '@/lib/interiorDesign'
 import InteriorVideoTours from '@/components/public/InteriorVideoTours'
-import InteriorProjectTour from '@/components/public/InteriorProjectTour'
 import UnitWalkthrough from '@/components/public/UnitWalkthrough'
 import { SAINT_HONORE_9S } from '@/components/public/walkthrough/saintHonore9S'
 import type { ReactNode } from 'react'
@@ -197,11 +196,10 @@ export default function InteriorDesignPage() {
   return (
     <div className="min-h-screen bg-gradient-to-br from-[#2d568e]/5 via-white to-[#2d568e]/10 pb-24 md:pb-12">
 
-      {/* Past work: cinematic video tours that scrub with the scroll, then a
-          photo walk through projects uploaded to Supabase Storage */}
+      {/* Past work: the 3D walk through Saint Honore 9S, then video tours
+          that scrub with the scroll (each appears once its video is added) */}
       <UnitWalkthrough unit={SAINT_HONORE_9S} skipTo="#inquiry-form" />
       <InteriorVideoTours skipTo="#inquiry-form" />
-      <InteriorProjectTour skipTo="#inquiry-form" />
 
       <div id="inquiry-form" className="relative pt-20 md:pt-28">
         <div className="absolute inset-0 overflow-hidden pointer-events-none">

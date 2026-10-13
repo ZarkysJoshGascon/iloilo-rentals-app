@@ -484,7 +484,9 @@ async function startScene(THREE, addons, mount, unit, walk, dotRef, onRoute, { s
       camera.lookAt(lookAt)
       previousPosition.copy(position)
     }
-    const resize = () => {
+    // Resizing the canvas clears it. Every size change is therefore followed
+    // by a render before the browser paints, or the page flashes a blank frame.
+    const applySize = () => {
       width = Math.max(1, mount.clientWidth)
       height = Math.max(1, mount.clientHeight)
       renderer.setPixelRatio(pixelRatio)
@@ -493,24 +495,14 @@ async function startScene(THREE, addons, mount, unit, walk, dotRef, onRoute, { s
       camera.aspect = width / height
       camera.fov = width / height < 0.8 ? 76 : 64
       camera.updateProjectionMatrix()
-      schedule()
     }
-    const draw = (now) => {
-      if (disposed || signal.aborted) return
-      const started = performance.now()
+    const renderView = () => {
       updateCamera()
       renderer.info.reset()
       renderer.render(scene, camera)
       // Furniture and lamps stay fixed: their shadow maps need only one draw.
       renderer.shadowMap.autoUpdate = false
       renderer.shadowMap.needsUpdate = false
-      const work = performance.now() - started
-      const interval = lastDrawAt ? now - lastDrawAt : 0
-      const continuous = interval > 0 && interval < 90
-      lastDrawAt = now
-      frames++
-      averageWork = averageWork ? averageWork * 0.88 + work * 0.12 : work
-      if (continuous) { averageFrame = averageFrame * 0.88 + interval * 0.12; qualitySamples++ }
       const dot = dotRef.current
       if (dot) {
         if (marker !== dot) { marker = dot; cone = dot.querySelector('[data-cone]') }
@@ -519,6 +511,27 @@ async function startScene(THREE, addons, mount, unit, walk, dotRef, onRoute, { s
         dot.style.top = `${(plan.y0 + (position.z / plan.depth) * (plan.y1 - plan.y0)) * 100}%`
         if (cone) cone.style.transform = `rotate(${Math.atan2(lookAt.z - position.z, lookAt.x - position.x) * 180 / Math.PI}deg)`
       }
+    }
+    // Window resizes and the settle timer redraw on the spot.
+    const resize = () => {
+      applySize()
+      if (rendering && !disposed && !signal.aborted) renderView()
+    }
+    // A quality change decided during a frame waits for the next frame, where
+    // the resize lands just before that frame's render.
+    let pendingRatio = 0
+    const draw = (now) => {
+      if (disposed || signal.aborted) return
+      const started = performance.now()
+      if (pendingRatio) { pixelRatio = pendingRatio; pendingRatio = 0; applySize() }
+      renderView()
+      const work = performance.now() - started
+      const interval = lastDrawAt ? now - lastDrawAt : 0
+      const continuous = interval > 0 && interval < 90
+      lastDrawAt = now
+      frames++
+      averageWork = averageWork ? averageWork * 0.88 + work * 0.12 : work
+      if (continuous) { averageFrame = averageFrame * 0.88 + interval * 0.12; qualitySamples++ }
       // Keep diagnostics off the UI; QA can inspect the canvas while walking.
       if (frames === 1 || frames % 12 === 0) {
         const data = renderer.domElement.dataset
@@ -544,7 +557,7 @@ async function startScene(THREE, addons, mount, unit, walk, dotRef, onRoute, { s
         // Recover detail slowly after sustained 60 FPS; RAF itself is capped
         // at 16.7 ms on a 60 Hz display, so require stable pacing and low work.
         else if (averageWork < 5.5 && averageFrame < 17.2 && qualitySamples >= 240) nextRatio = Math.min(maxRatio, pixelRatio + 0.04)
-        if (Math.abs(nextRatio - pixelRatio) > 0.02) { pixelRatio = nextRatio; qualitySamples = 0; resize() }
+        if (Math.abs(nextRatio - pixelRatio) > 0.02) { pendingRatio = nextRatio; qualitySamples = 0 }
       }
     }
     function schedule() {
@@ -559,6 +572,7 @@ async function startScene(THREE, addons, mount, unit, walk, dotRef, onRoute, { s
       if (settleTimer) window.clearTimeout(settleTimer)
       settleTimer = window.setTimeout(() => {
         settleTimer = 0
+        pendingRatio = 0
         if (disposed || signal.aborted || pixelRatio === maxRatio) return
         pixelRatio = maxRatio
         qualitySamples = 0
