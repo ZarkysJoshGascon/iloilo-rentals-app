@@ -7,7 +7,7 @@ description: Framer Motion animation patterns for this project — scroll reveal
 
 `framer-motion` (v12) is already installed and used across the app. Import from `'framer-motion'`, never add another animation library (GSAP, AOS, react-spring, etc.).
 
-Reference implementation: `src/pages/public/HomePage.jsx`. Copy its helpers rather than reinventing them.
+Reference implementation: `src/pages/public/HomePage.tsx`. Copy its helpers rather than reinventing them.
 
 > **Note (Oct 2026):** the homepage went back to its layout from before the parallax redesign (parent of commit `593ba63`): the hero card over two drifting photo rows, alternating service sections that slide in from the sides, the "Look out the window" banner, the closing section with no buttons and no hero button. It scrolls inside its own container (`containerRef`, passed as a prop, with no `ScrollContainerContext`). From the redesign it kept:
 > - the redesign's service content (Property Management, Interior Design, Booking Stays, Affiliate Partner), shown in the old layout;
@@ -19,7 +19,7 @@ Reference implementation: `src/pages/public/HomePage.jsx`. Copy its helpers rath
 > - the Supabase photo spots (`Photo` + `useSitePhotos`/`useSiteGallery`);
 > - a still grid of review screenshots for "What They Say" (click to enlarge).
 >
-> These redesign sections described below are no longer on the page: `HeroParallax` hero, `ServicesShowcase` holes, `Preloader`, review marquee, scroll-filled CTA. They live in git at commit `ce5a844`, and `hero-parallax.jsx`, `preloader.jsx` and `preloadImages.js` are kept but unused.
+> These redesign sections described below are no longer on the page: `HeroParallax` hero, `ServicesShowcase` holes, `Preloader`, review marquee, scroll-filled CTA. They live in git at commit `ce5a844`, and `hero-parallax.tsx`, `preloader.tsx` and `preloadImages.ts` are kept but unused.
 
 ## House style
 
@@ -34,7 +34,7 @@ Reference implementation: `src/pages/public/HomePage.jsx`. Copy its helpers rath
 
 `HomePage` renders a `fixed ... overflow-y-scroll` div (`containerRef`) as the scroller. `useScroll()` with no options tracks the window and will never move there. Always pass the container:
 
-```jsx
+```tsx
 const ScrollContainerContext = createContext(null)
 // provider at page root:
 <ScrollContainerContext.Provider value={containerRef}>…</ScrollContainerContext.Provider>
@@ -51,7 +51,7 @@ On normal pages that scroll the window, omit `container`. Check which one the pa
 ## Patterns
 
 ### Fade-up reveal
-```jsx
+```tsx
 <motion.div
   initial={{ opacity: 0, y: 50 }}
   whileInView={{ opacity: 1, y: 0 }}
@@ -61,7 +61,7 @@ On normal pages that scroll the window, omit `container`. Check which one the pa
 ```
 
 ### Staggered children (headings, paragraphs, bullet lists)
-```jsx
+```tsx
 const staggerParent = { hidden: {}, show: { transition: { staggerChildren: 0.09, delayChildren: 0.05 } } }
 const staggerChild = {
   hidden: { opacity: 0, y: 32, filter: 'blur(6px)' },
@@ -73,7 +73,7 @@ const staggerChild = {
 For on-load (hero) use `animate="show"` instead of `whileInView`.
 
 ### Parallax
-```jsx
+```tsx
 function useParallax(ref, distance = 80) {
   const reduce = useReducedMotion()
   const progress = useSectionProgress(ref)
@@ -84,14 +84,14 @@ function useParallax(ref, distance = 80) {
 Layer several speeds for depth: image inside frame (60), frame (-30), decorative big number/blob (140–160). Parallax images need `overflow-hidden` on the frame and `scale: 1.2+` on the image so edges never show. Full-bleed backgrounds: make the layer `top: -20%; height: 140%` and keep `y` within ±12%.
 
 ### Clip-path image reveal
-```jsx
+```tsx
 initial={{ clipPath: 'inset(18% 18% 18% 18% round 24px)', opacity: 0.4 }}
 whileInView={{ clipPath: 'inset(0% 0% 0% 0% round 24px)', opacity: 1 }}
 transition={{ duration: 1.4, ease: EASE }}
 ```
 
 ### Scroll-linked hero exit
-```jsx
+```tsx
 const { scrollY } = useScroll({ container: containerRef })
 const y = useTransform(scrollY, [0, heroHeight], [0, -160])
 const scale = useTransform(scrollY, [0, heroHeight], [1, 0.88])
@@ -103,14 +103,14 @@ Put scroll-driven `style` on an outer `motion.div` and the entrance `initial/ani
 Two `w-max whitespace-nowrap` rows; `x` mapped from section progress to `['0%','-35%']` and the reverse. Second row uses an outlined style (`-webkit-text-stroke`).
 
 ### Progress bar
-```jsx
+```tsx
 const scaleX = useSpring(scrollYProgress, { stiffness: 120, damping: 30, restDelta: 0.001 })
 <motion.div className="fixed top-0 inset-x-0 h-1 origin-left z-50" style={{ scaleX }} />
 ```
 
 ### Pinned scroll-driven section (homepage `ServicesShowcase`)
 Section stays still on screen while scrolling steps through items, then releases to the content below.
-```jsx
+```tsx
 <section ref={ref} style={{ height: `${(items.length + 1) * 100}vh` }}>   {/* ~100vh of scroll per item */}
   <div className="sticky top-0 h-svh overflow-hidden">…</div>
 </section>
@@ -157,18 +157,18 @@ The desktop navbar is a static frosted-white bar (see the note at the top). It u
 
 ## Porting components (21st.dev, Aceternity, shadcn blocks)
 
-- Project is JavaScript + Vite (`components.json` has `tsx: false`): convert to `.jsx` in `src/components/ui/`, strip types and `"use client"`.
+- Project is TypeScript + Vite (`components.json` has `tsx: true`): port to `.tsx` in `src/components/ui/`, keep the types, strip `"use client"`.
 - Replace `next/image` → `<img loading="lazy">`, `next/link` → react-router `Link` (internal) or `<a>` (external).
 - Any `useScroll({ target })` inside the component needs a `container` prop when used on the homepage.
-- `hero-parallax.jsx` on phones (`max-width: 767px`): the rows drop 60px instead of 500px and slide ±600px instead of ±1000px, because the stacked header is much taller (500px left a half-screen gap). The homepage's hero bottom padding matches (`pb-[160px] md:pb-[640px]`).
+- `hero-parallax.tsx` on phones (`max-width: 767px`): the rows drop 60px instead of 500px and slide ±600px instead of ±1000px, because the stacked header is much taller (500px left a half-screen gap). The homepage's hero bottom padding matches (`pb-[160px] md:pb-[640px]`).
 - Scroll performance (tested on Intel UHD, which Chrome uses by default on hybrid laptops): every element moved by a scroll-linked motion value needs its own layer (`will-change-transform` / `will-change-[opacity]`), or the browser repaints everything around it each frame; the hero header also has `will-change-transform` because the moving rows under it forced full repaints. No `mix-blend-mode` on large overlays (the grain is normal-blended for this reason). Verify with paint flashing (`Overlay.setShowPaintRects`) while scrolling.
-- Existing ports: `hero-parallax.jsx` (tilted rows under a header, takes `children` as header; used by the homepage hero), `works-wheel.jsx` (crafterui WorksWheel: ring of cards that opens into a 3D drum; used by the homepage "Four ways to work with us") and `tilted-grid-hero.jsx` (curved CSS-3D image band; currently unused — the user preferred a static photo per service over a moving band).
-- `works-wheel.jsx` on the homepage is **scroll-driven**: a pinned section (`sticky h-svh` inside a tall wrapper) passes its `useSectionProgress(..., ['start start', 'end end'])` as `progress`, and the wheel follows it with a dwell at each card. Don't switch it back to its own wheel/drag capture there: on touch screens vertical drags would trap the page's scrolling, and the user wants it on mobile. Portrait screens get a wider card, a ring scaled to fit, and the caption under the front card.
-- Photos go through `Photo` (`src/components/ui/photo.jsx`): Supabase file first, `fallback` if it's missing, hidden if both fail.
-- The homepage holds behind a loading screen (`Preloader`, `src/components/ui/preloader.jsx`) until every photo it uses is downloaded (`preloadImages`, `src/lib/preloadImages.js`), capped at `PRELOAD_MAX_MS` (8s), once per visit. Any new photo on the page must be added to `pageImages` in `HomePage`, or it will pop in while scrolling. Entrance animations that play on mount (the hero) must wait for `ready`, or they play behind the loading screen.
-- Homepage photo spots are resolved by `useSitePhotos()` (`src/lib/siteImages.js`): it lists `hero-images/home/` and adds each file's `updated_at` to its URL (`&v=`), so a photo replaced under the same name shows on the next load instead of after Supabase's 1-hour cache. Keep `resize=contain` in the transform; the default `cover` keeps the original height and crops the sides. Don't hardcode Supabase photo URLs in components.
+- Existing ports: `hero-parallax.tsx` (tilted rows under a header, takes `children` as header; used by the homepage hero), `works-wheel.tsx` (crafterui WorksWheel: ring of cards that opens into a 3D drum; used by the homepage "Four ways to work with us") and `tilted-grid-hero.tsx` (curved CSS-3D image band; currently unused — the user preferred a static photo per service over a moving band).
+- `works-wheel.tsx` on the homepage is **scroll-driven**: a pinned section (`sticky h-svh` inside a tall wrapper) passes its `useSectionProgress(..., ['start start', 'end end'])` as `progress`, and the wheel follows it with a dwell at each card. Don't switch it back to its own wheel/drag capture there: on touch screens vertical drags would trap the page's scrolling, and the user wants it on mobile. Portrait screens get a wider card, a ring scaled to fit, and the caption under the front card.
+- Photos go through `Photo` (`src/components/ui/photo.tsx`): Supabase file first, `fallback` if it's missing, hidden if both fail.
+- The homepage holds behind a loading screen (`Preloader`, `src/components/ui/preloader.tsx`) until every photo it uses is downloaded (`preloadImages`, `src/lib/preloadImages.ts`), capped at `PRELOAD_MAX_MS` (8s), once per visit. Any new photo on the page must be added to `pageImages` in `HomePage`, or it will pop in while scrolling. Entrance animations that play on mount (the hero) must wait for `ready`, or they play behind the loading screen.
+- Homepage photo spots are resolved by `useSitePhotos()` (`src/lib/siteImages.ts`): it lists `hero-images/home/` and adds each file's `updated_at` to its URL (`&v=`), so a photo replaced under the same name shows on the next load instead of after Supabase's 1-hour cache. Keep `resize=contain` in the transform; the default `cover` keeps the original height and crops the sides. Don't hardcode Supabase photo URLs in components.
 
-### Interior Design page tours (`src/components/public/InteriorVideoTours.jsx`, `InteriorProjectTour.jsx`)
+### Interior Design page tours (`src/components/public/InteriorVideoTours.tsx`, `InteriorProjectTour.tsx`)
 The List Property page is just its form (the walkthrough there was removed at the user's request; it belongs on Interior Design only).
 - **Video tours** (the user's preferred "cinematic stroll"): a pinned section scrubs a walkthrough video with the scroll. Videos must be encoded for seeking: short keyframe interval (`-g 6`), no audio, `+faststart`. The whole file is fetched as a blob before scrubbing. A stock **sample** tour (clearly labelled, credited) shows only in dev or with `?demo` in the URL, so visitors never see stock footage presented as Iloilo Rentals work.
 - **Photo tour**: a pinned section where scroll drives a camera through each project's photos (from Supabase `hero-images/interior/<project>/`). Each photo has a camera move (`enter` = dolly forward, `lookRight`/`lookLeft` = pan + small `rotateY` under `perspective`, `lookUp` = tilt, `closer` = push in). Photos are scaled so a move never shows an edge: keep |x|,|y| under (scale − 1) / 2 in %. The next room fades in **on top** while the previous one pushes forward and blurs underneath; there's no fade-out, which would dip to black.

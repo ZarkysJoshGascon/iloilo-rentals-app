@@ -1,0 +1,542 @@
+import { useEffect, useState, useRef } from 'react'
+import { useNavigate, useSearchParams } from 'react-router'
+import { motion, type Variants } from 'framer-motion'
+import { supabase } from "../../lib/supabase";
+import { useAuth } from "../../context/AuthContext";
+import { GOOGLE_CLIENT_ID, loadGoogleIdentity, createNonce } from '../../lib/googleSignIn'
+import { Loader2, ExternalLink, Copy, Check } from 'lucide-react'
+import toast from 'react-hot-toast'
+
+// ------------------------------------------------------------
+// In-app browser detection
+// These UAs can't complete a Google OAuth redirect reliably.
+// ------------------------------------------------------------
+function isEmbeddedBrowser() {
+  if (typeof navigator === 'undefined') return false
+  const ua = navigator.userAgent || navigator.vendor || ''
+  return (
+    ua.includes('FBAN') || ua.includes('FBAV') ||
+    ua.includes('Instagram') || ua.includes('Messenger') ||
+    ua.includes('WhatsApp') || ua.includes('Twitter') ||
+    ua.includes('LinkedIn') || ua.includes('Line/') ||
+    ua.includes('MicroMessenger')
+  )
+}
+
+// ✅ FIX: single source of truth for redirect validation. Prevents open-redirect
+// drift between the post-login effect and the OAuth initiation handler.
+function safeRedirectTarget(raw) {
+  if (!raw || typeof raw !== 'string') return null
+  if (!raw.startsWith('/')) return null
+  if (raw.startsWith('//')) return null
+  if (raw.includes('://')) return null
+  if (raw.includes('\\')) return null
+  return raw
+}
+
+export default function LoginPage() {
+  const navigate = useNavigate()
+  const [searchParams] = useSearchParams()
+  const { user, loading: authLoading } = useAuth()
+  const [isLoading, setIsLoading] = useState(false)
+  const [showWarning, setShowWarning] = useState(false)
+  const [copied, setCopied] = useState(false)
+  const warningChecked = useRef(false)
+  const redirectHandled = useRef(false)
+  const urlInputRef = useRef(null)
+
+  // Google's own sign-in button (see lib/googleSignIn). Falls back to the
+  // redirect sign-in below when there's no client ID or Google's script fails.
+  const googleButtonRef = useRef(null)
+  const nonceRef = useRef(null)
+  const [googleButtonReady, setGoogleButtonReady] = useState(false)
+  const [googleButtonFailed, setGoogleButtonFailed] = useState(false)
+  const showGoogleButton = !!GOOGLE_CLIENT_ID && !googleButtonFailed && !showWarning
+
+  // ------------------------------------------------------------
+  // Post-login redirect
+  // ------------------------------------------------------------
+  useEffect(() => {
+    if (authLoading || !user || redirectHandled.current) return
+    redirectHandled.current = true
+
+    const redirect = searchParams.get('redirect')
+    const safeRedirect = safeRedirectTarget(redirect)
+
+    navigate(safeRedirect || '/post-login', { replace: true })
+  }, [authLoading, user, navigate, searchParams])
+
+  // ------------------------------------------------------------
+  // Embedded-browser detection (once)
+  // ------------------------------------------------------------
+  useEffect(() => {
+    if (warningChecked.current) return
+    warningChecked.current = true
+    setShowWarning(isEmbeddedBrowser())
+  }, [])
+
+  // ------------------------------------------------------------
+  // Google OAuth
+  // ------------------------------------------------------------
+  const handleGoogleLogin = async () => {
+    setIsLoading(true)
+    try {
+      const redirect = searchParams.get('redirect')
+      const safeRedirect = safeRedirectTarget(redirect)
+
+      const redirectTo = safeRedirect
+        ? `${window.location.origin}/login?redirect=${encodeURIComponent(safeRedirect)}`
+        : `${window.location.origin}/login`
+
+      const { error } = await supabase.auth.signInWithOAuth({
+        provider: 'google',
+        options: {
+          queryParams: { prompt: 'select_account' },
+          redirectTo,
+        },
+      })
+      if (error) throw error
+    } catch (error) {
+      console.error('Login error:', error)
+      toast.error('Login failed. Please try again.')
+      setIsLoading(false)
+    }
+  }
+
+  // ------------------------------------------------------------
+  // Google's sign-in button: the ID token goes straight to Supabase, so the
+  // account picker shows this site instead of the Supabase project domain.
+  // ------------------------------------------------------------
+  useEffect(() => {
+    if (!GOOGLE_CLIENT_ID || showWarning) return
+    let cancelled = false
+
+    const onCredential = async (response) => {
+      setIsLoading(true)
+      try {
+        const { error } = await supabase.auth.signInWithIdToken({
+          provider: 'google',
+          token: response.credential,
+          nonce: nonceRef.current,
+        })
+        if (error) throw error
+        // AuthContext picks up the session and the post-login effect redirects.
+      } catch (error) {
+        console.error('Login error:', error)
+        toast.error('Login failed. Please try again.')
+        setIsLoading(false)
+      }
+    }
+
+    ;(async () => {
+      try {
+        const [google, nonce] = await Promise.all([loadGoogleIdentity(), createNonce()])
+        const target = googleButtonRef.current
+        if (cancelled || !target) return
+        nonceRef.current = nonce.raw
+        google.accounts.id.initialize({
+          client_id: GOOGLE_CLIENT_ID,
+          nonce: nonce.hashed,
+          callback: onCredential,
+          ux_mode: 'popup',
+          context: 'signin',
+          auto_select: false,
+          cancel_on_tap_outside: true,
+        })
+        google.accounts.id.renderButton(target, {
+          type: 'standard',
+          theme: 'outline',
+          size: 'large',
+          text: 'signin_with',
+          shape: 'rectangular',
+          logo_alignment: 'center',
+          // Google draws the button 200–400px wide.
+          width: Math.min(400, Math.max(200, Math.round(target.offsetWidth))),
+        })
+        setGoogleButtonReady(true)
+      } catch (err) {
+        console.warn('Google sign-in button unavailable; using redirect sign-in instead.', err)
+        if (!cancelled) setGoogleButtonFailed(true)
+      }
+    })()
+
+    return () => { cancelled = true }
+  }, [showWarning])
+
+  // ------------------------------------------------------------
+  // Copy current URL to clipboard (external-browser escape hatch)
+  // ------------------------------------------------------------
+  const handleCopyLink = async () => {
+    const url = window.location.href
+
+    try {
+      if (navigator.clipboard && window.isSecureContext) {
+        await navigator.clipboard.writeText(url)
+        setCopied(true)
+        toast.success('Link copied — paste it in Safari or Chrome')
+        setTimeout(() => setCopied(false), 2000)
+        return
+      }
+    } catch {
+      // fall through to manual selection
+    }
+
+    try {
+      const input = urlInputRef.current
+      if (input) {
+        input.focus()
+        input.select()
+        document.execCommand?.('copy')
+        setCopied(true)
+        toast.success('URL selected — long-press to copy')
+        setTimeout(() => setCopied(false), 2000)
+        return
+      }
+    } catch {
+      // nothing else to try
+    }
+
+    toast.error('Could not copy automatically. Please copy from the address bar.')
+  }
+
+  // ------------------------------------------------------------
+  // Animation variants
+  // ------------------------------------------------------------
+  const containerVariants: Variants = {
+    hidden: { opacity: 0, scale: 0.9 },
+    visible: {
+      opacity: 1,
+      scale: 1,
+      transition: { duration: 0.5, type: 'spring', stiffness: 200, damping: 20 },
+    },
+  }
+  const logoVariants: Variants = {
+    hidden: { scale: 0, rotate: -180 },
+    visible: {
+      scale: 1,
+      rotate: 0,
+      transition: { duration: 0.5, type: 'spring', stiffness: 260, damping: 20 },
+    },
+  }
+  const titleVariants: Variants = {
+    hidden: { opacity: 0, y: -30 },
+    visible: { opacity: 1, y: 0, transition: { delay: 0.2, duration: 0.5 } },
+  }
+  const subtitleVariants: Variants = {
+    hidden: { opacity: 0 },
+    visible: { opacity: 1, transition: { delay: 0.3, duration: 0.5 } },
+  }
+  const dividerVariants: Variants = {
+    hidden: { width: 0, opacity: 0 },
+    visible: { width: '100%', opacity: 1, transition: { delay: 0.4, duration: 0.6 } },
+  }
+  const buttonVariants: Variants = {
+    hidden: { opacity: 0, y: 20 },
+    visible: { opacity: 1, y: 0, transition: { delay: 0.5, duration: 0.5 } },
+    hover: {
+      scale: 1.02,
+      borderColor: '#2d568e',
+      boxShadow: '0 10px 25px -5px rgba(45,86,142,0.2)',
+      transition: { duration: 0.2 },
+    },
+    tap: { scale: 0.98 },
+  }
+  const featuresVariants: Variants = {
+    hidden: { opacity: 0 },
+    visible: { opacity: 1, transition: { delay: 0.6, staggerChildren: 0.1 } },
+  }
+  const featureItemVariants: Variants = {
+    hidden: { opacity: 0, x: -10 },
+    visible: { opacity: 1, x: 0 },
+  }
+  const footerVariants: Variants = {
+    hidden: { opacity: 0 },
+    visible: { opacity: 1, transition: { delay: 0.7, duration: 0.5 } },
+  }
+
+  return (
+    <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-[#2d568e]/5 via-white to-[#2d568e]/10 overflow-hidden pb-24 md:pb-0">
+      {/* Ambient background blobs */}
+      <div className="absolute inset-0 overflow-hidden pointer-events-none">
+        <motion.div
+          animate={{ y: [0, -20, 0], x: [0, 10, 0] }}
+          transition={{ repeat: Infinity, duration: 8, ease: 'easeInOut' }}
+          className="absolute -top-40 -right-40 w-80 h-80 bg-[#2d568e]/10 rounded-full blur-3xl"
+        />
+        <motion.div
+          animate={{ y: [0, 20, 0], x: [0, -10, 0] }}
+          transition={{ repeat: Infinity, duration: 10, ease: 'easeInOut' }}
+          className="absolute -bottom-40 -left-40 w-80 h-80 bg-[#2d568e]/10 rounded-full blur-3xl"
+        />
+        <motion.div
+          animate={{ scale: [1, 1.2, 1], opacity: [0.3, 0.5, 0.3] }}
+          transition={{ repeat: Infinity, duration: 6, ease: 'easeInOut' }}
+          className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-96 h-96 bg-[#2d568e]/5 rounded-full blur-3xl"
+        />
+      </div>
+
+      <motion.div
+        variants={containerVariants}
+        initial="hidden"
+        animate="visible"
+        whileHover={{ scale: 1.02 }}
+        className="relative bg-white rounded-2xl shadow-2xl max-w-md w-full mx-4 p-6 md:p-10 transition-all duration-500"
+      >
+        {/* Embedded-browser warning */}
+        {showWarning && (
+          <motion.div
+            initial={{ opacity: 0, y: -10 }}
+            animate={{ opacity: 1, y: 0 }}
+            className="mb-6 p-4 bg-amber-50 border-l-4 border-amber-500 rounded-lg"
+          >
+            <div className="flex items-start gap-3">
+              <div className="flex-shrink-0">
+                <svg className="h-5 w-5 text-amber-500" viewBox="0 0 20 20" fill="currentColor">
+                  <path
+                    fillRule="evenodd"
+                    d="M8.257 3.099c.765-1.36 2.722-1.36 3.486 0l5.58 9.92c.75 1.334-.213 2.98-1.742 2.98H4.42c-1.53 0-2.493-1.646-1.743-2.98l5.58-9.92zM11 13a1 1 0 11-2 0 1 1 0 012 0zm-1-8a1 1 0 00-1 1v3a1 1 0 002 0V6a1 1 0 00-1-1z"
+                    clipRule="evenodd"
+                  />
+                </svg>
+              </div>
+              <div className="flex-1 min-w-0">
+                <p className="text-sm font-semibold text-amber-800">
+                  Open this page in Safari or Chrome to sign in
+                </p>
+                <p className="text-xs text-amber-700 mt-1">
+                  Google Sign-In doesn't work inside Messenger, Facebook, or Instagram.
+                  Copy the link below and paste it into your browser.
+                </p>
+              </div>
+            </div>
+
+            <div className="mt-3 flex items-center gap-2">
+              <input
+                ref={urlInputRef}
+                readOnly
+                value={typeof window !== 'undefined' ? window.location.href : ''}
+                onFocus={(e) => e.target.select()}
+                className="flex-1 min-w-0 text-[11px] font-mono px-2.5 py-2 rounded-md border border-amber-200 bg-white text-amber-900 focus:outline-none focus:ring-2 focus:ring-amber-400/40"
+              />
+              <button
+                type="button"
+                onClick={handleCopyLink}
+                className="flex-shrink-0 inline-flex items-center gap-1.5 px-3 py-2 rounded-md bg-amber-500 hover:bg-amber-600 text-white text-xs font-semibold transition-colors"
+              >
+                {copied ? (
+                  <>
+                    <Check size={13} />
+                    Copied
+                  </>
+                ) : (
+                  <>
+                    <Copy size={13} />
+                    Copy
+                  </>
+                )}
+              </button>
+            </div>
+
+            <div className="mt-3 flex items-center gap-2 text-[11px] text-amber-700">
+              <ExternalLink size={12} className="flex-shrink-0" />
+              <span>After copying, open Safari/Chrome and paste the link.</span>
+            </div>
+          </motion.div>
+        )}
+
+        {/* Logo */}
+        <div className="flex justify-center mb-4 md:mb-6">
+          <motion.div
+            variants={logoVariants}
+            className="bg-[#2d568e]/10 p-4 rounded-full transition-all duration-300 hover:bg-[#2d568e]/20 cursor-pointer"
+            whileHover={{ scale: 1.1 }}
+            whileTap={{ scale: 0.95 }}
+          >
+            <motion.img
+              src="/Iloilo_rentals_img.png"
+              alt="Iloilo Rentals Logo"
+              className="w-16 h-16 md:w-20 md:h-20 object-contain"
+              animate={{ rotate: [0, 5, -5, 0] }}
+              transition={{ repeat: Infinity, duration: 4, repeatDelay: 3 }}
+              onError={(e) => {
+                const img = e.target as HTMLImageElement
+                const fallback = img.nextSibling as HTMLElement | null
+                img.style.display = 'none'
+                if (fallback) fallback.style.display = 'flex'
+              }}
+            />
+            <div className="hidden w-16 h-16 md:w-20 md:h-20 bg-[#2d568e] rounded-full items-center justify-center">
+              <span className="text-white text-2xl font-bold">IR</span>
+            </div>
+          </motion.div>
+        </div>
+
+        {/* Headings */}
+        <motion.h1
+          variants={titleVariants}
+          className="text-2xl md:text-4xl font-bold text-center bg-gradient-to-r from-[#2d568e] to-[#1e3a5f] bg-clip-text text-transparent mb-3"
+        >
+          Iloilo Rentals
+        </motion.h1>
+
+        <motion.p
+          variants={subtitleVariants}
+          className="text-center text-gray-500 text-sm md:text-base mb-2"
+        >
+          Sign in to book your perfect stay
+        </motion.p>
+
+        <motion.p
+          variants={subtitleVariants}
+          className="text-center text-xs md:text-sm text-gray-400 mb-6 md:mb-8"
+        >
+          in Iloilo City
+        </motion.p>
+
+        {/* Divider */}
+        <div className="relative mb-6 md:mb-8">
+          <motion.div variants={dividerVariants} className="absolute inset-0 flex items-center">
+            <div className="w-full border-t border-gray-200"></div>
+          </motion.div>
+          <div className="relative flex justify-center text-sm">
+            <motion.span
+              initial={{ opacity: 0, scale: 0.8 }}
+              animate={{ opacity: 1, scale: 1 }}
+              transition={{ delay: 0.45 }}
+              className="px-4 bg-white text-gray-400"
+            >
+              Continue with
+            </motion.span>
+          </div>
+        </div>
+
+        {/* Google Sign-In */}
+        {showGoogleButton ? (
+          <motion.div
+            variants={buttonVariants}
+            initial="hidden"
+            animate="visible"
+            className="relative w-full min-h-[44px] flex justify-center"
+          >
+            <div ref={googleButtonRef} className={`w-full flex justify-center ${googleButtonReady ? '' : 'invisible'}`} />
+            {(!googleButtonReady || isLoading) && (
+              <div className="absolute inset-0 flex items-center justify-center gap-2 rounded-md border border-gray-200 bg-white text-sm font-medium text-gray-700">
+                <Loader2 className="w-4 h-4 animate-spin" />
+                {isLoading ? 'Signing in…' : 'Loading Google sign-in…'}
+              </div>
+            )}
+          </motion.div>
+        ) : (
+        <motion.button
+          variants={buttonVariants}
+          initial="hidden"
+          animate="visible"
+          whileHover={!showWarning ? 'hover' : {}}
+          whileTap={!showWarning ? 'tap' : {}}
+          onClick={handleGoogleLogin}
+          disabled={isLoading || showWarning}
+          className={`group relative w-full py-3.5 rounded-xl font-semibold flex items-center justify-center gap-3 overflow-hidden transition-all duration-300 ${
+            showWarning
+              ? 'bg-gray-100 border-2 border-gray-200 text-gray-400 cursor-not-allowed'
+              : 'bg-white border-2 border-gray-200 text-gray-700 hover:border-[#2d568e] hover:shadow-lg'
+          }`}
+        >
+          <motion.span
+            className="absolute inset-0 bg-gradient-to-r from-[#2d568e]/0 via-[#2d568e]/5 to-[#2d568e]/0"
+            initial={{ x: '-100%' }}
+            whileHover={!showWarning ? { x: '100%' } : {}}
+            transition={{ duration: 0.7 }}
+          />
+
+          {isLoading ? (
+            <>
+              <motion.div
+                animate={{ rotate: 360 }}
+                transition={{ duration: 1, repeat: Infinity, ease: 'linear' }}
+              >
+                <Loader2 className="w-5 h-5" />
+              </motion.div>
+              <span>Redirecting...</span>
+            </>
+          ) : showWarning ? (
+            <>
+              <svg className="w-5 h-5 opacity-50" viewBox="0 0 24 24">
+                <path fill="#4285F4" d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z" />
+                <path fill="#34A853" d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z" />
+                <path fill="#FBBC05" d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l2.85-2.22.81-.62z" />
+                <path fill="#EA4335" d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z" />
+              </svg>
+              <span>Sign in with Google</span>
+              <span className="text-xs ml-2">(Not available here)</span>
+            </>
+          ) : (
+            <>
+              <motion.svg
+                className="w-5 h-5"
+                whileHover={{ scale: 1.2, rotate: 5 }}
+                viewBox="0 0 24 24"
+              >
+                <path fill="#4285F4" d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z" />
+                <path fill="#34A853" d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z" />
+                <path fill="#FBBC05" d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l2.85-2.22.81-.62z" />
+                <path fill="#EA4335" d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z" />
+              </motion.svg>
+              <span className="text-base">Sign in with Google</span>
+            </>
+          )}
+        </motion.button>
+        )}
+
+        {/* Feature row */}
+        <motion.div
+          variants={featuresVariants}
+          initial="hidden"
+          animate="visible"
+          className="mt-6 md:mt-8 pt-6 border-t border-gray-100"
+        >
+          <div className="flex flex-col gap-2 text-center text-xs text-gray-400">
+            <div className="flex justify-center gap-4">
+              {['✓ Secure login', '✓ No password needed', '✓ Instant access'].map((feature, idx) => (
+                <motion.span
+                  key={idx}
+                  variants={featureItemVariants}
+                  className="flex items-center gap-1"
+                  whileHover={{ scale: 1.05, color: '#2d568e' }}
+                >
+                  {feature}
+                </motion.span>
+              ))}
+            </div>
+          </div>
+        </motion.div>
+
+        {/* Legal footer */}
+        <motion.p
+          variants={footerVariants}
+          initial="hidden"
+          animate="visible"
+          className="text-center text-xs text-gray-400 mt-6"
+        >
+          By signing in, you agree to our{' '}
+          <motion.a
+            href="/terms"
+            className="text-[#2d568e] hover:underline inline-block"
+            whileHover={{ scale: 1.05, x: 2 }}
+            whileTap={{ scale: 0.98 }}
+          >
+            Terms of Service
+          </motion.a>{' '}
+          and{' '}
+          <motion.a
+            href="/privacy"
+            className="text-[#2d568e] hover:underline inline-block"
+            whileHover={{ scale: 1.05, x: 2 }}
+            whileTap={{ scale: 0.98 }}
+          >
+            Privacy Policy
+          </motion.a>
+        </motion.p>
+      </motion.div>
+    </div>
+  )
+}

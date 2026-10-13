@@ -41,7 +41,7 @@ Use case: precise-object-edit. Asset type: panoramic albedo texture for the bedr
 
 ## Other finishes
 
-`walkthrough/kit.js` creates deterministic seamless colour/roughness maps for
+`walkthrough/kit.ts` creates deterministic seamless colour/roughness maps for
 ivory plaster, greige satin cabinetry, cream linen, grey wool upholstery, pale
 knitted rugs, and brown velvet. Existing normal maps provide restrained relief;
 fabric sheen supplies soft edge highlights. Data maps stay in linear colour
@@ -104,7 +104,7 @@ frame. Failed loads offer a retry, and cancelled navigation disposes late assets
 
 Static meshes with compatible materials are batched (`kit.batch`). Immutable
 shapes share geometry, leaves use instancing, and the static PCF shadow maps are
-drawn once (2048 on desktop, 1024 on mobile). `walkthrough/referenceLighting.js`
+drawn once (2048 on desktop, 1024 on mobile). `walkthrough/referenceLighting.ts`
 bakes soft ceiling bounce, feature-wall washes and floor contact shadows into
 light and AO maps on a second UV set, so the artwork, timber and fabric keep
 their own texture scale. Shared room fills replace ceiling and window area

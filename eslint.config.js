@@ -2,12 +2,14 @@ import js from '@eslint/js'
 import globals from 'globals'
 import reactHooks from 'eslint-plugin-react-hooks'
 import reactRefresh from 'eslint-plugin-react-refresh'
+import tseslint from 'typescript-eslint'
 import { defineConfig, globalIgnores } from 'eslint/config'
 
 export default defineConfig([
-  globalIgnores(['dist']),
+  // supabase/functions run on Deno and are checked there, not here.
+  globalIgnores(['dist', 'supabase']),
   {
-    files: ['**/*.{js,jsx}'],
+    files: ['**/*.{js,jsx,ts,tsx}'],
     extends: [
       js.configs.recommended,
       reactHooks.configs.flat.recommended,
@@ -25,5 +27,10 @@ export default defineConfig([
       'react-refresh/only-export-components': 'off',
     },
   },
-
+  // TypeScript: parse ts/tsx and turn off the core rules the compiler already
+  // covers (no-undef and friends). Type errors come from `npm run typecheck`.
+  {
+    files: ['**/*.{ts,tsx}'],
+    extends: [tseslint.configs.base, tseslint.configs.eslintRecommended],
+  },
 ])
