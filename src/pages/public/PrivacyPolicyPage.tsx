@@ -1,5 +1,5 @@
 import { motion } from 'framer-motion'
-import { Shield, Eye, Database, Share2, Users, UserCheck } from 'lucide-react'
+import { Shield, Eye, Database, Share2, Users, UserCheck, MessageCircle } from 'lucide-react'
 
 export default function PrivacyPolicyPage() {
   return (
@@ -10,7 +10,7 @@ export default function PrivacyPolicyPage() {
             <Shield size={28} className="text-white" />
           </motion.div>
           <h1 className="text-3xl md:text-4xl font-bold mb-3">Privacy Policy</h1>
-          <p className="text-white/70 text-sm">Last updated: May 2025</p>
+          <p className="text-white/70 text-sm">Last updated: October 2026</p>
         </div>
       </motion.div>
       <div className="max-w-4xl mx-auto px-4 py-12">
@@ -20,9 +20,11 @@ export default function PrivacyPolicyPage() {
             { icon: Database, title: 'Legal Basis', content: <div className="space-y-2 text-gray-600 text-sm"><p><strong>Contract:</strong> Processing is necessary for booking.</p><p><strong>Legitimate Interests:</strong> Improving services, preventing fraud.</p><p><strong>Consent:</strong> You may withdraw consent at any time.</p></div> },
             { icon: Share2, title: 'Use of Information', content: <div className="grid md:grid-cols-2 gap-2 text-sm text-gray-600">{["Facilitate bookings","Communicate with you","Improve Website","Personalize services","Analyze trends","Ensure security","Legal compliance"].map((item,i)=>(<div key={i} className="bg-gray-50 p-3 rounded-lg">✓ {item}</div>))}</div> },
             { icon: Users, title: 'Sharing of Information', content: <div className="space-y-2 text-gray-600 text-sm"><p><strong>Property Manager:</strong> Information shared to facilitate your stay.</p><p><strong>Service Providers:</strong> Third parties assist in providing services.</p><p><strong>Legal Compliance:</strong> Disclosure required by law.</p></div> },
-            { icon: UserCheck, title: 'Your Rights', content: <div className="grid md:grid-cols-2 gap-2 text-sm text-gray-600">{["Access","Rectify","Erasure","Restrict processing","Data portability","Object"].map((item,i)=>(<div key={i} className="bg-gray-50 p-3 rounded-lg">✓ {item}</div>))}</div> }
+            { icon: UserCheck, title: 'Your Rights', content: <div className="grid md:grid-cols-2 gap-2 text-sm text-gray-600">{["Access","Rectify","Erasure","Restrict processing","Data portability","Object"].map((item,i)=>(<div key={i} className="bg-gray-50 p-3 rounded-lg">✓ {item}</div>))}</div> },
+            // Linked from the Meta app as its data deletion instructions (/privacy#messenger).
+            { id: 'messenger', icon: MessageCircle, title: 'Messenger Team Updates', content: <div className="space-y-2 text-gray-600 text-sm"><p>Our booking specialists, housekeepers and admins can choose to get a daily 8am update from the Iloilo Rentals team Page on Facebook Messenger.</p><p><strong>What we keep:</strong> when you connect, we store the ID that Facebook gives our Page for your Messenger account, and when you last messaged the Page, so we know where to send your update. We don't get your Facebook profile, phone number or friends, and we don't keep the text of your messages.</p><p><strong>What we send:</strong> only the check-ins, check-outs and cleanings that are part of your work with us.</p><p><strong>Stopping and deleting:</strong> send "stop" to our Page on Messenger, or ask an Iloilo Rentals admin. Your Messenger ID is removed from our records right away and no more updates are sent.</p></div> }
           ].map((section, idx) => (
-            <div key={idx} className={idx > 0 ? 'border-t pt-6' : ''}>
+            <div key={idx} id={section.id} className={idx > 0 ? 'border-t pt-6 scroll-mt-24' : ''}>
               <div className="flex items-center gap-3 mb-4"><div className="w-10 h-10 bg-[#2d568e]/10 rounded-xl flex items-center justify-center"><section.icon size={18} className="text-[#2d568e]" /></div><h2 className="text-xl font-bold text-[#2d568e]">{section.title}</h2></div>
               {section.content}
             </div>
