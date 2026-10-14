@@ -18,9 +18,7 @@ export async function listUnits({ pipeline, building, search }: { pipeline?: str
         `owner_email.ilike.%${s}%`,
         `owner_phone.ilike.%${s}%`,
         `building.ilike.%${s}%`,
-        `marketing_title.ilike.%${s}%`,
         `unit_type.ilike.%${s}%`,
-        `gc_status.ilike.%${s}%`,
       ].join(',')
     )
   }
@@ -227,37 +225,6 @@ export async function listTodayFollowUps() {
 
 export async function listExpiring() {
   const { data, error } = await supabase.from('v_expiring').select('*')
-  if (error) throw error
-  return data || []
-}
-
-export async function listRates() {
-  const { data, error } = await supabase
-    .from('rates')
-    .select('*')
-    .order('building', { ascending: true })
-    .order('unit_type', { ascending: true })
-    .order('pax_count', { ascending: true })
-  if (error) throw error
-  return data || []
-}
-
-export async function listExtras() {
-  const { data, error } = await supabase
-    .from('extras')
-    .select('*')
-    .order('category', { ascending: true })
-    .order('sort_order', { ascending: true })
-  if (error) throw error
-  return data || []
-}
-
-export async function listAssociationAccounts() {
-  const { data, error } = await supabase
-    .from('association_accounts')
-    .select('*')
-    .order('sort_order', { ascending: true })
-    .order('building', { ascending: true })
   if (error) throw error
   return data || []
 }

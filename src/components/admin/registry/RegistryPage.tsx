@@ -387,7 +387,6 @@ const DERIVED_STATUS_TEXT = {
 }
 
 const UNIT_TYPES = ['Studio', '1-Bedroom', '2-Bedroom', 'Executive Studio', 'STOCKROOM']
-const GC_STATUS_OPTIONS = ['FIXED', 'MESSENGER', 'VIBER', 'NOT YET', 'N/A']
 const OUTCOME_OPTIONS = ['positive', 'neutral', 'negative', 'no_answer']
 const INTERACTION_TYPES = ['call', 'email', 'messenger', 'whatsapp', 'sms', 'in_person', 'note']
 
@@ -452,8 +451,6 @@ function getMissingFields(unit) {
   const warnings = []
   if (!unit) return { warnings, total: 0 }
   if (!unit.unit_type?.trim()) warnings.push({ key: 'unit_type', label: 'Unit Type' })
-  if (!unit.marketing_title?.trim()) warnings.push({ key: 'marketing_title', label: 'Marketing Title' })
-  if (!unit.gc_status?.trim()) warnings.push({ key: 'gc_status', label: 'GC Status' })
   if (!unit.owner_email?.trim()) warnings.push({ key: 'owner_email', label: 'Owner Email' })
   if (!unit.owner_phone?.trim()) warnings.push({ key: 'owner_phone', label: 'Owner Phone' })
   return { warnings, total: warnings.length }
@@ -1312,18 +1309,10 @@ function RegistryDetailPanel({
                     actionHref={unit.owner_email ? `mailto:${unit.owner_email}` : null} actionIcon={Mail} actionTitle="Send email" auditTag="owner_email" />
                   <EditableField label="Phone" value={unit.owner_phone} type="tel" onSave={(v) => handleUnitField('owner_phone', v)}
                     actionHref={unit.owner_phone ? `tel:${unit.owner_phone}` : null} actionIcon={Phone} actionTitle="Call" auditTag="owner_phone" />
-                  <EditableField label="GC" value={unit.gc_status} options={GC_STATUS_OPTIONS} onSave={(v) => handleUnitField('gc_status', v)} auditTag="gc_status" />
                 </div>
               </DetailSection>
 
               <ContractSection unit={unit} contract={contract} loading={contractLoading} onNavigateToContracts={goToContracts} />
-
-              <DetailSection title="Marketing">
-                <div className="p-3 space-y-0.5">
-                  <EditableField label="Title" value={unit.marketing_title} onSave={(v) => handleUnitField('marketing_title', v)} auditTag="marketing_title" />
-                  <EditableField label="Inventory" value={unit.inventory_list} onSave={(v) => handleUnitField('inventory_list', v)} auditTag="inventory_list" />
-                </div>
-              </DetailSection>
 
               <DetailSection title="OTA Channels">
                 <div className="p-3 space-y-0.5">
@@ -1351,8 +1340,7 @@ type AddUnitModalProps = {
 function AddUnitModal({ open, onClose, onCreated, existingBuildings = [], channelOptions = [] }: AddUnitModalProps) {
   const [form, setForm] = useState({
     unit_code: '', building: '', unit_type: 'Studio',
-    owner_name: '', owner_email: '', owner_phone: '', gc_status: 'FIXED',
-    marketing_title: '', inventory_list: '',
+    owner_name: '', owner_email: '', owner_phone: '',
   })
   const [ownerProfile, setOwnerProfile] = useState(null)
   const [otaListings, setOtaListings] = useState([])
@@ -1367,8 +1355,7 @@ function AddUnitModal({ open, onClose, onCreated, existingBuildings = [], channe
     if (!open) {
       setForm({
         unit_code: '', building: '', unit_type: 'Studio',
-        owner_name: '', owner_email: '', owner_phone: '', gc_status: 'FIXED',
-        marketing_title: '', inventory_list: '',
+        owner_name: '', owner_email: '', owner_phone: '',
       })
       setOwnerProfile(null)
       setOtaListings([]); setBuildingSuggestions([]); setDrafting(false)
@@ -1445,9 +1432,6 @@ function AddUnitModal({ open, onClose, onCreated, existingBuildings = [], channe
       const unit = await createUnit({
         unit_code: form.unit_code.trim(), building: form.building.trim(),
         unit_type: form.unit_type || null, status: 'INACTIVE',
-        gc_status: form.gc_status || null,
-        marketing_title: form.marketing_title.trim() || null,
-        inventory_list: form.inventory_list.trim() || null,
         owner_id: ownerId, ota_listings: otaListings,
       })
       for (const listing of otaListings) {
@@ -1508,11 +1492,6 @@ function AddUnitModal({ open, onClose, onCreated, existingBuildings = [], channe
                   <SelectTrigger style={BTN_RADIUS} className={inputClass}><SelectValue /></SelectTrigger>
                   <SelectContent>{UNIT_TYPES.map((t) => <SelectItem key={t} value={t} className="text-xs">{t}</SelectItem>)}</SelectContent>
                 </Select></div>
-              <div><label className={labelClass}>GC Status</label>
-                <Select value={form.gc_status} onValueChange={(v) => setField('gc_status', v)}>
-                  <SelectTrigger style={BTN_RADIUS} className={inputClass}><SelectValue /></SelectTrigger>
-                  <SelectContent>{GC_STATUS_OPTIONS.map((s) => <SelectItem key={s} value={s} className="text-xs">{s}</SelectItem>)}</SelectContent>
-                </Select></div>
             </div>
           </div>
           <div>
@@ -1545,13 +1524,6 @@ function AddUnitModal({ open, onClose, onCreated, existingBuildings = [], channe
               <div><label className={labelClass}>Phone</label>
                 <Input type="tel" value={form.owner_phone} onChange={(e) => setField('owner_phone', e.target.value)}
                   placeholder="+63 9XX XXX XXXX" style={BTN_RADIUS} className={inputClass} /></div>
-            </div>
-          </div>
-          <div>
-            <h3 className="text-[10px] font-bold uppercase tracking-wider text-foreground mb-2 pb-1.5 border-b border-border">Marketing</h3>
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-              <div><label className={labelClass}>Marketing Title</label><Input value={form.marketing_title} onChange={(e) => setField('marketing_title', e.target.value)} placeholder="Public listing title" style={BTN_RADIUS} className={inputClass} /></div>
-              <div><label className={labelClass}>Inventory List</label><Input value={form.inventory_list} onChange={(e) => setField('inventory_list', e.target.value)} placeholder="Furniture, appliances…" style={BTN_RADIUS} className={inputClass} /></div>
             </div>
           </div>
           <div>
@@ -1715,7 +1687,7 @@ export default function RegistryPage() {
     const scoped = tokens.length === 0
       ? allUnits
       : allUnits.filter((u) => {
-          const haystack = [u.unit_code, u.owner_name, u.owner_email, u.owner_phone, u.building, u.marketing_title, u.unit_type, u.gc_status]
+          const haystack = [u.unit_code, u.owner_name, u.owner_email, u.owner_phone, u.building, u.unit_type]
             .filter(Boolean).join(' ').toLowerCase()
           return tokens.every((tok) => haystack.includes(tok))
         })
@@ -1742,7 +1714,7 @@ export default function RegistryPage() {
       }
 
       if (tokens.length > 0) {
-        const haystack = [u.unit_code, u.owner_name, u.owner_email, u.owner_phone, u.building, u.marketing_title, u.unit_type, u.gc_status]
+        const haystack = [u.unit_code, u.owner_name, u.owner_email, u.owner_phone, u.building, u.unit_type]
           .filter(Boolean).join(' ').toLowerCase()
         if (!tokens.every((tok) => haystack.includes(tok))) return false
       }
