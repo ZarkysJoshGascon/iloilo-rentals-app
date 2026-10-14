@@ -1,5 +1,5 @@
 // src/components/admin/accounting/AccountingPage.tsx
-import { useCallback, useEffect, useMemo, useRef, useState, memo, useLayoutEffect } from 'react'
+import { useCallback, useEffect, useId, useMemo, useRef, useState, memo, useLayoutEffect } from 'react'
 import { useNavigate } from 'react-router'
 import { motion, AnimatePresence } from 'framer-motion'
 import {
@@ -11,7 +11,7 @@ import {
 } from 'lucide-react'
 import {
   ComposedChart, Bar, BarChart, AreaChart, Area, Cell,
-  XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer,
+  XAxis, CartesianGrid, Tooltip,
 } from 'recharts'
 import toast from 'react-hot-toast'
 import { Button } from '@/components/ui/button'
@@ -31,6 +31,7 @@ import { deriveContractStatus, contractTerms } from '@/lib/contracts'
 import { StatusTabs, PeriodStepper } from '@/components/admin/_shared/StatusTabs'
 import { StatStrip, StatTile } from '@/components/admin/_shared/StatStrip'
 import { Sparkline } from '@/components/admin/_shared/Sparkline'
+import { ScrollChart, niceTicks } from '@/components/admin/_shared/ScrollChart'
 import { StatementActions } from '@/components/admin/_shared/StatementActions'
 import { Panel, PanelHeader, SectionLabel, InitialsAvatar } from '@/components/admin/_shared/Panel'
 import { SortHeader, nextSort, ResultsBar, SearchKeyHint, useListShortcuts, CARD_ON_PHONE, MobileSort, PHONE_LABEL, useListCap } from '@/components/admin/_shared/listTools'
@@ -65,7 +66,6 @@ const MONEY_TILE = 'text-[22px] sm:text-[24px]'
 // horizontal guides only.
 const AXIS_TICK = { fontSize: 11, fill: 'var(--foreground)' }
 const X_AXIS = { tick: AXIS_TICK, tickLine: false, axisLine: false, dy: 6 }
-const Y_AXIS = { tick: AXIS_TICK, tickLine: false, axisLine: false }
 const GRID = { stroke: 'currentColor', strokeOpacity: 0.08, vertical: false }
 
 // Shared modal shadow — matches Inquiries / Campaigns
@@ -604,7 +604,7 @@ function ViewToggle({ view, onChange }: ViewToggleProps) {
     <button
       type="button"
       onClick={() => onChange(view === 'chart' ? 'table' : 'chart')}
-      className="inline-flex items-center gap-1.5 h-8 px-2.5 rounded-md border border-border bg-card text-[12px] font-medium text-foreground hover:bg-muted/50 transition-colors"
+      className="inline-flex items-center gap-1.5 h-10 md:h-8 px-3 md:px-2.5 rounded-md border border-border bg-card text-[12px] font-medium text-foreground hover:bg-muted/50 transition-colors"
       aria-pressed={view === 'table'}
     >
       {view === 'chart' ? <Table2 size={14} /> : <BarChart3 size={14} />}
@@ -975,12 +975,34 @@ function YearNav({ yearSections, selectedYear, onSelectYear }: YearNavProps) {
 }
 
 // ─── Charts ─────────────────────────────────────────────────
+// Charts scroll sideways on phones instead of squeezing their months
+// (ScrollChart); these are the pixels each month or week gets.
 const CHART_HEIGHT = 260
+const CHART_MARGIN = { top: 8, right: 8, left: 0, bottom: 0 }
+const MONTH_WIDTH = 44
+const WEEK_WIDTH = 40
+const PERCENT_TICKS = [0, 25, 50, 75, 100]
+const percentTick = (v) => `${v}%`
+
+// The month to open a scrolling chart on: this month, or the last one before it.
+function thisMonthIndex(data) {
+  const now = new Date()
+  const nowKey = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`
+  let idx = 0
+  data.forEach((d, i) => { if (d.monthKey <= nowKey) idx = i })
+  return idx
+}
+
+type RevenueLegendProps = {
+  className?: string
+}
 
 // Gross is an outlined bar, expenses hatched, net solid — all logo blue.
-function RevenueLegend() {
+// Shown in the card header on wide screens and above the chart on phones.
+function RevenueLegend({ className }: RevenueLegendProps) {
+  const hatchId = `legend-hatch-${useId().replace(/:/g, '')}`
   return (
-    <div className="hidden md:flex items-center gap-3 text-[11px] text-foreground mr-1">
+    <div className={cn('items-center gap-3 text-[11px] text-foreground mr-1', className)}>
       <span className="inline-flex items-center gap-1.5">
         <span className="w-3 h-3 rounded-sm border-[1.5px]" style={{ borderColor: CHART }} />
         Gross
@@ -988,11 +1010,11 @@ function RevenueLegend() {
       <span className="inline-flex items-center gap-1.5">
         <svg width="12" height="12" viewBox="0 0 12 12" className="rounded-sm">
           <defs>
-            <pattern id="legend-hatch" width="4" height="4" patternUnits="userSpaceOnUse" patternTransform="rotate(45)">
+            <pattern id={hatchId} width="4" height="4" patternUnits="userSpaceOnUse" patternTransform="rotate(45)">
               <line x1="0" y1="0" x2="0" y2="4" stroke={CHART} strokeWidth="1.2" />
             </pattern>
           </defs>
-          <rect width="12" height="12" fill="url(#legend-hatch)" />
+          <rect width="12" height="12" fill={`url(#${hatchId})`} />
         </svg>
         Expenses
       </span>
@@ -1015,7 +1037,8 @@ type ChartBodyProps = {
 function ChartBody({ height = CHART_HEIGHT, empty, emptyTitle = 'No months to show', emptyHint, children }: ChartBodyProps) {
   return (
     <div className="p-5 flex-1">
-      <div className={cn('text-foreground', empty ? 'flex flex-col' : '-ml-2')} style={{ height }}>
+      {/* minHeight, not height: a scrolling chart adds a "swipe" line below. */}
+      <div className={cn('text-foreground', empty ? 'flex flex-col' : '-ml-2')} style={empty ? { height } : { minHeight: height }}>
         {empty ? (
           <EmptyState icon={BarChart3} title={emptyTitle} hint={emptyHint} />
         ) : (
@@ -1050,41 +1073,53 @@ const YearlyRevenueChart = memo(function YearlyRevenueChart({ yearSections, stat
     })
   }, [section, statements])
 
-  const [minY, maxY] = useMemo(() => {
-    const values = []
-    for (const d of data) values.push(d.gross, d.expenses, d.net, 0)
-    const rawMin = Math.min(...values)
-    const rawMax = Math.max(...values, 0)
-    const span = rawMax - rawMin
-    const padded = span > 0 ? span * 0.1 : 1000
-    const minY = rawMin >= 0 ? 0 : Math.floor((rawMin - padded) / 1000) * 1000
-    const maxY = Math.ceil((rawMax + padded) / 1000) * 1000
-    return [minY, maxY]
+  const yTicks = useMemo(() => {
+    let lo = 0
+    let hi = 0
+    for (const d of data) {
+      lo = Math.min(lo, d.gross, d.expenses, d.net)
+      hi = Math.max(hi, d.gross, d.expenses, d.net)
+    }
+    return niceTicks(lo, hi)
   }, [data])
+  const empty = !section || section.months.length === 0
 
   return (
     <Panel>
       <CardHead icon={TrendingUp} title={title} subtitle={`${selectedYear} · gross, expenses and net by month`}>
-        <RevenueLegend />
+        <RevenueLegend className="hidden md:flex" />
         <YearNav yearSections={yearSections} selectedYear={selectedYear} onSelectYear={onSelectYear} />
       </CardHead>
-      <ChartBody height={300} empty={!section || section.months.length === 0} emptyHint={`This contract has no months in ${selectedYear}.`}>
-        <ResponsiveContainer width="100%" height={300} debounce={100}>
-          <ComposedChart data={data} margin={{ top: 8, right: 8, left: 0, bottom: 0 }} barGap={2} barCategoryGap="25%">
-            <defs>
-              <pattern id="expenses-hatch-main" width="6" height="6" patternUnits="userSpaceOnUse" patternTransform="rotate(45)">
-                <line x1="0" y1="0" x2="0" y2="6" stroke={CHART} strokeWidth="1.5" opacity="0.55" />
-              </pattern>
-            </defs>
-            <CartesianGrid {...GRID} />
-            <XAxis dataKey="label" {...X_AXIS} interval="preserveStartEnd" />
-            <YAxis {...Y_AXIS} tickFormatter={formatMoneyCompact} width={56} domain={[minY, maxY]} />
-            <Tooltip content={<ChartTooltip />} animationDuration={0} cursor={{ fill: 'currentColor', fillOpacity: 0.04 }} />
-            <Bar dataKey="gross" fill="transparent" stroke={CHART} strokeWidth={1.5} name="Gross" maxBarSize={28} radius={[4, 4, 0, 0]} isAnimationActive={false} />
-            <Bar dataKey="expenses" fill="url(#expenses-hatch-main)" name="Expenses" maxBarSize={28} radius={[4, 4, 0, 0]} isAnimationActive={false} />
-            <Bar dataKey="net" fill={CHART} name="Net" maxBarSize={28} radius={[4, 4, 0, 0]} isAnimationActive={false} />
-          </ComposedChart>
-        </ResponsiveContainer>
+      {!empty && <RevenueLegend className="flex md:hidden px-5 pt-4 -mb-1" />}
+      <ChartBody height={300} empty={empty} emptyHint={`This contract has no months in ${selectedYear}.`}>
+        <ScrollChart
+          data={data}
+          pointWidth={64}
+          height={300}
+          axisWidth={56}
+          margin={CHART_MARGIN}
+          yTicks={yTicks}
+          yDomain={[yTicks[0], yTicks[yTicks.length - 1]]}
+          yTickFormatter={formatMoneyCompact}
+          yTick={AXIS_TICK}
+          focusIndex={thisMonthIndex(data)}
+          render={({ yAxis, tooltipPosition }) => (
+            <ComposedChart data={data} margin={CHART_MARGIN} barGap={2} barCategoryGap="25%">
+              <defs>
+                <pattern id="expenses-hatch-main" width="6" height="6" patternUnits="userSpaceOnUse" patternTransform="rotate(45)">
+                  <line x1="0" y1="0" x2="0" y2="6" stroke={CHART} strokeWidth="1.5" opacity="0.55" />
+                </pattern>
+              </defs>
+              <CartesianGrid {...GRID} />
+              <XAxis dataKey="label" {...X_AXIS} interval={0} />
+              {yAxis}
+              <Tooltip position={tooltipPosition} content={<ChartTooltip />} animationDuration={0} cursor={{ fill: 'currentColor', fillOpacity: 0.04 }} />
+              <Bar dataKey="gross" fill="transparent" stroke={CHART} strokeWidth={1.5} name="Gross" maxBarSize={28} radius={[4, 4, 0, 0]} isAnimationActive={false} />
+              <Bar dataKey="expenses" fill="url(#expenses-hatch-main)" name="Expenses" maxBarSize={28} radius={[4, 4, 0, 0]} isAnimationActive={false} />
+              <Bar dataKey="net" fill={CHART} name="Net" maxBarSize={28} radius={[4, 4, 0, 0]} isAnimationActive={false} />
+            </ComposedChart>
+          )}
+        />
       </ChartBody>
     </Panel>
   )
@@ -1117,15 +1152,27 @@ const MonthlyOccupancyChart = memo(function MonthlyOccupancyChart({ statements, 
     <Panel>
       <PanelHeader icon={Home} title="Monthly occupancy" subtitle={`${selectedYear} · nights booked ÷ nights in the month`} />
       <ChartBody empty={data.length === 0} emptyHint={`This contract has no months in ${selectedYear}.`}>
-        <ResponsiveContainer width="100%" height={CHART_HEIGHT} debounce={100}>
-          <BarChart data={data} margin={{ top: 8, right: 8, left: 0, bottom: 0 }} barCategoryGap="30%">
-            <CartesianGrid {...GRID} />
-            <XAxis dataKey="label" {...X_AXIS} interval="preserveStartEnd" />
-            <YAxis {...Y_AXIS} tickFormatter={(v) => `${v}%`} width={44} domain={[0, 100]} ticks={[0, 25, 50, 75, 100]} />
-            <Tooltip content={<OccupancyTooltip />} animationDuration={0} cursor={{ fill: 'currentColor', fillOpacity: 0.04 }} />
-            <Bar dataKey="pct" fill={CHART} radius={[4, 4, 0, 0]} maxBarSize={24} isAnimationActive={false} />
-          </BarChart>
-        </ResponsiveContainer>
+        <ScrollChart
+          data={data}
+          pointWidth={MONTH_WIDTH}
+          height={CHART_HEIGHT}
+          axisWidth={44}
+          margin={CHART_MARGIN}
+          yTicks={PERCENT_TICKS}
+          yDomain={[0, 100]}
+          yTickFormatter={percentTick}
+          yTick={AXIS_TICK}
+          focusIndex={thisMonthIndex(data)}
+          render={({ yAxis, tooltipPosition }) => (
+            <BarChart data={data} margin={CHART_MARGIN} barCategoryGap="30%">
+              <CartesianGrid {...GRID} />
+              <XAxis dataKey="label" {...X_AXIS} interval={0} />
+              {yAxis}
+              <Tooltip position={tooltipPosition} content={<OccupancyTooltip />} animationDuration={0} cursor={{ fill: 'currentColor', fillOpacity: 0.04 }} />
+              <Bar dataKey="pct" fill={CHART} radius={[4, 4, 0, 0]} maxBarSize={24} isAnimationActive={false} />
+            </BarChart>
+          )}
+        />
       </ChartBody>
     </Panel>
   )
@@ -1146,15 +1193,27 @@ export const WeeklyOccupancyChart = memo(function WeeklyOccupancyChart({ stateme
     <Panel>
       <PanelHeader icon={Home} title="Weekly occupancy" subtitle={`${monthLabel(statement.month)} · nights booked each week`} />
       <ChartBody>
-        <ResponsiveContainer width="100%" height={CHART_HEIGHT} debounce={100}>
-          <BarChart data={data} margin={{ top: 8, right: 8, left: 0, bottom: 0 }} barCategoryGap="30%">
-            <CartesianGrid {...GRID} />
-            <XAxis dataKey="label" {...X_AXIS} />
-            <YAxis {...Y_AXIS} tickFormatter={(v) => `${v}%`} width={44} domain={[0, 100]} ticks={[0, 25, 50, 75, 100]} />
-            <Tooltip content={<OccupancyTooltip />} animationDuration={0} cursor={{ fill: 'currentColor', fillOpacity: 0.04 }} />
-            <Bar dataKey="pct" fill={CHART} radius={[4, 4, 0, 0]} maxBarSize={32} isAnimationActive={false} />
-          </BarChart>
-        </ResponsiveContainer>
+        <ScrollChart
+          data={data}
+          pointWidth={WEEK_WIDTH}
+          height={CHART_HEIGHT}
+          axisWidth={44}
+          margin={CHART_MARGIN}
+          yTicks={PERCENT_TICKS}
+          yDomain={[0, 100]}
+          yTickFormatter={percentTick}
+          yTick={AXIS_TICK}
+          unit="weeks"
+          render={({ yAxis, tooltipPosition }) => (
+            <BarChart data={data} margin={CHART_MARGIN} barCategoryGap="30%">
+              <CartesianGrid {...GRID} />
+              <XAxis dataKey="label" {...X_AXIS} interval={0} />
+              {yAxis}
+              <Tooltip position={tooltipPosition} content={<OccupancyTooltip />} animationDuration={0} cursor={{ fill: 'currentColor', fillOpacity: 0.04 }} />
+              <Bar dataKey="pct" fill={CHART} radius={[4, 4, 0, 0]} maxBarSize={32} isAnimationActive={false} />
+            </BarChart>
+          )}
+        />
       </ChartBody>
     </Panel>
   )
@@ -1172,42 +1231,51 @@ export const WeeklyCumulativeChart = memo(function WeeklyCumulativeChart({ state
     () => weeklyNetProfitForMonth(y, m, statement.bookingsList, statement.cleaningsList, monthlyExpenses, contract),
     [y, m, statement.bookingsList, statement.cleaningsList, monthlyExpenses, contract],
   )
-  const maxValue = useMemo(() => {
-    const max = data.reduce((mx, d) => Math.max(mx, Math.abs(d.cumulative)), 0)
-    return Math.max(Math.ceil(max / 1000) * 1000, 1000)
-  }, [data])
-  const minValue = useMemo(() => {
-    const min = data.reduce((mn, d) => Math.min(mn, d.cumulative), 0)
-    return min < 0 ? Math.floor(min / 1000) * 1000 : 0
+  const yTicks = useMemo(() => {
+    const lo = data.reduce((mn, d) => Math.min(mn, d.cumulative), 0)
+    const hi = data.reduce((mx, d) => Math.max(mx, d.cumulative), 0)
+    return niceTicks(lo, Math.max(hi, 1000))
   }, [data])
   return (
     <Panel>
       <PanelHeader icon={TrendingUp} title="Weekly cumulative net" subtitle={`${monthLabel(statement.month)} · bills spread evenly across the weeks`} />
       <ChartBody>
-        <ResponsiveContainer width="100%" height={CHART_HEIGHT} debounce={100}>
-          <AreaChart data={data} margin={{ top: 8, right: 8, left: 0, bottom: 0 }}>
-            <defs>
-              <linearGradient id="weekly-cumulative-fill" x1="0" y1="0" x2="0" y2="1">
-                <stop offset="0%" stopColor={CHART} stopOpacity={0.14} />
-                <stop offset="100%" stopColor={CHART} stopOpacity={0.02} />
-              </linearGradient>
-            </defs>
-            <CartesianGrid {...GRID} />
-            <XAxis dataKey="label" {...X_AXIS} padding={{ left: 14, right: 14 }} />
-            <YAxis {...Y_AXIS} tickFormatter={formatMoneyCompact} width={52} domain={[minValue, maxValue]} />
-            <Tooltip content={<CumulativeTooltip />} animationDuration={0} cursor={{ stroke: 'currentColor', strokeOpacity: 0.2 }} />
-            <Area
-              type="monotone"
-              dataKey="cumulative"
-              stroke={CHART}
-              strokeWidth={2}
-              fill="url(#weekly-cumulative-fill)"
-              dot={{ r: 4, fill: CHART, stroke: 'var(--card)', strokeWidth: 2 }}
-              activeDot={{ r: 5, fill: CHART, stroke: 'var(--card)', strokeWidth: 2 }}
-              isAnimationActive={false}
-            />
-          </AreaChart>
-        </ResponsiveContainer>
+        <ScrollChart
+          data={data}
+          pointWidth={WEEK_WIDTH}
+          height={CHART_HEIGHT}
+          axisWidth={52}
+          margin={CHART_MARGIN}
+          yTicks={yTicks}
+          yDomain={[yTicks[0], yTicks[yTicks.length - 1]]}
+          yTickFormatter={formatMoneyCompact}
+          yTick={AXIS_TICK}
+          unit="weeks"
+          render={({ yAxis, tooltipPosition }) => (
+            <AreaChart data={data} margin={CHART_MARGIN}>
+              <defs>
+                <linearGradient id="weekly-cumulative-fill" x1="0" y1="0" x2="0" y2="1">
+                  <stop offset="0%" stopColor={CHART} stopOpacity={0.14} />
+                  <stop offset="100%" stopColor={CHART} stopOpacity={0.02} />
+                </linearGradient>
+              </defs>
+              <CartesianGrid {...GRID} />
+              <XAxis dataKey="label" {...X_AXIS} interval={0} padding={{ left: 14, right: 14 }} />
+              {yAxis}
+              <Tooltip position={tooltipPosition} content={<CumulativeTooltip />} animationDuration={0} cursor={{ stroke: 'currentColor', strokeOpacity: 0.2 }} />
+              <Area
+                type="monotone"
+                dataKey="cumulative"
+                stroke={CHART}
+                strokeWidth={2}
+                fill="url(#weekly-cumulative-fill)"
+                dot={{ r: 4, fill: CHART, stroke: 'var(--card)', strokeWidth: 2 }}
+                activeDot={{ r: 5, fill: CHART, stroke: 'var(--card)', strokeWidth: 2 }}
+                isAnimationActive={false}
+              />
+            </AreaChart>
+          )}
+        />
       </ChartBody>
     </Panel>
   )
@@ -1255,30 +1323,42 @@ const CumulativeNetChart = memo(function CumulativeNetChart({ statements, select
     <Panel>
       <PanelHeader icon={TrendingUp} title="Cumulative net" subtitle={`${selectedYear} · running total since the contract started`} />
       <ChartBody empty={data.length === 0} emptyHint={`This contract has no months in ${selectedYear}.`}>
-        <ResponsiveContainer width="100%" height={CHART_HEIGHT} debounce={100}>
-          <AreaChart data={data} margin={{ top: 8, right: 8, left: 0, bottom: 0 }}>
-            <defs>
-              <linearGradient id="cumulative-fill" x1="0" y1="0" x2="0" y2="1">
-                <stop offset="0%" stopColor={CHART} stopOpacity={0.14} />
-                <stop offset="100%" stopColor={CHART} stopOpacity={0.02} />
-              </linearGradient>
-            </defs>
-            <CartesianGrid {...GRID} />
-            <XAxis dataKey="label" {...X_AXIS} interval="preserveStartEnd" padding={{ left: 10, right: 10 }} />
-            <YAxis {...Y_AXIS} tickFormatter={formatMoneyCompact} width={52} domain={[minValue, maxValue]} ticks={ticks} />
-            <Tooltip content={<CumulativeTooltip />} animationDuration={0} cursor={{ stroke: 'currentColor', strokeOpacity: 0.2 }} />
-            <Area
-              type="monotone"
-              dataKey="cumulative"
-              stroke={CHART}
-              strokeWidth={2}
-              fill="url(#cumulative-fill)"
-              dot={{ r: 3.5, fill: CHART, stroke: 'var(--card)', strokeWidth: 2 }}
-              activeDot={{ r: 5, fill: CHART, stroke: 'var(--card)', strokeWidth: 2 }}
-              isAnimationActive={false}
-            />
-          </AreaChart>
-        </ResponsiveContainer>
+        <ScrollChart
+          data={data}
+          pointWidth={MONTH_WIDTH}
+          height={CHART_HEIGHT}
+          axisWidth={52}
+          margin={CHART_MARGIN}
+          yTicks={ticks}
+          yDomain={[minValue, maxValue]}
+          yTickFormatter={formatMoneyCompact}
+          yTick={AXIS_TICK}
+          focusIndex={thisMonthIndex(data)}
+          render={({ yAxis, tooltipPosition }) => (
+            <AreaChart data={data} margin={CHART_MARGIN}>
+              <defs>
+                <linearGradient id="cumulative-fill" x1="0" y1="0" x2="0" y2="1">
+                  <stop offset="0%" stopColor={CHART} stopOpacity={0.14} />
+                  <stop offset="100%" stopColor={CHART} stopOpacity={0.02} />
+                </linearGradient>
+              </defs>
+              <CartesianGrid {...GRID} />
+              <XAxis dataKey="label" {...X_AXIS} interval={0} padding={{ left: 10, right: 10 }} />
+              {yAxis}
+              <Tooltip position={tooltipPosition} content={<CumulativeTooltip />} animationDuration={0} cursor={{ stroke: 'currentColor', strokeOpacity: 0.2 }} />
+              <Area
+                type="monotone"
+                dataKey="cumulative"
+                stroke={CHART}
+                strokeWidth={2}
+                fill="url(#cumulative-fill)"
+                dot={{ r: 3.5, fill: CHART, stroke: 'var(--card)', strokeWidth: 2 }}
+                activeDot={{ r: 5, fill: CHART, stroke: 'var(--card)', strokeWidth: 2 }}
+                isAnimationActive={false}
+              />
+            </AreaChart>
+          )}
+        />
       </ChartBody>
     </Panel>
   )
@@ -4027,6 +4107,10 @@ function YearPerformanceCard({ year, rows, loading, error, onRetry }: YearPerfor
   const [metric, setMetric] = useState('gross')
   const [view, setView] = useState('chart')
   const data = useMemo(() => toYearMonths(rows), [rows])
+  const yTicks = useMemo(() => {
+    const values = data.map((d) => d[metric])
+    return niceTicks(Math.min(0, ...values), Math.max(0, ...values))
+  }, [data, metric])
   // First load shows a skeleton; later refetches hold the old render, dimmed.
   const firstLoad = loading && rows.length === 0
 
@@ -4066,27 +4150,34 @@ function YearPerformanceCard({ year, rows, loading, error, onRetry }: YearPerfor
             <span className="font-normal"> · {view === 'chart' ? METRICS[metric].note : year}</span>
           </p>
           {view === 'chart' ? (
-            <div className="h-[260px] mt-3 -ml-2 text-foreground">
+            <div className="mt-3 -ml-2 text-foreground">
               <LazyChart minHeight={260}>
-                <ResponsiveContainer width="100%" height={260} debounce={100}>
-                  <BarChart data={data} margin={{ top: 8, right: 8, left: 0, bottom: 0 }} barCategoryGap="30%">
-                    <CartesianGrid {...GRID} />
-                    <XAxis dataKey="label" {...X_AXIS} interval="preserveStartEnd" />
-                    <YAxis
-                      {...Y_AXIS}
-                      width={56}
-                      tickFormatter={formatMoneyCompact}
-                      domain={[(dataMin) => Math.min(0, dataMin), 'auto']}
-                    />
-                    <Tooltip content={<ChartTooltip highlight={metric} />} animationDuration={0} cursor={{ fill: 'currentColor', fillOpacity: 0.04 }} />
-                    <Bar dataKey={metric} fill={CHART} radius={[4, 4, 0, 0]} maxBarSize={24} isAnimationActive={false}>
-                      {/* Net bars show profit in green and loss in red. */}
-                      {metric === 'net' && data.map((d) => (
-                        <Cell key={d.month} fill={d.net < 0 ? LOSS_COLOR : PROFIT_COLOR} />
-                      ))}
-                    </Bar>
-                  </BarChart>
-                </ResponsiveContainer>
+                <ScrollChart
+                  data={data}
+                  pointWidth={MONTH_WIDTH}
+                  height={260}
+                  axisWidth={56}
+                  margin={CHART_MARGIN}
+                  yTicks={yTicks}
+                  yDomain={[yTicks[0], yTicks[yTicks.length - 1]]}
+                  yTickFormatter={formatMoneyCompact}
+                  yTick={AXIS_TICK}
+                  focusIndex={year === new Date().getFullYear() ? new Date().getMonth() : 11}
+                  render={({ yAxis, tooltipPosition }) => (
+                    <BarChart data={data} margin={CHART_MARGIN} barCategoryGap="30%">
+                      <CartesianGrid {...GRID} />
+                      <XAxis dataKey="label" {...X_AXIS} interval={0} />
+                      {yAxis}
+                      <Tooltip position={tooltipPosition} content={<ChartTooltip highlight={metric} />} animationDuration={0} cursor={{ fill: 'currentColor', fillOpacity: 0.04 }} />
+                      <Bar dataKey={metric} fill={CHART} radius={[4, 4, 0, 0]} maxBarSize={24} isAnimationActive={false}>
+                        {/* Net bars show profit in green and loss in red. */}
+                        {metric === 'net' && data.map((d) => (
+                          <Cell key={d.month} fill={d.net < 0 ? LOSS_COLOR : PROFIT_COLOR} />
+                        ))}
+                      </Bar>
+                    </BarChart>
+                  )}
+                />
               </LazyChart>
             </div>
           ) : (

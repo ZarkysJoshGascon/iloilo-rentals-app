@@ -405,7 +405,7 @@ function RangeCalendar({
             animate={{ opacity: 1, y: 0, scale: 1 }}
             exit={{ opacity: 0, y: -4, scale: 0.98 }}
             transition={{ duration: 0.12, ease: [0.16, 1, 0.3, 1] }}
-            className="absolute z-40 mt-2 w-[320px] rounded-2xl border border-border bg-popover p-4"
+            className="absolute z-40 mt-2 w-[320px] max-w-[calc(100vw-2rem)] rounded-2xl border border-border bg-popover p-4"
             style={{ boxShadow: SOFT_SHADOW }}
           >
             {/* Month nav */}
@@ -842,7 +842,7 @@ function DateRangeFilter({ from, to, onFromChange, onToChange, onClear }: DateRa
             animate={{ opacity: 1, y: 0 }}
             exit={{ opacity: 0, y: -4 }}
             transition={{ duration: 0.12 }}
-            className="absolute right-0 z-30 mt-1 w-[280px] rounded-xl bg-popover border border-border shadow-xl p-3"
+            className="absolute right-0 z-30 mt-1 w-[280px] max-w-[calc(100vw-2rem)] rounded-xl bg-popover border border-border shadow-xl p-3"
           >
             <p className="text-[10px] font-bold uppercase tracking-wider text-foreground mb-2">
               Booking check-in range

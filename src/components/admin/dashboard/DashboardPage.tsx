@@ -9,8 +9,8 @@ import {
   Table2, BarChart3, ExternalLink, CalendarDays, UserRound,
 } from 'lucide-react'
 import {
-  ResponsiveContainer, BarChart, Bar, AreaChart, Area,
-  XAxis, YAxis, Tooltip, CartesianGrid,
+  BarChart, Bar, AreaChart, Area,
+  XAxis, Tooltip, CartesianGrid,
 } from 'recharts'
 import toast from 'react-hot-toast'
 import { supabase } from '@/lib/supabase'
@@ -21,6 +21,7 @@ import { ContextMenu, type ContextMenuItem } from '@/components/ui/ContextMenu'
 import { StatStrip, StatTile } from '@/components/admin/_shared/StatStrip'
 import { StatusTabs, PeriodStepper } from '@/components/admin/_shared/StatusTabs'
 import { CARD_ON_PHONE, PHONE_LABEL } from '@/components/admin/_shared/listTools'
+import { ScrollChart, niceTicks } from '@/components/admin/_shared/ScrollChart'
 import type { ReactNode } from 'react'
 import type { LucideIcon } from 'lucide-react'
 
@@ -502,11 +503,13 @@ type SummaryStatProps = {
   hero?: boolean
 }
 
+// On phones the hero (revenue) takes the full row so its peso amount never
+// has to squeeze into half the width.
 function SummaryStat({ label, value, children, hero = false }: SummaryStatProps) {
   return (
-    <div className="min-w-0">
+    <div className={cn('min-w-0', hero && 'col-span-2 lg:col-span-1')}>
       <p className="text-[12px] font-medium text-foreground">{label}</p>
-      <p className={cn('font-semibold text-foreground tracking-tight leading-none mt-1.5', hero ? 'text-[34px]' : 'text-[24px]')}>
+      <p className={cn('font-semibold text-foreground tracking-tight leading-none mt-1.5 break-words', hero ? 'text-[34px]' : 'text-[22px] sm:text-[24px]')}>
         {value}
       </p>
       {children}
@@ -536,72 +539,83 @@ function ChartTooltip({ active, payload, label, metric }: ChartTooltipProps) {
 }
 
 const AXIS_TICK = { fontSize: 11, fill: 'var(--foreground)' }
+const CHART_MARGIN = { top: 8, right: 8, left: 0, bottom: 0 }
+const OCCUPANCY_TICKS = [0, 25, 50, 75, 100]
 
 type PerformanceChartProps = {
   data: any
   metric: string
 }
 
+// Every month keeps its label: on a phone the months scroll sideways (value
+// axis fixed) and the chart opens on the latest month with figures.
 function PerformanceChart({ data, metric }: PerformanceChartProps) {
   const m = METRICS[metric]
-  const common = {
-    data,
-    margin: { top: 8, right: 8, left: 0, bottom: 0 },
-  }
-  const axes = (
-    <>
-      <CartesianGrid stroke="currentColor" strokeOpacity={0.08} vertical={false} />
-      <XAxis
-        dataKey="label"
-        tick={AXIS_TICK}
-        tickLine={false}
-        axisLine={false}
-        interval="preserveStartEnd"
-        dy={6}
-        padding={metric === 'occupancy' ? { left: 14, right: 14 } : undefined}
-      />
-      <YAxis
-        tick={AXIS_TICK}
-        tickLine={false}
-        axisLine={false}
-        width={52}
-        allowDecimals={false}
-        tickFormatter={m.tick}
-        domain={metric === 'occupancy' ? [0, 100] : [0, 'auto']}
-      />
-    </>
-  )
+  const yTicks = useMemo(() => {
+    if (metric === 'occupancy') return OCCUPANCY_TICKS
+    const max = data.reduce((mx, r) => Math.max(mx, Number(r[metric]) || 0), 0)
+    return niceTicks(0, max, 4, metric === 'bookings')
+  }, [data, metric])
+  let focusIndex = 0
+  data.forEach((r, i) => { if (!r.future) focusIndex = i })
 
   return (
-    <ResponsiveContainer width="100%" height="100%">
-      {metric === 'occupancy' ? (
-        <AreaChart {...common}>
-          <defs>
-            <linearGradient id="dash-occupancy-wash" x1="0" y1="0" x2="0" y2="1">
-              <stop offset="0%" stopColor="var(--chart)" stopOpacity={0.14} />
-              <stop offset="100%" stopColor="var(--chart)" stopOpacity={0.02} />
-            </linearGradient>
-          </defs>
-          {axes}
-          <Tooltip content={<ChartTooltip metric={metric} />} cursor={{ stroke: 'currentColor', strokeOpacity: 0.2 }} />
-          <Area
-            type="monotone"
-            dataKey="occupancy"
-            stroke="var(--chart)"
-            strokeWidth={2}
-            fill="url(#dash-occupancy-wash)"
-            dot={{ r: 4, fill: 'var(--chart)', stroke: 'var(--card)', strokeWidth: 2 }}
-            activeDot={{ r: 5, fill: 'var(--chart)', stroke: 'var(--card)', strokeWidth: 2 }}
-          />
-        </AreaChart>
-      ) : (
-        <BarChart {...common} barCategoryGap="30%">
-          {axes}
-          <Tooltip content={<ChartTooltip metric={metric} />} cursor={{ fill: 'currentColor', fillOpacity: 0.04 }} />
-          <Bar dataKey={metric} fill="var(--chart)" radius={[4, 4, 0, 0]} maxBarSize={24} />
-        </BarChart>
-      )}
-    </ResponsiveContainer>
+    <ScrollChart
+      data={data}
+      pointWidth={44}
+      height={260}
+      axisWidth={52}
+      margin={CHART_MARGIN}
+      yTicks={yTicks}
+      yDomain={[yTicks[0], yTicks[yTicks.length - 1]]}
+      yTickFormatter={m.tick}
+      yTick={AXIS_TICK}
+      focusIndex={focusIndex}
+      render={({ yAxis, tooltipPosition }) => {
+        const axes = (
+          <>
+            <CartesianGrid stroke="currentColor" strokeOpacity={0.08} vertical={false} />
+            <XAxis
+              dataKey="label"
+              tick={AXIS_TICK}
+              tickLine={false}
+              axisLine={false}
+              interval={0}
+              dy={6}
+              padding={metric === 'occupancy' ? { left: 14, right: 14 } : undefined}
+            />
+            {yAxis}
+          </>
+        )
+        return metric === 'occupancy' ? (
+          <AreaChart data={data} margin={CHART_MARGIN}>
+            <defs>
+              <linearGradient id="dash-occupancy-wash" x1="0" y1="0" x2="0" y2="1">
+                <stop offset="0%" stopColor="var(--chart)" stopOpacity={0.14} />
+                <stop offset="100%" stopColor="var(--chart)" stopOpacity={0.02} />
+              </linearGradient>
+            </defs>
+            {axes}
+            <Tooltip position={tooltipPosition} content={<ChartTooltip metric={metric} />} cursor={{ stroke: 'currentColor', strokeOpacity: 0.2 }} />
+            <Area
+              type="monotone"
+              dataKey="occupancy"
+              stroke="var(--chart)"
+              strokeWidth={2}
+              fill="url(#dash-occupancy-wash)"
+              dot={{ r: 4, fill: 'var(--chart)', stroke: 'var(--card)', strokeWidth: 2 }}
+              activeDot={{ r: 5, fill: 'var(--chart)', stroke: 'var(--card)', strokeWidth: 2 }}
+            />
+          </AreaChart>
+        ) : (
+          <BarChart data={data} margin={CHART_MARGIN} barCategoryGap="30%">
+            {axes}
+            <Tooltip position={tooltipPosition} content={<ChartTooltip metric={metric} />} cursor={{ fill: 'currentColor', fillOpacity: 0.04 }} />
+            <Bar dataKey={metric} fill="var(--chart)" radius={[4, 4, 0, 0]} maxBarSize={24} />
+          </BarChart>
+        )
+      }}
+    />
   )
 }
 
@@ -701,7 +715,7 @@ function PerformanceCard({ year, setYear, analytics, loading }: PerformanceCardP
           <button
             type="button"
             onClick={() => setView((v) => (v === 'chart' ? 'table' : 'chart'))}
-            className="inline-flex items-center gap-1.5 h-8 px-2.5 rounded-md border border-border text-[12px] font-medium text-foreground hover:text-foreground"
+            className="inline-flex items-center gap-1.5 h-10 md:h-8 px-3 md:px-2.5 rounded-md border border-border text-[12px] font-medium text-foreground hover:text-foreground"
             aria-pressed={view === 'table'}
           >
             {view === 'chart' ? <Table2 size={14} /> : <BarChart3 size={14} />}
@@ -752,7 +766,7 @@ function PerformanceCard({ year, setYear, analytics, loading }: PerformanceCardP
               </p>
             )}
             {view === 'chart' ? (
-              <div className="h-[260px] mt-3 -ml-2 text-foreground">
+              <div className="mt-3 -ml-2 text-foreground">
                 <PerformanceChart data={current} metric={metric} />
               </div>
             ) : (

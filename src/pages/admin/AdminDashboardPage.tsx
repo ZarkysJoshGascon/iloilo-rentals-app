@@ -214,6 +214,14 @@ export default function AdminDashboardPage() {
     loadedTabs.add(activeTab)
   }, [activeTab])
 
+  // ── Phone-friendly form fields (see .crm in index.css) ─────
+  // On <html> rather than this page's root so dialogs portalled to <body>
+  // get it too.
+  useEffect(() => {
+    document.documentElement.classList.add('crm')
+    return () => document.documentElement.classList.remove('crm')
+  }, [])
+
   // ── Clock ────────────────────────────────────────────────
   const [now, setNow] = useState(() => new Date())
   useEffect(() => {

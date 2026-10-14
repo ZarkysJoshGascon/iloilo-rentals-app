@@ -206,7 +206,7 @@ function DateFieldPicker({ value, onChange, placeholder, minDate, maxDate }: Dat
             animate={{ opacity: 1, y: 0 }}
             exit={{ opacity: 0, y: -4 }}
             transition={{ duration: 0.12 }}
-            className="absolute z-30 mt-1 w-[300px] rounded-lg border border-border bg-popover shadow-lg p-3"
+            className="absolute z-30 mt-1 w-[300px] max-w-[calc(100vw-2rem)] rounded-lg border border-border bg-popover shadow-lg p-3"
           >
             <div className="flex items-center justify-between mb-3">
               <button type="button" onClick={goPrev} className="p-1.5 rounded hover:bg-muted text-foreground">

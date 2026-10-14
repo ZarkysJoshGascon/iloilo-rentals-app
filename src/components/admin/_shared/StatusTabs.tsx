@@ -90,7 +90,8 @@ export function StatusTabs({ tabs, value, onChange, counts, label, fill = false,
             aria-pressed={active}
             onClick={() => onChange(tab.id)}
             className={cn(
-              'relative z-10 inline-flex items-center justify-center gap-1.5 h-7 px-3 rounded-md text-[12px] font-medium whitespace-nowrap transition-colors outline-none focus-visible:ring-2 focus-visible:ring-brand/40',
+              // Taller on phones, where they're tapped with a thumb.
+              'relative z-10 inline-flex items-center justify-center gap-1.5 h-9 md:h-7 px-3 rounded-md text-[12px] font-medium whitespace-nowrap transition-colors outline-none focus-visible:ring-2 focus-visible:ring-brand/40',
               fill && 'flex-1',
               active ? 'text-white' : 'text-foreground hover:bg-muted/60',
             )}
@@ -118,9 +119,9 @@ type PeriodStepperProps = {
 
 /** "‹ 2026 ›" — steps through years or months. */
 export function PeriodStepper({ label, onPrev, onNext, canPrev = true, canNext = true, prevLabel = 'Previous', nextLabel = 'Next', minWidth = 44 }: PeriodStepperProps) {
-  const btn = 'h-full px-2 text-foreground transition-colors hover:bg-muted/60 disabled:opacity-30 disabled:hover:bg-transparent disabled:cursor-not-allowed'
+  const btn = 'h-full px-3 md:px-2 text-foreground transition-colors hover:bg-muted/60 disabled:opacity-30 disabled:hover:bg-transparent disabled:cursor-not-allowed'
   return (
-    <div className="inline-flex items-center h-8 rounded-md border border-border bg-card overflow-hidden">
+    <div className="inline-flex items-center h-10 md:h-8 rounded-md border border-border bg-card overflow-hidden">
       <button type="button" onClick={onPrev} disabled={!canPrev} aria-label={prevLabel} className={btn}>
         <ChevronLeft size={15} />
       </button>

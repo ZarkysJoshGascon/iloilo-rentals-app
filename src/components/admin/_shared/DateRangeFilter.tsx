@@ -104,7 +104,7 @@ export function DateRangeFilter({ from, to, onFromChange, onToChange, onClear, t
             animate={{ opacity: 1, y: 0 }}
             exit={{ opacity: 0, y: -4 }}
             transition={{ duration: 0.12 }}
-            className="absolute right-0 z-30 mt-1 w-[280px] rounded-md bg-popover border border-border shadow-xl p-3"
+            className="absolute right-0 z-30 mt-1 w-[280px] max-w-[calc(100vw-2rem)] rounded-md bg-popover border border-border shadow-xl p-3"
           >
             <p className="text-[11px] font-semibold uppercase tracking-wider text-foreground mb-2">{title}</p>
             <div className="space-y-2">

@@ -339,7 +339,7 @@ function DateRangeFilter({ from, to, onFromChange, onToChange, onClear }: DateRa
             exit={{ opacity: 0, y: -4 }}
             transition={{ duration: 0.12 }}
             style={BTN_RADIUS}
-            className="absolute right-0 z-30 mt-1 w-[280px] bg-popover border border-border shadow-xl p-3"
+            className="absolute right-0 z-30 mt-1 w-[280px] max-w-[calc(100vw-2rem)] bg-popover border border-border shadow-xl p-3"
           >
             <p className="text-[10px] font-bold uppercase tracking-wider text-foreground mb-2">
               Contract expiry range
@@ -792,7 +792,7 @@ function DropdownPanel({ title, subtitle, onClose, children }: DropdownPanelProp
   return (
     <motion.div initial={{ opacity: 0, y: -4 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -4 }} transition={{ duration: 0.12 }}
       style={BTN_RADIUS}
-      className="absolute right-0 top-full mt-2 w-[420px] max-h-[520px] bg-popover border border-border z-50 overflow-hidden flex flex-col">
+      className="absolute right-0 top-full mt-2 w-[420px] max-w-[calc(100vw-2rem)] max-h-[520px] bg-popover border border-border z-50 overflow-hidden flex flex-col">
       <div className="flex items-start justify-between gap-3 px-4 py-3 border-b border-border">
         <div className="min-w-0">
           <p className="text-xs font-semibold text-foreground">{title}</p>
