@@ -87,20 +87,22 @@ function LoadingView({ unit, loading, failed, onRetry, skipTo }: LoadingViewProp
 type UnitWalkthroughProps = {
   unit: any
   skipTo: string
+  nextTo?: string
 }
 
-export default function UnitWalkthrough({ unit, skipTo }: UnitWalkthroughProps) {
+export default function UnitWalkthrough({ unit, skipTo, nextTo }: UnitWalkthroughProps) {
   const [webgl] = useState(supportsWebGL)
   if (!webgl) return null
-  return <Walk unit={unit} skipTo={skipTo} />
+  return <Walk unit={unit} skipTo={skipTo} nextTo={nextTo} />
 }
 
 type WalkProps = {
   unit: any
   skipTo: any
+  nextTo?: string
 }
 
-function Walk({ unit, skipTo }: WalkProps) {
+function Walk({ unit, skipTo, nextTo }: WalkProps) {
   const reduce = useReducedMotion()
   const sectionRef = useRef(null)
   const mountRef = useRef(null)
@@ -111,17 +113,21 @@ function Walk({ unit, skipTo }: WalkProps) {
   const [attempt, setAttempt] = useState(0)
   const readyRef = useRef(false)
   const [captionIndex, setCaptionIndex] = useState(0)
+  const [showOutro, setShowOutro] = useState(false)
 
   const { scrollYProgress } = useScroll({ target: sectionRef, offset: ['start start', 'end end'] })
   const walkRaw = useMotionValue(0)
   useMotionValueEvent(scrollYProgress, 'change', (p) => {
     if (readyRef.current) walkRaw.set(clamp01((p - WALK_FROM) / (WALK_TO - WALK_FROM)))
+    const visible = p > WALK_TO + 0.02
+    setShowOutro((previous) => previous === visible ? previous : visible)
   })
   // A little inertia, so the camera eases like walking rather than jumping with each wheel tick.
   const walk = useSpring(walkRaw, { stiffness: 90, damping: 26, mass: 0.7, restDelta: 0.0001 })
   const introOpacity = useTransform(scrollYProgress, (p) => 1 - clamp01((p - 0.005) / 0.035))
   const hudOpacity = useTransform(scrollYProgress, (p) => Math.min(clamp01((p - 0.03) / 0.03), 1 - clamp01((p - WALK_TO - 0.01) / 0.03)))
   const outroOpacity = useTransform(scrollYProgress, (p) => clamp01((p - WALK_TO) / 0.04))
+  const outroPointer = useTransform(outroOpacity, (opacity) => opacity > 0.5 ? 'auto' : 'none')
 
   // Start loading when the section is about a screen away.
   useEffect(() => {
@@ -291,13 +297,14 @@ function Walk({ unit, skipTo }: WalkProps) {
         </motion.div>
 
         {/* Outro */}
-        <motion.div style={{ opacity: outroOpacity }} className="absolute z-30 inset-0 flex flex-col items-center justify-center text-center px-6 pointer-events-none">
+        <motion.div style={{ opacity: outroOpacity }} inert={!showOutro} aria-hidden={!showOutro} className="absolute z-30 inset-0 flex flex-col items-center justify-center text-center px-6 bg-[#0b0f17] pointer-events-none">
           <p className="text-[11px] md:text-xs font-bold uppercase tracking-[0.25em] text-white/75">Designed by Iloilo Rentals</p>
-          <h2 className="mt-3 text-3xl md:text-5xl font-black text-white tracking-tight drop-shadow-[0_2px_12px_rgba(0,0,0,0.5)]">Your space could be next</h2>
-          {skipTo && (
-            <a href={skipTo} className="pointer-events-auto mt-7 inline-flex items-center h-12 px-7 rounded-full bg-white text-[#0b0f17] text-sm font-bold shadow-xl hover:bg-white/90 transition-colors">
-              Start your project
-            </a>
+          <h2 className="mt-3 text-3xl md:text-5xl font-black text-white tracking-tight">{nextTo ? 'More spaces, thoughtfully designed' : 'Your space could be next'}</h2>
+          {nextTo && <p className="mt-4 max-w-xl text-base md:text-lg text-white/70">Keep scrolling to explore the details of our other projects.</p>}
+          {(nextTo || skipTo) && (
+            <motion.a href={nextTo || skipTo} style={{ pointerEvents: outroPointer }} className="mt-7 inline-flex items-center gap-2 h-12 px-7 rounded-full bg-white text-[#0b0f17] text-sm font-bold shadow-xl hover:bg-white/90 transition-colors">
+              {nextTo ? <>Continue exploring <ArrowDown size={16} aria-hidden /></> : 'Start your project'}
+            </motion.a>
           )}
         </motion.div>
         </>}

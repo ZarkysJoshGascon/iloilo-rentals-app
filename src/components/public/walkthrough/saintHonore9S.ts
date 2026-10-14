@@ -36,8 +36,6 @@ const path = [
   { pos: [2.95, 1.58, 7.2], look: [0.05, 1.1, 7.25] },
   { pos: [3.02, 1.6, 7.98], look: [0.05, 1.15, 7.4] },
   { pos: [2.53, 1.6, 8.01], look: [2.35, 1.3, 13] },
-  { pos: [2.45, 1.6, 8.4], look: [2.35, 1.3, 16], caption: { title: 'Balcony', note: 'Daylight, a glass bistro table, and the view from Unit 9S' } },
-  { pos: [2.62, 1.55, 9.3], look: [1.55, 1.0, 11.0] },
 ]
 
 const data = (name) => ({ src: `${DIR}/tex/${name}.jpg`, data: true })
@@ -68,7 +66,6 @@ export const SAINT_HONORE_9S = {
     oak: `${DIR}/tex/oak.jpg`,
     oakR: data('oak-r'),
     velvetN: data('velvet-n'),
-    balconyView: `${DIR}/balcony-city-panorama.jpg`,
   },
   // Where the room's own reflections are captured from: mid living room.
   envAt: [2.2, 1.5, 4.3],
@@ -414,18 +411,9 @@ function build(THREE, kit, scene, { tex }) {
 
   // ── Balcony: rebuilt from "Saint Honore Unit 9S balcony view.jpg" ──
   balcony()
-  scene.background = new THREE.Color(0x93bddb)
-  tex.balconyView.wrapS = tex.balconyView.wrapT = THREE.ClampToEdgeWrapping
-  const view = material({ map: tex.balconyView, toneMapped: false, fog: false, side: THREE.BackSide }, THREE.MeshBasicMaterial)
-  // The extended city wraps around the balcony: turning toward the table
-  // cannot expose the edges of a flat photograph, on desktop or a phone.
-  const horizonGeometry = new THREE.CylinderGeometry(35, 35, 92, 64, 1, true, -Math.PI / 2, Math.PI)
-  const horizonUV = horizonGeometry.attributes.uv
-  for (let i = 0; i < horizonUV.count; i++) horizonUV.setX(i, 1 - horizonUV.getX(i))
-  const horizon = new THREE.Mesh(horizonGeometry, view)
-  horizon.position.set(2, 3, 9)
-  scene.add(horizon)
-  kit.track.geometries.push(horizonGeometry)
+  // Soft daylight beyond the doors; the walk ends here and fades into the
+  // project images instead of displaying the balcony panorama photograph.
+  scene.background = new THREE.Color(0xe7e4dc)
 
   // ── Corridor outside the front door ───────────────────────
   block(scene, [2.4, -0.01, -3], [4.4, 0, -T], corridorTile, { cast: false })

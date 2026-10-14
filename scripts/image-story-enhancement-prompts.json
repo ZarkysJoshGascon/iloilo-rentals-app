@@ -1,0 +1,113 @@
+{
+  "mode": "built-in image_gen",
+  "policy": "Original source boards preserved. Enhanced boards and cropped WebP panels are separate deliverables. Floor plans are cropped and resized faithfully, without generative changes. High-resolution second pass enhances each isolated render panel individually for desktop display.",
+  "assets": [
+    {
+      "key": "saint-honore-5b",
+      "source": "Saint Honore Unit 5B.png",
+      "prompt": "Use case: precise-object-edit. Asset type: enhanced architecture presentation board for a property interior design website. Input image: edit target, the Saint Honore Unit 5B board. Primary request: faithfully improve resolution and rendering clarity, producing an approximately 3840-pixel-wide high-quality version of the complete original board in the same 922:521 aspect ratio. Preserve the existing four room panels and the narrow central blue title/floorplan column in exactly the same arrangement and proportions. Preserve every camera angle, framing, furniture position, fixture, plant, doorway, arch, bed, kitchen cabinet, curtain, pendant, mirror, color scheme, and material assignment. Keep the original warm lighting and green/gold interior style. Only improve aliasing, low-resolution blur and compression, material texture clarity, glass reflections, and natural light falloff. Top left is the bedroom, top right is dining, bottom left is the television living room, bottom right is the kitchen. Keep the central floorplan faithful to its original geometry and markings. Preserve original text and presentation layout; do not add any caption, slogan, watermark, furniture, room, decor, people, or architectural feature. No redesign. All four room images must be the same images improved, not alternate room views. Preserve panel divider lines and boundaries."
+    },
+    {
+      "key": "casa-john",
+      "source": "Cassa John1.png",
+      "prompt": "Use case: precise-object-edit. Asset type: enhanced architecture presentation board for a property design website. Input image: edit target, the Casa John board. Primary request: faithfully improve resolution and rendering clarity, producing an approximately 3840-pixel-wide high-quality version of the entire original board in the same 960:404 aspect ratio. Preserve the existing blue title header and three side-by-side exterior render panels in exactly the same proportions and boundaries. Keep every building shape, roofline, door, window, timber panel, white wall, black metal frame, sloped gold window surround, lattice fence, vegetation location, perspective, and camera angle exactly as in the input. The left panel is a full straight-on frontage, middle is the original close oblique view, and right is the original close gabled-window detail. Keep the warm daylight, blue sky and original neutral/wood materials. Only clean up aliasing, low-resolution blur, compression, and material texture/reflection/light rendering quality. Preserve original text CASA JOHN, 150 SQM LOT SIZE, 131 SQM FLOOR AREA in the blue header, at its original position. No redesigned architecture or new furnishings, people, text, watermark, sky replacement or changed camera. These are the same three renders faithfully enhanced, not alternate views."
+    },
+    {
+      "key": "casa-matthew",
+      "source": "Casa Matthew1.png",
+      "prompt": "Use case: precise-object-edit. Asset type: enhanced architecture presentation board for a property design website. Input image: edit target, the Casa Matthew board. Primary request: faithfully improve resolution and rendering clarity, producing an approximately 3840-pixel-wide high-quality version of the entire original board in the same 1098:467 aspect ratio. Preserve the existing blue title header and three side-by-side exterior render panels in exactly the same proportions and boundaries. Keep every building shape, flat/angled roofline, door, window, concrete facade, timber ceiling, vertical slatted opening, balcony planter, gate, vegetation location, perspective and camera angle exactly as in the input. The left panel is a full straight-on frontage, middle is the original oblique frontage, and right is the original close upper-facade/slatted-opening detail. Keep warm daylight, blue sky, and the original neutral concrete/wood materials. Only clean up aliasing, low-resolution blur and compression, and improve material texture/reflection/light rendering clarity. Preserve original text CASA MATTHEW, 150 SQM LOT SIZE, 156 SQM FLOOR AREA in its original position in the blue header. No redesigned architecture or new furnishings, people, text, watermark, or changed camera. These are the same three renders faithfully enhanced, not alternate views."
+    }
+  ],
+  "individualPanels": [
+    {
+      "name": "saint-honore-5b-bedroom",
+      "source": "public/tours/image-stories/saint-honore-5b-bedroom.webp",
+      "nativeInputSize": [
+        648,
+        475
+      ],
+      "prompt": "Use case: precise-object-edit. Asset type: single full-screen high-resolution property architecture render for a scrolling website story. Input image: this exact single render panel is the edit target. Primary request: enhance and restore this same image at high native resolution, aiming for a 2048-pixel long edge (at least 1536), with genuinely crisp anti-aliased fine material detail and natural high-quality architectural visualization rendering. Keep the same 648:475 image aspect ratio and identical full composition and framing. Preserve the camera angle, perspective, all architecture, every door, window, wall, ceiling, roofline, cabinet, fence, gate, furniture piece, plant, fixture, room layout, color, wood/metal/concrete fabric assignment, sun direction and warm lighting exactly. Improve only low-resolution softness, compression and aliasing, fine texture resolution, and physically plausible material detail, reflections and light. Do not redesign anything, do not move any element, do not widen or crop the camera composition, do not add or remove furniture, furnishings, vegetation, rooms or architectural features, do not introduce people or text, no logo, no watermark. This is the same original saint-honore-5b-bedroom render faithfully restored, not a new or alternative view. Output one image containing only the single original panel."
+    },
+    {
+      "name": "saint-honore-5b-dining",
+      "source": "public/tours/image-stories/saint-honore-5b-dining.webp",
+      "nativeInputSize": [
+        650,
+        484
+      ],
+      "prompt": "Use case: precise-object-edit. Asset type: single full-screen high-resolution property architecture render for a scrolling website story. Input image: this exact single render panel is the edit target. Primary request: enhance and restore this same image at high native resolution, aiming for a 2048-pixel long edge (at least 1536), with genuinely crisp anti-aliased fine material detail and natural high-quality architectural visualization rendering. Keep the same 650:484 image aspect ratio and identical full composition and framing. Preserve the camera angle, perspective, all architecture, every door, window, wall, ceiling, roofline, cabinet, fence, gate, furniture piece, plant, fixture, room layout, color, wood/metal/concrete fabric assignment, sun direction and warm lighting exactly. Improve only low-resolution softness, compression and aliasing, fine texture resolution, and physically plausible material detail, reflections and light. Do not redesign anything, do not move any element, do not widen or crop the camera composition, do not add or remove furniture, furnishings, vegetation, rooms or architectural features, do not introduce people or text, no logo, no watermark. This is the same original saint-honore-5b-dining render faithfully restored, not a new or alternative view. Output one image containing only the single original panel."
+    },
+    {
+      "name": "saint-honore-5b-living",
+      "source": "public/tours/image-stories/saint-honore-5b-living.webp",
+      "nativeInputSize": [
+        648,
+        463
+      ],
+      "prompt": "Use case: precise-object-edit. Asset type: single full-screen high-resolution property architecture render for a scrolling website story. Input image: this exact single render panel is the edit target. Primary request: enhance and restore this same image at high native resolution, aiming for a 2048-pixel long edge (at least 1536), with genuinely crisp anti-aliased fine material detail and natural high-quality architectural visualization rendering. Keep the same 648:463 image aspect ratio and identical full composition and framing. Preserve the camera angle, perspective, all architecture, every door, window, wall, ceiling, roofline, cabinet, fence, gate, furniture piece, plant, fixture, room layout, color, wood/metal/concrete fabric assignment, sun direction and warm lighting exactly. Improve only low-resolution softness, compression and aliasing, fine texture resolution, and physically plausible material detail, reflections and light. Do not redesign anything, do not move any element, do not widen or crop the camera composition, do not add or remove furniture, furnishings, vegetation, rooms or architectural features, do not introduce people or text, no logo, no watermark. This is the same original saint-honore-5b-living render faithfully restored, not a new or alternative view. Output one image containing only the single original panel."
+    },
+    {
+      "name": "saint-honore-5b-kitchen",
+      "source": "public/tours/image-stories/saint-honore-5b-kitchen.webp",
+      "nativeInputSize": [
+        650,
+        453
+      ],
+      "prompt": "Use case: precise-object-edit. Asset type: single full-screen high-resolution property architecture render for a scrolling website story. Input image: this exact single render panel is the edit target. Primary request: enhance and restore this same image at high native resolution, aiming for a 2048-pixel long edge (at least 1536), with genuinely crisp anti-aliased fine material detail and natural high-quality architectural visualization rendering. Keep the same 650:453 image aspect ratio and identical full composition and framing. Preserve the camera angle, perspective, all architecture, every door, window, wall, ceiling, roofline, cabinet, fence, gate, furniture piece, plant, fixture, room layout, color, wood/metal/concrete fabric assignment, sun direction and warm lighting exactly. Improve only low-resolution softness, compression and aliasing, fine texture resolution, and physically plausible material detail, reflections and light. Do not redesign anything, do not move any element, do not widen or crop the camera composition, do not add or remove furniture, furnishings, vegetation, rooms or architectural features, do not introduce people or text, no logo, no watermark. This is the same original saint-honore-5b-kitchen render faithfully restored, not a new or alternative view. Output one image containing only the single original panel."
+    },
+    {
+      "name": "casa-john-front",
+      "source": "public/tours/image-stories/casa-john-front.webp",
+      "nativeInputSize": [
+        627,
+        606
+      ],
+      "prompt": "Use case: precise-object-edit. Asset type: single full-screen high-resolution property architecture render for a scrolling website story. Input image: this exact single render panel is the edit target. Primary request: enhance and restore this same image at high native resolution, aiming for a 2048-pixel long edge (at least 1536), with genuinely crisp anti-aliased fine material detail and natural high-quality architectural visualization rendering. Keep the same 627:606 image aspect ratio and identical full composition and framing. Preserve the camera angle, perspective, all architecture, every door, window, wall, ceiling, roofline, cabinet, fence, gate, furniture piece, plant, fixture, room layout, color, wood/metal/concrete fabric assignment, sun direction and warm lighting exactly. Improve only low-resolution softness, compression and aliasing, fine texture resolution, and physically plausible material detail, reflections and light. Do not redesign anything, do not move any element, do not widen or crop the camera composition, do not add or remove furniture, furnishings, vegetation, rooms or architectural features, do not introduce people or text, no logo, no watermark. This is the same original casa-john-front render faithfully restored, not a new or alternative view. Output one image containing only the single original panel."
+    },
+    {
+      "name": "casa-john-angle",
+      "source": "public/tours/image-stories/casa-john-angle.webp",
+      "nativeInputSize": [
+        644,
+        606
+      ],
+      "prompt": "Use case: precise-object-edit. Asset type: single full-screen high-resolution property architecture render for a scrolling website story. Input image: this exact single render panel is the edit target. Primary request: enhance and restore this same image at high native resolution, aiming for a 2048-pixel long edge (at least 1536), with genuinely crisp anti-aliased fine material detail and natural high-quality architectural visualization rendering. Keep the same 644:606 image aspect ratio and identical full composition and framing. Preserve the camera angle, perspective, all architecture, every door, window, wall, ceiling, roofline, cabinet, fence, gate, furniture piece, plant, fixture, room layout, color, wood/metal/concrete fabric assignment, sun direction and warm lighting exactly. Improve only low-resolution softness, compression and aliasing, fine texture resolution, and physically plausible material detail, reflections and light. Do not redesign anything, do not move any element, do not widen or crop the camera composition, do not add or remove furniture, furnishings, vegetation, rooms or architectural features, do not introduce people or text, no logo, no watermark. This is the same original casa-john-angle render faithfully restored, not a new or alternative view. Output one image containing only the single original panel."
+    },
+    {
+      "name": "casa-john-detail",
+      "source": "public/tours/image-stories/casa-john-detail.webp",
+      "nativeInputSize": [
+        659,
+        606
+      ],
+      "prompt": "Use case: precise-object-edit. Asset type: single full-screen high-resolution property architecture render for a scrolling website story. Input image: this exact single render panel is the edit target. Primary request: enhance and restore this same image at high native resolution, aiming for a 2048-pixel long edge (at least 1536), with genuinely crisp anti-aliased fine material detail and natural high-quality architectural visualization rendering. Keep the same 659:606 image aspect ratio and identical full composition and framing. Preserve the camera angle, perspective, all architecture, every door, window, wall, ceiling, roofline, cabinet, fence, gate, furniture piece, plant, fixture, room layout, color, wood/metal/concrete fabric assignment, sun direction and warm lighting exactly. Improve only low-resolution softness, compression and aliasing, fine texture resolution, and physically plausible material detail, reflections and light. Do not redesign anything, do not move any element, do not widen or crop the camera composition, do not add or remove furniture, furnishings, vegetation, rooms or architectural features, do not introduce people or text, no logo, no watermark. This is the same original casa-john-detail render faithfully restored, not a new or alternative view. Output one image containing only the single original panel."
+    },
+    {
+      "name": "casa-matthew-front",
+      "source": "public/tours/image-stories/casa-matthew-front.webp",
+      "nativeInputSize": [
+        591,
+        612
+      ],
+      "prompt": "Use case: precise-object-edit. Asset type: single full-screen high-resolution property architecture render for a scrolling website story. Input image: this exact single render panel is the edit target. Primary request: enhance and restore this same image at high native resolution, aiming for a 2048-pixel long edge (at least 1536), with genuinely crisp anti-aliased fine material detail and natural high-quality architectural visualization rendering. Keep the same 591:612 image aspect ratio and identical full composition and framing. Preserve the camera angle, perspective, all architecture, every door, window, wall, ceiling, roofline, cabinet, fence, gate, furniture piece, plant, fixture, room layout, color, wood/metal/concrete fabric assignment, sun direction and warm lighting exactly. Improve only low-resolution softness, compression and aliasing, fine texture resolution, and physically plausible material detail, reflections and light. Do not redesign anything, do not move any element, do not widen or crop the camera composition, do not add or remove furniture, furnishings, vegetation, rooms or architectural features, do not introduce people or text, no logo, no watermark. This is the same original casa-matthew-front render faithfully restored, not a new or alternative view. Output one image containing only the single original panel."
+    },
+    {
+      "name": "casa-matthew-angle",
+      "source": "public/tours/image-stories/casa-matthew-angle.webp",
+      "nativeInputSize": [
+        636,
+        612
+      ],
+      "prompt": "Use case: precise-object-edit. Asset type: single full-screen high-resolution property architecture render for a scrolling website story. Input image: this exact single render panel is the edit target. Primary request: enhance and restore this same image at high native resolution, aiming for a 2048-pixel long edge (at least 1536), with genuinely crisp anti-aliased fine material detail and natural high-quality architectural visualization rendering. Keep the same 636:612 image aspect ratio and identical full composition and framing. Preserve the camera angle, perspective, all architecture, every door, window, wall, ceiling, roofline, cabinet, fence, gate, furniture piece, plant, fixture, room layout, color, wood/metal/concrete fabric assignment, sun direction and warm lighting exactly. Improve only low-resolution softness, compression and aliasing, fine texture resolution, and physically plausible material detail, reflections and light. Do not redesign anything, do not move any element, do not widen or crop the camera composition, do not add or remove furniture, furnishings, vegetation, rooms or architectural features, do not introduce people or text, no logo, no watermark. This is the same original casa-matthew-angle render faithfully restored, not a new or alternative view. Output one image containing only the single original panel."
+    },
+    {
+      "name": "casa-matthew-detail",
+      "source": "public/tours/image-stories/casa-matthew-detail.webp",
+      "nativeInputSize": [
+        693,
+        612
+      ],
+      "prompt": "Use case: precise-object-edit. Asset type: single full-screen high-resolution property architecture render for a scrolling website story. Input image: this exact single render panel is the edit target. Primary request: enhance and restore this same image at high native resolution, aiming for a 2048-pixel long edge (at least 1536), with genuinely crisp anti-aliased fine material detail and natural high-quality architectural visualization rendering. Keep the same 693:612 image aspect ratio and identical full composition and framing. Preserve the camera angle, perspective, all architecture, every door, window, wall, ceiling, roofline, cabinet, fence, gate, furniture piece, plant, fixture, room layout, color, wood/metal/concrete fabric assignment, sun direction and warm lighting exactly. Improve only low-resolution softness, compression and aliasing, fine texture resolution, and physically plausible material detail, reflections and light. Do not redesign anything, do not move any element, do not widen or crop the camera composition, do not add or remove furniture, furnishings, vegetation, rooms or architectural features, do not introduce people or text, no logo, no watermark. This is the same original casa-matthew-detail render faithfully restored, not a new or alternative view. Output one image containing only the single original panel."
+    }
+  ]
+}

@@ -1,0 +1,182 @@
+{
+  "assets": [
+    {
+      "source": "tour-source/enhanced/panels/saint-honore-5b-bedroom.png",
+      "referenceBoard": "tour-source/enhanced/saint-honore-5b-enhanced.png",
+      "output": "public/tours/image-stories/saint-honore-5b-bedroom.webp",
+      "referenceCrop": {
+        "left": 0,
+        "top": 0,
+        "width": 648,
+        "height": 475
+      },
+      "width": 1465,
+      "height": 1073,
+      "bytes": 316382,
+      "treatment": "Built-in imagegen individual high-resolution restoration; same original camera and design"
+    },
+    {
+      "source": "tour-source/enhanced/panels/saint-honore-5b-living.png",
+      "referenceBoard": "tour-source/enhanced/saint-honore-5b-enhanced.png",
+      "output": "public/tours/image-stories/saint-honore-5b-living.webp",
+      "referenceCrop": {
+        "left": 0,
+        "top": 479,
+        "width": 648,
+        "height": 463
+      },
+      "width": 1484,
+      "height": 1060,
+      "bytes": 235252,
+      "treatment": "Built-in imagegen individual high-resolution restoration; same original camera and design"
+    },
+    {
+      "source": "tour-source/enhanced/panels/saint-honore-5b-dining.png",
+      "referenceBoard": "tour-source/enhanced/saint-honore-5b-enhanced.png",
+      "output": "public/tours/image-stories/saint-honore-5b-dining.webp",
+      "referenceCrop": {
+        "left": 1019,
+        "top": 0,
+        "width": 650,
+        "height": 484
+      },
+      "width": 1453,
+      "height": 1083,
+      "bytes": 245512,
+      "treatment": "Built-in imagegen individual high-resolution restoration; same original camera and design"
+    },
+    {
+      "source": "tour-source/enhanced/panels/saint-honore-5b-kitchen.png",
+      "referenceBoard": "tour-source/enhanced/saint-honore-5b-enhanced.png",
+      "output": "public/tours/image-stories/saint-honore-5b-kitchen.webp",
+      "referenceCrop": {
+        "left": 1019,
+        "top": 489,
+        "width": 650,
+        "height": 453
+      },
+      "width": 1503,
+      "height": 1047,
+      "bytes": 169766,
+      "treatment": "Built-in imagegen individual high-resolution restoration; same original camera and design"
+    },
+    {
+      "source": "tour-source/enhanced/panels/casa-john-front.png",
+      "referenceBoard": "tour-source/enhanced/casa-john-enhanced.png",
+      "output": "public/tours/image-stories/casa-john-front.webp",
+      "referenceCrop": {
+        "left": 0,
+        "top": 207,
+        "width": 627,
+        "height": 606
+      },
+      "width": 1276,
+      "height": 1233,
+      "bytes": 455146,
+      "treatment": "Built-in imagegen individual high-resolution restoration; same original camera and design"
+    },
+    {
+      "source": "tour-source/enhanced/panels/casa-john-angle.png",
+      "referenceBoard": "tour-source/enhanced/casa-john-enhanced.png",
+      "output": "public/tours/image-stories/casa-john-angle.webp",
+      "referenceCrop": {
+        "left": 629,
+        "top": 207,
+        "width": 644,
+        "height": 606
+      },
+      "width": 1293,
+      "height": 1216,
+      "bytes": 318598,
+      "treatment": "Built-in imagegen individual high-resolution restoration; same original camera and design"
+    },
+    {
+      "source": "tour-source/enhanced/panels/casa-john-detail.png",
+      "referenceBoard": "tour-source/enhanced/casa-john-enhanced.png",
+      "output": "public/tours/image-stories/casa-john-detail.webp",
+      "referenceCrop": {
+        "left": 1276,
+        "top": 207,
+        "width": 659,
+        "height": 606
+      },
+      "width": 1308,
+      "height": 1202,
+      "bytes": 186098,
+      "treatment": "Built-in imagegen individual high-resolution restoration; same original camera and design"
+    },
+    {
+      "source": "tour-source/enhanced/panels/casa-matthew-front.png",
+      "referenceBoard": "tour-source/enhanced/casa-matthew-enhanced.png",
+      "output": "public/tours/image-stories/casa-matthew-front.webp",
+      "referenceCrop": {
+        "left": 0,
+        "top": 205,
+        "width": 591,
+        "height": 612
+      },
+      "width": 1232,
+      "height": 1277,
+      "bytes": 398610,
+      "treatment": "Built-in imagegen individual high-resolution restoration; same original camera and design"
+    },
+    {
+      "source": "tour-source/enhanced/panels/casa-matthew-angle.png",
+      "referenceBoard": "tour-source/enhanced/casa-matthew-enhanced.png",
+      "output": "public/tours/image-stories/casa-matthew-angle.webp",
+      "referenceCrop": {
+        "left": 594,
+        "top": 205,
+        "width": 636,
+        "height": 612
+      },
+      "width": 1279,
+      "height": 1230,
+      "bytes": 349708,
+      "treatment": "Built-in imagegen individual high-resolution restoration; same original camera and design"
+    },
+    {
+      "source": "tour-source/enhanced/panels/casa-matthew-detail.png",
+      "referenceBoard": "tour-source/enhanced/casa-matthew-enhanced.png",
+      "output": "public/tours/image-stories/casa-matthew-detail.webp",
+      "referenceCrop": {
+        "left": 1233,
+        "top": 205,
+        "width": 693,
+        "height": 612
+      },
+      "width": 1335,
+      "height": 1178,
+      "bytes": 415532,
+      "treatment": "Built-in imagegen individual high-resolution restoration; same original camera and design"
+    },
+    {
+      "source": "tour-source/Casa John2.png",
+      "output": "public/tours/image-stories/casa-john-plan.webp",
+      "crop": {
+        "left": 106,
+        "top": 82,
+        "width": 703,
+        "height": 479
+      },
+      "width": 1400,
+      "height": 954,
+      "bytes": 233010,
+      "treatment": "Original floor-plan crop, faithful Lanczos resize and light sharpening; no generative edits"
+    },
+    {
+      "source": "tour-source/Cass Matthew2.png",
+      "output": "public/tours/image-stories/casa-matthew-plan.webp",
+      "crop": {
+        "left": 94,
+        "top": 78,
+        "width": 650,
+        "height": 431
+      },
+      "width": 1400,
+      "height": 928,
+      "bytes": 170514,
+      "treatment": "Original floor-plan crop, faithful Lanczos resize and light sharpening; no generative edits"
+    }
+  ]
+}
