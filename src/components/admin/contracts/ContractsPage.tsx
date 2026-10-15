@@ -41,6 +41,7 @@ import { StatementActions } from '@/components/admin/_shared/StatementActions'
 import { SortHeader, nextSort, ResultsBar, SearchKeyHint, useListShortcuts, CARD_ON_PHONE, MobileSort, PHONE_LABEL, useSidePanelMotion, useListCap } from '@/components/admin/_shared/listTools'
 import { StatusTabs } from '@/components/admin/_shared/StatusTabs'
 import type { ReactNode } from 'react'
+import { Code } from '@/components/common/Code'
 
 const BRAND = 'var(--brand-solid)'
 
@@ -478,7 +479,7 @@ function NewContractModal({ open, onClose, onCreated, units, owners, contracts }
               <SelectContent>
                 {eligibleUnits.map((u) => (
                   <SelectItem key={u.id} value={u.id} className="text-xs">
-                    {u.building || '—'} — {u.unit_code || '—'}
+                    {u.building || '—'} — <span className="font-mono font-bold">{u.unit_code || '—'}</span>
                   </SelectItem>
                 ))}
               </SelectContent>
@@ -738,7 +739,7 @@ function FilterPanel({
                   <SelectItem value="all" className="text-xs">All units</SelectItem>
                   {sortedUnits.map((u) => (
                     <SelectItem key={u.id} value={u.id} className="text-xs">
-                      {u.building ? `${u.building} — ` : ''}{u.unit_code}
+                      {u.building ? `${u.building} — ` : ''}<span className="font-mono font-bold">{u.unit_code}</span>
                     </SelectItem>
                   ))}
                 </SelectContent>
@@ -810,17 +811,13 @@ function ContractRow({ contract, selected, onClick }: ContractRowProps) {
       className={cn('group/row w-full text-left px-4 py-3 border-b border-border cursor-pointer select-none', ROW_GRID)}
     >
       <div className="min-w-0">
-        <span className="font-mono text-xs font-bold text-foreground truncate block">
-          {contract.contract_code || '—'}
-        </span>
+        <Code value={contract.contract_code} label="Contract code" className="text-xs" block />
         <span className="text-[10px] text-foreground truncate block">
           {contract.owners?.name || 'No owner'}
         </span>
       </div>
       <div className="min-w-0 max-md:col-span-2">
-        <span className="font-mono text-xs font-bold text-foreground truncate block">
-          {contract.units?.unit_code || '—'}
-        </span>
+        <Code value={contract.units?.unit_code} label="Unit code" className="text-xs" block />
         <span className="text-[10px] text-foreground truncate block">
           {contract.units?.building || '—'}
         </span>
@@ -1173,7 +1170,9 @@ function ContractPdfUploader({ contract, onSaved }: ContractPdfUploaderProps) {
           <div className="flex-shrink-0 h-14 px-4 flex items-center gap-3 border-b border-white/10 bg-black/60">
             <FileText size={16} className="text-white/80 flex-shrink-0" />
             <p className="text-sm font-semibold text-white truncate flex-1">
-              {contract.contract_code ? `Contract · ${contract.contract_code}` : 'Contract document'}
+              {contract.contract_code
+                ? <span className="inline-flex items-center gap-1.5 max-w-full">Contract · <Code value={contract.contract_code} label="Contract code" className="text-sm text-white" buttonClassName="text-white hover:bg-white/10" /></span>
+                : 'Contract document'}
             </p>
             <a
               href={displayUrl}
@@ -1246,7 +1245,7 @@ async function findOverlappingContract({ unitId, excludeId, start, end }) {
 
 type ModalShellProps = {
   title: string
-  subtitle: string
+  subtitle: ReactNode
   onClose: any
   children: ReactNode
   footer: ReactNode
@@ -1428,7 +1427,7 @@ function ExtendContractModal({ contract, onClose, onExtended }: ExtendContractMo
   return (
     <ModalShell
       title="Extend contract"
-      subtitle={`${contract.contract_code || 'Contract'} · ${contract.units?.unit_code || '—'} · ${contract.owners?.name || 'No owner'}`}
+      subtitle={<span className="inline-flex flex-wrap items-center gap-x-1.5"><Code value={contract.contract_code} label="Contract code" empty="Contract" /> · <Code value={contract.units?.unit_code} label="Unit code" /> · {contract.owners?.name || 'No owner'}</span>}
       onClose={onClose}
       footer={(
         <>
@@ -1605,7 +1604,7 @@ function RenewContractModal({ contract, termNumber, unitOwner, onClose, onRenewe
   return (
     <ModalShell
       title="Renew contract"
-      subtitle={`${contract.contract_code || 'Contract'} ended ${formatDate(contract.expiry_date)} · ${contract.units?.unit_code || '—'}`}
+      subtitle={<span className="inline-flex flex-wrap items-center gap-x-1.5"><Code value={contract.contract_code} label="Contract code" empty="Contract" /> ended {formatDate(contract.expiry_date)} · <Code value={contract.units?.unit_code} label="Unit code" /></span>}
       onClose={onClose}
       footer={(
         <>
@@ -1689,7 +1688,7 @@ function RenewContractModal({ contract, termNumber, unitOwner, onClose, onRenewe
       <div className="flex items-start gap-2 rounded-md border border-border p-3">
         <Info size={13} className="text-foreground flex-shrink-0 mt-0.5" />
         <p className="text-[12px] text-foreground leading-relaxed">
-          This creates term {termNumber + 1} as a new contract and marks {contract.contract_code || 'this one'} as renewed.
+          This creates term {termNumber + 1} as a new contract and marks <Code value={contract.contract_code} label="Contract code" empty="this one" /> as renewed.
           Accounting keeps each term's figures separate and adds them up across terms.
         </p>
       </div>
@@ -1783,7 +1782,7 @@ function TermsList({ terms, currentId, onSelect }: TermsListProps) {
             >
               <span className="text-[11px] font-semibold text-foreground w-12 flex-shrink-0">Term {i + 1}</span>
               <span className="min-w-0 flex-1">
-                <span className="block font-mono text-[12px] font-semibold text-foreground truncate">{t.contract_code || '—'}</span>
+                <Code value={t.contract_code} label="Contract code" className="text-[12px]" block />
                 <span className="block text-[11px] text-foreground tabular-nums truncate">{formatDate(t.effective_date)} → {formatDate(t.expiry_date)}</span>
               </span>
               <StatusText contract={t} />
@@ -1905,9 +1904,10 @@ function ContractDetailPanel({ contract, contracts, units, owners, onClose, onCh
             <div className="flex-shrink-0 px-5 py-4 border-b border-border">
               <div className="flex items-start gap-3">
                 <div className="min-w-0 flex-1">
-                  <p className="text-base font-bold text-foreground font-mono truncate">{contract.contract_code || '—'}</p>
-                  <p className="text-[11px] text-foreground truncate">
-                    {unit?.unit_code || '—'} · {unit?.building || '—'}
+                  <Code value={contract.contract_code} label="Contract code" className="text-base" block iconSize={14} />
+                  <p className="text-[11px] text-foreground flex items-center gap-1 min-w-0">
+                    <Code value={unit?.unit_code} label="Unit code" className="text-[11px]" />
+                    <span className="truncate">· {unit?.building || '—'}</span>
                   </p>
                   <div className="flex items-center gap-2 mt-2 flex-wrap">
                     <span className={cn('text-[11px] font-semibold', statusConfig.className)}>
@@ -1948,7 +1948,7 @@ function ContractDetailPanel({ contract, contracts, units, owners, onClose, onCh
                 )}
                 {nextTerm && (
                   <Button variant="outline" size="sm" className="h-7 rounded-md text-[11px] gap-1.5" onClick={() => onSelect(nextTerm.id)}>
-                    Renewed as {nextTerm.contract_code || `term ${termIndex + 2}`} <ArrowRight size={11} />
+                    Renewed as <Code value={nextTerm.contract_code} label="Contract code" className="text-[11px]" iconSize={11} empty={`term ${termIndex + 2}`} /> <ArrowRight size={11} />
                   </Button>
                 )}
                 <Button variant="outline" size="sm" className="h-7 rounded-md text-[11px] gap-1.5 ml-auto" onClick={onDelete}>
@@ -1990,7 +1990,7 @@ function ContractDetailPanel({ contract, contracts, units, owners, onClose, onCh
                 <div className="p-3 space-y-0.5">
                   <div className="flex items-center gap-2 py-0.5">
                     <span className="text-[10px] uppercase tracking-wider text-foreground font-semibold min-w-[72px]">Code</span>
-                    <span className="text-xs font-mono text-foreground">{unit?.unit_code || '—'}</span>
+                    <Code value={unit?.unit_code} label="Unit code" className="text-xs" />
                   </div>
                   <div className="flex items-center gap-2 py-0.5">
                     <span className="text-[10px] uppercase tracking-wider text-foreground font-semibold min-w-[72px]">Building</span>

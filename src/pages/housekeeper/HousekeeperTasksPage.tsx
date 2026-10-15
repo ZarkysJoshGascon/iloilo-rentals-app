@@ -8,7 +8,7 @@ import { AnimatePresence, motion } from 'framer-motion'
 import {
   ArrowLeft, Camera, X, Trash2, AlertTriangle, Image as ImageIcon, Plus, Clock, Sparkles,
   Coffee, Shirt, Wallet, Send, Lock, Search, RefreshCw, Moon, Sun, LogOut, DoorOpen,
-  CheckCircle2, Hourglass, Home,
+  CheckCircle2, Hourglass, Home, Bell, BellRing,
 } from 'lucide-react'
 import toast from 'react-hot-toast'
 import { supabase } from '@/lib/supabase'
@@ -16,7 +16,12 @@ import { useAuth } from '@/context/AuthContext'
 import { useTheme } from '@/context/ThemeContext'
 import { useUserRole } from '@/hooks/useUserRole'
 import { submitCleaning, parseInventory, getSignedUrl, getSignedUrls } from '@/lib/cleanings'
-import { cn } from '@/lib/utils'
+import { cn, STAY_TIMES } from '@/lib/utils'
+import { stayMoment, guestState, hasGuestLeft } from '@/lib/stay'
+import { Panel, PanelHeader } from '@/components/admin/_shared/Panel'
+import {
+  QueueColumn, QueueRow, RowAction, WithDot, useNow, useLocalToday, formatSpan, formatClock, localISODate,
+} from '@/components/admin/_shared/WorkQueue'
 import { Input } from '@/components/ui/input'
 import { Textarea } from '@/components/ui/textarea'
 import { Skeleton } from '@/components/ui/skeleton'
@@ -29,6 +34,7 @@ import {
 } from '@/components/admin/_shared/listTools'
 import type { ReactNode } from 'react'
 import type { LucideIcon } from 'lucide-react'
+import { Code } from '@/components/common/Code'
 
 const PHOTO_LIMITS = { before: 15, after: 15, report: 10 }
 const PANEL_WIDTH = 520
@@ -57,12 +63,61 @@ const SORT_VALUE = {
 }
 const SORT_DEFAULT_DIR = { scheduled: 'asc' }
 
+// Ready once the CRM confirms the guest has checked out (or their check-out
+// day is over); until then the guest is still in the unit.
 function getEffectiveStatus(cleaning) {
   if (cleaning.status === 'submitted' || cleaning.status === 'completed' || cleaning.status === 'cancelled') return cleaning.status
   if (!cleaning.bookings?.check_out) return 'ready'
-  const today = new Date(); today.setHours(0, 0, 0, 0)
-  const co = new Date(cleaning.bookings.check_out); co.setHours(0, 0, 0, 0)
-  return co <= today ? 'ready' : 'scheduled'
+  return hasGuestLeft(cleaning.bookings) ? 'ready' : 'scheduled'
+}
+
+// Housekeepers can't read bookings or units, so the page gets them from
+// housekeeper_cleaning_details() (unit, booking code, dates, next arrival)
+// and the cleaning's own copy of the check-out (guest_left_at, checkout_due_at).
+// `bookings` is shaped like a booking so lib/stay can tell where the guest is.
+function withStay(cleaning, details) {
+  return {
+    ...cleaning,
+    units: details ? { unit_code: details.unit_code, building: details.building } : null,
+    bookings: details?.booking_code
+      ? {
+          booking_code: details.booking_code,
+          check_in: details.check_in,
+          check_out: details.check_out,
+          checked_out_at: cleaning.guest_left_at,
+          late_checkout_at: cleaning.checkout_due_at,
+        }
+      : null,
+    nextCheckInAt: details?.next_check_in_at || null,
+  }
+}
+
+const clockOf = (d: Date) => formatClock(d.getHours(), d.getMinutes())
+
+/** The agreed late check-out time, if the guest has one (anything but the usual 11 AM). */
+function lateCheckout(cleaning): Date | null {
+  if (!cleaning.checkout_due_at || !cleaning.bookings?.check_out) return null
+  const due = new Date(cleaning.checkout_due_at)
+  const usual = stayMoment(cleaning.bookings.check_out, STAY_TIMES.checkOut)
+  return usual && due.getTime() !== usual.getTime() ? due : null
+}
+
+/** "Oct 15 · 11 AM", "Oct 15 · 1 PM (late)", or with the confirmed time once the guest has left. */
+function checkoutLabel(cleaning) {
+  const b = cleaning.bookings
+  if (!b?.check_out) return '—'
+  const late = lateCheckout(cleaning)
+  const day = new Date(`${String(b.check_out).slice(0, 10)}T00:00:00`).toLocaleDateString('en-PH', { month: 'short', day: 'numeric' })
+  const left = cleaning.guest_left_at ? new Date(cleaning.guest_left_at) : null
+  if (left) return `${day} · left ${clockOf(left)}`
+  return `${day} · ${late ? `${clockOf(late)} (late)` : STAY_TIMES.checkOut.label}`
+}
+
+/** The next guest's check-in, when it's on the given day (so the cleaning has to be done by then). */
+function nextGuestOn(cleaning, day: string): Date | null {
+  if (!cleaning.nextCheckInAt) return null
+  const at = new Date(cleaning.nextCheckInAt)
+  return localISODate(at) === day ? at : null
 }
 
 function formatDate(d) {
@@ -166,6 +221,52 @@ function Notice({ icon: Icon, tone = 'plain', title, children }: { icon: LucideI
       </div>
     </div>
   )
+}
+
+// Whether the housekeeper can go in: ready (the CRM confirmed the guest
+// left), the guest still in (with the countdown), or check-out time passed
+// but not confirmed yet (don't go in).
+function StayNotice({ cleaning }: { cleaning: any }) {
+  const now = useNow()
+  const today = useLocalToday()
+  const status = getEffectiveStatus(cleaning)
+  if (!cleaning.bookings?.check_out || status === 'submitted' || status === 'completed' || status === 'cancelled') return null
+  const state = guestState(cleaning.bookings, now)
+  const late = lateCheckout(cleaning)
+  const nextGuest = nextGuestOn(cleaning, today)
+
+  if (state.kind === 'left') {
+    return (
+      <Notice
+        icon={DoorOpen}
+        tone="good"
+        title={state.confirmed ? `Ready to clean · guest checked out ${clockOf(state.at)}` : 'Ready to clean · the guest has left'}
+      >
+        {nextGuest
+          ? `The next guest checks in at ${clockOf(nextGuest)}. Finish before then.`
+          : 'No guest checks in here today.'}
+      </Notice>
+    )
+  }
+  if (state.kind === 'unconfirmed') {
+    return (
+      <Notice icon={Clock} title="Waiting for the check-out to be confirmed">
+        Check-out was at {clockOf(state.due)}. Don't go in until the guest is confirmed out; this turns green when they are.
+      </Notice>
+    )
+  }
+  if (state.kind === 'staying') {
+    const outToday = String(cleaning.bookings.check_out).slice(0, 10) === today
+    return (
+      <Notice icon={Clock} title="Guest is still in the unit">
+        {outToday
+          ? `Checks out at ${clockOf(state.due)}${late ? ' (late check-out)' : ''}, in ${formatSpan(state.due.getTime() - now)}.`
+          : `Checks out ${formatDate(cleaning.bookings.check_out)} at ${clockOf(state.due)}.`}
+        {' '}You'll be alerted when they've left.
+      </Notice>
+    )
+  }
+  return null
 }
 
 function useSignedUrls(photos) {
@@ -720,10 +821,10 @@ function CleaningPanel({ cleaning, onClose, onChanged }: CleaningPanelProps) {
         <div className="flex-shrink-0 px-5 py-4 border-b border-border">
           <div className="flex items-start gap-3">
             <div className="min-w-0 flex-1">
-              <p className="font-mono text-sm font-bold text-foreground truncate">{cleaning.cleaning_code || '—'}</p>
-              <p className="text-xs text-foreground truncate mt-0.5">
-                {unit?.unit_code || '—'}
-                {unit?.building ? ` · ${unit.building}` : ''}
+              <Code value={cleaning.cleaning_code} label="Cleaning code" className="text-sm" block />
+              <p className="text-xs text-foreground mt-0.5 flex items-center gap-1 min-w-0">
+                <Code value={unit?.unit_code} label="Unit code" className="text-xs" />
+                {unit?.building && <span className="truncate">· {unit.building}</span>}
               </p>
               <div className="flex items-center gap-3 mt-2 flex-wrap">
                 <TypeText type={cleaning.type} />
@@ -750,21 +851,26 @@ function CleaningPanel({ cleaning, onClose, onChanged }: CleaningPanelProps) {
               You can still fix anything below and resubmit.
             </Notice>
           )}
-          {effective === 'scheduled' && (
-            <Notice icon={Clock} title="Guest is still in the unit">
-              Clean after check-out{booking?.check_out ? ` (${formatDate(booking.check_out)})` : ''}.
-            </Notice>
-          )}
+          <StayNotice cleaning={cleaning} />
 
           <DetailSection title="Overview" icon={Clock}>
             <div className="p-3 space-y-0.5">
-              <InfoRow label="Code"><span className="font-mono font-semibold">{cleaning.cleaning_code || '—'}</span></InfoRow>
+              <InfoRow label="Code"><Code value={cleaning.cleaning_code} label="Cleaning code" className="text-xs" /></InfoRow>
               <InfoRow label="Type"><TypeText type={cleaning.type} /></InfoRow>
               {booking ? (
                 <>
-                  <InfoRow label="Booking"><span className="font-mono">{booking.booking_code}</span></InfoRow>
-                  <InfoRow label="Guest">{booking.guest_name}</InfoRow>
+                  <InfoRow label="Booking"><Code value={booking.booking_code} label="Booking code" className="text-xs" /></InfoRow>
                   <InfoRow label="Stay"><span className="tabular-nums">{formatDate(booking.check_in)} → {formatDate(booking.check_out)}</span></InfoRow>
+                  <InfoRow label="Check-out">
+                    <span className="tabular-nums">
+                      {checkoutLabel(cleaning)}
+                    </span>
+                  </InfoRow>
+                  {cleaning.nextCheckInAt && (
+                    <InfoRow label="Next guest">
+                      <span className="tabular-nums">{formatDate(cleaning.nextCheckInAt)} · {clockOf(new Date(cleaning.nextCheckInAt))}</span>
+                    </InfoRow>
+                  )}
                 </>
               ) : (
                 <InfoRow label="Booking"><span className="italic">Standalone deep clean</span></InfoRow>
@@ -876,6 +982,225 @@ function CleaningPanel({ cleaning, onClose, onChanged }: CleaningPanelProps) {
 // List
 // ─────────────────────────────────────────────────────────────
 
+// ─────────────────────────────────────────────────────────────
+// The signal: a unit has just been cleared for cleaning
+// ─────────────────────────────────────────────────────────────
+
+function placeOf(cleaning) {
+  return [cleaning.units?.unit_code, cleaning.units?.building].filter(Boolean).join(' · ') || 'A unit'
+}
+
+// A toast with Open, a buzz on phones, and a system notification when alerts
+// are on and the page is in the background (only while the page is open: it
+// has no way to reach a closed browser).
+function announceReady(cleaning, open: () => void) {
+  const place = placeOf(cleaning)
+  toast((t) => (
+    <span className="flex items-start gap-3 text-[13px]">
+      <DoorOpen size={18} aria-hidden className="flex-shrink-0 mt-0.5" />
+      <span className="min-w-0">
+        <strong className="block font-semibold">{place} is ready to clean</strong>
+        <span>The guest has checked out.</span>
+      </span>
+      <button
+        type="button"
+        onClick={() => { toast.dismiss(t.id); open() }}
+        className="flex-shrink-0 font-semibold underline underline-offset-2"
+      >
+        Open
+      </button>
+    </span>
+  ), { id: `ready-${cleaning.id}`, duration: 12000 })
+
+  try { navigator.vibrate?.([200, 100, 200]) } catch { /* no vibration here */ }
+
+  if (typeof Notification === 'undefined' || Notification.permission !== 'granted' || document.visibilityState === 'visible') return
+  const title = `${place} is ready to clean`
+  const options = { body: 'The guest has checked out.', tag: `ready-${cleaning.id}` }
+  try {
+    const n = new Notification(title, options)
+    n.onclick = () => { window.focus(); open(); n.close() }
+  } catch {
+    // Phones only allow notifications through a service worker.
+    navigator.serviceWorker?.getRegistration?.().then((reg) => reg?.showNotification(title, options)).catch(() => {})
+  }
+}
+
+type AlertsState = NotificationPermission | 'unsupported'
+
+function alertsState(): AlertsState {
+  return typeof Notification === 'undefined' ? 'unsupported' : Notification.permission
+}
+
+// ─────────────────────────────────────────────────────────────
+// Today: what's ready now, and what's waiting for a guest to leave
+// ─────────────────────────────────────────────────────────────
+
+const READY_TONE = STATUS_TEXT.ready.className
+const WAITING_TONE = STATUS_TEXT.scheduled.className
+
+/** Where a cleaning stands today, for the Today card. */
+function todayState(cleaning, now: number, today: string) {
+  const status = getEffectiveStatus(cleaning)
+  if (status === 'submitted' || status === 'completed' || status === 'cancelled') return null
+  if (!cleaning.bookings?.check_out) return { kind: 'ready' as const, since: null }
+  const state = guestState(cleaning.bookings, now)
+  if (state.kind === 'left') return { kind: 'ready' as const, since: state.at }
+  // Still in: only today's check-outs belong on the Today card.
+  const outToday = String(cleaning.bookings.check_out).slice(0, 10) === today || cleaning.scheduled_date === today
+  if (!outToday || state.kind === 'none') return null
+  return { kind: 'waiting' as const, state }
+}
+
+type TodayRowProps = {
+  cleaning: any
+  now: number
+  today: string
+  onOpen: () => void
+}
+
+function ReadyRow({ cleaning, now, today, onOpen }: TodayRowProps) {
+  const unit = cleaning.units
+  const state = todayState(cleaning, now, today)
+  const since = state?.kind === 'ready' ? state.since : null
+  const nextGuest = nextGuestOn(cleaning, today)
+  const place = [unit?.unit_code, unit?.building].filter(Boolean).join(' · ') || 'Unit not set'
+  const lead = since ? formatSpan(now - since.getTime()) : 'Ready'
+  const caption = since ? 'since guest left' : 'no guest'
+  return (
+    <QueueRow
+      lead={lead}
+      leadCaption={caption}
+      leadTone={READY_TONE}
+      label={`Open ${place}: ready to clean`}
+      title={(
+        <>
+          {place}
+          {cleaning.cleaning_code && <span className="ml-2 inline-flex align-middle"><Code value={cleaning.cleaning_code} label="Cleaning code" className="text-[11px]" /></span>}
+        </>
+      )}
+      subtitle={(
+        <>
+          <span className="font-semibold">{since ? `Guest checked out ${clockOf(since)}` : 'No guest before this one'}</span>
+          {nextGuest
+            ? <WithDot><span className="font-semibold text-amber-600 dark:text-amber-400">Finish by {clockOf(nextGuest)}</span></WithDot>
+            : cleaning.scheduled_date && cleaning.scheduled_date !== today && <WithDot>{relativeDay(cleaning.scheduled_date)}</WithDot>}
+        </>
+      )}
+      aside={<TypeText type={cleaning.type} />}
+      asideSub={nextGuest ? 'Next guest today' : null}
+      actions={<RowAction primary icon={Sparkles} onClick={onOpen}>Start cleaning</RowAction>}
+      onClick={onOpen}
+    />
+  )
+}
+
+function WaitingRow({ cleaning, now, today, onOpen }: TodayRowProps) {
+  const unit = cleaning.units
+  const state = todayState(cleaning, now, today)
+  if (state?.kind !== 'waiting') return null
+  const guest = state.state
+  const late = lateCheckout(cleaning)
+  const place = [unit?.unit_code, unit?.building].filter(Boolean).join(' · ') || 'Unit not set'
+  const staying = guest.kind === 'staying'
+  const due = 'due' in guest ? guest.due : null
+  const lead = staying && due ? formatSpan(due.getTime() - now) : due ? clockOf(due) : '—'
+  const caption = staying ? (late ? 'to late check-out' : 'to check-out') : 'not confirmed'
+  return (
+    <QueueRow
+      lead={lead}
+      leadCaption={caption}
+      leadTone={WAITING_TONE}
+      label={`Open ${place}: guest still in`}
+      title={(
+        <>
+          {place}
+          {cleaning.cleaning_code && <span className="ml-2 inline-flex align-middle"><Code value={cleaning.cleaning_code} label="Cleaning code" className="text-[11px]" /></span>}
+        </>
+      )}
+      subtitle={(
+        <>
+          <span>{staying ? 'Guest is still in' : 'Check-out not confirmed'}</span>
+          {!staying && <WithDot><span className="font-semibold">Don&apos;t go in yet</span></WithDot>}
+          {late && <WithDot><span className="font-semibold">Late check-out {clockOf(late)}</span></WithDot>}
+                  </>
+      )}
+      aside={<TypeText type={cleaning.type} />}
+      onClick={onOpen}
+    />
+  )
+}
+
+type HousekeeperTodayProps = {
+  cleanings: any[]
+  loading: boolean
+  onOpen: (id: any) => void
+}
+
+// The top of the page: units the booker has cleared (start these now) and
+// today's check-outs still in progress. Ticks every minute; a unit moves
+// across as soon as its check-out is confirmed in the CRM.
+function HousekeeperToday({ cleanings, loading, onOpen }: HousekeeperTodayProps) {
+  const now = useNow()
+  const today = useLocalToday()
+  const { ready, waiting } = useMemo(() => {
+    const ready = []
+    const waiting = []
+    for (const c of cleanings) {
+      const state = todayState(c, now, today)
+      if (state?.kind === 'ready') ready.push({ c, since: state.since })
+      else if (state?.kind === 'waiting') waiting.push({ c, due: 'due' in state.state ? state.state.due : null })
+    }
+    // Ready: a next guest arriving today first, then whoever has waited longest.
+    ready.sort((a, b) =>
+      Number(!!nextGuestOn(b.c, today)) - Number(!!nextGuestOn(a.c, today))
+      || (a.since?.getTime() ?? 0) - (b.since?.getTime() ?? 0))
+    waiting.sort((a, b) => (a.due?.getTime() ?? 0) - (b.due?.getTime() ?? 0))
+    return { ready: ready.map((r) => r.c), waiting: waiting.map((w) => w.c) }
+  }, [cleanings, now, today])
+
+  const summary = loading
+    ? 'Loading…'
+    : ready.length > 0
+      ? `${ready.length} unit${ready.length === 1 ? '' : 's'} ready to clean`
+      : waiting.length > 0
+        ? 'Waiting for guests to check out'
+        : 'Nothing to clean right now'
+
+  return (
+    <Panel>
+      <PanelHeader icon={DoorOpen} title="Today" subtitle={summary} />
+      <div className="grid grid-cols-1 md:grid-cols-2 divide-y md:divide-y-0 md:divide-x divide-border">
+        <QueueColumn
+          icon={DoorOpen}
+          title="Ready to clean"
+          hint="The guest has checked out. You can go in."
+          count={loading ? null : ready.length}
+          countTone={READY_TONE}
+          loading={loading}
+          emptyIcon={Clock}
+          emptyTitle="Nothing ready yet"
+          emptyText="A unit shows up here the moment its guest checks out."
+        >
+          {ready.map((c) => <ReadyRow key={c.id} cleaning={c} now={now} today={today} onOpen={() => onOpen(c.id)} />)}
+        </QueueColumn>
+        <QueueColumn
+          icon={Clock}
+          title="Waiting for check-out"
+          hint="Today's guests still in. Wait until they show as ready."
+          count={loading ? null : waiting.length}
+          loading={loading}
+          emptyIcon={CheckCircle2}
+          emptyTitle="No one left to check out"
+          emptyText="Every guest leaving today is out."
+        >
+          {waiting.map((c) => <WaitingRow key={c.id} cleaning={c} now={now} today={today} onOpen={() => onOpen(c.id)} />)}
+        </QueueColumn>
+      </div>
+    </Panel>
+  )
+}
+
 type TaskRowProps = {
   cleaning: any
   selected: boolean
@@ -899,18 +1224,18 @@ function TaskRow({ cleaning, selected, onClick }: TaskRowProps) {
       className={cn('w-full text-left px-4 py-3 border-b border-border cursor-pointer select-none', ROW_GRID)}
     >
       <div className="min-w-0">
-        <span className="font-mono text-[12.5px] font-bold text-foreground truncate block">{cleaning.cleaning_code || '—'}</span>
-        <span className="text-[11.5px] text-foreground truncate block">
-          {unit?.unit_code || '—'}
-          {unit?.building ? ` · ${unit.building}` : ''}
+        <Code value={cleaning.cleaning_code} label="Cleaning code" className="text-[12.5px]" block />
+        <span className="text-[11.5px] text-foreground flex items-center gap-1 min-w-0">
+          <Code value={unit?.unit_code} label="Unit code" className="text-[11.5px]" />
+          {unit?.building && <span className="truncate">· {unit.building}</span>}
         </span>
       </div>
       <div className="min-w-0 max-md:col-span-2">
         {booking ? (
           <>
-            <span className="font-mono text-[12px] text-foreground truncate block">{booking.booking_code}</span>
+            <Code value={booking.booking_code} label="Booking code" className="text-[12px]" block />
             <span className="text-[11.5px] text-foreground truncate block">
-              {booking.guest_name}{booking.check_out ? ` · out ${formatDate(booking.check_out)}` : ''}
+              {booking.check_out ? `Out ${checkoutLabel(cleaning)}` : ''}
             </span>
           </>
         ) : (
@@ -966,13 +1291,18 @@ export default function HousekeeperTasksPage() {
     else setLoading(true)
     setFetchError(null)
     try {
-      const { data, error } = await supabase
-        .from('cleanings')
-        .select(`*, units:unit_id ( id, unit_code, building ), bookings:booking_id ( id, booking_code, guest_name, check_in, check_out )`)
-        .eq('housekeeper_id', id)
-        .order('scheduled_date', { ascending: true, nullsFirst: false })
-      if (error) throw error
-      setCleanings(data || [])
+      const [cRes, dRes] = await Promise.all([
+        supabase
+          .from('cleanings')
+          .select('*')
+          .eq('housekeeper_id', id)
+          .order('scheduled_date', { ascending: true, nullsFirst: false }),
+        supabase.rpc('housekeeper_cleaning_details'),
+      ])
+      if (cRes.error) throw cRes.error
+      if (dRes.error) throw dRes.error
+      const details = new Map((dRes.data || []).map((d) => [d.cleaning_id, d]))
+      setCleanings((cRes.data || []).map((c) => withStay(c, details.get(c.id))))
       hasLoaded.current = true
     } catch (err) {
       console.error('Fetch cleanings failed:', err)
@@ -1006,6 +1336,47 @@ export default function HousekeeperTasksPage() {
     for (const x of cleanings) c[getEffectiveStatus(x)]++
     return c
   }, [cleanings])
+
+  // A unit turning Ready after the first load (its check-out was just
+  // confirmed in the CRM; the change arrives live) is announced.
+  const readySeen = useRef<Set<any> | null>(null)
+  useEffect(() => {
+    if (loading) return
+    const readyNow = new Set(cleanings.filter((c) => getEffectiveStatus(c) === 'ready').map((c) => c.id))
+    const seen = readySeen.current
+    readySeen.current = readyNow
+    if (!seen) return
+    for (const c of cleanings) {
+      if (readyNow.has(c.id) && !seen.has(c.id)) announceReady(c, () => setSelectedId(c.id))
+    }
+  }, [cleanings, loading])
+
+  // The tab shows how many units are ready, e.g. "(2) Ready to clean".
+  useEffect(() => {
+    const before = document.title
+    if (counts.ready > 0) document.title = `(${counts.ready}) Ready to clean · Iloilo Rentals`
+    return () => { document.title = before }
+  }, [counts.ready])
+
+  // System notifications, for when the page is in the background.
+  const [alerts, setAlerts] = useState<AlertsState>(alertsState)
+  const turnOnAlerts = async () => {
+    if (alerts === 'unsupported') {
+      toast("This browser can't show alerts. Keep this page open: ready units pop up here.")
+      return
+    }
+    if (alerts === 'granted') {
+      toast.success("Alerts are on. You'll get one when a unit is ready.")
+      return
+    }
+    if (alerts === 'denied') {
+      toast('Alerts are blocked for this site. Allow notifications in your browser settings.')
+      return
+    }
+    const answer = await Notification.requestPermission()
+    setAlerts(answer)
+    if (answer === 'granted') toast.success("Alerts on. You'll get one when a unit is ready.")
+  }
 
   const tabs = counts.cancelled > 0 ? [...STATUS_TABS, { id: 'cancelled', label: 'Cancelled' }] : STATUS_TABS
 
@@ -1056,6 +1427,15 @@ export default function HousekeeperTasksPage() {
           </span>
         </div>
         <div className="flex items-center gap-2 flex-shrink-0">
+          <button
+            onClick={turnOnAlerts}
+            className={cn(headerButton, 'w-8 sm:w-auto sm:px-3', alerts === 'granted' && 'border-brand-solid')}
+            aria-label={alerts === 'granted' ? 'Alerts are on' : 'Turn on alerts'}
+            title={alerts === 'granted' ? 'Alerts are on' : 'Get an alert when a unit is ready to clean'}
+          >
+            {alerts === 'granted' ? <BellRing size={14} /> : <Bell size={14} />}
+            <span className="hidden sm:inline">{alerts === 'granted' ? 'Alerts on' : 'Turn on alerts'}</span>
+          </button>
           <button onClick={() => navigate('/')} className={cn(headerButton, 'w-8 sm:w-auto sm:px-3')} aria-label="Back to site" title="Back to site">
             <ArrowLeft size={13} className="hidden sm:block" />
             <Home size={14} className="sm:hidden" />
@@ -1098,6 +1478,8 @@ export default function HousekeeperTasksPage() {
               </div>
             ) : (
               <>
+                <HousekeeperToday cleanings={cleanings} loading={loading} onOpen={setSelectedId} />
+
                 <StatStrip cols={4}>
                   <StatTile icon={DoorOpen} label="Ready to clean" value={counts.ready} loading={loading}
                     sub={counts.ready > 0 ? 'Guest has left · clean these next' : 'Nothing waiting'}

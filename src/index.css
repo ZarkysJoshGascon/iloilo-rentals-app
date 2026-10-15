@@ -68,39 +68,6 @@ html.crm {
   -webkit-tap-highlight-color: transparent;
 }
 
-.scrollable-content::-webkit-scrollbar {
-  width: 6px;
-}
-.scrollable-content::-webkit-scrollbar-track {
-  background: #f1f1f1;
-  border-radius: 4px;
-}
-.scrollable-content::-webkit-scrollbar-thumb {
-  background: #2d568e;
-  border-radius: 4px;
-}
-
-@media (max-width: 1023px) {
-  .mobile-scroll-container {
-    -webkit-overflow-scrolling: touch;
-    scrollbar-width: thin;
-    scrollbar-color: #2d568e #f1f1f1;
-  }
-  .mobile-scroll-container::-webkit-scrollbar {
-    width: 8px;
-    height: 8px;
-  }
-  .mobile-scroll-container::-webkit-scrollbar-track {
-    background: #f1f1f1;
-    border-radius: 8px;
-  }
-  .mobile-scroll-container::-webkit-scrollbar-thumb {
-    background: #2d568e;
-    border-radius: 8px;
-    border: 2px solid #f1f1f1;
-  }
-}
-
 @keyframes breathing {
   0%, 100% {
     transform: scale(1);

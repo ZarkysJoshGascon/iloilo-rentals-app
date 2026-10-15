@@ -4,8 +4,8 @@ import { useNavigate } from 'react-router'
 import {
   RefreshCw, ArrowRight, Inbox,
   Copy, Calendar, TrendingUp, FileText, Mail, Sparkles, Loader2,
-  CheckCircle2, AlertTriangle, CalendarRange, Home, CalendarClock,
-  Wallet, ClipboardCheck, LogIn, LogOut, Clock, ArrowUpRight, ArrowDownRight,
+  CheckCircle2, AlertTriangle, CalendarRange, CalendarClock,
+  Wallet, ClipboardCheck, KeyRound, Luggage, BedDouble, Clock, ArrowUpRight, ArrowDownRight,
   Table2, BarChart3, ExternalLink, CalendarDays, UserRound,
 } from 'lucide-react'
 import {
@@ -24,6 +24,7 @@ import { CARD_ON_PHONE, PHONE_LABEL } from '@/components/admin/_shared/listTools
 import { ScrollChart, niceTicks } from '@/components/admin/_shared/ScrollChart'
 import type { ReactNode } from 'react'
 import type { LucideIcon } from 'lucide-react'
+import { Code } from '@/components/common/Code'
 
 const NEARING_END_DAYS = 60
 const COMING_UP_DAYS = 7
@@ -366,9 +367,9 @@ function BookingRow({ booking }: BookingRowProps) {
         <div className="min-w-0 flex-1">
           <p className="text-[13px] font-semibold text-foreground truncate">{booking.guest_name || '—'}</p>
           <p className="text-[11px] text-foreground truncate mt-0.5">
-            <span className="font-medium text-foreground">{booking.units?.unit_code || '—'}</span>
+            <Code value={booking.units?.unit_code} label="Unit code" className="text-[11px]" iconSize={11} />
             {' · '}{booking.units?.building || '—'}
-            {booking.booking_code && <span className="ml-2 font-mono">{booking.booking_code}</span>}
+            {booking.booking_code && <span className="ml-2 inline-flex align-middle"><Code value={booking.booking_code} label="Booking code" className="text-[11px]" iconSize={11} /></span>}
           </p>
         </div>
         <div className="text-right flex-shrink-0">
@@ -447,8 +448,8 @@ function TodayCard({ checkIns, checkOuts, comingUp, loading, onViewAll }: TodayC
             <RowsSkeleton />
           ) : (
             <>
-              <TodaySection icon={LogIn} title="Arriving" emptyText="No check-ins today." rows={checkIns} />
-              <TodaySection icon={LogOut} title="Leaving" emptyText="No check-outs today." rows={checkOuts} />
+              <TodaySection icon={KeyRound} title="Arriving" emptyText="No check-ins today." rows={checkIns} />
+              <TodaySection icon={Luggage} title="Leaving" emptyText="No check-outs today." rows={checkOuts} />
               <TodaySection icon={CalendarClock} title={`Next ${COMING_UP_DAYS} days`} emptyText="No arrivals booked this week." rows={comingUp} />
             </>
           )}
@@ -818,11 +819,11 @@ function ContractRow({ contract }: ContractRowProps) {
         className={cn(CONTRACT_COLS, 'w-full text-left px-5 py-3 border-b border-border last:border-0 hover:bg-muted/40 transition-colors cursor-pointer')}
       >
         <div className="min-w-0">
-          <span className="font-mono text-[12px] font-semibold text-foreground truncate block">{contract.contract_code || '—'}</span>
+          <Code value={contract.contract_code} label="Contract code" className="text-[12px]" block />
           <span className="text-[11px] text-foreground truncate block mt-0.5">{contract.owners?.name || 'No owner'}</span>
         </div>
         <div className="min-w-0 max-md:col-span-2">
-          <span className="text-[12px] font-semibold text-foreground truncate block">{contract.units?.unit_code || '—'}</span>
+          <Code value={contract.units?.unit_code} label="Unit code" className="text-[12px]" block />
           <span className="text-[11px] text-foreground truncate block mt-0.5">{contract.units?.building || '—'}</span>
         </div>
         <div className="min-w-0">
@@ -1064,7 +1065,7 @@ function MyActivityCard({ activity }: MyActivityCardProps) {
                   key={b.id}
                   title={b.guest_name || '—'}
                   amount={formatMoney(b.total_amount)}
-                  meta={`${b.booking_code || '—'} · ${b.units?.unit_code || '—'}`}
+                  meta={<span className="inline-flex items-center gap-1 min-w-0"><Code value={b.booking_code} label="Booking code" className="text-[11px]" iconSize={11} /> · <Code value={b.units?.unit_code} label="Unit code" className="text-[11px]" iconSize={11} /></span>}
                   dates={`${formatDateShort(b.check_in)} → ${formatDateShort(b.check_out)}`}
                   onOpen={() => goBooking(b.id)}
                   contextItems={buildBookingContextItems(b, navigate)}
@@ -1081,9 +1082,9 @@ function MyActivityCard({ activity }: MyActivityCardProps) {
               renderRow={(c) => (
                 <ActivityRow
                   key={c.id}
-                  title={<span className="font-mono">{c.cleaning_code || '—'}</span>}
+                  title={<Code value={c.cleaning_code} label="Cleaning code" className="text-[12px]" />}
                   amount={formatMoney(c.payment_amount || 0)}
-                  meta={<span className="capitalize">{`${c.units?.unit_code || '—'} · ${c.type || '—'} · ${c.status || '—'}`}</span>}
+                  meta={<span className="inline-flex items-center gap-1 min-w-0"><Code value={c.units?.unit_code} label="Unit code" className="text-[11px]" iconSize={11} /><span className="capitalize truncate">· {c.type || '—'} · {c.status || '—'}</span></span>}
                   dates={formatDateShort(c.scheduled_date)}
                   onOpen={() => goCleaning(c.id)}
                   contextItems={cleaningContextItems(c)}
@@ -1102,7 +1103,7 @@ function MyActivityCard({ activity }: MyActivityCardProps) {
                   key={b.id}
                   title={b.guest_name || '—'}
                   amount={formatMoney(b.affiliate_commission || 0)}
-                  meta={`${b.booking_code || '—'} · ${b.units?.unit_code || '—'}`}
+                  meta={<span className="inline-flex items-center gap-1 min-w-0"><Code value={b.booking_code} label="Booking code" className="text-[11px]" iconSize={11} /> · <Code value={b.units?.unit_code} label="Unit code" className="text-[11px]" iconSize={11} /></span>}
                   dates={`${formatDateShort(b.check_in)} → ${formatDateShort(b.check_out)}`}
                   onOpen={() => goBooking(b.id)}
                   contextItems={buildBookingContextItems(b, navigate)}
@@ -1428,7 +1429,7 @@ export default function DashboardPage() {
         {/* KPIs */}
         <StatStrip>
           <StatTile icon={CalendarRange} label="Total bookings" value={stats.totalBookings.toLocaleString('en-PH')} sub="All active records" loading={loading} onClick={() => goto('bookings')} />
-          <StatTile icon={Home} label="In-house now" value={stats.inHouseBookings} sub="Guests staying now" loading={loading} onClick={() => goto('bookings', 'in-house')} />
+          <StatTile icon={BedDouble} label="In-house now" value={stats.inHouseBookings} sub="Guests staying now" loading={loading} onClick={() => goto('bookings', 'in-house')} />
           <StatTile icon={CalendarClock} label="Upcoming" value={stats.upcomingBookings} sub="Future check-ins" loading={loading} onClick={() => goto('bookings', 'upcoming')} />
           <StatTile
             icon={Wallet}

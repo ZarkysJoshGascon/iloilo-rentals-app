@@ -7,8 +7,8 @@ import {
   Check, Loader2,
   Plus, RefreshCw, Search, X, Trash2,
   Building2, CheckCircle2, Clock, AlertTriangle, Calendar as CalendarIcon, User, Wallet, Users,
-  Edit2, Lock, LogIn, LogOut, ChevronLeft, ChevronRight,
-  Mail, Copy, Sparkles, ChevronDown,
+  Edit2, Lock, KeyRound, Luggage, ChevronLeft, ChevronRight,
+  Mail, Copy, Sparkles, ChevronDown, Undo2, AlarmClockPlus, CalendarClock, BedDouble,
 } from 'lucide-react'
 import toast from 'react-hot-toast'
 import { Button } from '@/components/ui/button'
@@ -39,11 +39,17 @@ import { sendBookingConfirmation } from '@/lib/email'
 import BookingConfirmationModal from './BookingConfirmationModal'
 import { ContextMenu } from '@/components/ui/ContextMenu'
 import { SortHeader, nextSort, ResultsBar, SearchKeyHint, useListShortcuts, CARD_ON_PHONE, MobileSort, useSidePanelMotion, useListCap } from '@/components/admin/_shared/listTools'
-import { Panel, PanelHeader, SectionLabel, InitialsAvatar } from '@/components/admin/_shared/Panel'
+import { Panel, PanelHeader, InitialsAvatar } from '@/components/admin/_shared/Panel'
+import { QueueColumn, QueueRow, RowAction, WithDot, useNow, formatSpan, formatClock } from '@/components/admin/_shared/WorkQueue'
+import {
+  stayMoment, checkoutDue, guestState, hasGuestLeft, sameDayArrival, latestCheckout,
+  confirmCheckout, setLateCheckout,
+} from '@/lib/stay'
 import { StatStrip, StatTile } from '@/components/admin/_shared/StatStrip'
 import { StatusTabs } from '@/components/admin/_shared/StatusTabs'
 import type { ReactNode } from 'react'
 import type { LucideIcon } from 'lucide-react'
+import { Code } from '@/components/common/Code'
 
 const BRAND = 'var(--brand-solid)'
 const SOFT_SHADOW = '0 20px 40px -16px rgba(15,23,42,0.24), 0 6px 16px -6px rgba(15,23,42,0.10)'
@@ -187,8 +193,22 @@ function deriveBookingStatus(b) {
   const co = parseDateOnly(b.check_out)
   if (!ci || !co) return 'upcoming'
   if (t < ci) return 'upcoming'
-  if (t <= co) return 'in-house'
+  // In the unit until someone confirms they've left, or the check-out day is over.
+  if (t <= co && !b.checked_out_at) return 'in-house'
   return b.payment_status === 'paid' ? 'checked-out' : 'needs-attention'
+}
+
+// Commissions for a new total, at the rates snapshotted when the booking was
+// made. Without a snapshot the stored commission stays as it is.
+function commissionsForTotal(booking, total) {
+  return {
+    booker_commission: booking.booker_code && booking.booker_rate != null
+      ? computeCommissionAtRate(total, Number(booking.booker_rate))
+      : (booking.booker_code ? booking.booker_commission : 0),
+    affiliate_commission: booking.affiliate_code && booking.affiliate_rate != null
+      ? computeCommissionAtRate(total, Number(booking.affiliate_rate))
+      : (booking.affiliate_code ? booking.affiliate_commission : 0),
+  }
 }
 
 function formatDate(d) {
@@ -581,7 +601,7 @@ function PersonCombobox({
           {selected ? (
             <>
               <span className="text-foreground">{selected.name}</span>
-              <span className="text-foreground ml-1.5 font-mono text-[11px]">{selected.code}</span>
+              <span className="ml-1.5 inline-flex align-middle"><Code value={selected.code} className="text-[11px]" iconSize={11} /></span>
             </>
           ) : (
             <span className="italic">{emptyLabel}</span>
@@ -646,7 +666,7 @@ function PersonCombobox({
                           <span className="text-[12px] font-semibold text-foreground truncate">
                             {p.name || '—'}
                           </span>
-                          <span className="font-mono text-[10px] text-foreground">{p.code}</span>
+                          <Code value={p.code} className="text-[10px]" iconSize={11} />
                         </div>
                         {tier && (
                           <p className="text-[10px] text-foreground mt-0.5">
@@ -753,8 +773,8 @@ function SummaryCards({ bookings, active, onSelect }: SummaryCardsProps) {
   return (
     <StatStrip cols={4}>
       <StatTile icon={CalendarIcon} label="Total bookings" value={stats.total} sub="All active records" active={active === 'all'} onClick={() => onSelect('all')} />
-      <StatTile icon={Clock} label="Upcoming" value={stats.upcoming} sub="Future check-ins" active={active === 'upcoming'} onClick={() => pick('upcoming')} />
-      <StatTile icon={Building2} label="In-house" value={stats.inHouse} sub="Guests staying now" active={active === 'in-house'} onClick={() => pick('in-house')} />
+      <StatTile icon={CalendarClock} label="Upcoming" value={stats.upcoming} sub="Future check-ins" active={active === 'upcoming'} onClick={() => pick('upcoming')} />
+      <StatTile icon={BedDouble} label="In-house" value={stats.inHouse} sub="Guests staying now" active={active === 'in-house'} onClick={() => pick('in-house')} />
       <StatTile
         icon={AlertTriangle}
         label="Needs attention"
@@ -887,84 +907,156 @@ function DateRangeFilter({ from, to, onFromChange, onToChange, onClear }: DateRa
   )
 }
 
+const clockOf = (d: Date) => formatClock(d.getHours(), d.getMinutes())
+
 type TodayRowProps = {
   booking: any
-  onClick: () => any
+  kind: 'in' | 'out'
+  now: number
+  onClick: () => void
+  onConfirmCheckout?: (booking: any) => void
+  onLateCheckout?: (booking: any) => void
 }
 
-function TodayRow({ booking, onClick }: TodayRowProps) {
+function TodayRow({ booking, kind, now, onClick, onConfirmCheckout, onLateCheckout }: TodayRowProps) {
   const balance = Number(booking.balance || 0)
+  const nights = computeNights(booking.check_in, booking.check_out)
+  const guests = Number(booking.guests || 0)
+  const late = booking.late_checkout_at ? new Date(booking.late_checkout_at) : null
+
+  let lead: { lead: string; caption: string; tone: string }
+  let stillIn = false
+  if (kind === 'in') {
+    // Before 3 PM a countdown; after it, the hour.
+    const at = stayMoment(booking.check_in, STAY_TIMES.checkIn)
+    const until = at ? at.getTime() - now : 0
+    lead = until > 0
+      ? { lead: formatSpan(until), caption: 'to check-in', tone: BOOKING_STATUS_TEXT.upcoming.className }
+      : { lead: formatClock(STAY_TIMES.checkIn.hour, STAY_TIMES.checkIn.minute), caption: 'check-in', tone: BOOKING_STATUS_TEXT['in-house'].className }
+  } else {
+    const state = guestState(booking, now)
+    stillIn = state.kind === 'staying' || state.kind === 'unconfirmed'
+    if (state.kind === 'staying') {
+      lead = { lead: formatSpan(state.due.getTime() - now), caption: late ? 'to late check-out' : 'to check-out', tone: BOOKING_STATUS_TEXT['needs-attention'].className }
+    } else if (state.kind === 'unconfirmed') {
+      lead = { lead: clockOf(state.due), caption: 'not confirmed', tone: BOOKING_STATUS_TEXT['needs-attention'].className }
+    } else if (state.kind === 'left') {
+      lead = { lead: clockOf(state.at), caption: 'checked out', tone: BOOKING_STATUS_TEXT['in-house'].className }
+    } else {
+      lead = { lead: formatClock(STAY_TIMES.checkOut.hour, STAY_TIMES.checkOut.minute), caption: 'check-out', tone: '' }
+    }
+  }
+
   return (
-    <button
-      type="button"
+    <QueueRow
+      lead={lead.lead}
+      leadCaption={lead.caption}
+      leadTone={lead.tone}
+      label={`Open ${booking.guest_name || 'booking'}, ${booking.units?.unit_code || 'no unit'}: ${lead.lead} ${lead.caption}`}
+      title={(
+        <>
+          {booking.guest_name || '—'}
+          {booking.booking_code && <span className="ml-2 inline-flex align-middle"><Code value={booking.booking_code} label="Booking code" className="text-[11px]" /></span>}
+        </>
+      )}
+      subtitle={(
+        <>
+          {booking.units?.unit_code ? <Code value={booking.units.unit_code} label="Unit code" className="text-[11.5px]" /> : <span>No unit</span>}
+          {booking.units?.building && <WithDot>{booking.units.building}</WithDot>}
+          {nights > 0 && <WithDot>{nights} night{nights === 1 ? '' : 's'}</WithDot>}
+          {guests > 0 && <WithDot>{guests} guest{guests === 1 ? '' : 's'}</WithDot>}
+          {kind === 'out' && late && <WithDot><span className="font-semibold">Late check-out {clockOf(late)}</span></WithDot>}
+        </>
+      )}
+      aside={balance > 0
+        ? <span className="tabular-nums text-amber-600 dark:text-amber-400">{formatMoney(balance)} due</span>
+        : <span className="text-emerald-600 dark:text-emerald-400">Paid</span>}
+      asideSub={`${formatDateShort(booking.check_in)} → ${formatDateShort(booking.check_out)}`}
+      actions={kind === 'out' && stillIn && (onConfirmCheckout || onLateCheckout) ? (
+        <>
+          {onConfirmCheckout && (
+            <RowAction primary icon={CheckCircle2} onClick={() => onConfirmCheckout(booking)}>Guest checked out</RowAction>
+          )}
+          {onLateCheckout && (
+            <RowAction icon={AlarmClockPlus} onClick={() => onLateCheckout(booking)}>{late ? 'Change late check-out' : 'Late check-out'}</RowAction>
+          )}
+        </>
+      ) : null}
       onClick={onClick}
-      className="w-full text-left px-5 py-2.5 flex items-center gap-3 border-b border-border last:border-0 hover:bg-muted/40 transition-colors"
-    >
-      <GuestAvatar name={booking.guest_name} />
-      <div className="min-w-0 flex-1">
-        <p className="text-[13px] font-semibold text-foreground truncate">{booking.guest_name || '—'}</p>
-        <p className="text-[11px] text-foreground truncate mt-0.5">
-          <span className="font-medium">{booking.units?.unit_code || '—'}</span>
-          {booking.units?.building ? ` · ${booking.units.building}` : ''}
-          {booking.booking_code && <span className="ml-2 font-mono">{booking.booking_code}</span>}
-        </p>
-      </div>
-      <div className="text-right flex-shrink-0">
-        {balance > 0 ? (
-          <span className="text-[11.5px] font-semibold tabular-nums text-amber-600 dark:text-amber-400">{formatMoney(balance)} due</span>
-        ) : (
-          <span className="text-[11.5px] font-semibold text-emerald-600 dark:text-emerald-400">Paid</span>
-        )}
-        <p className="text-[10.5px] tabular-nums text-foreground mt-1">
-          {formatDateShort(booking.check_in)} → {formatDateShort(booking.check_out)}
-        </p>
-      </div>
-    </button>
-  )
-}
-
-type TodayColumnProps = {
-  icon: LucideIcon
-  title: string
-  rows: any
-  loading: any
-  empty: string
-  onRowClick: any
-}
-
-function TodayColumn({ icon, title, rows, loading, empty, onRowClick }: TodayColumnProps) {
-  return (
-    <div className="min-w-0">
-      <SectionLabel icon={icon} title={title} count={loading ? null : rows.length} />
-      {/* About three rows; more scroll inside */}
-      <div className="max-h-[204px] overflow-y-auto">
-        {loading ? (
-          <div className="p-3 space-y-2">{[...Array(2)].map((_, i) => <div key={i} className="h-11 rounded-md bg-muted animate-pulse" />)}</div>
-        ) : rows.length === 0 ? (
-          <p className="px-5 py-3 text-[12px] text-foreground">{empty}</p>
-        ) : (
-          rows.map((b) => <TodayRow key={b.id} booking={b} onClick={() => onRowClick(b)} />)
-        )}
-      </div>
-    </div>
+    />
   )
 }
 
 type TodayCardProps = {
-  checkIns: any
-  checkOuts: any
+  checkIns: any[]
+  checkOuts: any[]
   loading: boolean
   onRowClick: (booking: any) => void
+  onConfirmCheckout: (booking: any) => void
+  onLateCheckout: (booking: any) => void
 }
 
-// Today's arrivals and departures in one card, like the Dashboard's Today card.
-function TodayCard({ checkIns, checkOuts, loading, onRowClick }: TodayCardProps) {
+// Where each of today's departures stands: still in first, then checked out.
+const CHECKOUT_ORDER = { unconfirmed: 0, staying: 1, none: 2, left: 3 }
+
+// Today's arrivals and departures, each with a live countdown to its hour.
+// Departures are confirmed here ("Guest checked out"), which starts the cleaning.
+function TodayCard({ checkIns, checkOuts, loading, onRowClick, onConfirmCheckout, onLateCheckout }: TodayCardProps) {
+  const now = useNow()
+  const outs = useMemo(
+    () => checkOuts
+      .map((b) => ({ b, state: guestState(b, now) }))
+      .sort((x, y) => CHECKOUT_ORDER[x.state.kind] - CHECKOUT_ORDER[y.state.kind]),
+    [checkOuts, now],
+  )
+  const owing = checkOuts.filter((b) => Number(b.balance || 0) > 0).length
+  const unconfirmed = outs.filter((o) => o.state.kind === 'unconfirmed').length
+  const inAt = formatClock(STAY_TIMES.checkIn.hour, STAY_TIMES.checkIn.minute)
+  const outBy = formatClock(STAY_TIMES.checkOut.hour, STAY_TIMES.checkOut.minute)
+  const summary = loading ? 'Loading…' : `${checkIns.length} arriving · ${checkOuts.length} leaving`
+  const outHint = [
+    `Guests leave by ${outBy}`,
+    unconfirmed > 0 && `${unconfirmed} not confirmed`,
+    owing > 0 && `${owing} still owe${owing === 1 ? 's' : ''}`,
+  ].filter(Boolean).join(' · ')
+
   return (
     <Panel>
-      <PanelHeader icon={CalendarIcon} title="Today" subtitle="Check-ins and check-outs" />
-      <div className="grid grid-cols-1 md:grid-cols-2 md:divide-x divide-border">
-        <TodayColumn icon={LogIn} title="Check-ins" rows={checkIns} loading={loading} empty="No check-ins today." onRowClick={onRowClick} />
-        <TodayColumn icon={LogOut} title="Check-outs" rows={checkOuts} loading={loading} empty="No check-outs today." onRowClick={onRowClick} />
+      <PanelHeader icon={CalendarIcon} title="Today" subtitle={summary} />
+      <div className="grid grid-cols-1 md:grid-cols-2 divide-y md:divide-y-0 md:divide-x divide-border">
+        <QueueColumn
+          icon={KeyRound}
+          title="Check-ins"
+          hint={`Guests arrive from ${inAt}`}
+          count={loading ? null : checkIns.length}
+          loading={loading}
+          emptyTitle="No check-ins today"
+          emptyText="Nobody is arriving."
+        >
+          {checkIns.map((b) => <TodayRow key={b.id} booking={b} kind="in" now={now} onClick={() => onRowClick(b)} />)}
+        </QueueColumn>
+        <QueueColumn
+          icon={Luggage}
+          title="Check-outs"
+          hint={outHint}
+          count={loading ? null : checkOuts.length}
+          countTone={unconfirmed > 0 ? BOOKING_STATUS_TEXT['needs-attention'].className : undefined}
+          loading={loading}
+          emptyTitle="No check-outs today"
+          emptyText="Nobody is leaving."
+        >
+          {outs.map(({ b }) => (
+            <TodayRow
+              key={b.id}
+              booking={b}
+              kind="out"
+              now={now}
+              onClick={() => onRowClick(b)}
+              onConfirmCheckout={onConfirmCheckout}
+              onLateCheckout={onLateCheckout}
+            />
+          ))}
+        </QueueColumn>
       </div>
     </Panel>
   )
@@ -1061,7 +1153,7 @@ function WarningRow({ booking, chip, chipTone, onClick }: WarningRowProps) {
       className="w-full text-left px-4 py-2.5 border-b border-border last:border-0 hover:bg-muted/40 transition-colors flex items-center gap-3 group">
       <div className="min-w-0 flex-1">
         <div className="flex items-baseline gap-2">
-          <span className="font-mono text-xs font-semibold text-foreground truncate">{booking.booking_code}</span>
+          <Code value={booking.booking_code} label="Booking code" className="text-xs" />
           <span className="text-[11px] text-foreground truncate">{booking.guest_name}</span>
         </div>
         <p className="text-[10px] text-foreground mt-0.5 truncate">
@@ -1161,6 +1253,90 @@ function DetailSection({ title, children }: DetailSectionProps) {
   )
 }
 
+type CheckoutSectionProps = {
+  booking: any
+  nextArrival: any
+  editable: boolean
+  onConfirm: (confirmed: boolean) => void
+  onLate: () => void
+}
+
+// When the guest has to be out (with any late check-out), whether they've
+// left, who's arriving next, and the buttons to confirm or give a late check-out.
+function CheckoutSection({ booking, nextArrival, editable, onConfirm, onLate }: CheckoutSectionProps) {
+  const now = useNow()
+  const state = guestState(booking, now)
+  if (state.kind === 'none') return null
+  const due = checkoutDue(booking)
+  const late = !!booking.late_checkout_at
+  const started = parseDateOnly(booking.check_in) <= today()
+  const label = 'text-[10px] uppercase tracking-wider text-foreground font-semibold min-w-[72px] flex-shrink-0'
+  const checkoutToday = String(booking.check_out).slice(0, 10) === todayISO()
+
+  let guest: ReactNode
+  if (state.kind === 'left') {
+    guest = state.confirmed ? (
+      <span>
+        <span className="font-semibold text-emerald-600 dark:text-emerald-400">Checked out</span>
+        {' '}{state.at.toDateString() === new Date(now).toDateString() ? 'at' : `${formatDateShort(state.at)},`} {clockOf(state.at)}
+        {booking.checked_out_by_name && ` · by ${booking.checked_out_by_name}`}
+      </span>
+    ) : (
+      <span><span className="font-semibold">Left</span> · check-out day is over (not confirmed)</span>
+    )
+  } else if (state.kind === 'unconfirmed') {
+    guest = (
+      <span>
+        <span className="font-semibold text-amber-600 dark:text-amber-400">Not confirmed</span>
+        {' '}· check-out was {formatSpan(now - state.due.getTime())} ago
+      </span>
+    )
+  } else {
+    guest = checkoutToday
+      ? <span><span className="font-semibold text-amber-600 dark:text-amber-400">Still in</span> · leaves in {formatSpan(state.due.getTime() - now)}</span>
+      : <span><span className="font-semibold">Staying</span> · checks out {formatDateShort(booking.check_out)}</span>
+  }
+
+  return (
+    <DetailSection title="Check-out">
+      <div className="p-3 space-y-1">
+        <div className="flex items-baseline gap-2 py-0.5">
+          <span className={label}>Due</span>
+          <span className="text-xs tabular-nums text-foreground">
+            {formatDate(booking.check_out)} · {due ? clockOf(due) : STAY_TIMES.checkOut.label}
+            {late && <span className="font-semibold"> · late check-out{booking.late_checkout_by_name ? ` by ${booking.late_checkout_by_name}` : ''}</span>}
+          </span>
+        </div>
+        <div className="flex items-baseline gap-2 py-0.5">
+          <span className={label}>Guest</span>
+          <span className="text-xs text-foreground">{guest}</span>
+        </div>
+        {nextArrival && (
+          <div className="flex items-baseline gap-2 py-0.5">
+            <span className={label}>Next guest</span>
+            <span className="text-xs text-foreground">
+              <Code value={nextArrival.booking_code} label="Booking code" /> checks in at {formatClock(STAY_TIMES.checkIn.hour, STAY_TIMES.checkIn.minute)} that day
+            </span>
+          </div>
+        )}
+        {editable && (
+          <div className="pt-2 flex flex-wrap items-center gap-2">
+            {state.kind !== 'left' && started && (
+              <RowAction primary icon={CheckCircle2} onClick={() => onConfirm(true)}>Guest checked out</RowAction>
+            )}
+            {state.kind !== 'left' && (
+              <RowAction icon={AlarmClockPlus} onClick={onLate}>{late ? 'Change late check-out' : 'Late check-out'}</RowAction>
+            )}
+            {state.kind === 'left' && state.confirmed && (
+              <RowAction icon={Undo2} onClick={() => onConfirm(false)} title="The guest hasn't actually left">Undo check-out</RowAction>
+            )}
+          </div>
+        )}
+      </div>
+    </DetailSection>
+  )
+}
+
 type BookingDetailPanelProps = {
   booking: any
   contracts: any
@@ -1172,16 +1348,22 @@ type BookingDetailPanelProps = {
   onEdit: () => void
   onDelete: () => Promise<void>
   onEmail: () => void
+  /** The booking arriving in the same unit on this one's check-out day, if any. */
+  nextArrival: any
+  onConfirmCheckout: (confirmed: boolean) => void
+  onLateCheckout: () => void
 }
 
 function BookingDetailPanel({
   booking, contracts, onBookingChange, onClose,
   onAddPayment, onExtend, onComplete, onEdit, onDelete, onEmail,
+  nextArrival, onConfirmCheckout, onLateCheckout,
 }: BookingDetailPanelProps) {
   const status = deriveBookingStatus(booking)
   const isCompleted = status === 'completed'
   const isPaid = booking.payment_status === 'paid'
-  const guestLeft = parseDateOnly(booking.check_out) < today()
+  // Left once someone confirms the check-out, or the check-out day is over.
+  const guestLeft = hasGuestLeft(booking)
   const canComplete = !isCompleted && guestLeft && isPaid
   const canExtend = !isCompleted && !guestLeft
 
@@ -1219,7 +1401,7 @@ function BookingDetailPanel({
                 <GuestAvatar name={booking.guest_name} size="lg" />
                 <div className="min-w-0 flex-1">
                   <p className="text-base font-bold text-foreground truncate">{booking.guest_name}</p>
-                  <p className="text-[11px] text-foreground font-mono truncate">{booking.booking_code}</p>
+                  <Code value={booking.booking_code} label="Booking code" className="text-[11px]" block />
                   <div className="flex items-center gap-3 mt-2 flex-wrap">
                     <BookingStatusBadge status={status} />
                     <PaymentStatusBadge status={booking.payment_status} />
@@ -1280,6 +1462,14 @@ function BookingDetailPanel({
                 </p>
               )}
 
+              <CheckoutSection
+                booking={booking}
+                nextArrival={nextArrival}
+                editable={!isCompleted}
+                onConfirm={onConfirmCheckout}
+                onLate={onLateCheckout}
+              />
+
               <DetailSection title="Summary">
                 <div className="p-3 space-y-1 text-xs">
                   <div className="flex justify-between"><span className="text-foreground">Total</span><span className="font-semibold tabular-nums text-foreground">{formatMoney(booking.total_amount)}</span></div>
@@ -1332,19 +1522,21 @@ function BookingDetailPanel({
               <DetailSection title="Unit">
                 <div className="p-3 space-y-1">
                   <div className="flex items-baseline gap-2 pb-2 mb-2 border-b border-border">
-                    <span className="font-mono text-sm font-bold text-foreground">{booking.units?.unit_code || '—'}</span>
+                    <Code value={booking.units?.unit_code} label="Unit code" className="text-sm" />
                     <span className="text-[11px] text-foreground truncate">{booking.units?.building || '—'}</span>
                   </div>
                   <div className="flex items-center gap-2 py-0.5">
                     <span className="text-[10px] uppercase tracking-wider text-foreground font-semibold min-w-[72px]">Booked by</span>
                     <span className="text-xs font-semibold text-foreground">
-                      {booking.booker_name || booking.booker_code || '—'}
+                      {booking.booker_name && <span className="mr-1.5">{booking.booker_name}</span>}
+                      {booking.booker_code ? <Code value={booking.booker_code} label="Booker code" className="text-xs" /> : !booking.booker_name && '—'}
                     </span>
                   </div>
                   <div className="flex items-center gap-2 py-0.5">
                     <span className="text-[10px] uppercase tracking-wider text-foreground font-semibold min-w-[72px]">Affiliate</span>
                     <span className="text-xs font-semibold text-foreground">
-                      {booking.affiliate_name || booking.affiliate_code || '—'}
+                      {booking.affiliate_name && <span className="mr-1.5">{booking.affiliate_name}</span>}
+                      {booking.affiliate_code ? <Code value={booking.affiliate_code} label="Affiliate code" className="text-xs" /> : !booking.affiliate_name && '—'}
                     </span>
                   </div>
                 </div>
@@ -1355,7 +1547,7 @@ function BookingDetailPanel({
                   <div className="p-3 space-y-0.5">
                     <div className="flex items-center gap-2 py-0.5">
                       <span className="text-[10px] uppercase tracking-wider text-foreground font-semibold min-w-[72px]">Code</span>
-                      <span className="text-xs font-mono text-foreground truncate">{governing.contract_code || '—'}</span>
+                      <Code value={governing.contract_code} label="Contract code" className="text-xs" />
                     </div>
                     <div className="flex items-center gap-2 py-0.5">
                       <span className="text-[10px] uppercase tracking-wider text-foreground font-semibold min-w-[72px]">Effective</span>
@@ -1413,7 +1605,9 @@ function BookingDetailPanel({
                   <div className="flex items-center gap-2 py-0.5">
                     <span className="text-[10px] uppercase tracking-wider text-foreground font-semibold min-w-[72px]">Check-out</span>
                     <span className="text-xs tabular-nums text-foreground">
-                      {formatDate(booking.check_out)} · {STAY_TIMES.checkOut.label}
+                      {formatDate(booking.check_out)} · {booking.late_checkout_at
+                        ? `${clockOf(new Date(booking.late_checkout_at))} (late check-out)`
+                        : STAY_TIMES.checkOut.label}
                     </span>
                   </div>
                   <div className="flex items-center gap-2 py-0.5">
@@ -1537,9 +1731,9 @@ function BookingListRow({ booking, contracts, selected, highlighted, onClick, on
             )}
           </div>
         </div>
-        <span className="font-mono text-[12px] text-foreground truncate">{booking.booking_code}</span>
+        <Code value={booking.booking_code} label="Booking code" className="text-[12px]" />
         <div className="min-w-0">
-          <span className="block font-mono text-[12.5px] font-bold text-foreground truncate">{booking.units?.unit_code || '—'}</span>
+          <Code value={booking.units?.unit_code} label="Unit code" className="text-[12.5px]" block />
           <span className="block text-[11.5px] text-foreground truncate">{booking.units?.building || '—'}</span>
           {!governing && (
             <span className="block text-[10px] font-semibold uppercase tracking-wider text-red-600 dark:text-red-400">
@@ -1991,7 +2185,7 @@ function BookingFormModal({ open, onClose, onSaved, units, editing, specialists,
               <h2 id="booking-form-title" className="text-base font-bold text-foreground truncate">
                 {editing ? 'Edit Booking' : 'New Booking'}
               </h2>
-              {editing && <p className="text-[11px] text-foreground font-mono truncate mt-0.5">{editing.booking_code}</p>}
+              {editing && <div className="mt-0.5"><Code value={editing.booking_code} label="Booking code" className="text-[11px]" block /></div>}
               {!editing && <p className="text-[11px] text-foreground mt-0.5">Create a new reservation</p>}
             </div>
           </div>
@@ -2481,20 +2675,11 @@ function ExtendStayModal({ open, onClose, booking, onSaved, contracts }: ExtendS
       const tx = Array.isArray(booking.transactions) ? [...booking.transactions] : []
       if (addPayment) tx.push({ amount: payAmt, method: payMethodClean || '', reference: payRefClean || '', date: payDateClean })
 
-      const newBookerComm = booking.booker_code && booking.booker_rate != null
-        ? computeCommissionAtRate(total, Number(booking.booker_rate))
-        : (booking.booker_code ? booking.booker_commission : 0)
-
-      const newAffComm = booking.affiliate_code && booking.affiliate_rate != null
-        ? computeCommissionAtRate(total, Number(booking.affiliate_rate))
-        : (booking.affiliate_code ? booking.affiliate_commission : 0)
-
       const patch = {
         check_out: newCheckOutClean,
         total_amount: total,
         transactions: tx,
-        booker_commission: newBookerComm,
-        affiliate_commission: newAffComm,
+        ...commissionsForTotal(booking, total),
       }
       const { error } = await supabase.from('bookings').update(patch).eq('id', booking.id)
       if (error) throw error
@@ -2614,6 +2799,201 @@ function ExtendStayModal({ open, onClose, booking, onSaved, contracts }: ExtendS
   )
 }
 
+type LateCheckoutModalProps = {
+  open: boolean
+  onClose: () => void
+  booking: any
+  bookings: any[]
+  onSaved: () => void
+}
+
+// Quick picks for a late check-out (each switched off past the limit).
+const LATE_CHECKOUT_PICKS = [12, 13, 14, 15, 16, 18]
+
+function hhmm(d: Date | null) {
+  return d ? `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}` : ''
+}
+
+// The guest stays past 11 AM on their check-out day: as late as they like
+// unless another guest checks in that day (then until their 3 PM check-in at
+// the latest; the database holds to the same limit). The booker sets the new
+// total for the extra hours here too.
+function LateCheckoutModal({ open, onClose, booking, bookings, onSaved }: LateCheckoutModalProps) {
+  const [time, setTime] = useState('')
+  const [newTotal, setNewTotal] = useState('')
+  const [saving, setSaving] = useState(false)
+
+  useEffect(() => {
+    if (open && booking) {
+      setTime(booking.late_checkout_at ? hhmm(new Date(booking.late_checkout_at)) : '')
+      setNewTotal(booking.total_amount != null ? String(booking.total_amount) : '')
+    }
+  }, [open, booking])
+
+  if (!open || !booking) return null
+
+  const next = sameDayArrival(booking, bookings)
+  const latest = latestCheckout(booking, bookings)
+  const usual = stayMoment(booking.check_out, STAY_TIMES.checkOut)
+  const [h, m] = time.split(':').map(Number)
+  const picked = time && Number.isFinite(h) ? stayMoment(booking.check_out, { hour: h, minute: m || 0 }) : null
+  const tooEarly = !!picked && !!usual && picked <= usual
+  const tooLate = !!picked && !!latest && picked > latest
+  const cleaningGap = picked && next && latest ? latest.getTime() - picked.getTime() : null
+  const labelClass = 'text-[10px] uppercase tracking-wider text-foreground font-semibold mb-1.5 block'
+
+  const save = async () => {
+    if (!picked) { toast.error('Pick the new check-out time'); return }
+    if (tooEarly) { toast.error(`Pick a time after ${STAY_TIMES.checkOut.label}`); return }
+    if (tooLate) { toast.error(`${next?.booking_code || 'The next guest'} checks in at ${clockOf(latest)}. Pick that or earlier.`); return }
+
+    const total = sanitizeMoney(newTotal)
+    const totalChanged = total !== Number(booking.total_amount || 0)
+    if (totalChanged) {
+      if (total <= 0) { toast.error('Total amount must be greater than 0'); return }
+      if (total < Number(booking.amount_paid || 0)) {
+        toast.error(`New total (${formatMoney(total)}) is less than already paid (${formatMoney(booking.amount_paid)}).`)
+        return
+      }
+    }
+
+    setSaving(true)
+    try {
+      await setLateCheckout(booking.id, picked)
+      if (totalChanged) {
+        const { error } = await supabase
+          .from('bookings')
+          .update({ total_amount: total, ...commissionsForTotal(booking, total) })
+          .eq('id', booking.id)
+        if (error) throw error
+      }
+      logAudit('LATE_CHECKOUT', 'bookings', booking.id, {
+        booking_code: booking.booking_code,
+        until: picked.toISOString(),
+        old_total: booking.total_amount,
+        new_total: total,
+      }).catch(() => {})
+      toast.success(`Late check-out until ${clockOf(picked)}${totalChanged ? ` · total ${formatMoney(total)}` : ''}`)
+      onSaved()
+      onClose()
+    } catch (err) {
+      console.error(err)
+      toast.error(err?.message || 'Could not save the late check-out')
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  const removeLate = async () => {
+    setSaving(true)
+    try {
+      await setLateCheckout(booking.id, null)
+      logAudit('REMOVE_LATE_CHECKOUT', 'bookings', booking.id, { booking_code: booking.booking_code }).catch(() => {})
+      toast.success(`Check-out back to ${STAY_TIMES.checkOut.label}`)
+      onSaved()
+      onClose()
+    } catch (err) {
+      console.error(err)
+      toast.error(err?.message || 'Could not remove the late check-out')
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  return (
+    <ModalShell open={open} onClose={onClose} title="Late check-out" titleId="late-checkout-title">
+      <div className="p-5 space-y-4 max-h-[70vh] overflow-y-auto">
+        <div className="rounded-md border border-border p-3 text-xs space-y-1">
+          <div className="flex justify-between gap-3">
+            <span className="text-foreground">Guest</span>
+            <span className="font-semibold text-foreground inline-flex items-center gap-1 min-w-0"><span className="truncate">{booking.guest_name} ·</span> <Code value={booking.units?.unit_code} label="Unit code" /></span>
+          </div>
+          <div className="flex justify-between gap-3">
+            <span className="text-foreground">Usual check-out</span>
+            <span className="font-semibold text-foreground tabular-nums">{formatDate(booking.check_out)} · {STAY_TIMES.checkOut.label}</span>
+          </div>
+          <div className="flex justify-between gap-3">
+            <span className="text-foreground">Next guest</span>
+            <span className="font-semibold text-foreground text-right">
+              {next
+                ? <><Code value={next.booking_code} label="Booking code" /> at {formatClock(STAY_TIMES.checkIn.hour, STAY_TIMES.checkIn.minute)}</>
+                : 'Nobody that day'}
+            </span>
+          </div>
+        </div>
+
+        <div>
+          <span className={labelClass}>New check-out time</span>
+          <div className="flex flex-wrap gap-1.5">
+            {LATE_CHECKOUT_PICKS.map((hour) => {
+              const at = stayMoment(booking.check_out, { hour, minute: 0 })
+              const allowed = !!at && (!latest || at <= latest)
+              const value = `${String(hour).padStart(2, '0')}:00`
+              const on = time === value
+              return (
+                <button
+                  key={hour}
+                  type="button"
+                  disabled={!allowed}
+                  aria-pressed={on}
+                  onClick={() => setTime(value)}
+                  title={allowed ? undefined : `${next?.booking_code || 'The next guest'} checks in at ${clockOf(latest)}`}
+                  className={cn(
+                    'h-8 px-2.5 rounded-md border text-[12px] font-semibold tabular-nums transition-colors disabled:opacity-40 disabled:cursor-not-allowed',
+                    on ? 'border-brand-solid bg-brand-solid text-white' : 'border-border text-foreground hover:border-brand/40 hover:bg-brand/[0.05]',
+                  )}
+                >
+                  {formatClock(hour)}
+                </button>
+              )
+            })}
+            <Input
+              type="time"
+              value={time}
+              onChange={(e) => setTime(e.target.value)}
+              min="11:01"
+              max={next && latest ? hhmm(latest) : undefined}
+              aria-label="Other time"
+              className={cn('h-8 w-[118px] text-xs rounded', time && !LATE_CHECKOUT_PICKS.some((hr) => `${String(hr).padStart(2, '0')}:00` === time) && 'border-brand-solid')}
+            />
+          </div>
+          <p className={cn('text-[11px] mt-1.5', tooEarly || tooLate ? 'text-red-600 dark:text-red-400 font-semibold' : 'text-foreground')}>
+            {tooEarly
+              ? `Pick a time after ${STAY_TIMES.checkOut.label}.`
+              : tooLate
+                ? `Too late: ${next?.booking_code} checks in at ${clockOf(latest)}.`
+                : next
+                  ? cleaningGap != null
+                    ? `Leaves ${cleaningGap > 0 ? formatSpan(cleaningGap) : 'no time'} for cleaning before ${next.booking_code} arrives.`
+                    : `Until ${clockOf(latest)} at the latest: ${next.booking_code} checks in then.`
+                  : 'Any time that day. To stay another night, use Extend stay.'}
+          </p>
+        </div>
+
+        <div>
+          <label htmlFor="late-total" className={labelClass}>Booking total (₱)</label>
+          <Input id="late-total" type="number" min={0} value={newTotal} onChange={(e) => setNewTotal(e.target.value)} className="h-8 text-xs rounded" />
+          <p className="text-[11px] text-foreground mt-1">
+            Was {formatMoney(booking.total_amount)}. Add what the guest pays for the extra hours; commissions follow the new total.
+          </p>
+        </div>
+      </div>
+      <div className="flex flex-wrap items-center gap-2 px-5 py-3 border-t border-border bg-card">
+        {booking.late_checkout_at && (
+          <Button variant="outline" size="sm" className="h-8 rounded text-xs mr-auto" onClick={removeLate} disabled={saving}>
+            Back to {STAY_TIMES.checkOut.label}
+          </Button>
+        )}
+        <Button variant="outline" size="sm" className="h-8 rounded text-xs ml-auto" onClick={onClose} disabled={saving}>Cancel</Button>
+        <Button size="sm" className="h-8 rounded text-xs text-white" onClick={save} disabled={saving || !picked || tooEarly || tooLate} style={{ backgroundColor: BRAND }}>
+          {saving ? <Loader2 size={12} className="mr-1.5 animate-spin" /> : <AlarmClockPlus size={12} className="mr-1.5" />}
+          {saving ? 'Saving…' : <>Save<span className="max-sm:hidden">&nbsp;late check-out</span></>}
+        </Button>
+      </div>
+    </ModalShell>
+  )
+}
+
 type CompleteConfirmModalProps = {
   open: boolean
   onClose: () => void
@@ -2658,7 +3038,7 @@ function CompleteConfirmModal({ open, onClose, booking, onConfirmed }: CompleteC
       <div className="p-5 space-y-2 text-xs">
         <p className="text-foreground">This booking will be marked as done. You can no longer add payments or extend it.</p>
         <div className="bg-card border border-border rounded p-3 space-y-1 mt-3">
-          <div className="flex justify-between"><span className="text-foreground">Code</span><span className="font-mono font-semibold text-foreground">{booking.booking_code}</span></div>
+          <div className="flex justify-between"><span className="text-foreground">Code</span><Code value={booking.booking_code} label="Booking code" /></div>
           <div className="flex justify-between"><span className="text-foreground">Guest</span><span className="font-semibold text-foreground">{booking.guest_name}</span></div>
           <div className="flex justify-between"><span className="text-foreground">Check-out</span><span className="font-semibold text-foreground">{formatDate(booking.check_out)}</span></div>
           <div className="flex justify-between"><span className="text-foreground">Total</span><span className="font-semibold tabular-nums text-foreground">{formatMoney(booking.total_amount)}</span></div>
@@ -2714,6 +3094,7 @@ export default function BookingsPage({ initialSelectedId }: BookingsPageProps) {
   const [payForBooking, setPayForBooking] = useState(null)
   const [extendForBooking, setExtendForBooking] = useState(null)
   const [completeForBooking, setCompleteForBooking] = useState(null)
+  const [lateForBooking, setLateForBooking] = useState(null)
   const [confirmForBooking, setConfirmForBooking] = useState(null)
 
   const hasLoadedOnce = useRef(false)
@@ -2925,6 +3306,31 @@ export default function BookingsPage({ initialSelectedId }: BookingsPageProps) {
     })
   }, [])
 
+  // "Guest checked out" starts the cleaning; the toast offers Undo for a mistap.
+  const confirmCheckoutFor = async (booking, confirmed = true) => {
+    try {
+      const row = await confirmCheckout(booking.id, confirmed)
+      if (row) setBookings((prev) => prev.map((b) => (b.id === booking.id ? { ...b, ...row } : b)))
+      logAudit(confirmed ? 'CONFIRM_CHECKOUT' : 'UNDO_CHECKOUT', 'bookings', booking.id, { booking_code: booking.booking_code }).catch(() => {})
+      if (!confirmed) { toast.success('Check-out undone'); return }
+      toast((t) => (
+        <span className="flex items-center gap-3 text-[13px]">
+          <span><strong className="font-semibold">{booking.guest_name || 'Guest'}</strong> checked out · cleaning can start</span>
+          <button
+            type="button"
+            onClick={() => { toast.dismiss(t.id); confirmCheckoutFor(booking, false) }}
+            className="font-semibold underline underline-offset-2"
+          >
+            Undo
+          </button>
+        </span>
+      ), { id: `checkout-${booking.id}`, duration: 6000 })
+    } catch (err) {
+      console.error(err)
+      toast.error(err?.message || 'Could not save the check-out')
+    }
+  }
+
   const handleDelete = async (booking) => {
     const confirmed = window.confirm(
       `Delete booking "${booking.booking_code}"?\n\nGuest: ${booking.guest_name}\nUnit: ${booking.units?.unit_code || '—'}\nDates: ${formatDate(booking.check_in)} → ${formatDate(booking.check_out)}\nTotal: ${formatMoney(booking.total_amount)}\nPaid: ${formatMoney(booking.amount_paid)}\n\nThis will soft-delete the booking (keeps commission history).`
@@ -2958,7 +3364,14 @@ export default function BookingsPage({ initialSelectedId }: BookingsPageProps) {
         </div>
 
         <div className="flex-shrink-0">
-          <TodayCard checkIns={checkInsToday} checkOuts={checkOutsToday} loading={isFirstLoad} onRowClick={handleTodayPanelRowClick} />
+          <TodayCard
+            checkIns={checkInsToday}
+            checkOuts={checkOutsToday}
+            loading={isFirstLoad}
+            onRowClick={handleTodayPanelRowClick}
+            onConfirmCheckout={(b) => confirmCheckoutFor(b)}
+            onLateCheckout={setLateForBooking}
+          />
         </div>
 
         <div className="flex-shrink-0 flex items-center gap-2">
@@ -3055,6 +3468,9 @@ export default function BookingsPage({ initialSelectedId }: BookingsPageProps) {
             onEdit={() => openEdit(selected)}
             onDelete={() => handleDelete(selected)}
             onEmail={() => setConfirmForBooking(selected)}
+            nextArrival={sameDayArrival(selected, bookings)}
+            onConfirmCheckout={(confirmed) => confirmCheckoutFor(selected, confirmed)}
+            onLateCheckout={() => setLateForBooking(selected)}
           />
         )}
       </AnimatePresence>
@@ -3074,6 +3490,7 @@ export default function BookingsPage({ initialSelectedId }: BookingsPageProps) {
 
       <AddPaymentModal open={!!payForBooking} onClose={() => setPayForBooking(null)} booking={payForBooking} onSaved={fetchData} />
       <ExtendStayModal open={!!extendForBooking} onClose={() => setExtendForBooking(null)} booking={extendForBooking} onSaved={fetchData} contracts={contracts} />
+      <LateCheckoutModal open={!!lateForBooking} onClose={() => setLateForBooking(null)} booking={lateForBooking} bookings={bookings} onSaved={fetchData} />
       <CompleteConfirmModal open={!!completeForBooking} onClose={() => setCompleteForBooking(null)} booking={completeForBooking} onConfirmed={fetchData} />
       <BookingConfirmationModal open={!!confirmForBooking} onClose={() => setConfirmForBooking(null)} booking={confirmForBooking} onSent={fetchData} />
     </div>

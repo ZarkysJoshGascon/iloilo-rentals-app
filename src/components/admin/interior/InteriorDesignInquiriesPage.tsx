@@ -1,10 +1,10 @@
-// src/components/admin/interior/InteriorInquiriesPage.tsx
+// src/components/admin/interior/InteriorDesignInquiriesPage.tsx
+// Clients who sent the Interior Design form. A kanban board by default
+// (drag an inquiry from New to Contacted, Discussed, Proposal, Won or Lost,
+// noting how it went), or the sortable list.
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
-import {
-  Inbox, Search, RefreshCw, X, Mail, Phone,
-  Check, Trash2, ExternalLink, MessageSquare, CheckCircle2, Sparkles, Palette,
-} from 'lucide-react'
+import { Inbox, Search, RefreshCw, X, Mail, Phone, Trash2, Sofa } from 'lucide-react'
 import toast from 'react-hot-toast'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -16,11 +16,18 @@ import {
   updateInteriorInquiry,
   deleteInteriorInquiry,
 } from '@/lib/interiorDesign'
-import { StatusTabs } from '@/components/admin/_shared/StatusTabs'
-import { StatStrip, StatTile } from '@/components/admin/_shared/StatStrip'
 import { InitialsAvatar } from '@/components/admin/_shared/Panel'
 import { SortHeader, nextSort, ResultsBar, SearchKeyHint, useListShortcuts, CARD_ON_PHONE, MobileSort, useSidePanelMotion, useListCap } from '@/components/admin/_shared/listTools'
 import { DateRangeFilter } from '@/components/admin/_shared/DateRangeFilter'
+import {
+  STAGE_RANK, STAGE_TABS, stageOf, stagesFor, matchesFilter, isDecided, filterLabel, timeAgo, usePipelineView,
+  StageText, PipelineSummary, ViewToggle, StageFilter, StagePath, KanbanBoard, PipelineCard, BoardSkeleton,
+  PhotoThumb, PhotoGallery, NotProvided,
+} from '@/components/admin/inquiries/pipeline'
+import {
+  useInquiryActivity, useStageMove, activitySearchText,
+  CardActivity, FollowUpText, ActivityPanel, ContactActions,
+} from '@/components/admin/inquiries/activity'
 import type { ReactNode } from 'react'
 import type { LucideIcon } from 'lucide-react'
 
@@ -45,33 +52,7 @@ function fmtDateTime(iso) {
   if (Number.isNaN(d.getTime())) return '—'
   return d.toLocaleString('en-PH', { month: 'short', day: 'numeric', year: 'numeric', hour: 'numeric', minute: '2-digit' })
 }
-function timeAgo(iso) {
-  if (!iso) return null
-  const then = new Date(iso).getTime()
-  if (Number.isNaN(then)) return null
-  const diff = Date.now() - then
-  const mins = Math.floor(diff / 60000)
-  if (mins < 1) return 'just now'
-  if (mins < 60) return `${mins}m ago`
-  const hours = Math.floor(mins / 60)
-  if (hours < 24) return `${hours}h ago`
-  const days = Math.floor(hours / 24)
-  if (days < 30) return `${days}d ago`
-  const months = Math.floor(days / 30)
-  if (months < 12) return `${months}mo ago`
-  return `${Math.floor(months / 12)}y ago`
-}
-function isWithinDays(iso, days) {
-  const t = new Date(iso).getTime()
-  return Number.isFinite(t) && Date.now() - t <= days * 86_400_000
-}
 
-// Status in font colour: new needs a reply, contacted is in progress, closed is done.
-const STATUS_META = {
-  new:       { label: 'New',       className: 'text-blue-600 dark:text-blue-400' },
-  contacted: { label: 'Contacted', className: 'text-amber-600 dark:text-amber-400' },
-  closed:    { label: 'Closed',    className: 'text-emerald-600 dark:text-emerald-400' },
-}
 const SERVICE_LABEL = {
   full_design:  'Full design', consultation: 'Consultation', renovation: 'Renovation',
   furnishing:   'Furnishing',  not_sure:     'Not sure',
@@ -88,68 +69,41 @@ const TIMELINE_LABEL = {
   asap: 'ASAP', '1_3_months': '1–3 months', '3_6_months': '3–6 months', exploring: 'Exploring',
 }
 
-type StatusTextProps = {
-  status: any
-  className?: string
-}
-
-function StatusText({ status, className }: StatusTextProps) {
-  const m = STATUS_META[status] || STATUS_META.new
-  return <span className={cn('text-[11.5px] font-semibold whitespace-nowrap', m.className, className)}>{m.label}</span>
-}
-
-const TABS = [
-  { id: 'all',       label: 'All' },
-  { id: 'new',       label: 'New' },
-  { id: 'contacted', label: 'Contacted' },
-  { id: 'closed',    label: 'Closed' },
-]
-
-// Sortable columns. "Status" puts new inquiries first.
-const STATUS_RANK = { new: 0, contacted: 1, closed: 2 }
+// Sortable columns. "Stage" runs New → Lost.
 const SORT_VALUE = {
   client:   (i) => i.client_name || '',
   property: (i) => i.property_address || i.property_type || '',
   service:  (i) => SERVICE_LABEL[i.service_type] || '',
   received: (i) => i.created_at || '',
-  status:   (i) => STATUS_RANK[i.status] ?? 3,
+  status:   (i) => STAGE_RANK[stageOf(i)],
 }
 // Newest first; everything else starts A→Z.
 const SORT_DEFAULTS = { received: 'desc' }
 
-type SummaryCardsProps = {
-  inquiries: any
-  active: string
-  onSelect: (...args: any[]) => any
+function searchText(i) {
+  return [i.client_name, i.client_email, i.client_phone, i.property_address, i.property_type, i.message]
+    .filter(Boolean).join(' ').toLowerCase()
 }
 
-// KPI strip as on the Dashboard; each tile filters the list below.
-function SummaryCards({ inquiries, active, onSelect }: SummaryCardsProps) {
-  const stats = useMemo(() => ({
-    total:     inquiries.length,
-    thisWeek:  inquiries.filter((i) => isWithinDays(i.created_at, 7)).length,
-    new:       inquiries.filter((i) => i.status === 'new').length,
-    contacted: inquiries.filter((i) => i.status === 'contacted').length,
-    closed:    inquiries.filter((i) => i.status === 'closed').length,
-  }), [inquiries])
+type InquiryCardProps = {
+  inquiry: any
+  entries?: any[]
+}
 
-  const pick = (id) => onSelect(active === id ? 'all' : id)
-
+function InquiryCard({ inquiry, entries }: InquiryCardProps) {
+  const stage = stageOf(inquiry)
   return (
-    <StatStrip cols={4}>
-      <StatTile icon={Palette} label="All design inquiries" value={stats.total} sub={`${stats.thisWeek} in the last 7 days`} active={active === 'all'} onClick={() => onSelect('all')} />
-      <StatTile
-        icon={Sparkles}
-        label="New"
-        value={stats.new}
-        sub={stats.new > 0 ? 'Waiting for a reply' : 'All caught up'}
-        attention={stats.new > 0}
-        active={active === 'new'}
-        onClick={() => pick('new')}
-      />
-      <StatTile icon={MessageSquare} label="Contacted" value={stats.contacted} sub="In conversation" active={active === 'contacted'} onClick={() => pick('contacted')} />
-      <StatTile icon={CheckCircle2} label="Closed" value={stats.closed} sub="Done" active={active === 'closed'} onClick={() => pick('closed')} />
-    </StatStrip>
+    <PipelineCard
+      name={inquiry.client_name}
+      createdAt={inquiry.created_at}
+      stage={stage}
+      images={inquiry.images}
+      title={inquiry.property_address || inquiry.property_type || 'Property TBD'}
+      subtitle={[ROOM_SCOPE_LABEL[inquiry.room_scope], TIMELINE_LABEL[inquiry.timeline]].filter(Boolean).join(' · ')}
+      tag={[SERVICE_LABEL[inquiry.service_type], BUDGET_LABEL[inquiry.budget_range]].filter(Boolean).join(' · ') || 'Design inquiry'}
+      hasPhone={!!inquiry.client_phone}
+      footer={<CardActivity entries={entries} followUp={inquiry.follow_up_on} stage={stage} />}
+    />
   )
 }
 
@@ -179,9 +133,12 @@ function InquiryRow({ inquiry, selected, onClick }: InquiryRowProps) {
           <p className="text-[11px] text-foreground truncate">{inquiry.client_email}</p>
         </div>
       </div>
-      <div className="min-w-0 max-md:col-span-2">
-        <p className="text-[12px] text-foreground truncate">{inquiry.property_address || inquiry.property_type || '—'}</p>
-        <p className="text-[11px] text-foreground truncate">{inquiry.property_type || 'Type TBD'}</p>
+      <div className="min-w-0 max-md:col-span-2 flex items-center gap-2.5">
+        <PhotoThumb images={inquiry.images} />
+        <div className="min-w-0">
+          <p className="text-[12px] text-foreground truncate">{inquiry.property_address || inquiry.property_type || '—'}</p>
+          <p className="text-[11px] text-foreground truncate">{inquiry.property_type || 'Type TBD'}</p>
+        </div>
       </div>
       <div className="min-w-0">
         <p className="text-[12px] font-medium text-foreground truncate">{SERVICE_LABEL[inquiry.service_type] || 'Design inquiry'}</p>
@@ -191,15 +148,17 @@ function InquiryRow({ inquiry, selected, onClick }: InquiryRowProps) {
         <div className="truncate">{fmtDate(inquiry.created_at)}</div>
         <div className="text-[11px] truncate">{ago}</div>
       </div>
-      <div className="flex items-center justify-end flex-shrink-0">
-        <StatusText status={inquiry.status} />
+      <div className="flex flex-col items-end gap-0.5 min-w-0">
+        <StageText stage={stageOf(inquiry)} />
+        {!isDecided(stageOf(inquiry)) && <FollowUpText day={inquiry.follow_up_on} short />}
       </div>
     </motion.button>
   )
 }
 
-export default function InteriorInquiriesPage() {
+export default function InteriorDesignInquiriesPage() {
   const listCap = useListCap()
+  const [view, setView] = usePipelineView('crm.interior.view')
   const [inquiries, setInquiries] = useState([])
   const [loading, setLoading] = useState(true)
   const [refreshing, setRefreshing] = useState(false)
@@ -250,26 +209,33 @@ export default function InteriorInquiriesPage() {
     return () => { supabase.removeChannel(ch) }
   }, [fetchData])
 
+  // Notes and stage history; the search box looks through the notes too.
+  const activity = useInquiryActivity('interior')
+  const hayOf = useCallback(
+    (i) => `${searchText(i)} ${activitySearchText(activity.byInquiry.get(i.id))}`,
+    [activity.byInquiry],
+  )
+
   const counts = useMemo(() => {
     const q = debouncedSearch.trim().toLowerCase()
     const tokens = q ? q.split(/\s+/).filter(Boolean) : []
     const scoped = tokens.length === 0
       ? inquiries
       : inquiries.filter((i) => {
-          const hay = [i.client_name, i.client_email, i.client_phone, i.property_address, i.property_type, i.message]
-            .filter(Boolean).join(' ').toLowerCase()
+          const hay = hayOf(i)
           return tokens.every((tok) => hay.includes(tok))
         })
-    const c = { all: scoped.length, new: 0, contacted: 0, closed: 0 }
-    for (const i of scoped) if (c[i.status] !== undefined) c[i.status]++
+    const c = Object.fromEntries(STAGE_TABS.map((t) => [t.id, 0]))
+    c.all = scoped.length
+    for (const i of scoped) c[stageOf(i)]++
     return c
-  }, [inquiries, debouncedSearch])
+  }, [inquiries, debouncedSearch, hayOf])
 
   const filtered = useMemo(() => {
     const q = debouncedSearch.trim().toLowerCase()
     const tokens = q ? q.split(/\s+/).filter(Boolean) : []
     return inquiries.filter((i) => {
-      if (statusFilter !== 'all' && i.status !== statusFilter) return false
+      if (!matchesFilter(i, statusFilter)) return false
       if (dateFrom) {
         const d = new Date(i.created_at)
         if (Number.isNaN(d.getTime()) || d < new Date(dateFrom + 'T00:00:00')) return false
@@ -279,15 +245,14 @@ export default function InteriorInquiriesPage() {
         if (Number.isNaN(d.getTime()) || d > new Date(dateTo + 'T23:59:59')) return false
       }
       if (tokens.length > 0) {
-        const hay = [i.client_name, i.client_email, i.client_phone, i.property_address, i.property_type, i.message]
-          .filter(Boolean).join(' ').toLowerCase()
+        const hay = hayOf(i)
         if (!tokens.every((tok) => hay.includes(tok))) return false
       }
       return true
     })
-  }, [inquiries, debouncedSearch, statusFilter, dateFrom, dateTo])
+  }, [inquiries, debouncedSearch, statusFilter, dateFrom, dateTo, hayOf])
 
-  // Column sorting; newest first by default.
+  // Column sorting; newest first by default. The board keeps the same order in each lane.
   const [sort, setSort] = useState({ key: 'received', dir: 'desc' })
   const onSort = (key) => setSort((prev) => nextSort(prev, key, SORT_DEFAULTS))
   const sorted = useMemo(() => {
@@ -303,6 +268,7 @@ export default function InteriorInquiriesPage() {
   }, [filtered, sort])
 
   const selected = useMemo(() => inquiries.find((i) => i.id === selectedId) || null, [inquiries, selectedId])
+  const toggleSelected = useCallback((id) => setSelectedId((prev) => (prev === id ? null : id)), [])
 
   // Keyboard: "/" jumps to search, Esc closes the open inquiry.
   const searchRef = useRef(null)
@@ -312,7 +278,7 @@ export default function InteriorInquiriesPage() {
   const clearDates = () => { setDateFrom(''); setDateTo('') }
   const clearAllFilters = () => { setStatusFilter('all'); setSearch(''); clearDates() }
   const filterChips = [
-    statusFilter !== 'all' && { key: 'status', label: TABS.find((t) => t.id === statusFilter)?.label || statusFilter, onRemove: () => setStatusFilter('all') },
+    statusFilter !== 'all' && { key: 'status', label: filterLabel(statusFilter), onRemove: () => setStatusFilter('all') },
     debouncedSearch.trim() && { key: 'search', label: `"${debouncedSearch.trim()}"`, onRemove: () => setSearch('') },
     (dateFrom || dateTo) && { key: 'dates', label: `Received ${dateFrom ? fmtDateShort(dateFrom) : '…'} → ${dateTo ? fmtDateShort(dateTo) : '…'}`, onRemove: clearDates },
   ].filter(Boolean)
@@ -329,6 +295,14 @@ export default function InteriorInquiriesPage() {
     }
   }, [])
 
+  const { moveStage, stageDialog } = useStageMove({
+    board: 'interior',
+    setItems: setInquiries,
+    save: updateInteriorInquiry,
+    addActivity: activity.add,
+    nameOf: (i) => i.client_name || 'Inquiry',
+  })
+
   const handleDelete = useCallback(async (id) => {
     try {
       await deleteInteriorInquiry(id)
@@ -343,10 +317,10 @@ export default function InteriorInquiriesPage() {
 
   return (
     <div className="h-full flex min-h-0">
-      <div className="flex-1 min-h-0 flex flex-col overflow-hidden">
+      <div className="flex-1 min-w-0 min-h-0 flex flex-col overflow-hidden">
         <div data-page-scroll className="px-4 py-4 md:px-8 md:py-6 flex-1 min-h-0 flex flex-col gap-4 overflow-y-auto [&>*]:flex-shrink-0">
           <div className="flex-shrink-0">
-            <SummaryCards inquiries={inquiries} active={statusFilter} onSelect={setStatusFilter} />
+            <PipelineSummary inquiries={inquiries} icon={Sofa} allLabel="All design inquiries" active={statusFilter} onSelect={setStatusFilter} />
           </div>
 
           <div className="flex-shrink-0 flex items-center gap-2">
@@ -372,8 +346,13 @@ export default function InteriorInquiriesPage() {
             </Button>
           </div>
 
-          <div className="flex-shrink-0">
-            <StatusTabs tabs={TABS} value={statusFilter} onChange={setStatusFilter} counts={counts} label="Filter inquiries by status" />
+          <div className="flex-shrink-0 flex items-center gap-3 flex-wrap">
+            <ViewToggle value={view} onChange={setView} />
+            {view === 'list' && (
+              <div className="flex-1 min-w-[280px]">
+                <StageFilter value={statusFilter} onChange={setStatusFilter} counts={counts} />
+              </div>
+            )}
           </div>
 
           {!loading && (
@@ -383,106 +362,112 @@ export default function InteriorInquiriesPage() {
               noun={inquiries.length === 1 ? 'inquiry' : 'inquiries'}
               chips={filterChips}
               onClearAll={clearAllFilters}
-              hint="Click a column to sort · Press / to search"
+              hint={view === 'board' ? 'Drag a card to another stage · Press / to search' : 'Click a column to sort · Press / to search'}
             />
           )}
 
-          <div className="rounded-md border border-border shadow-sm overflow-hidden bg-card">
-            <div {...listCap} className="overflow-y-auto">
-              <MobileSort
-                options={[{ key: 'client', label: 'Client' }, { key: 'property', label: 'Property' }, { key: 'service', label: 'Service' }, { key: 'received', label: 'Received' }, { key: 'status', label: 'Status' }]}
-                sort={sort}
-                onSort={onSort}
-                className="sticky top-0 z-10"
+          {view === 'board' ? (
+            loading ? <BoardSkeleton /> : (
+              <KanbanBoard
+                items={sorted}
+                stages={stagesFor(statusFilter)}
+                selectedId={selectedId}
+                onOpen={toggleSelected}
+                onMove={moveStage}
+                nameOf={(i) => i.client_name || 'inquiry'}
+                renderCard={(i) => <InquiryCard inquiry={i} entries={activity.byInquiry.get(i.id)} />}
               />
-              <div className={cn('sticky top-0 z-10 px-4 py-2.5 border-b border-border bg-card max-md:hidden', ROW_GRID)}>
-                <SortHeader label="Client" sortKey="client" sort={sort} onSort={onSort} />
-                <SortHeader label="Property" sortKey="property" sort={sort} onSort={onSort} />
-                <SortHeader label="Service" sortKey="service" sort={sort} onSort={onSort} />
-                <SortHeader label="Received" sortKey="received" sort={sort} onSort={onSort} />
-                <SortHeader label="Status" sortKey="status" sort={sort} onSort={onSort} align="right" />
-              </div>
-
-              {loading ? (
-                <div className="space-y-2 p-3">{[...Array(8)].map((_, i) => <Skeleton key={i} className="h-14 w-full" />)}</div>
-              ) : sorted.length === 0 ? (
-                <div className="h-full flex items-center justify-center text-center py-12">
-                  <div>
-                    <Inbox size={32} strokeWidth={1.5} className="text-foreground mx-auto mb-3" />
-                    <p className="text-sm text-foreground font-semibold">
-                      {inquiries.length === 0 ? 'No design inquiries yet' : 'Nothing matches these filters'}
-                    </p>
-                    <p className="text-xs text-foreground mt-1">
-                      {inquiries.length === 0 ? "When clients submit on your website, they'll appear here." : 'Try clearing the search or filters.'}
-                    </p>
-                    {filterChips.length > 0 && (
-                      <button type="button" onClick={clearAllFilters} className="mt-4 inline-flex items-center h-8 px-3 rounded-md border border-border text-xs font-semibold text-foreground hover:bg-muted">
-                        Clear filters
-                      </button>
-                    )}
-                  </div>
+            )
+          ) : (
+            <div className="rounded-md border border-border shadow-sm overflow-hidden bg-card">
+              <div {...listCap} className="overflow-y-auto">
+                <MobileSort
+                  options={[{ key: 'client', label: 'Client' }, { key: 'property', label: 'Property' }, { key: 'service', label: 'Service' }, { key: 'received', label: 'Received' }, { key: 'status', label: 'Stage' }]}
+                  sort={sort}
+                  onSort={onSort}
+                  className="sticky top-0 z-10"
+                />
+                <div className={cn('sticky top-0 z-10 px-4 py-2.5 border-b border-border bg-card max-md:hidden', ROW_GRID)}>
+                  <SortHeader label="Client" sortKey="client" sort={sort} onSort={onSort} />
+                  <SortHeader label="Property" sortKey="property" sort={sort} onSort={onSort} />
+                  <SortHeader label="Service" sortKey="service" sort={sort} onSort={onSort} />
+                  <SortHeader label="Received" sortKey="received" sort={sort} onSort={onSort} />
+                  <SortHeader label="Stage" sortKey="status" sort={sort} onSort={onSort} align="right" />
                 </div>
-              ) : (
-                sorted.map((inquiry) => (
-                  <InquiryRow key={inquiry.id} inquiry={inquiry} selected={selectedId === inquiry.id}
-                    onClick={() => setSelectedId((prev) => (prev === inquiry.id ? null : inquiry.id))} />
-                ))
-              )}
+
+                {loading ? (
+                  <div className="space-y-2 p-3">{[...Array(8)].map((_, i) => <Skeleton key={i} className="h-14 w-full" />)}</div>
+                ) : sorted.length === 0 ? (
+                  <div className="h-full flex items-center justify-center text-center py-12">
+                    <div>
+                      <Inbox size={32} strokeWidth={1.5} className="text-foreground mx-auto mb-3" />
+                      <p className="text-sm text-foreground font-semibold">
+                        {inquiries.length === 0 ? 'No design inquiries yet' : 'Nothing matches these filters'}
+                      </p>
+                      <p className="text-xs text-foreground mt-1">
+                        {inquiries.length === 0 ? "When clients submit on your website, they'll appear here." : 'Try clearing the search or filters.'}
+                      </p>
+                      {filterChips.length > 0 && (
+                        <button type="button" onClick={clearAllFilters} className="mt-4 inline-flex items-center h-8 px-3 rounded-md border border-border text-xs font-semibold text-foreground hover:bg-muted">
+                          Clear filters
+                        </button>
+                      )}
+                    </div>
+                  </div>
+                ) : (
+                  sorted.map((inquiry) => (
+                    <InquiryRow key={inquiry.id} inquiry={inquiry} selected={selectedId === inquiry.id}
+                      onClick={() => toggleSelected(inquiry.id)} />
+                  ))
+                )}
+              </div>
             </div>
-          </div>
+          )}
         </div>
       </div>
 
       <AnimatePresence initial={false}>
         {selected && (
-          <InquiryDetailPanel inquiry={selected} onClose={() => setSelectedId(null)} onUpdate={handleUpdate} onDelete={handleDelete} />
+          <InquiryDetailPanel
+            inquiry={selected}
+            entries={activity.byInquiry.get(selected.id)}
+            onClose={() => setSelectedId(null)}
+            onUpdate={handleUpdate}
+            onMove={moveStage}
+            onAddActivity={activity.add}
+            onRemoveActivity={activity.remove}
+            onDelete={handleDelete}
+          />
         )}
       </AnimatePresence>
+
+      {stageDialog}
     </div>
   )
 }
 
 type InquiryDetailPanelProps = {
   inquiry: any
+  entries?: any[]
   onClose: () => void
   onUpdate: (id: any, patch: any) => Promise<any>
+  onMove: (inquiry: any, stage: string) => void
+  onAddActivity: (inquiryId: any, entry: any) => Promise<any>
+  onRemoveActivity: (id: any) => Promise<void>
   onDelete: (id: any) => Promise<void>
 }
 
-function InquiryDetailPanel({ inquiry, onClose, onUpdate, onDelete }: InquiryDetailPanelProps) {
-  const [saving, setSaving] = useState(false)
-  const [notesDraft, setNotesDraft] = useState(inquiry.admin_notes || '')
-  const [notesSaving, setNotesSaving] = useState(false)
-
-  useEffect(() => { setNotesDraft(inquiry.admin_notes || '') }, [inquiry.id])
-
-  const setStatus = async (status) => {
-    if (status === inquiry.status) return
-    setSaving(true)
-    try {
-      const patch: Record<string, string> = { status }
-      if (status === 'contacted' && !inquiry.contacted_at) patch.contacted_at = new Date().toISOString()
-      if (status === 'closed' && !inquiry.closed_at) patch.closed_at = new Date().toISOString()
-      await onUpdate(inquiry.id, patch)
-      toast.success(`Marked as ${status}`)
-    } finally { setSaving(false) }
-  }
-
-  const saveNotes = async () => {
-    const cleaned = notesDraft.trim()
-    if (cleaned === (inquiry.admin_notes || '')) return
-    setNotesSaving(true)
-    try {
-      await onUpdate(inquiry.id, { admin_notes: cleaned || null })
-      toast.success('Notes saved')
-    } finally { setNotesSaving(false) }
-  }
+function InquiryDetailPanel({ inquiry, entries, onClose, onUpdate, onMove, onAddActivity, onRemoveActivity, onDelete }: InquiryDetailPanelProps) {
+  // The next note's type; Call / Text / Email set it, so the note is ready to log.
+  const [noteTag, setNoteTag] = useState(null)
+  useEffect(() => { setNoteTag(null) }, [inquiry.id])
 
   const confirmDelete = () => {
     if (!window.confirm(`Delete inquiry from "${inquiry.client_name}"?\n\nThis cannot be undone.`)) return
     onDelete(inquiry.id)
   }
 
+  const stage = stageOf(inquiry)
   const images = Array.isArray(inquiry.images) ? inquiry.images : []
 
   const panelMotion = useSidePanelMotion(PANEL_WIDTH)
@@ -501,38 +486,15 @@ function InquiryDetailPanel({ inquiry, onClose, onUpdate, onDelete }: InquiryDet
                   <p className="text-base font-bold text-foreground truncate">{inquiry.client_name}</p>
                   <p className="text-[11px] text-foreground truncate">{inquiry.client_email}</p>
                   <div className="mt-2 flex items-center gap-2 flex-wrap">
-                    <StatusText status={inquiry.status} />
+                    <StageText stage={stage} />
                     <span className="text-[11px] text-foreground">· {timeAgo(inquiry.created_at)}</span>
                   </div>
                 </div>
                 <button type="button" onClick={onClose} aria-label="Close" className="p-1 rounded-md hover:bg-muted text-foreground flex-shrink-0"><X size={16} /></button>
               </div>
 
-              <div className="flex items-center gap-2 mt-3 flex-wrap">
-                {inquiry.status !== 'contacted' && (
-                  <Button variant="outline" size="sm" className="h-8 rounded-md text-[11px] gap-1.5"
-                    onClick={() => setStatus('contacted')} disabled={saving}>
-                    <Phone size={11} /> Mark contacted
-                  </Button>
-                )}
-                {inquiry.status !== 'closed' && (
-                  <Button variant="outline" size="sm"
-                    className="h-8 rounded-md text-[11px] gap-1.5 text-emerald-600 border-emerald-200 hover:bg-emerald-50 dark:text-emerald-400 dark:border-emerald-800 dark:hover:bg-emerald-900/20"
-                    onClick={() => setStatus('closed')} disabled={saving}>
-                    <Check size={11} /> Mark closed
-                  </Button>
-                )}
-                {inquiry.status !== 'new' && (
-                  <Button variant="outline" size="sm" className="h-8 rounded-md text-[11px] gap-1.5"
-                    onClick={() => setStatus('new')} disabled={saving}>
-                    Reopen
-                  </Button>
-                )}
-                <Button variant="outline" size="sm"
-                  className="h-8 rounded-md text-[11px] gap-1.5 text-red-600 border-red-200 hover:bg-red-50 dark:text-red-400 dark:border-red-800 dark:hover:bg-red-900/20 ml-auto"
-                  onClick={confirmDelete}>
-                  <Trash2 size={11} /> Delete
-                </Button>
+              <div className="mt-3">
+                <StagePath inquiry={inquiry} onMove={onMove} />
               </div>
             </div>
 
@@ -540,66 +502,66 @@ function InquiryDetailPanel({ inquiry, onClose, onUpdate, onDelete }: InquiryDet
               <DetailSection title="Contact">
                 <div className="p-3 space-y-2">
                   <ContactRow icon={Mail} label="Email" value={inquiry.client_email} href={`mailto:${inquiry.client_email}`} />
-                  {inquiry.client_phone && <ContactRow icon={Phone} label="Phone" value={inquiry.client_phone} href={`tel:${inquiry.client_phone}`} />}
+                  <ContactRow icon={Phone} label="Phone" value={inquiry.client_phone} href={`tel:${inquiry.client_phone}`} />
+                  <div className="pt-1">
+                    <ContactActions phone={inquiry.client_phone} email={inquiry.client_email} onPick={setNoteTag} />
+                  </div>
                 </div>
+              </DetailSection>
+
+              <DetailSection title="Activity">
+                <ActivityPanel
+                  inquiry={inquiry}
+                  entries={entries}
+                  tag={noteTag}
+                  onTag={setNoteTag}
+                  onAdd={(entry) => onAddActivity(inquiry.id, entry)}
+                  onRemove={onRemoveActivity}
+                  onFollowUp={(day) => onUpdate(inquiry.id, { follow_up_on: day })}
+                  receivedLabel="Sent the Interior Design form"
+                />
               </DetailSection>
 
               <DetailSection title="Project">
                 <div className="p-3 space-y-0.5">
-                  <FieldRow label="Service"    value={SERVICE_LABEL[inquiry.service_type] || '—'} />
-                  <FieldRow label="Room scope" value={ROOM_SCOPE_LABEL[inquiry.room_scope] || '—'} />
-                  <FieldRow label="Budget"     value={BUDGET_LABEL[inquiry.budget_range] || '—'} />
-                  <FieldRow label="Timeline"   value={TIMELINE_LABEL[inquiry.timeline] || '—'} />
+                  <FieldRow label="Service"    value={SERVICE_LABEL[inquiry.service_type]} />
+                  <FieldRow label="Room scope" value={ROOM_SCOPE_LABEL[inquiry.room_scope]} />
+                  <FieldRow label="Budget"     value={BUDGET_LABEL[inquiry.budget_range]} />
+                  <FieldRow label="Timeline"   value={TIMELINE_LABEL[inquiry.timeline]} />
                   <FieldRow label="Received"   value={fmtDateTime(inquiry.created_at)} />
                   {inquiry.contacted_at && <FieldRow label="Contacted" value={fmtDateTime(inquiry.contacted_at)} />}
-                  {inquiry.closed_at    && <FieldRow label="Closed"    value={fmtDateTime(inquiry.closed_at)} />}
+                  {inquiry.closed_at && (stage === 'won' || stage === 'lost') && (
+                    <FieldRow label={stage === 'won' ? 'Won' : 'Lost'} value={fmtDateTime(inquiry.closed_at)} />
+                  )}
                 </div>
               </DetailSection>
 
-              {(inquiry.property_type || inquiry.property_address) && (
-                <DetailSection title="Property">
-                  <div className="p-3 space-y-0.5">
-                    {inquiry.property_type    && <FieldRow label="Type"    value={inquiry.property_type} />}
-                    {inquiry.property_address && <FieldRow label="Address" value={inquiry.property_address} />}
-                  </div>
-                </DetailSection>
-              )}
+              <DetailSection title="Property">
+                <div className="p-3 space-y-0.5">
+                  <FieldRow label="Type"    value={inquiry.property_type} />
+                  <FieldRow label="Address" value={inquiry.property_address} />
+                </div>
+              </DetailSection>
 
-              {inquiry.message && (
-                <DetailSection title="Client message">
-                  <div className="p-3"><p className="text-xs text-foreground whitespace-pre-wrap break-words leading-relaxed">{inquiry.message}</p></div>
-                </DetailSection>
-              )}
-
-              {images.length > 0 && (
-                <DetailSection title={`Reference photos · ${images.length}`}>
-                  <div className="p-3">
-                    <div className="grid grid-cols-3 gap-2">
-                      {images.map((img, idx) => (
-                        <a key={idx} href={img.url} target="_blank" rel="noreferrer noopener"
-                          className="relative aspect-square rounded-md overflow-hidden border border-border bg-card hover:opacity-90 transition-opacity group flex items-center justify-center">
-                          <img src={img.url} alt="" className="w-full h-full object-cover" loading="lazy"
-                            onError={(e) => { e.currentTarget.style.display = 'none' }} />
-                          <div className="absolute inset-0 bg-black/0 group-hover:bg-black/20 transition-colors flex items-center justify-center pointer-events-none">
-                            <ExternalLink size={14} className="text-white opacity-0 group-hover:opacity-100 transition-opacity drop-shadow-lg" />
-                          </div>
-                        </a>
-                      ))}
-                    </div>
-                  </div>
-                </DetailSection>
-              )}
-
-              <DetailSection title="Your notes">
+              <DetailSection title="Client message">
                 <div className="p-3">
-                  <textarea value={notesDraft} onChange={(e) => setNotesDraft(e.target.value)} onBlur={saveNotes}
-                    rows={4} maxLength={2000} placeholder="Internal notes — only you see these"
-                    className="w-full text-xs rounded-md resize-none bg-card border border-border px-3 py-2 focus:outline-none focus:ring-2 focus:ring-ring/30" />
-                  <p className="text-[11px] text-foreground mt-1 text-right tabular-nums">
-                    {notesSaving ? 'Saving…' : 'Saves when you click away'}
+                  <p className="text-xs text-foreground whitespace-pre-wrap break-words leading-relaxed">
+                    {inquiry.message || <NotProvided>No message</NotProvided>}
                   </p>
                 </div>
               </DetailSection>
+
+              <DetailSection title={images.length > 0 ? `Reference photos · ${images.length}` : 'Reference photos'}>
+                <PhotoGallery images={images} />
+              </DetailSection>
+
+              <div className="flex justify-end">
+                <Button variant="outline" size="sm"
+                  className="h-8 rounded-md text-[11px] gap-1.5 text-red-600 border-red-200 hover:bg-red-50 dark:text-red-400 dark:border-red-800 dark:hover:bg-red-900/20"
+                  onClick={confirmDelete}>
+                  <Trash2 size={11} /> Delete inquiry
+                </Button>
+              </div>
             </div>
           </motion.div>
         </AnimatePresence>
@@ -633,7 +595,9 @@ function ContactRow({ icon: Icon, label, value, href }: ContactRowProps) {
     <div className="flex items-center gap-2 min-w-0">
       <Icon size={12} className="text-foreground flex-shrink-0" />
       <span className="text-[11px] font-semibold text-foreground min-w-[52px] flex-shrink-0">{label}</span>
-      <a href={href} className="text-xs text-foreground hover:text-brand hover:underline truncate">{value}</a>
+      {value
+        ? <a href={href} className="text-xs text-foreground hover:text-brand hover:underline truncate">{value}</a>
+        : <span className="text-xs text-foreground"><NotProvided /></span>}
     </div>
   )
 }
@@ -646,7 +610,7 @@ function FieldRow({ label, value }: FieldRowProps) {
   return (
     <div className="flex items-baseline justify-between gap-3 py-0.5">
       <span className="text-[11px] font-semibold text-foreground min-w-[72px]">{label}</span>
-      <span className="text-xs text-foreground text-right break-words">{value}</span>
+      <span className="text-xs text-foreground text-right break-words">{value == null || value === '' ? <NotProvided /> : value}</span>
     </div>
   )
 }

@@ -10,6 +10,7 @@ import { Copy, Eye, Loader2, Mail, MessageCircle, Trash2 } from 'lucide-react'
 import toast from 'react-hot-toast'
 import { supabase } from '@/lib/supabase'
 import { Panel, PanelHeader, SectionLabel, InitialsAvatar } from '@/components/admin/_shared/Panel'
+import { Code } from '@/components/common/Code'
 
 const DAY_MS = 24 * 60 * 60 * 1000
 
@@ -237,7 +238,7 @@ export default function MessengerUpdatesPanel({ onCount }: MessengerUpdatesPanel
                           <InitialsAvatar name={p.name} size="sm" />
                           <div className="min-w-0 flex-1">
                             <p className="text-[13px] font-semibold text-foreground truncate">{p.name}</p>
-                            <p className="text-[11.5px] text-foreground truncate">{p.code || p.email}</p>
+                            <p className="text-[11.5px] text-foreground truncate">{p.code ? <Code value={p.code} label="Team code" className="text-[11.5px]" /> : p.email}</p>
                           </div>
                           <div className="text-right flex-shrink-0 max-w-[45%]">
                             <p className={`text-[11.5px] font-semibold ${s.tone}`}>{s.label}</p>

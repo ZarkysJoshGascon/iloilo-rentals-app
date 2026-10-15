@@ -30,6 +30,7 @@ import { SortHeader, nextSort, ResultsBar, SearchKeyHint, useListShortcuts, CARD
 import { StatusTabs } from '@/components/admin/_shared/StatusTabs'
 import type { ReactNode } from 'react'
 import type { LucideIcon } from 'lucide-react'
+import { Code } from '@/components/common/Code'
 
 const BRAND = 'var(--brand-solid)'
 const SOFT_SHADOW = '0 20px 40px -16px rgba(15,23,42,0.24), 0 6px 16px -6px rgba(15,23,42,0.10)'
@@ -837,7 +838,7 @@ function WarningsStrip({ missingUnits, onSelectUnit }: WarningsStripProps) {
                 <button key={unit.id} type="button" onClick={() => { onSelectUnit(unit); setOpen(null) }}
                   className="w-full text-left px-4 py-3 border-b border-border last:border-0 hover:bg-muted/40 transition-colors group">
                   <div className="flex items-baseline gap-2 mb-2">
-                    <span className="font-mono text-xs font-semibold text-foreground">{unit.unit_code}</span>
+                    <Code value={unit.unit_code} label="Unit code" className="text-xs" />
                     <span className="text-[11px] text-foreground truncate">{unit.building}</span>
                     <span className="ml-auto text-[10px] text-foreground tabular-nums">{missing.total}</span>
                   </div>
@@ -922,7 +923,7 @@ function LogCallModal({ open, onClose, unit, onSaved }: LogCallModalProps) {
         <div className="flex items-center justify-between px-5 py-3 border-b border-border">
           <div>
             <h3 id="log-call-title" className="text-sm font-bold text-foreground">Log Interaction</h3>
-            <p className="text-xs text-foreground">{unit.unit_code} · {unit.owner_name || 'No owner'}</p>
+            <p className="text-xs text-foreground flex items-center gap-1 min-w-0"><Code value={unit.unit_code} label="Unit code" className="text-xs" /><span className="truncate">· {unit.owner_name || 'No owner'}</span></p>
           </div>
           <button onClick={onClose} style={BTN_RADIUS} className="p-1 hover:bg-muted"><X size={14} /></button>
         </div>
@@ -1183,7 +1184,7 @@ function ContractSection({ unit, contract, loading, onNavigateToContracts }: Con
       <div className="p-3 space-y-0.5">
         <div className="flex items-center justify-between gap-2 py-0.5">
           <span className="text-[10px] uppercase tracking-wider text-foreground font-semibold">Code</span>
-          <span className="text-xs font-mono text-foreground">{contract.contract_code || '—'}</span>
+          <Code value={contract.contract_code} label="Contract code" className="text-xs" />
         </div>
         <div className="flex items-center justify-between gap-2 py-0.5">
           <span className="text-[10px] uppercase tracking-wider text-foreground font-semibold">Status</span>
@@ -1260,7 +1261,7 @@ function RegistryDetailPanel({
             <div className="flex-shrink-0 px-5 py-4 border-b border-border">
               <div className="flex items-start gap-3">
                 <div className="min-w-0 flex-1">
-                  <p className="text-base font-bold text-foreground truncate">{unit.unit_code}</p>
+                  <Code value={unit.unit_code} label="Unit code" className="text-base" block iconSize={14} />
                   <p className="text-[11px] text-foreground truncate">{unit.building}</p>
                   <div className="flex items-center gap-2 mt-2 flex-wrap">
                     <DerivedStatusText unit={unit} />
@@ -1588,7 +1589,7 @@ function UnitListRow({ unit, selected, onClick }: UnitListRowProps) {
       className={cn('group/row w-full text-left px-4 py-3 border-b border-border cursor-pointer select-none', ROW_GRID)}
     >
       <span className="text-sm font-semibold text-foreground truncate">{unit.building || '—'}</span>
-      <span className="font-mono text-sm font-bold text-foreground truncate">{unit.unit_code || '—'}</span>
+      <Code value={unit.unit_code} label="Unit code" className="text-sm" />
       <span className="text-xs text-foreground truncate">{unit.owner_name || '—'}</span>
       <div className="flex items-center gap-2 justify-end flex-shrink-0">
         <DerivedStatusText unit={unit} />

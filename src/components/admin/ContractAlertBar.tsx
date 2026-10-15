@@ -7,6 +7,7 @@ import { AnimatePresence, motion } from 'framer-motion'
 import { AlertTriangle, ChevronDown, X, ArrowRight } from 'lucide-react'
 import { CONTRACT_ALERT_DAYS, CONTRACT_URGENT_DAYS } from '@/hooks/useContractAlerts'
 import { cn } from '@/lib/utils'
+import { Code } from '@/components/common/Code'
 
 const DISMISS_KEY = 'ir:contractAlert:dismissed'
 
@@ -128,7 +129,7 @@ export default function ContractAlertBar({ alerts, onOpenContract, onOpenContrac
                     className="w-full grid grid-cols-[minmax(0,1fr)_minmax(0,1fr)_auto_auto] items-center gap-4 px-3 py-2 rounded-md text-left hover:bg-black/[0.04] dark:hover:bg-white/[0.06]"
                   >
                     <span className="min-w-0 truncate text-[12.5px] text-foreground">
-                      <span className="font-mono font-bold">{c.unitCode || '—'}</span>
+                      <Code value={c.unitCode} label="Unit code" className="text-[12.5px]" />
                       {c.building && <span className="text-foreground"> · {c.building}</span>}
                     </span>
                     <span className="min-w-0 truncate text-[12.5px] text-foreground">{c.owner || 'No owner'}</span>

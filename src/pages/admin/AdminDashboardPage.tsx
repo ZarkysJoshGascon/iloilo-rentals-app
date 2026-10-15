@@ -6,7 +6,7 @@ import { useTheme } from "../../context/ThemeContext";
 import { useAuth } from "../../context/AuthContext";
 import {
   Moon, Sun, ArrowLeft, Calendar, Users, Sparkles,
-  FileText, TrendingUp, LayoutDashboard, Megaphone, Inbox, Palette,
+  FileText, TrendingUp, LayoutDashboard, Megaphone, HousePlus, Sofa,
   ScrollText,
 } from 'lucide-react'
 import AdminSidebar, {
@@ -32,8 +32,8 @@ const ContractsPage         = lazy(() => import('../../components/admin/contract
 const AccountingPage        = lazy(() => import('../../components/admin/accounting/AccountingPage'))
 const BookingsPage          = lazy(() => import('../../components/admin/bookings/BookingsPage'))
 const CampaignsPage         = lazy(() => import('../../components/admin/campaigns/CampaignsPage'))
-const InquiriesPage         = lazy(() => import('../../components/admin/inquiries/InquiriesPage'))
-const InteriorInquiriesPage = lazy(() => import('../../components/admin/interior/InteriorInquiriesPage'))
+const ListPropertyInquiriesPage   = lazy(() => import('../../components/admin/inquiries/ListPropertyInquiriesPage'))
+const InteriorDesignInquiriesPage = lazy(() => import('../../components/admin/interior/InteriorDesignInquiriesPage'))
 const TeamPage              = lazy(() => import('../../components/admin/team/TeamPage'))
 const HousekeepingPage      = lazy(() => import('../../components/admin/housekeeping/HousekeepingPage'))
 
@@ -44,8 +44,8 @@ const PREFETCH = {
   accounting:   () => import('../../components/admin/accounting/AccountingPage'),
   bookings:     () => import('../../components/admin/bookings/BookingsPage'),
   housekeeping: () => import('../../components/admin/housekeeping/HousekeepingPage'),
-  inquiries:    () => import('../../components/admin/inquiries/InquiriesPage'),
-  interior:     () => import('../../components/admin/interior/InteriorInquiriesPage'),
+  inquiries:    () => import('../../components/admin/inquiries/ListPropertyInquiriesPage'),
+  interior:     () => import('../../components/admin/interior/InteriorDesignInquiriesPage'),
   campaigns:    () => import('../../components/admin/campaigns/CampaignsPage'),
   team:         () => import('../../components/admin/team/TeamPage'),
 }
@@ -181,9 +181,9 @@ const ActiveTab = memo(function ActiveTab({
     case 'housekeeping':
       return <HousekeepingPage initialSelectedId={cleaningId} fromBookingId={fromBookingId} />
     case 'inquiries':
-      return <InquiriesPage />
+      return <ListPropertyInquiriesPage />
     case 'interior':
-      return <InteriorInquiriesPage />
+      return <InteriorDesignInquiriesPage />
     case 'campaigns':
       return <CampaignsPage />
     case 'team':
@@ -344,12 +344,12 @@ export default function AdminDashboardPage() {
   const tabIcons = {
     dashboard: LayoutDashboard, registry: ScrollText, contracts: FileText,
     accounting: TrendingUp, bookings: Calendar, housekeeping: Sparkles,
-    inquiries: Inbox, interior: Palette, campaigns: Megaphone, team: Users,
+    inquiries: HousePlus, interior: Sofa, campaigns: Megaphone, team: Users,
   }
   const tabTitles = {
     dashboard: 'Dashboard', registry: 'Registry', contracts: 'Contracts',
     accounting: 'Accounting', bookings: 'Bookings', housekeeping: 'Housekeeping',
-    inquiries: 'Inquiries', interior: 'Interior Design', campaigns: 'Campaigns',
+    inquiries: 'List Property Inquiries', interior: 'Interior Design Inquiries', campaigns: 'Campaigns',
     team: 'Team',
   }
   const Icon = tabIcons[activeTab] || LayoutDashboard

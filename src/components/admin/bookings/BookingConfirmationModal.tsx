@@ -16,6 +16,7 @@ import {
   computeNights,
   BOOKING_CONFIRMATION,
 } from '@/lib/email'
+import { Code } from '@/components/common/Code'
 
 const BRAND = 'var(--brand-solid)'
 const SOFT_SHADOW = '0 20px 40px -16px rgba(15,23,42,0.24), 0 6px 16px -6px rgba(15,23,42,0.10)'
@@ -144,7 +145,7 @@ export default function BookingConfirmationModal({ open, onClose, booking, onSen
                 Send Booking Confirmation
               </h2>
               <p className="text-[11px] text-muted-foreground truncate">
-                {booking.guest_name || 'Guest'} · {booking.booking_code}
+                {booking.guest_name || 'Guest'} · <Code value={booking.booking_code} label="Booking code" className="text-[11px]" iconSize={11} />
               </p>
             </div>
           </div>
@@ -298,7 +299,7 @@ function PreviewPanel({
         </p>
 
         <div className="rounded-md bg-muted/40 p-4">
-          <PreviewRow label="Booking code" value={booking.booking_code || '—'} mono />
+          <PreviewRow label="Booking code" value={<Code value={booking.booking_code} label="Booking code" className="text-xs" />} />
           <PreviewRow label="Unit"         value={unitLine} />
           <PreviewRow
             label="Check-in"

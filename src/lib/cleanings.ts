@@ -58,7 +58,7 @@ export async function listCleanings({ status, type, housekeeperId, search }: { s
     .select(`
       *,
       units:unit_id ( id, unit_code, building ),
-      bookings:booking_id ( id, booking_code, guest_name, check_in, check_out ),
+      bookings:booking_id ( id, booking_code, guest_name, check_in, check_out, checked_out_at, checked_out_by_name, late_checkout_at ),
       housekeepers:housekeeper_id ( id, code, name, photo_url )
     `)
     .order('scheduled_date', { ascending: false, nullsFirst: false })
@@ -83,7 +83,7 @@ export async function getCleaning(id) {
     .select(`
       *,
       units:unit_id ( id, unit_code, building ),
-      bookings:booking_id ( id, booking_code, guest_name, check_in, check_out ),
+      bookings:booking_id ( id, booking_code, guest_name, check_in, check_out, checked_out_at, checked_out_by_name, late_checkout_at ),
       housekeepers:housekeeper_id ( id, code, name, photo_url )
     `)
     .eq('id', id)

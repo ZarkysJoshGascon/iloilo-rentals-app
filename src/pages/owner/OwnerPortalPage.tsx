@@ -23,6 +23,7 @@ import {
   OWNER_PCT, MONTHS_SHORT, todayISO, formatPeso, formatDate, moneyTone, ContractStatus,
 } from '@/components/owner/ownerUi'
 import type { ReactNode } from 'react'
+import { Code } from '@/components/common/Code'
 
 const PAGE = 'px-4 py-5 sm:px-6 md:px-8 md:py-6 max-w-[1500px] mx-auto space-y-4 pb-12'
 const MONEY_TILE = 'text-[21px] sm:text-[24px]'
@@ -123,7 +124,7 @@ function TopBar({ user, ownerName, onSignOut, onBack, unitCode }: TopBarProps) {
           <span className="min-w-0 leading-tight">
             <span className="block text-[14px] font-semibold text-foreground tracking-tight truncate">Iloilo Rentals</span>
             <span className="block text-[11px] text-foreground truncate">
-              {unitCode ? <><span className="sm:hidden">{unitCode}</span><span className="hidden sm:inline">Owner portal</span></> : 'Owner portal'}
+              {unitCode ? <><span className="sm:hidden font-mono font-bold">{unitCode}</span><span className="hidden sm:inline">Owner portal</span></> : 'Owner portal'}
             </span>
           </span>
         </Link>
@@ -171,7 +172,7 @@ function UnitCard({ contract, termCount, yearShare, monthlyShare, year, onOpen }
         <Home size={20} strokeWidth={1.75} className="text-foreground flex-shrink-0 mt-1" />
         <div className="min-w-0 flex-1">
           <div className="flex items-center gap-2 flex-wrap">
-            <p className="text-[15px] font-semibold text-foreground tracking-tight truncate">{contract.units.unit_code}</p>
+            <Code value={contract.units.unit_code} label="Unit code" className="text-[15px] tracking-tight" />
             <ContractStatus contract={contract} />
           </div>
           <p className="text-[12px] text-foreground truncate mt-0.5">

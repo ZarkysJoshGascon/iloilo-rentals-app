@@ -24,6 +24,7 @@ import { StatStrip, StatTile } from '@/components/admin/_shared/StatStrip'
 import { Panel, PanelHeader, InitialsAvatar } from '@/components/admin/_shared/Panel'
 import { SearchKeyHint, useListShortcuts, useListCap } from '@/components/admin/_shared/listTools'
 import { DateRangeFilter } from '@/components/admin/_shared/DateRangeFilter'
+import { Code } from '@/components/common/Code'
 
 const BRAND = 'var(--brand-solid)'
 const SOFT_SHADOW = '0 20px 40px -16px rgba(15,23,42,0.24), 0 6px 16px -6px rgba(15,23,42,0.10)'
@@ -147,7 +148,7 @@ function RecipientRow({ guest, checked, onToggle, disabled }: RecipientRowProps)
         <div className="flex items-baseline gap-2 min-w-0">
           <span className="text-[13px] font-semibold text-foreground truncate">{guest.name || 'Guest'}</span>
           {guest.last_unit && (
-            <span className="text-[11px] text-foreground font-mono truncate flex-shrink-0">{guest.last_unit}</span>
+            <span className="flex-shrink-0 max-w-[45%]"><Code value={guest.last_unit} label="Unit code" className="text-[11px]" iconSize={11} /></span>
           )}
         </div>
         <div className="text-[11px] text-foreground truncate mt-0.5">{guest.email}</div>

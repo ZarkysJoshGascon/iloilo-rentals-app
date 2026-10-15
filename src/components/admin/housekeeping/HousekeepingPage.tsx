@@ -31,11 +31,14 @@ import {
 } from '@/lib/cleanings'
 import { ContextMenu } from '@/components/ui/ContextMenu'
 import { SortHeader, nextSort, ResultsBar, SearchKeyHint, useListShortcuts, CARD_ON_PHONE, MobileSort, useSidePanelMotion, useListCap } from '@/components/admin/_shared/listTools'
-import { Panel, PanelHeader, SectionLabel, InitialsAvatar } from '@/components/admin/_shared/Panel'
+import { Panel, PanelHeader, InitialsAvatar } from '@/components/admin/_shared/Panel'
+import { QueueColumn, QueueRow, WithDot, useNow, useLocalToday, formatSpan, formatClock, localISODate } from '@/components/admin/_shared/WorkQueue'
+import { stayMoment, guestState, hasGuestLeft } from '@/lib/stay'
 import { StatStrip, StatTile } from '@/components/admin/_shared/StatStrip'
 import { StatusTabs } from '@/components/admin/_shared/StatusTabs'
 import type { ReactNode } from 'react'
 import type { LucideIcon } from 'lucide-react'
+import { Code } from '@/components/common/Code'
 
 const BRAND = 'var(--brand-solid)'
 const SOFT_SHADOW = '0 20px 40px -16px rgba(15,23,42,0.24), 0 6px 16px -6px rgba(15,23,42,0.10)'
@@ -90,9 +93,8 @@ function getEffectiveStatus(cleaning) {
   if (cleaning.status === 'cancelled') return 'cancelled'
   if (cleaning.status === 'submitted') return 'to-be-evaluated'
   if (!cleaning.bookings?.check_out) return 'ready'
-  const today = new Date(); today.setHours(0, 0, 0, 0)
-  const co = new Date(cleaning.bookings.check_out); co.setHours(0, 0, 0, 0)
-  return co <= today ? 'ready' : 'scheduled'
+  // Ready once the guest has left: confirmed in Bookings, or their check-out day is over.
+  return hasGuestLeft(cleaning.bookings) ? 'ready' : 'scheduled'
 }
 
 function isPendingEvaluation(cleaning) {
@@ -184,48 +186,6 @@ function timeAgo(iso) {
   return `${years}y ago`
 }
 
-function guestLeftStatus(booking) {
-  if (!booking?.check_out) return null
-  const parts = String(booking.check_out).slice(0, 10).split('-').map(Number)
-  if (parts.length !== 3 || parts.some(Number.isNaN)) return null
-  const [y, m, d] = parts
-  const checkOutTime = new Date(y, m - 1, d, STAY_TIMES.checkOut.hour, STAY_TIMES.checkOut.minute, 0, 0)
-  const diffMs = Date.now() - checkOutTime.getTime()
-
-  if (diffMs < 0) {
-    const absMs = Math.abs(diffMs)
-    const mins = Math.floor(absMs / 60000)
-    const hours = Math.floor(mins / 60)
-    const days = Math.floor(hours / 24)
-    let label
-    if (mins < 60) label = `${mins}m`
-    else if (hours < 24) label = `${hours}h ${mins % 60}m`
-    else label = `${days}d ${hours % 24}h`
-    return {
-      text: `leaves in ${label}`,
-      className: 'text-blue-600 dark:text-blue-400',
-    }
-  }
-
-  const mins = Math.floor(diffMs / 60000)
-  const hours = Math.floor(mins / 60)
-  const days = Math.floor(hours / 24)
-  let label
-  if (mins < 60) label = `${mins}m`
-  else if (hours < 24) label = `${hours}h ${mins % 60}m`
-  else label = `${days}d ${hours % 24}h`
-
-  const className =
-    mins < 60 ? 'text-amber-600 dark:text-amber-400'
-    : hours < 4 ? 'text-foreground'
-    : 'text-red-600 dark:text-red-400'
-
-  return {
-    text: `left ${label} ago`,
-    className,
-  }
-}
-
 type WorkerAvatarProps = {
   name: any
   photo_url: any
@@ -234,7 +194,7 @@ type WorkerAvatarProps = {
 
 // Plain initials on white, as on the Dashboard.
 function WorkerAvatar({ name, photo_url, size = 'md' }: WorkerAvatarProps) {
-  return <InitialsAvatar name={name} photoUrl={photo_url} size={size === 'lg' ? 'lg' : size === 'sm' ? 'sm' : 'md'} />
+  return <InitialsAvatar name={name} photoUrl={photo_url} size={['xs', 'sm', 'lg'].includes(size) ? size : 'md'} />
 }
 
 function useSignedUrls(photos) {
@@ -489,155 +449,238 @@ function SummaryCards({ cleanings, active, onSelect }: SummaryCardsProps) {
   )
 }
 
-type PanelRowProps = {
-  cleaning: any
-  variant: any
-  onClick: () => any
+type QueueVariant = 'overdue' | 'due' | 'pending' | 'completed'
+
+function formatDayShort(d) {
+  if (!d) return '—'
+  const date = new Date(`${String(d).slice(0, 10)}T00:00:00`)
+  return Number.isNaN(date.getTime()) ? '—' : date.toLocaleDateString('en-PH', { month: 'short', day: 'numeric' })
 }
 
-function PanelRow({ cleaning, variant, onClick }: PanelRowProps) {
+function photoCount(cleaning) {
+  const n = (a) => (Array.isArray(a) ? a.length : 0)
+  return n(cleaning.photos_before) + n(cleaning.photos_after) + n(cleaning.photos_report)
+}
+
+const clockOf = (d: Date) => formatClock(d.getHours(), d.getMinutes())
+
+/** The next guest checking in to a cleaning's unit after its guest leaves. */
+type Arrival = { code: string; at: Date }
+
+// When the unit started waiting to be cleaned: when the guest left (confirmed
+// in Bookings, or their check-out day is over), or for a cleaning without a
+// booking, its day at check-out time. Null while the guest is still in.
+function waitingSince(cleaning, now: number): Date | null {
+  if (!cleaning.bookings?.check_out) return stayMoment(cleaning.scheduled_date, STAY_TIMES.checkOut)
+  const state = guestState(cleaning.bookings, now)
+  return state.kind === 'left' ? state.at : null
+}
+
+// Overdue once the guest has left and either the cleaning's day is over or
+// the next guest's check-in time has come with the unit still not cleaned.
+// A check-out nobody has confirmed doesn't count yet.
+function isOverdue(cleaning, now: number, today: string, arrival: Arrival | null) {
+  if (!waitingSince(cleaning, now)) return false
+  if (cleaning.scheduled_date && cleaning.scheduled_date < today) return true
+  return !!arrival && arrival.at.getTime() <= now
+}
+
+// Due today: still in, waiting for confirmation, ready since this morning, first by urgency.
+const DUE_ORDER = { left: 0, unconfirmed: 1, staying: 2, none: 3 }
+
+// The big value at the start of a row: how long the unit has waited since
+// the guest left, how long until they leave, how long it has waited for
+// review, or when it was done.
+function queueLead(cleaning, variant: QueueVariant, now: number) {
+  if (variant === 'overdue') {
+    const since = waitingSince(cleaning, now)
+    return {
+      lead: since ? formatSpan(now - since.getTime()) : '—',
+      caption: cleaning.bookings ? 'since guest left' : 'late',
+      tone: 'text-red-600 dark:text-red-400',
+    }
+  }
+  if (variant === 'due') {
+    if (!cleaning.bookings?.check_out) return { lead: 'Today', caption: 'no booking', tone: '' }
+    const state = guestState(cleaning.bookings, now)
+    if (state.kind === 'staying') {
+      return {
+        lead: formatSpan(state.due.getTime() - now),
+        caption: cleaning.bookings.late_checkout_at ? 'to late check-out' : 'to check-out',
+        tone: STATUS_TEXT.scheduled.className,
+      }
+    }
+    if (state.kind === 'unconfirmed') return { lead: clockOf(state.due), caption: 'not confirmed', tone: STATUS_TEXT.scheduled.className }
+    if (state.kind === 'left') return { lead: formatSpan(now - state.at.getTime()), caption: 'since guest left', tone: STATUS_TEXT.ready.className }
+    return { lead: 'Today', caption: '', tone: '' }
+  }
+  if (variant === 'pending') {
+    const t = Date.parse(cleaning.submitted_at)
+    return { lead: Number.isFinite(t) ? formatSpan(now - t) : '—', caption: 'waiting', tone: STATUS_TEXT['to-be-evaluated'].className }
+  }
+  return { lead: formatDayShort(cleaning.completed_at), caption: timeAgo(cleaning.completed_at) || 'done', tone: '' }
+}
+
+type CleaningQueueRowProps = {
+  cleaning: any
+  variant: QueueVariant
+  now: number
+  today: string
+  arrival: Arrival | null
+  onClick: () => void
+}
+
+function CleaningQueueRow({ cleaning, variant, now, today, arrival, onClick }: CleaningQueueRowProps) {
   const booking = cleaning.bookings
   const housekeeper = cleaning.housekeepers
   const unit = cleaning.units
   const nights = computeNightsFromBooking(booking)
+  const { lead, caption, tone } = queueLead(cleaning, variant, now)
+  const place = [unit?.unit_code, unit?.building].filter(Boolean).join(' · ') || 'No unit'
+  const stillIn = !!booking && !waitingSince(cleaning, now)
+  const late = booking?.late_checkout_at ? new Date(booking.late_checkout_at) : null
+  const arrivesToday = arrival && localISODate(arrival.at) === today
 
-  let timingText = null
-  let timingClass = 'text-foreground'
-
-  if (variant === 'overdue') {
-    const gl = guestLeftStatus(booking)
-    if (gl) {
-      timingText = `Guest ${gl.text}`
-      timingClass = 'text-red-600 dark:text-red-400'
-    } else {
-      timingText = 'No guest check-out'
-      timingClass = 'text-red-600 dark:text-red-400 italic'
-    }
-  } else if (variant === 'scheduled') {
-    const gl = guestLeftStatus(booking)
-    if (gl) {
-      timingText = `Guest ${gl.text}`
-      timingClass = gl.className
-    } else {
-      timingText = 'No guest check-out'
-      timingClass = 'text-foreground italic'
-    }
-  } else if (variant === 'pending') {
-    const ago = timeAgo(cleaning.submitted_at)
-    if (ago) timingText = `Submitted ${ago}`
-  } else if (variant === 'completed') {
-    const ago = timeAgo(cleaning.completed_at)
-    if (ago) timingText = `Completed ${ago}`
+  let asideSub = null
+  if (variant === 'overdue') asideSub = arrivesToday ? `Next guest ${clockOf(arrival.at)}` : `Due ${formatDayShort(cleaning.scheduled_date)}`
+  else if (variant === 'due') asideSub = arrivesToday ? `Next guest ${clockOf(arrival.at)}` : null
+  else if (variant === 'pending') {
+    const photos = photoCount(cleaning)
+    asideSub = photos > 0 ? `${photos} photo${photos === 1 ? '' : 's'}` : 'No photos'
+  } else if (variant === 'completed' && Number(cleaning.payment_amount) > 0) {
+    asideSub = formatMoney(cleaning.payment_amount)
   }
 
-  const identityParts = [
-    (cleaning.type || 'basic').charAt(0).toUpperCase() + (cleaning.type || 'basic').slice(1),
-    unit?.unit_code,
-    unit?.building,
-  ].filter(Boolean)
-
-  const metaParts = []
-  if (housekeeper?.name) metaParts.push(housekeeper.name)
-  if (booking?.guest_name) metaParts.push(booking.guest_name)
-  if (nights > 0) metaParts.push(`${nights}n`)
-
   return (
-    <button
-      type="button"
-      onClick={onClick}
-      className="w-full text-left px-5 py-2.5 border-b border-border last:border-0 transition-colors hover:bg-muted/40"
-    >
-
-      <div className="flex items-center gap-2 min-w-0">
-        <p className="text-[12px] text-foreground truncate flex-1 min-w-0">
-          <span className="font-mono font-semibold">{cleaning.cleaning_code || '—'}</span>
-          {identityParts.map((part, i) => (
-            <span key={i}>
-              <span className="text-foreground mx-1.5">·</span>
-              <span className="text-foreground">{part}</span>
+    <QueueRow
+      lead={lead}
+      leadCaption={caption}
+      leadTone={tone}
+      label={`Open ${place}, ${cleaning.cleaning_code || 'cleaning'}: ${lead} ${caption}`}
+      title={(
+        <>
+          {place}
+          {cleaning.cleaning_code && <span className="ml-2 inline-flex align-middle"><Code value={cleaning.cleaning_code} label="Cleaning code" className="text-[11px]" /></span>}
+        </>
+      )}
+      subtitle={(
+        <>
+          {housekeeper?.name ? (
+            <span className="inline-flex items-center gap-1.5 min-w-0">
+              <WorkerAvatar name={housekeeper.name} photo_url={housekeeper.photo_url} size="xs" />
+              <span className="truncate">{housekeeper.name}</span>
             </span>
-          ))}
-        </p>
-        <div className="flex-shrink-0">
-          <StatusText cleaning={cleaning} />
-        </div>
-      </div>
-
-      <div className="flex items-center gap-1.5 mt-0.5 min-w-0">
-        {housekeeper?.name && (
-          <WorkerAvatar name={housekeeper.name} photo_url={housekeeper.photo_url} size="sm" />
-        )}
-        <p className="text-[11px] truncate flex-1 min-w-0">
-          {metaParts.length > 0 ? (
-            metaParts.map((part, i) => (
-              <span key={i} className="text-foreground">
-                {i > 0 && <span className="mx-1.5 text-foreground">·</span>}
-                {part}
-              </span>
-            ))
           ) : (
-            <span className="italic text-foreground">No booking</span>
+            <span className="font-semibold text-amber-600 dark:text-amber-400">Unassigned</span>
           )}
-          {timingText && (
-            <>
-              <span className="mx-1.5 text-foreground">·</span>
-              <span className={cn('font-semibold', timingClass)}>{timingText}</span>
-            </>
-          )}
-        </p>
-      </div>
-    </button>
-  )
-}
-
-type QueueSectionProps = {
-  icon: LucideIcon
-  title: string
-  rows: any
-  loading: any
-  empty: string
-  variant: string
-  onRowClick: any
-  emphasis?: boolean
-}
-
-function QueueSection({ icon, title, rows, loading, empty, variant, onRowClick, emphasis = false }: QueueSectionProps) {
-  return (
-    <div className="min-w-0 border-b border-border last:border-b-0 lg:odd:border-r lg:[&:nth-last-child(-n+2)]:border-b-0">
-      <SectionLabel icon={icon} title={title} count={loading ? null : rows.length} emphasis={emphasis} />
-      {/* About three rows; more scroll inside */}
-      <div className="max-h-[210px] overflow-y-auto">
-        {loading ? (
-          <div className="p-3 space-y-2">{[...Array(2)].map((_, i) => <div key={i} className="h-12 rounded-md bg-muted animate-pulse" />)}</div>
-        ) : rows.length === 0 ? (
-          <p className="px-5 py-3 text-[12px] text-foreground">{empty}</p>
-        ) : (
-          rows.map((c) => <PanelRow key={c.id} cleaning={c} variant={variant} onClick={() => onRowClick(c)} />)
-        )}
-      </div>
-    </div>
+          {booking?.guest_name && <WithDot>{booking.guest_name}</WithDot>}
+          {nights > 0 && <WithDot>{nights} night{nights === 1 ? '' : 's'}</WithDot>}
+          {stillIn && late && <WithDot><span className="font-semibold">Late check-out {clockOf(late)}</span></WithDot>}
+        </>
+      )}
+      aside={<TypeText type={cleaning.type} />}
+      asideSub={asideSub}
+      onClick={onClick}
+    />
   )
 }
 
 type QueueCardProps = {
-  overdue: any
-  dueToday: any
-  pendingEvaluation: any
-  completed: any
+  /** Cleanings not yet submitted, completed or cancelled. */
+  open: any[]
+  /** The next guest arriving in each open cleaning's unit, by cleaning id. */
+  arrivals: Map<any, Arrival>
+  pendingEvaluation: any[]
+  completed: any[]
+  today: string
   loading: boolean
   onRowClick: (cleaning: any) => void
 }
 
+// The 2×2 grid's dividers: a line under the top two, one between the columns.
+const QUEUE_CELL = 'border-b border-border last:border-b-0 lg:odd:border-r lg:[&:nth-last-child(-n+2)]:border-b-0'
+
 // What needs doing, most urgent first.
-function QueueCard({ overdue, dueToday, pendingEvaluation, completed, loading, onRowClick }: QueueCardProps) {
+function QueueCard({ open, arrivals, pendingEvaluation, completed, today, loading, onRowClick }: QueueCardProps) {
+  // Refreshed every minute: countdowns tick and cleanings turn overdue on time.
+  const now = useNow()
+  const { overdue, dueToday } = useMemo(() => {
+    const overdue = []
+    const dueToday = []
+    for (const c of open) {
+      if (isOverdue(c, now, today, arrivals.get(c.id) || null)) overdue.push(c)
+      else if (c.scheduled_date === today || String(c.bookings?.check_out || '').slice(0, 10) === today) dueToday.push(c)
+    }
+    // Longest waiting first.
+    overdue.sort((a, b) => (waitingSince(a, now)?.getTime() ?? 0) - (waitingSince(b, now)?.getTime() ?? 0))
+    const rank = (c) => (c.bookings?.check_out ? DUE_ORDER[guestState(c.bookings, now).kind] : DUE_ORDER.none)
+    dueToday.sort((a, b) => rank(a) - rank(b) || String(a.cleaning_code || '').localeCompare(String(b.cleaning_code || '')))
+    return { overdue, dueToday }
+  }, [open, arrivals, now, today])
+  const rows = (list: any[], variant: QueueVariant) =>
+    list.map((c) => (
+      <CleaningQueueRow key={c.id} cleaning={c} variant={variant} now={now} today={today} arrival={arrivals.get(c.id) || null} onClick={() => onRowClick(c)} />
+    ))
+  const summary = loading
+    ? 'Loading…'
+    : `${overdue.length} overdue · ${dueToday.length} due today · ${pendingEvaluation.length} to review`
+
   return (
     <Panel>
-      <PanelHeader icon={Sparkles} title="Work queue" subtitle="Overdue, due today, waiting for review and recently completed" />
+      <PanelHeader icon={Sparkles} title="Work queue" subtitle={summary} />
       <div className="grid grid-cols-1 lg:grid-cols-2">
-        <QueueSection icon={Clock} title="Overdue" rows={overdue} loading={loading} empty="No overdue cleanings." variant="overdue" onRowClick={onRowClick} emphasis />
-        <QueueSection icon={Sparkles} title="Due today" rows={dueToday} loading={loading} empty="No cleanings due today." variant="scheduled" onRowClick={onRowClick} />
-        <QueueSection icon={AlertTriangle} title="To be evaluated" rows={pendingEvaluation} loading={loading} empty="Nothing waiting for review." variant="pending" onRowClick={onRowClick} />
-        <QueueSection icon={CheckCircle2} title="Completed" rows={completed} loading={loading} empty="No completed cleanings." variant="completed" onRowClick={onRowClick} />
+        <QueueColumn
+          className={QUEUE_CELL}
+          icon={Clock}
+          title="Overdue"
+          hint="Not cleaned by its day or the next check-in"
+          count={loading ? null : overdue.length}
+          countTone="text-red-600 dark:text-red-400"
+          loading={loading}
+          emptyIcon={CheckCircle2}
+          emptyTitle="Nothing overdue"
+          emptyText="Every unit the guests have left is clean."
+        >
+          {rows(overdue, 'overdue')}
+        </QueueColumn>
+        <QueueColumn
+          className={QUEUE_CELL}
+          icon={Sparkles}
+          title="Due today"
+          hint="Clock starts at the confirmed check-out"
+          count={loading ? null : dueToday.length}
+          loading={loading}
+          emptyIcon={CalendarIcon}
+          emptyTitle="No cleanings today"
+          emptyText="Nothing is scheduled for today."
+        >
+          {rows(dueToday, 'due')}
+        </QueueColumn>
+        <QueueColumn
+          className={QUEUE_CELL}
+          icon={AlertTriangle}
+          title="To be evaluated"
+          hint="Submitted, waiting for your review"
+          count={loading ? null : pendingEvaluation.length}
+          countTone={STATUS_TEXT['to-be-evaluated'].className}
+          loading={loading}
+          emptyIcon={CheckCircle2}
+          emptyTitle="All reviewed"
+          emptyText="Nothing is waiting for you."
+        >
+          {rows(pendingEvaluation, 'pending')}
+        </QueueColumn>
+        <QueueColumn
+          className={QUEUE_CELL}
+          icon={CheckCircle2}
+          title="Completed"
+          hint="Approved and paid, newest first"
+          count={loading ? null : completed.length}
+          loading={loading}
+          emptyTitle="None completed yet"
+        >
+          {rows(completed, 'completed')}
+        </QueueColumn>
       </div>
     </Panel>
   )
@@ -1753,7 +1796,7 @@ function NewCleaningModal({ open, onClose, onCreated, units, bookings, housekeep
                 ) : (
                   eligibleUnits.map((u) => (
                     <SelectItem key={u.id} value={u.id} className="text-xs">
-                      {u.building || '—'} — {u.unit_code || '—'}
+                      {u.building || '—'} — <span className="font-mono font-bold">{u.unit_code || '—'}</span>
                     </SelectItem>
                   ))
                 )}
@@ -1787,7 +1830,7 @@ function NewCleaningModal({ open, onClose, onCreated, units, bookings, housekeep
               </SelectTrigger>
               <SelectContent>
                 <SelectItem value="__none__" className="text-xs italic text-foreground">No booking (standalone)</SelectItem>
-                {bookings.map((b) => <SelectItem key={b.id} value={b.id} className="text-xs">{b.booking_code} · {b.guest_name}</SelectItem>)}
+                {bookings.map((b) => <SelectItem key={b.id} value={b.id} className="text-xs"><span className="font-mono font-bold">{b.booking_code}</span> · {b.guest_name}</SelectItem>)}
               </SelectContent>
             </Select>
           </div>
@@ -1820,7 +1863,7 @@ function NewCleaningModal({ open, onClose, onCreated, units, bookings, housekeep
               </SelectTrigger>
               <SelectContent>
                 <SelectItem value="__none__" className="text-xs italic text-foreground">Unassigned</SelectItem>
-                {housekeepers.map((h) => <SelectItem key={h.id} value={h.id} className="text-xs">{h.name} · {h.code}</SelectItem>)}
+                {housekeepers.map((h) => <SelectItem key={h.id} value={h.id} className="text-xs">{h.name} · <span className="font-mono font-bold">{h.code}</span></SelectItem>)}
               </SelectContent>
             </Select>
           </div>
@@ -1896,12 +1939,10 @@ function CleaningDetailPanel({ cleaning, onClose, onChanged, onDelete, housekeep
           <div className="flex-shrink-0 px-5 py-4 border-b border-border">
             <div className="flex items-start gap-3">
               <div className="min-w-0 flex-1">
-                <p className="font-mono text-sm font-bold text-foreground truncate">
-                  {cleaning.cleaning_code || '—'}
-                </p>
-                <p className="text-xs text-foreground truncate mt-0.5">
-                  {cleaning.units?.unit_code || '—'}
-                  {cleaning.units?.building ? ` · ${cleaning.units.building}` : ''}
+                <Code value={cleaning.cleaning_code} label="Cleaning code" className="text-sm" block />
+                <p className="text-xs text-foreground mt-0.5 flex items-center gap-1 min-w-0">
+                  <Code value={cleaning.units?.unit_code} label="Unit code" className="text-xs" />
+                  {cleaning.units?.building && <span className="truncate">· {cleaning.units.building}</span>}
                 </p>
                 <div className="flex items-center gap-2 mt-2 flex-wrap">
                   <TypeText type={cleaning.type} />
@@ -1944,8 +1985,9 @@ function CleaningDetailPanel({ cleaning, onClose, onChanged, onDelete, housekeep
                 {booking && (
                   <div className="flex items-center justify-between py-0.5 gap-2">
                     <span className="text-[10px] uppercase tracking-wider text-foreground font-semibold min-w-[72px]">Booking</span>
-                    <span className="text-xs font-mono text-foreground truncate text-right">
-                      {booking.booking_code} · {booking.guest_name}
+                    <span className="text-xs text-foreground text-right inline-flex items-center gap-1 min-w-0">
+                      <Code value={booking.booking_code} label="Booking code" className="text-xs" />
+                      <span className="truncate">· {booking.guest_name}</span>
                     </span>
                   </div>
                 )}
@@ -2050,7 +2092,7 @@ function CleaningDetailPanel({ cleaning, onClose, onChanged, onDelete, housekeep
                     <WorkerAvatar name={selectedHousekeeper.name} photo_url={selectedHousekeeper.photo_url} size="lg" />
                     <div className="min-w-0 flex-1">
                       <p className="text-sm font-semibold truncate">{selectedHousekeeper.name}</p>
-                      <p className="text-[11px] font-mono text-foreground">{selectedHousekeeper.code}</p>
+                      <Code value={selectedHousekeeper.code} label="Housekeeper code" className="text-[11px]" block />
                     </div>
                   </div>
                 )}
@@ -2062,7 +2104,7 @@ function CleaningDetailPanel({ cleaning, onClose, onChanged, onDelete, housekeep
                   </SelectTrigger>
                   <SelectContent>
                     <SelectItem value="__none__" className="text-xs italic text-foreground">Unassigned</SelectItem>
-                    {housekeepers.map((h) => <SelectItem key={h.id} value={h.id} className="text-xs">{h.name} · {h.code}</SelectItem>)}
+                    {housekeepers.map((h) => <SelectItem key={h.id} value={h.id} className="text-xs">{h.name} · <span className="font-mono font-bold">{h.code}</span></SelectItem>)}
                   </SelectContent>
                 </Select>
               </div>
@@ -2210,18 +2252,16 @@ function CleaningListRow({ cleaning, selected, highlighted, onClick, onViewBooki
         className={cn('group/row w-full text-left px-4 py-3 cursor-pointer select-none', ROW_GRID)}
       >
         <div className="min-w-0">
-          <span className="font-mono text-[12.5px] font-bold text-foreground truncate block">
-            {cleaning.cleaning_code || '—'}
-          </span>
-          <span className="text-[11.5px] text-foreground truncate block">
-            {cleaning.units?.unit_code || '—'}
-            {cleaning.units?.building ? ` · ${cleaning.units.building}` : ''}
+          <Code value={cleaning.cleaning_code} label="Cleaning code" className="text-[12.5px]" block />
+          <span className="text-[11.5px] text-foreground flex items-center gap-1 min-w-0">
+            <Code value={cleaning.units?.unit_code} label="Unit code" className="text-[11.5px]" />
+            {cleaning.units?.building && <span className="truncate">· {cleaning.units.building}</span>}
           </span>
         </div>
         <div className="min-w-0">
           {cleaning.bookings ? (
             <>
-              <span className="font-mono text-[12px] text-foreground truncate block">{cleaning.bookings.booking_code}</span>
+              <Code value={cleaning.bookings.booking_code} label="Booking code" className="text-[12px]" block />
               <span className="text-[11.5px] text-foreground truncate block">{cleaning.bookings.guest_name}</span>
             </>
           ) : (
@@ -2353,6 +2393,8 @@ export default function HousekeepingPage({ initialSelectedId, fromBookingId }: H
     const ch = supabase
       .channel(`housekeeping-admin-${Math.random().toString(36).slice(2, 10)}`)
       .on('postgres_changes', { event: '*', schema: 'public', table: 'cleanings' }, () => fetchData())
+      // A check-out confirmed or a late check-out given in Bookings starts or moves a cleaning.
+      .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'bookings' }, () => fetchData())
       .subscribe()
     return () => { supabase.removeChannel(ch) }
   }, [fetchData])
@@ -2393,40 +2435,32 @@ export default function HousekeepingPage({ initialSelectedId, fromBookingId }: H
     return c
   }, [cleanings, debouncedSearch])
 
-  const todayStr = useMemo(() => new Date().toISOString().slice(0, 10), [])
+  // Today where the CRM is used (not UTC, which is still yesterday before 8am in Manila).
+  const todayStr = useLocalToday()
 
-  const dueToday = useMemo(() => {
-    return cleanings
-      .filter((c) => {
-        if (c.scheduled_date !== todayStr) return false
-        const eff = getEffectiveStatus(c)
-        return eff === 'scheduled' || eff === 'ready'
-      })
-      .sort((a, b) => {
-        const ac = a.cleaning_code || ''
-        const bc = b.cleaning_code || ''
-        return ac.localeCompare(bc)
-      })
-  }, [cleanings, todayStr])
+  // Cleanings still to do; the work queue sorts them into overdue and due today.
+  const openCleanings = useMemo(
+    () => cleanings.filter((c) => c.status === 'scheduled' || c.status === 'ready'),
+    [cleanings],
+  )
 
-  const overdue = useMemo(() => {
-    return cleanings
-      .filter((c) => {
-        if (!c.scheduled_date) return false
-        if (c.scheduled_date >= todayStr) return false
-        const eff = getEffectiveStatus(c)
-        return eff === 'scheduled' || eff === 'ready'
-      })
-      .sort((a, b) => {
-        const av = a.scheduled_date || ''
-        const bv = b.scheduled_date || ''
-        if (av < bv) return -1
-        if (av > bv) return 1
-        const ac = a.cleaning_code || ''
-        const bc = b.cleaning_code || ''
-        return ac.localeCompare(bc)
-      })
-  }, [cleanings, todayStr])
+  // The next guest checking in to each open cleaning's unit once its guest has left.
+  const arrivals = useMemo(() => {
+    const map = new Map()
+    for (const c of openCleanings) {
+      const from = String(c.bookings?.check_out || c.scheduled_date || '').slice(0, 10)
+      if (!c.unit_id || !from) continue
+      let next = null
+      for (const b of bookings) {
+        if (b.unit_id !== c.unit_id || b.id === c.booking_id) continue
+        const ci = String(b.check_in || '').slice(0, 10)
+        if (ci >= from && (!next || ci < String(next.check_in).slice(0, 10))) next = b
+      }
+      const at = next && stayMoment(next.check_in, STAY_TIMES.checkIn)
+      if (at) map.set(c.id, { code: next.booking_code, at })
+    }
+    return map
+  }, [openCleanings, bookings])
 
   const pendingEvaluation = useMemo(() => {
     return cleanings
@@ -2546,10 +2580,11 @@ export default function HousekeepingPage({ initialSelectedId, fromBookingId }: H
 
         <div className="flex-shrink-0">
           <QueueCard
-            overdue={overdue}
-            dueToday={dueToday}
+            open={openCleanings}
+            arrivals={arrivals}
             pendingEvaluation={pendingEvaluation}
             completed={completed}
+            today={todayStr}
             loading={isFirstLoad}
             onRowClick={handlePanelRowClick}
           />

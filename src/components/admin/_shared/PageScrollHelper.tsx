@@ -1,7 +1,8 @@
 // src/components/admin/_shared/PageScrollHelper.tsx
 // Up/down buttons that scroll the page itself (not the list) when a list
-// fills most of the screen. A swipe or wheel over a list scrolls the list
-// first, so without these the page can feel stuck behind it.
+// fills most of the screen. A swipe over a list scrolls the list first, so
+// without these the page can feel stuck behind it. Phones only: on a
+// computer the page's own scrollbar does the job.
 //
 // Pages mark their scrolling element with `data-page-scroll`; lists get
 // `data-table-scroll` from useListCap.
@@ -9,6 +10,7 @@ import { useEffect, useRef, useState, type RefObject } from 'react'
 import { AnimatePresence, motion } from 'framer-motion'
 import { ChevronDown, ChevronUp } from 'lucide-react'
 import { cn } from '@/lib/utils'
+import { useIsPhone } from '@/hooks/useIsPhone'
 
 // The list must cover at least this share of the page's visible height.
 const DOMINANT = 0.5
@@ -19,12 +21,13 @@ type PageScrollHelperProps = {
 }
 
 export function PageScrollHelper({ rootRef, bottom }: PageScrollHelperProps) {
+  const phone = useIsPhone()
   const [state, setState] = useState({ show: false, up: false, down: false })
   const pageRef = useRef<HTMLElement | null>(null)
 
   useEffect(() => {
     const root = rootRef.current
-    if (!root) return
+    if (!root || !phone) return
     let frame = 0
     const update = () => {
       cancelAnimationFrame(frame)
@@ -59,7 +62,7 @@ export function PageScrollHelper({ rootRef, bottom }: PageScrollHelperProps) {
       window.removeEventListener('resize', update)
       changes.disconnect()
     }
-  }, [rootRef])
+  }, [rootRef, phone])
 
   const scrollPage = (dir: 1 | -1) => {
     const page = pageRef.current
@@ -73,7 +76,7 @@ export function PageScrollHelper({ rootRef, bottom }: PageScrollHelperProps) {
 
   return (
     <AnimatePresence>
-      {state.show && (
+      {phone && state.show && (
         <motion.div
           initial={{ opacity: 0, x: 12 }}
           animate={{ opacity: 1, x: 0 }}

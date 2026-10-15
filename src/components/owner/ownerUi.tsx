@@ -6,6 +6,7 @@ import { Sparkles } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { CONTRACT_STATUS_TEXT, deriveContractStatus } from '@/lib/contracts'
 import type { ReactNode } from 'react'
+import { Code } from '@/components/common/Code'
 
 export const OWNER_PCT = 75
 export const COMPANY_PCT = 25
@@ -111,7 +112,7 @@ export function BookingRow({ booking }: BookingRowProps) {
         </div>
       </div>
       <div className="mt-1 flex flex-wrap gap-x-3 gap-y-0.5 text-[11.5px] text-foreground tabular-nums">
-        <span className="font-mono">{booking.booking_code}</span>
+        <Code value={booking.booking_code} label="Booking code" className="text-[11.5px]" iconSize={11} />
         {!cancelled && pay && <span className={cn('font-semibold', pay.className)}>{pay.label}</span>}
         {Number(booking.booker_commission) > 0 && (
           <span>Booker{booking.booker_name ? ` ${booking.booker_name}` : ''} <span className="font-semibold">{formatMoney(booking.booker_commission)}</span></span>
@@ -154,7 +155,7 @@ export function CleaningRow({ cleaning }: CleaningRowProps) {
           </p>
           <p className="text-[11.5px] text-foreground mt-0.5">
             {formatDate(cleaning.scheduled_date)}
-            {cleaning.booking_code && <> · after <span className="font-mono">{cleaning.booking_code}</span>{cleaning.guest_name ? ` (${cleaning.guest_name})` : ''}</>}
+            {cleaning.booking_code && <> · after <Code value={cleaning.booking_code} label="Booking code" className="text-[11.5px]" iconSize={11} />{cleaning.guest_name ? ` (${cleaning.guest_name})` : ''}</>}
           </p>
         </div>
         <div className="text-right flex-shrink-0">
@@ -163,7 +164,7 @@ export function CleaningRow({ cleaning }: CleaningRowProps) {
         </div>
       </div>
       <div className="mt-1 flex flex-wrap gap-x-3 text-[11.5px] text-foreground tabular-nums">
-        <span className="font-mono">{cleaning.cleaning_code}</span>
+        <Code value={cleaning.cleaning_code} label="Cleaning code" className="text-[11.5px]" iconSize={11} />
         <span>Housekeeping <span className="font-semibold">{formatMoney(cleaning.payment_amount)}</span></span>
         <span>Laundry <span className="font-semibold">{formatMoney(cleaning.laundry_payment_amount)}</span></span>
       </div>

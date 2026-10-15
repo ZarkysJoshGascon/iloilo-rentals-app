@@ -5,7 +5,7 @@ import { useAuth } from "../../context/AuthContext";
 import { useTheme } from "../../context/ThemeContext";
 import {
   LogOut, ScrollText, Calendar, Users, Sparkles, FileText, TrendingUp, Menu, X, ArrowLeft,
-  LayoutDashboard, Megaphone, Inbox, Palette,
+  LayoutDashboard, Megaphone, HousePlus, Sofa,
 } from 'lucide-react'
 import { motion, AnimatePresence } from 'framer-motion'
 import toast from 'react-hot-toast'
@@ -61,8 +61,10 @@ const NAV_GROUPS = [
     id: 'leads',
     label: 'Leads',
     items: [
-      { id: 'inquiries', label: 'Inquiries',       icon: Inbox },
-      { id: 'interior',  label: 'Interior Design', icon: Palette },
+      // Short forms of "List Property Inquiries" and "Interior Design
+      // Inquiries" (the page titles), which don't fit beside a count badge.
+      { id: 'inquiries', label: 'Property Inquiries', icon: HousePlus },
+      { id: 'interior',  label: 'Design Inquiries',   icon: Sofa },
       { id: 'campaigns', label: 'Campaigns',       icon: Megaphone },
     ],
   },
@@ -78,7 +80,7 @@ const NAV_GROUPS = [
 const BADGE_HINTS = {
   contracts: 'contracts for renewal or ending within 30 days',
   inquiries: 'new property inquiries',
-  interior: 'new design inquiries',
+  interior: 'new interior design inquiries',
   housekeeping: 'cleanings waiting for review',
 }
 
@@ -389,7 +391,7 @@ export default function AdminSidebar({
 
 export const MOBILE_NAV_HEIGHT = 60
 const MOBILE_PRIMARY = ['dashboard', 'bookings', 'housekeeping', 'inquiries']
-const SHORT_LABELS = { housekeeping: 'Cleanings' }
+const SHORT_LABELS = { housekeeping: 'Cleanings', inquiries: 'Inquiries' }
 const ALL_ITEMS = NAV_GROUPS.flatMap((g) => g.items)
 
 type AdminMobileNavProps = {

@@ -30,6 +30,7 @@ import CrmAccessPanel from './CrmAccessPanel'
 import MessengerUpdatesPanel from './MessengerUpdatesPanel'
 import { StatStrip, StatTile } from '@/components/admin/_shared/StatStrip'
 import { ResultsBar, SearchKeyHint, useListShortcuts } from '@/components/admin/_shared/listTools'
+import { Code } from '@/components/common/Code'
 
 const BRAND = 'var(--brand-solid)'
 const SOFT_SHADOW = '0 20px 40px -16px rgba(15,23,42,0.24), 0 6px 16px -6px rgba(15,23,42,0.10)'
@@ -415,7 +416,7 @@ function ReadOnlyCodeField({ code, isEditing }: ReadOnlyCodeFieldProps) {
     return (
       <div className="flex items-center gap-2 h-9 px-3 rounded-lg border border-border bg-card">
         <Lock size={11} className="text-foreground flex-shrink-0" />
-        <span className="font-mono text-xs font-semibold text-foreground truncate">{code}</span>
+        <Code value={code} label="Team code" className="text-xs" />
         <span className="ml-auto text-[11px] text-foreground whitespace-nowrap">Locked</span>
       </div>
     )
@@ -542,7 +543,7 @@ function WorkerCard({ worker, role, liveCount, onClick }: WorkerCardProps) {
         <WorkerAvatar name={worker.name} photo_url={worker.photo_url} size="lg" />
         <div className="mt-4">
           <p className="text-base font-bold text-foreground truncate leading-tight">{worker.name}</p>
-          <p className="text-[11px] font-mono text-foreground mt-0.5 uppercase tracking-wide">{worker.code}</p>
+          <div className="mt-0.5"><Code value={worker.code} label="Team code" className="text-[11px] uppercase tracking-wide" /></div>
           <div className="mt-2 flex flex-wrap items-center gap-1.5">
             <RoleBadge role={role} />
             {!isHousekeeper && <CommissionBadge role={role} completedCount={liveCount} />}
@@ -809,12 +810,12 @@ function WorkerActivitySection({ worker, role }: WorkerActivitySectionProps) {
                   <div key={item.id} className="flex items-center gap-3 px-3.5 py-2.5">
                     <div className="min-w-0 flex-1">
                       <div className="flex items-baseline gap-2 flex-wrap">
-                        <span className="font-mono text-[11px] font-semibold text-foreground">{item.cleaning_code}</span>
+                        <Code value={item.cleaning_code} label="Cleaning code" className="text-[11px]" iconSize={11} />
                         <span className="text-[11px] text-foreground capitalize">{item.type}</span>
                       </div>
                       <p className="text-[11px] text-foreground mt-0.5 tabular-nums truncate">
                         {formatDateShort(item.scheduled_date)}
-                        {item.units?.unit_code && ` · ${item.units.unit_code}`}
+                        {item.units?.unit_code && <> · <Code value={item.units.unit_code} label="Unit code" className="text-[11px]" iconSize={11} /></>}
                         {item.units?.building && ` · ${item.units.building}`}
                       </p>
                     </div>
@@ -841,11 +842,11 @@ function WorkerActivitySection({ worker, role }: WorkerActivitySectionProps) {
                   <div className="min-w-0 flex-1">
                     <div className="flex items-baseline gap-2 flex-wrap">
                       <span className="text-[12px] font-semibold text-foreground truncate">{item.guest_name}</span>
-                      <span className="font-mono text-[11px] text-foreground truncate">{item.booking_code}</span>
+                      <Code value={item.booking_code} label="Booking code" className="text-[11px]" iconSize={11} />
                     </div>
                     <p className="text-[11px] text-foreground mt-0.5 tabular-nums truncate">
                       {formatDateShort(item.check_in)} → {formatDateShort(item.check_out)} · {nights} night{nights === 1 ? '' : 's'}
-                      {item.units?.unit_code && ` · ${item.units.unit_code}`}
+                      {item.units?.unit_code && <> · <Code value={item.units.unit_code} label="Unit code" className="text-[11px]" iconSize={11} /></>}
                       {item.units?.building && ` · ${item.units.building}`}
                     </p>
                   </div>
@@ -938,7 +939,7 @@ function WorkerDetailModal({ worker, role, counts, onClose, onChanged, onEdit, o
             <div className="p-6 flex flex-col items-center text-center">
               <WorkerAvatar name={worker.name} photo_url={worker.photo_url} size="xl" />
               <p id="worker-detail-title" className="mt-4 text-lg font-bold text-foreground truncate w-full leading-tight">{worker.name}</p>
-              <p className="text-[11px] font-mono text-foreground mt-1 uppercase tracking-wide">{worker.code}</p>
+              <div className="mt-1 flex justify-center"><Code value={worker.code} label="Team code" className="text-[11px] uppercase tracking-wide" /></div>
               <div className="mt-4 flex flex-col items-center gap-2">
                 <RoleBadge role={role} size="lg" />
                 {!isHousekeeper && <CommissionBadge role={role} completedCount={liveCount} size="lg" />}
@@ -1344,7 +1345,7 @@ function PMCard({ pm, onClick }: PMCardProps) {
         <WorkerAvatar name={pm.name} photo_url={pm.photo_url} size="lg" />
         <div className="mt-4">
           <p className="text-base font-bold text-foreground truncate leading-tight">{pm.name}</p>
-          <p className="text-[11px] font-mono text-foreground mt-0.5 uppercase tracking-wide">{pm.code}</p>
+          <div className="mt-0.5"><Code value={pm.code} label="Team code" className="text-[11px] uppercase tracking-wide" /></div>
           <div className="mt-2 flex flex-wrap items-center gap-1.5">
             <RoleBadge role="property_managers" />
             <span className={cn(
@@ -1818,7 +1819,7 @@ function PMPdfUploader({ pmContract, onSaved }: PMPdfUploaderProps) {
           <div className="flex-shrink-0 h-14 px-4 flex items-center gap-3 border-b border-white/10 bg-black/60">
             <FileText size={16} className="text-white/80 flex-shrink-0" />
             <p className="text-sm font-semibold text-white truncate flex-1">
-              {pmContract.pm_contract_code || 'PM Contract'}
+              <Code value={pmContract.pm_contract_code} label="PM contract code" empty="PM Contract" className="text-sm text-white" buttonClassName="text-white hover:bg-white/10" />
             </p>
             <a
               href={signedUrl}
@@ -2146,8 +2147,8 @@ function TerminateModal({ open, onClose, onTerminated, pmContract }: TerminateMo
         </div>
         <div className="p-5 space-y-3">
           <div className="rounded-md bg-card border border-border p-3 text-xs space-y-1">
-            <div className="flex justify-between"><span className="text-foreground">Contract</span><span className="font-mono font-semibold text-foreground">{pmContract.pm_contract_code || '—'}</span></div>
-            <div className="flex justify-between"><span className="text-foreground">Unit</span><span className="font-semibold">{pmContract.units?.unit_code || '—'}</span></div>
+            <div className="flex justify-between"><span className="text-foreground">Contract</span><Code value={pmContract.pm_contract_code} label="PM contract code" /></div>
+            <div className="flex justify-between"><span className="text-foreground">Unit</span><Code value={pmContract.units?.unit_code} label="Unit code" /></div>
             <div className="flex justify-between"><span className="text-foreground">Effective</span><span className="font-semibold">{formatDate(pmContract.effective_date)}</span></div>
           </div>
           <div>
@@ -2367,7 +2368,7 @@ function PMDetailModal({ pm, onClose, onChanged, units }: PMDetailModalProps) {
             <div className="p-6 flex flex-col items-center text-center">
               <WorkerAvatar name={pm.name} photo_url={pm.photo_url} size="xl" />
               <p id="pm-detail-title" className="mt-4 text-lg font-bold text-foreground truncate w-full leading-tight">{pm.name}</p>
-              <p className="text-[11px] font-mono text-foreground mt-1 uppercase tracking-wide">{pm.code}</p>
+              <div className="mt-1 flex justify-center"><Code value={pm.code} label="Team code" className="text-[11px] uppercase tracking-wide" /></div>
               <div className="mt-4 flex flex-col items-center gap-2">
                 <RoleBadge role="property_managers" size="lg" />
               </div>
@@ -2470,11 +2471,11 @@ function PMDetailModal({ pm, onClose, onChanged, units }: PMDetailModalProps) {
                         <div className="flex items-start justify-between gap-3 flex-wrap">
                           <div className="min-w-0 flex-1">
                             <div className="flex items-baseline gap-2 flex-wrap">
-                              <span className="font-mono text-[11px] font-bold text-foreground">{c.pm_contract_code || '—'}</span>
+                              <Code value={c.pm_contract_code} label="PM contract code" className="text-[11px]" />
                               <span className={cn('text-[11px] font-semibold', st.className)}>{st.label}</span>
                             </div>
                             <div className="flex items-baseline gap-2 mt-1 flex-wrap">
-                              <span className="font-mono text-xs font-bold text-foreground">{c.units?.unit_code || '—'}</span>
+                              <Code value={c.units?.unit_code} label="Unit code" className="text-xs" />
                               <span className="text-[11px] text-foreground truncate">{c.units?.building || '—'}</span>
                             </div>
                             <p className="text-[11px] text-foreground mt-1 tabular-nums">

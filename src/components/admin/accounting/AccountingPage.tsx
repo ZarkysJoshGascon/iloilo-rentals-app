@@ -37,6 +37,7 @@ import { Panel, PanelHeader, SectionLabel, InitialsAvatar } from '@/components/a
 import { SortHeader, nextSort, ResultsBar, SearchKeyHint, useListShortcuts, CARD_ON_PHONE, MobileSort, PHONE_LABEL, useListCap } from '@/components/admin/_shared/listTools'
 import type { CSSProperties, ReactNode } from 'react'
 import type { LucideIcon } from 'lucide-react'
+import { Code } from '@/components/common/Code'
 
 // Logo blue: BRAND fills sit behind white text; CHART is for chart marks
 // (a lighter tint in dark mode so it reads on dark cards).
@@ -736,14 +737,14 @@ function ContractRow({ contract, lifetime, onClick }: ContractRowProps) {
       className={cn(ROW_GRID, 'w-full text-left px-5 py-3 border-b border-border last:border-0 hover:bg-muted/40 transition-colors cursor-pointer')}
     >
       <div className="min-w-0">
-        <span className="font-mono text-[12px] font-semibold text-foreground truncate block">{contract.units?.unit_code || '—'}</span>
+        <Code value={contract.units?.unit_code} label="Unit code" className="text-[12px]" block />
         <span className="text-[11px] text-foreground truncate block mt-0.5">{contract.units?.building || '—'}</span>
       </div>
       <div className="min-w-0 flex items-center gap-2.5">
         <InitialsAvatar name={contract.owners?.name} size="sm" />
         <div className="min-w-0">
           <span className="text-[12px] font-semibold text-foreground truncate block">{contract.owners?.name || 'No owner'}</span>
-          <span className="font-mono text-[11px] text-foreground truncate block mt-0.5">{contract.contract_code || '—'}</span>
+          <div className="mt-0.5"><Code value={contract.contract_code} label="Contract code" className="text-[11px]" block iconSize={11} /></div>
         </div>
       </div>
       <div className="min-w-0 tabular-nums text-foreground">
@@ -1736,7 +1737,7 @@ function CalendarBookingBar({ booking, selected, onSelect, isCheckinDay, isCheck
         {booking.guest_name || booking.booking_code}
       </motion.button>
       <CursorTooltip cursor={cursor}>
-        <p className="font-mono font-semibold text-foreground mb-0.5">{booking.booking_code}</p>
+        <p className="font-mono font-bold text-foreground mb-0.5">{booking.booking_code}</p>
         <p className="text-foreground font-semibold mb-2">{booking.guest_name}</p>
         {isCancelled && (
           <p className="mb-2 text-[11px] text-foreground break-words">
@@ -1810,11 +1811,11 @@ function CalendarCleaningChip({ cleaning, selected, onSelect }: CalendarCleaning
       <CursorTooltip cursor={cursor}>
         <p className="font-semibold text-foreground mb-1.5">Cleaning</p>
         <div className="space-y-0.5">
-          <div className="flex justify-between gap-2"><span className="text-foreground">Code</span><span className="text-foreground font-mono font-semibold">{cleaning.cleaning_code || '—'}</span></div>
+          <div className="flex justify-between gap-2"><span className="text-foreground">Code</span><span className="text-foreground font-mono font-bold">{cleaning.cleaning_code || '—'}</span></div>
           <div className="flex justify-between gap-2">
             <span className="text-foreground">Booking</span>
             {booking?.booking_code ? (
-              <span className="text-foreground font-mono font-semibold truncate max-w-[160px]">
+              <span className="text-foreground font-mono font-bold truncate max-w-[160px]">
                 {booking.booking_code}
               </span>
             ) : (
@@ -1931,7 +1932,7 @@ function ContractCard({ contract }: ContractCardProps) {
         <div className="xl:absolute xl:inset-0 overflow-y-auto">
           <SectionLabel title="Terms" />
           <div className="px-5 py-2.5">
-            <Field label="Code" value={contract.contract_code || '—'} mono />
+            <Field label="Code" value={<Code value={contract.contract_code} label="Contract code" className="text-[12px]" />} />
             <Field label="Starts" value={formatDateLong(contract.effective_date)} />
             <Field label="Ends" value={contract.expiry_date ? formatDateLong(contract.expiry_date) : 'Open-ended'} />
             {extensions.length > 0 && (
@@ -1950,7 +1951,7 @@ function ContractCard({ contract }: ContractCardProps) {
               <div className="min-w-0">
                 <p className="text-[13px] font-semibold text-foreground truncate">{owner?.name || 'No owner'}</p>
                 <p className="text-[11px] text-foreground truncate mt-0.5">
-                  <span className="font-mono font-medium">{contract.units?.unit_code || '—'}</span> · {contract.units?.building || '—'}
+                  <Code value={contract.units?.unit_code} label="Unit code" className="text-[11px]" iconSize={11} /> · {contract.units?.building || '—'}
                 </p>
               </div>
             </div>
@@ -3027,7 +3028,7 @@ function AccountingBookingRow({ booking, isSelected, onClick }: AccountingBookin
         <span className="text-[12px] font-semibold tabular-nums text-foreground flex-shrink-0">{formatMoney(booking.total_amount)}</span>
       </div>
       <div className="mt-0.5 flex items-center justify-between gap-2 text-[11px] text-foreground">
-        <span className="font-mono truncate">{booking.booking_code}</span>
+        <Code value={booking.booking_code} label="Booking code" className="text-[11px]" iconSize={11} />
         <span className={cn('text-[10px] tabular-nums flex-shrink-0', isCancelled && 'line-through')}>
           {formatDateShort(booking.check_in)} → {formatDateShort(booking.check_out)}
         </span>
@@ -3085,11 +3086,11 @@ function AccountingCleaningRow({ cleaning, isSelected, onClick }: AccountingClea
         <span className="text-[10px] tabular-nums text-foreground flex-shrink-0">{formatDateShort(cleaning.scheduled_date)}</span>
       </div>
       <div className="mt-0.5 text-[11px] text-foreground truncate">
-        <span className="font-mono">{cleaning.cleaning_code || '—'}</span>
+        <Code value={cleaning.cleaning_code} label="Cleaning code" className="text-[11px]" iconSize={11} />
         {' · '}
         {booking?.booking_code ? (
           <>
-            <span className="font-mono">{booking.booking_code}</span>
+            <Code value={booking.booking_code} label="Booking code" className="text-[11px]" iconSize={11} />
             {booking.guest_name && <> · {booking.guest_name}</>}
           </>
         ) : (
@@ -3454,7 +3455,7 @@ function MonthlySection({
                   <PanelHeader
                     icon={Calendar}
                     title={focusedBooking.guest_name || focusedBooking.booking_code}
-                    subtitle={<span className="font-mono">{focusedBooking.booking_code}</span>}
+                    subtitle={<Code value={focusedBooking.booking_code} label="Booking code" className="text-[11px]" iconSize={11} />}
                     action={<CloseButton onClick={clearFocus} />}
                   />
                   {focusedBooking.cancelled_at && (
@@ -3488,11 +3489,11 @@ function MonthlySection({
                     title={<span className="capitalize">{focusedCleaning.type || 'Cleaning'}</span>}
                     subtitle={
                       <>
-                        <span className="font-mono">{focusedCleaning.cleaning_code || '—'}</span>
+                        <Code value={focusedCleaning.cleaning_code} label="Cleaning code" className="text-[11px]" iconSize={11} />
                         {focusedCleaning.bookings?.booking_code && (
                           <>
                             {' · from '}
-                            <span className="font-mono">{focusedCleaning.bookings.booking_code}</span>
+                            <Code value={focusedCleaning.bookings.booking_code} label="Booking code" className="text-[11px]" iconSize={11} />
                             {focusedCleaning.bookings.guest_name && <> · {focusedCleaning.bookings.guest_name}</>}
                           </>
                         )}
@@ -3911,7 +3912,7 @@ function DetailHeader({ contract, terms = [], onSelectContract, onBack }: Detail
         </button>
         <div className="min-w-0">
           <div className="flex items-center gap-3 flex-wrap">
-            <h1 className="text-[22px] font-semibold text-foreground tracking-tight leading-tight">{contract.units?.unit_code || '—'}</h1>
+            <h1 className="text-foreground leading-tight"><Code value={contract.units?.unit_code} label="Unit code" className="text-[22px] tracking-tight" iconSize={15} /></h1>
             <StatusText status={deriveContractStatus(contract)} className="text-[12px]" />
             {terms.length > 1 && termIndex >= 0 && (
               <span className="text-[12px] font-medium text-foreground">Term {termIndex + 1} of {terms.length}</span>
@@ -4000,7 +4001,7 @@ function AllTermsCard({ terms, currentId, lifetimeMap, onSelectContract }: AllTe
                 )}
               >
                 <span className={cn('font-semibold', isCurrent ? 'text-brand' : 'text-foreground')}>Term {i + 1}</span>
-                <span className="font-mono font-semibold text-foreground truncate">{t.contract_code || '—'}</span>
+                <Code value={t.contract_code} label="Contract code" />
                 <span className="text-foreground truncate">{formatDateShort(t.effective_date)} → {t.expiry_date ? formatDateShort(t.expiry_date) : 'open'}</span>
                 <span className="text-right text-foreground">{formatMoney(f.gross)}</span>
                 <span className="text-right text-foreground">{formatMoney(f.expenses)}</span>

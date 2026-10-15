@@ -25,6 +25,7 @@ import {
   OWNER_PCT, MONTHS_SHORT, todayISO, formatMoney, formatPeso, formatDate, monthLabel,
   moneyTone, ContractStatus, BookingRow, EmptyLine, bookingStatus,
 } from './ownerUi'
+import { Code } from '@/components/common/Code'
 
 const PAGE = 'px-4 py-5 sm:px-6 md:px-8 md:py-6 max-w-[1500px] mx-auto space-y-4 pb-12'
 const MONEY_TILE = 'text-[21px] sm:text-[24px]'
@@ -331,14 +332,20 @@ export default function OwnerContractView({ contractId, contracts, onOpen, onBac
           </button>
           <div className="min-w-0">
             <div className="flex items-center gap-x-3 gap-y-1 flex-wrap">
-              <h1 className="text-[20px] sm:text-[22px] font-semibold text-foreground tracking-tight leading-tight">{contract.units.unit_code}</h1>
+              <h1 className="text-foreground leading-tight"><Code value={contract.units.unit_code} label="Unit code" className="text-[20px] sm:text-[22px] tracking-tight" iconSize={15} /></h1>
               <ContractStatus contract={contract} className="text-[12px]" />
               {terms.length > 1 && termIndex >= 0 && (
                 <span className="text-[12px] font-medium text-foreground">Term {termIndex + 1} of {terms.length}</span>
               )}
             </div>
             <p className="text-[12.5px] text-foreground mt-1">
-              {[contract.units.building, contract.units.unit_type, contract.contract_code].filter(Boolean).join(' · ')}
+              {[contract.units.building, contract.units.unit_type].filter(Boolean).join(' · ')}
+              {contract.contract_code && (
+                <>
+                  {(contract.units.building || contract.units.unit_type) && ' · '}
+                  <Code value={contract.contract_code} label="Contract code" className="text-[12.5px]" />
+                </>
+              )}
             </p>
             <p className="text-[12.5px] text-foreground mt-0.5">
               {formatDate(contract.effective_date)} → {contract.expiry_date ? formatDate(contract.expiry_date) : 'open-ended'}

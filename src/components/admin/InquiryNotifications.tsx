@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { motion, AnimatePresence } from 'framer-motion'
-import { X, Palette, Building2 } from 'lucide-react'
+import { X, Sofa, HousePlus } from 'lucide-react'
 import { supabase } from '@/lib/supabase'
 import { cn } from '@/lib/utils'
 
@@ -63,7 +63,7 @@ export function InquiryNotifications({ onNavigateTab }: InquiryNotificationsProp
           push({
             kind: 'interior',
             tab: 'interior',
-            title: 'New design inquiry',
+            title: 'New interior design inquiry',
             name: row.client_name || 'Unknown',
             detail: row.property_address || row.property_type || 'No details',
           })
@@ -109,17 +109,10 @@ export function InquiryNotifications({ onNavigateTab }: InquiryNotificationsProp
                 'max-w-[92vw] sm:max-w-[520px]',
               )}
             >
-              <span
-                className={cn(
-                  'flex items-center justify-center w-7 h-7 rounded-full flex-shrink-0',
-                  item.kind === 'property'
-                    ? 'bg-brand-solid/10 text-brand dark:text-blue-400'
-                    : 'bg-purple-500/10 text-purple-600 dark:text-purple-400',
-                )}
-              >
+              <span className="flex items-center justify-center w-7 h-7 flex-shrink-0 text-foreground">
                 {item.kind === 'property'
-                  ? <Building2 size={14} />
-                  : <Palette size={14} />
+                  ? <HousePlus size={16} />
+                  : <Sofa size={16} />
                 }
               </span>
 

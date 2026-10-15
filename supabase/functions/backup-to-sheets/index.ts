@@ -53,6 +53,7 @@ const STATUS_RED    = { red: 0.86, green: 0.15, blue: 0.15 }
 const STATUS_BLUE   = { red: 0.15, green: 0.39, blue: 0.92 }
 const STATUS_GRAY   = { red: 0.42, green: 0.45, blue: 0.50 }
 const STATUS_VIOLET = { red: 0.49, green: 0.23, blue: 0.93 }
+const STATUS_CYAN   = { red: 0.05, green: 0.57, blue: 0.70 }
 
 const TEAM_ROLE_TINTS: Record<string, { red: number; green: number; blue: number }> = {
   'Specialist':       { red: 0.855, green: 0.925, blue: 0.988 },
@@ -704,6 +705,18 @@ type View = {
   build: (supabase: any) => Promise<{ rows: Record<string, unknown>[]; columns: ColumnSpec[] }>
 }
 
+// A timestamp as Manila time: "1:00 PM", or with the date "Oct 15, 10:42 AM".
+function manilaTime(iso: string, withDate: boolean): string {
+  const d = new Date(iso)
+  if (Number.isNaN(d.getTime())) return ''
+  return d.toLocaleString('en-US', {
+    timeZone: 'Asia/Manila',
+    ...(withDate ? { month: 'short', day: 'numeric' } : {}),
+    hour: 'numeric',
+    minute: '2-digit',
+  })
+}
+
 async function buildBookingsView(supabase: any) {
   const [bRes, cRes] = await Promise.all([
     supabase.from('bookings').select(`
@@ -712,6 +725,7 @@ async function buildBookingsView(supabase: any) {
       booker_name, booker_code, booker_commission, booker_rate,
       affiliate_name, affiliate_code, affiliate_commission, affiliate_rate,
       notes, created_at, updated_at, completed_at, cancelled_at, cancelled_reason,
+      checked_out_at, checked_out_by_name, late_checkout_at,
       units:unit_id ( unit_code, building )
     `).is('deleted_at', null).order('check_in', { ascending: false }),
     supabase.from('contracts').select('id, unit_id, contract_code, effective_date, expiry_date'),
@@ -730,6 +744,8 @@ async function buildBookingsView(supabase: any) {
     { key: 'units.building', label: 'Building', type: 'text', width: 160 },
     { key: 'check_in', label: 'Check-in', type: 'date' },
     { key: 'check_out', label: 'Check-out', type: 'date' },
+    { key: '__late_checkout', label: 'Late Check-out', type: 'text', width: 120 },
+    { key: '__checked_out', label: 'Checked Out', type: 'text', width: 200 },
     { key: '__nights', label: 'Nights', type: 'integer' },
     { key: 'guests', label: 'Guests', type: 'integer' },
     {
@@ -778,6 +794,10 @@ async function buildBookingsView(supabase: any) {
     units: b.units,
     check_in: b.check_in,
     check_out: b.check_out,
+    __late_checkout: b.late_checkout_at ? manilaTime(b.late_checkout_at, false) : '',
+    __checked_out: b.checked_out_at
+      ? [manilaTime(b.checked_out_at, true), b.checked_out_by_name].filter(Boolean).join(' · ')
+      : '',
     __nights: computeNights(b.check_in, b.check_out),
     guests: b.guests,
     __status: deriveBookingStatus(b),
@@ -1343,10 +1363,22 @@ async function buildTeamView(supabase: any) {
 }
 
 async function buildInquiriesView(supabase: any) {
-  const [prop, int] = await Promise.all([
+  const [prop, int, acts] = await Promise.all([
     supabase.from('property_inquiries').select('*').order('created_at', { ascending: false }),
     supabase.from('interior_design_inquiries').select('*').order('created_at', { ascending: false }),
+    supabase
+      .from('inquiry_activities')
+      .select('property_inquiry_id, interior_inquiry_id, body, created_at')
+      .not('body', 'is', null)
+      .order('created_at', { ascending: false }),
   ])
+
+  // Each inquiry's newest note from the CRM timeline.
+  const lastNote = new Map<string, string>()
+  for (const a of (acts.data || [])) {
+    const id = a.property_inquiry_id || a.interior_inquiry_id
+    if (id && !lastNote.has(id)) lastNote.set(id, a.body)
+  }
 
   const rows: Record<string, unknown>[] = []
 
@@ -1360,6 +1392,8 @@ async function buildInquiriesView(supabase: any) {
       detail: [i.building, i.location, i.property_type].filter(Boolean).join(' · '),
       status: i.status,
       received: i.created_at,
+      follow_up: i.follow_up_on,
+      last_note: lastNote.get(i.id) || '',
       message: i.message,
     })
   }
@@ -1373,6 +1407,8 @@ async function buildInquiriesView(supabase: any) {
       detail: [i.property_address, i.property_type].filter(Boolean).join(' · '),
       status: i.status,
       received: i.created_at,
+      follow_up: i.follow_up_on,
+      last_note: lastNote.get(i.id) || '',
       message: i.message,
     })
   }
@@ -1388,12 +1424,19 @@ async function buildInquiriesView(supabase: any) {
     {
       key: 'status', label: 'Status', type: 'text', width: 100,
       conditional: [
+        // The CRM's pipeline stages ("closed" is from before Won/Lost).
         { equals: 'new',       color: STATUS_BLUE },
         { equals: 'contacted', color: STATUS_AMBER },
+        { equals: 'discussed', color: STATUS_VIOLET },
+        { equals: 'proposal',  color: STATUS_CYAN },
+        { equals: 'won',       color: STATUS_GREEN },
+        { equals: 'lost',      color: STATUS_RED },
         { equals: 'closed',    color: STATUS_GRAY },
       ],
     },
     { key: 'received', label: 'Received', type: 'date', width: 130 },
+    { key: 'follow_up', label: 'Follow Up', type: 'date', width: 120 },
+    { key: 'last_note', label: 'Latest Note', type: 'text', width: 280 },
     { key: 'message', label: 'Message', type: 'text', width: 320 },
   ]
 
