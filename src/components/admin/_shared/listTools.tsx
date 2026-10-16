@@ -118,9 +118,12 @@ const PANEL_EASE = [0.4, 0, 0.2, 1] as const
 /**
  * Motion props for a list's detail panel. On a desktop it opens beside the
  * list at `width`; on a phone it slides up and covers the screen (above the
- * bottom tabs, below dialogs). On a desktop only the outer box changes width:
- * the panel inside keeps its full width and is clipped, so its text never
- * re-wraps while it opens or closes (that re-wrapping was the flicker).
+ * bottom tabs, below dialogs). On a desktop it only fades and settles from
+ * a hair smaller: opacity and transform are drawn by the GPU, so nothing is
+ * laid out again while it moves. The list makes room once, as it opens, and
+ * takes the room back once, after it has faded out. (Animating the width
+ * made the browser lay the whole list out on every frame, which is what
+ * dropped frames.)
  */
 export function useSidePanelMotion(width: number) {
   const phone = useIsPhone()
@@ -137,17 +140,14 @@ export function useSidePanelMotion(width: number) {
       },
     }
   }
-  const outer = width + 24 // the panel plus p-3 either side
   return {
-    initial: { width: 0, opacity: 0 },
-    animate: { width: outer, opacity: 1 },
-    exit: { width: 0, opacity: 0 },
-    transition: {
-      width: { duration: 0.28, ease: PANEL_EASE },
-      opacity: { duration: 0.18, ease: 'easeOut' as const },
-    },
-    className: 'h-full flex-shrink-0 p-3 overflow-hidden [&>*]:w-[var(--panel-w)] [&>*]:max-w-[calc(100vw-1.5rem)]',
-    style: { maxWidth: '100%', ['--panel-w' as any]: `${width}px`, willChange: 'width, opacity' } as CSSProperties,
+    initial: { opacity: 0, scale: 0.985 },
+    animate: { opacity: 1, scale: 1 },
+    exit: { opacity: 0, scale: 0.985, transition: { duration: 0.14, ease: PANEL_EASE } },
+    transition: { duration: 0.2, ease: PANEL_EASE },
+    className: 'h-full flex-shrink-0 p-3',
+    // width + p-3 either side; shrinks (never grows) from its right edge, so it can't poke past the page.
+    style: { width: width + 24, maxWidth: '100%', transformOrigin: 'right center', willChange: 'transform, opacity' } as CSSProperties,
   }
 }
 

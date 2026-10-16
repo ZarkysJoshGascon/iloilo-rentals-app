@@ -680,7 +680,7 @@ function ContractRow({ contract, selected, onClick }: ContractRowProps) {
   ]
   return (
     // ContextMenu wraps the row in its own div, so the divider goes on that.
-    <ContextMenu items={contextItems} className="border-b border-border">
+    <ContextMenu items={contextItems} className="row-line">
     <motion.button
       type="button"
       onClick={onClick}
@@ -1746,7 +1746,7 @@ function ContractDetailPanel({ contract, contracts, units, owners, onClose, onCh
             transition={{ duration: 0.18, ease: [0.4, 0, 0.2, 1] }}
             className="h-full flex flex-col min-h-0"
           >
-            <div className="flex-shrink-0 px-5 py-4 border-b border-border">
+            <div className="flex-shrink-0 px-5 py-4 line-below">
               <div className="flex items-start gap-3">
                 <div className="min-w-0 flex-1">
                   <Code value={contract.contract_code} label="Contract code" className="text-base" block iconSize={14} />

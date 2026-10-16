@@ -6,16 +6,22 @@
 //   • Red circle   a taken day (another booking, say)
 //   • Blue dot     today
 //   • Faded        a day that can't be picked
-// It opens below its field and scrolls itself fully into view.
-import { useEffect, useMemo, useRef, useState } from 'react'
+// The calendar floats above the page, so a card or side panel can't cut it
+// off; it opens below its field, or above when there's more room there, and
+// stays in the window. Picking a day keeps it open with the pick shown; it
+// closes on a click outside (another field, say), Esc, or Done.
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
+import { createPortal } from 'react-dom'
 import { AnimatePresence, motion } from 'framer-motion'
 import { Calendar, ChevronLeft, ChevronRight } from 'lucide-react'
 import { cn } from '@/lib/utils'
-import { useRevealOnOpen } from './useRevealOnOpen'
 
 const MONTHS = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December']
 const DOW = ['Su', 'Mo', 'Tu', 'We', 'Th', 'Fr', 'Sa']
 const SOFT_SHADOW = '0 20px 40px -16px rgba(15,23,42,0.24), 0 6px 16px -6px rgba(15,23,42,0.10)'
+const POP_WIDTH = 300
+const GAP = 8
+const EDGE = 12 // keep this far from the window's edges
 
 const SIZES = {
   sm: 'h-8 text-xs rounded-md',
@@ -73,8 +79,9 @@ export function DatePicker({
 }: DatePickerProps) {
   const [open, setOpen] = useState(false)
   const wrapRef = useRef<HTMLDivElement>(null)
+  const btnRef = useRef<HTMLButtonElement>(null)
   const popRef = useRef<HTMLDivElement>(null)
-  useRevealOnOpen(popRef, open)
+  const [pos, setPos] = useState<{ top: number; left: number; above: boolean } | null>(null)
 
   const today = localTodayISO()
   const anchor = value || rangeStart || rangeEnd || (minDate && today < minDate ? minDate : maxDate && today > maxDate ? maxDate : today)
@@ -85,9 +92,51 @@ export function DatePicker({
     if (open) setView({ year: Number(anchor.slice(0, 4)), month: Number(anchor.slice(5, 7)) - 1 })
   }, [open])
 
+  // Where the calendar goes: under the field, or above it when there's more
+  // room there, always inside the window. Follows the field as things scroll.
+  const place = useCallback(() => {
+    const btn = btnRef.current
+    if (!btn) return
+    const r = btn.getBoundingClientRect()
+    const width = Math.min(POP_WIDTH, window.innerWidth - EDGE * 2)
+    const height = popRef.current?.offsetHeight || 400
+    const left = Math.max(EDGE, Math.min(align === 'right' ? r.right - width : r.left, window.innerWidth - width - EDGE))
+    const below = window.innerHeight - r.bottom - GAP - EDGE
+    const above = r.top - GAP - EDGE
+    const goAbove = below < height && above > below
+    const top = goAbove
+      ? Math.max(EDGE, r.top - GAP - height)
+      : Math.max(EDGE, Math.min(r.bottom + GAP, window.innerHeight - height - EDGE))
+    setPos((p) => (p && p.top === top && p.left === left && p.above === goAbove ? p : { top, left, above: goAbove }))
+  }, [align])
+
+  // Placed before the browser paints, so it never shows at an old spot; the
+  // last spot is kept while it fades out after closing.
+  useLayoutEffect(() => {
+    if (!open) return
+    place()
+    // Once it's drawn its real height is known; place it again with that.
+    const frame = requestAnimationFrame(place)
+    return () => cancelAnimationFrame(frame)
+  }, [open, view, place])
+
   useEffect(() => {
     if (!open) return
-    const onDown = (e: MouseEvent) => { if (wrapRef.current && !wrapRef.current.contains(e.target as Node)) setOpen(false) }
+    window.addEventListener('scroll', place, true)
+    window.addEventListener('resize', place)
+    return () => {
+      window.removeEventListener('scroll', place, true)
+      window.removeEventListener('resize', place)
+    }
+  }, [open, place])
+
+  useEffect(() => {
+    if (!open) return
+    const onDown = (e: MouseEvent) => {
+      const t = e.target as Node
+      if (wrapRef.current?.contains(t) || popRef.current?.contains(t)) return
+      setOpen(false)
+    }
     const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') { e.stopPropagation(); setOpen(false) } }
     document.addEventListener('mousedown', onDown)
     window.addEventListener('keydown', onKey, true)
@@ -125,10 +174,10 @@ export function DatePicker({
     return { year: year + Math.floor(m / 12), month: ((m % 12) + 12) % 12 }
   })
 
+  // Stays open, so the pick shows; a click outside or Done closes it.
   const pick = (iso: string) => {
     if (!canPick(iso)) return
     onChange(iso)
-    setOpen(false)
   }
 
   const display = value ? formatPickedDate(value) : ''
@@ -136,6 +185,7 @@ export function DatePicker({
   return (
     <div className={cn('relative', className)} ref={wrapRef}>
       <button
+        ref={btnRef}
         id={id}
         type="button"
         disabled={disabled}
@@ -153,21 +203,30 @@ export function DatePicker({
         <Calendar size={size === 'lg' ? 14 : 13} className="text-foreground flex-shrink-0" />
       </button>
 
+      {typeof document !== 'undefined' && createPortal(
       <AnimatePresence>
         {open && (
           <motion.div
             ref={popRef}
             role="dialog"
             aria-label={ariaLabel || placeholder}
-            initial={{ opacity: 0, y: -4, scale: 0.98 }}
+            initial={{ opacity: 0, y: pos?.above ? 4 : -4, scale: 0.98 }}
             animate={{ opacity: 1, y: 0, scale: 1 }}
-            exit={{ opacity: 0, y: -4, scale: 0.98 }}
+            exit={{ opacity: 0, y: pos?.above ? 4 : -4, scale: 0.98 }}
             transition={{ duration: 0.12, ease: [0.16, 1, 0.3, 1] }}
-            className={cn(
-              'absolute z-50 mt-2 w-[300px] max-w-[calc(100vw-2rem)] rounded-2xl border border-border bg-popover p-4 scroll-my-3',
-              align === 'right' ? 'right-0' : 'left-0',
-            )}
-            style={{ boxShadow: SOFT_SHADOW }}
+            // It lives outside whatever opened it (a filter popover, say), so
+            // keep its clicks from reaching their "clicked outside, close" checks.
+            onMouseDown={(e) => e.nativeEvent.stopPropagation()}
+            data-floating-popup=""
+            // Above the CRM's dialogs (z 10000) and side panels.
+            className="fixed z-[10050] rounded-2xl border border-border bg-popover p-4"
+            style={{
+              boxShadow: SOFT_SHADOW,
+              top: pos?.top ?? 0,
+              left: pos?.left ?? 0,
+              width: `min(${POP_WIDTH}px, calc(100vw - ${EDGE * 2}px))`,
+              visibility: pos ? 'visible' : 'hidden',
+            }}
           >
             <div className="flex items-center justify-between mb-3">
               <button type="button" onClick={() => step(-1)} aria-label="Previous month" className="p-1.5 rounded-full hover:bg-muted text-foreground transition-colors">
@@ -239,13 +298,22 @@ export function DatePicker({
                   <button type="button" onClick={() => pick(today)} className="text-[11px] font-semibold text-foreground hover:underline underline-offset-2">Today</button>
                 )}
                 {clearable && value && (
-                  <button type="button" onClick={() => { onChange(''); setOpen(false) }} className="text-[11px] font-semibold text-foreground hover:underline underline-offset-2">Clear</button>
+                  <button type="button" onClick={() => onChange('')} className="text-[11px] font-semibold text-foreground hover:underline underline-offset-2">Clear</button>
                 )}
+                <button
+                  type="button"
+                  onClick={() => setOpen(false)}
+                  className="h-7 px-3 rounded-md bg-brand-solid text-white text-[11px] font-semibold hover:bg-brand-solid/90 transition-colors"
+                >
+                  Done
+                </button>
               </div>
             </div>
           </motion.div>
         )}
-      </AnimatePresence>
+      </AnimatePresence>,
+      document.body,
+      )}
     </div>
   )
 }

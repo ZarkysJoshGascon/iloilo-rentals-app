@@ -1256,7 +1256,7 @@ function RegistryDetailPanel({
           <motion.div key={unit.id}
             initial={{ opacity: 0, y: 6 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -4 }}
             transition={{ duration: 0.18 }} className="h-full flex flex-col min-h-0">
-            <div className="flex-shrink-0 px-5 py-4 border-b border-border">
+            <div className="flex-shrink-0 px-5 py-4 line-below">
               <div className="flex items-start gap-3">
                 <div className="min-w-0 flex-1">
                   <Code value={unit.unit_code} label="Unit code" className="text-base" block iconSize={14} />
@@ -1584,7 +1584,7 @@ function UnitListRow({ unit, selected, onClick }: UnitListRowProps) {
       whileHover={{ backgroundColor: selected ? 'rgba(34, 81, 147, 0.14)' : 'rgba(34, 81, 147, 0.05)' }}
       whileTap={{ scale: 0.998 }}
       data-row
-      className={cn('group/row w-full text-left px-4 py-3 border-b border-border cursor-pointer select-none', ROW_GRID)}
+      className={cn('row-line group/row w-full text-left px-4 py-3 cursor-pointer select-none', ROW_GRID)}
     >
       <span className="text-sm font-semibold text-foreground truncate">{unit.building || '—'}</span>
       <Code value={unit.unit_code} label="Unit code" className="text-sm" />

@@ -1213,7 +1213,7 @@ function BookingDetailPanel({
             transition={{ duration: 0.18, ease: [0.4, 0, 0.2, 1] }}
             className="h-full flex flex-col min-h-0"
           >
-            <div className="px-5 py-4 border-b border-border flex-shrink-0">
+            <div className="px-5 py-4 line-below flex-shrink-0">
               <div className="flex items-start gap-3">
                 <GuestAvatar name={booking.guest_name} size="lg" />
                 <div className="min-w-0 flex-1">
@@ -1528,7 +1528,7 @@ function BookingListRow({ booking, contracts, selected, highlighted, onClick, on
   ]
 
   return (
-    <ContextMenu items={contextItems} className="border-b border-border last:border-b-0">
+    <ContextMenu items={contextItems} className="row-line">
       <motion.button
         type="button"
         data-booking-id={booking.id}

@@ -124,7 +124,7 @@ function InquiryRow({ inquiry, selected, onClick }: InquiryRowProps) {
       transition={{ duration: 0.22 }}
       whileHover={{ backgroundColor: selected ? 'rgba(34, 81, 147, 0.14)' : 'rgba(34, 81, 147, 0.05)' }}
       data-row
-      className={cn('w-full text-left px-4 py-3 border-b border-border cursor-pointer select-none', ROW_GRID)}
+      className={cn('row-line w-full text-left px-4 py-3 cursor-pointer select-none', ROW_GRID)}
     >
       <div className="flex items-center gap-2.5 min-w-0">
         <InitialsAvatar name={inquiry.client_name} size="sm" />
@@ -479,7 +479,7 @@ function InquiryDetailPanel({ inquiry, entries, onClose, onUpdate, onMove, onAdd
           <motion.div key={inquiry.id}
             initial={{ opacity: 0, y: 6 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -4 }}
             transition={{ duration: 0.18 }} className="h-full flex flex-col min-h-0">
-            <div className="flex-shrink-0 px-5 py-4 border-b border-border">
+            <div className="flex-shrink-0 px-5 py-4 line-below">
               <div className="flex items-start gap-3">
                 <InitialsAvatar name={inquiry.client_name} size="lg" />
                 <div className="min-w-0 flex-1">

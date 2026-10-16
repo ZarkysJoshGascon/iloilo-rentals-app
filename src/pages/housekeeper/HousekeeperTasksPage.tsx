@@ -818,7 +818,7 @@ function CleaningPanel({ cleaning, onClose, onChanged }: CleaningPanelProps) {
   return (
     <motion.div {...panelMotion}>
       <div className="h-full rounded-md border border-border bg-card shadow-lg overflow-hidden flex flex-col">
-        <div className="flex-shrink-0 px-5 py-4 border-b border-border">
+        <div className="flex-shrink-0 px-5 py-4 line-below">
           <div className="flex items-start gap-3">
             <div className="min-w-0 flex-1">
               <Code value={cleaning.cleaning_code} label="Cleaning code" className="text-sm" block />
@@ -1221,7 +1221,7 @@ function TaskRow({ cleaning, selected, onClick }: TaskRowProps) {
       animate={{ backgroundColor: selected ? 'rgba(34, 81, 147, 0.10)' : 'rgba(34, 81, 147, 0)' }}
       transition={{ duration: 0.22 }}
       whileHover={{ backgroundColor: selected ? 'rgba(34, 81, 147, 0.14)' : 'rgba(34, 81, 147, 0.05)' }}
-      className={cn('w-full text-left px-4 py-3 border-b border-border cursor-pointer select-none', ROW_GRID)}
+      className={cn('row-line w-full text-left px-4 py-3 cursor-pointer select-none', ROW_GRID)}
     >
       <div className="min-w-0">
         <Code value={cleaning.cleaning_code} label="Cleaning code" className="text-[12.5px]" block />

@@ -155,8 +155,8 @@ html.crm {
   --accent: oklch(0.97 0 0);
   --accent-foreground: oklch(0.205 0 0);
   --destructive: oklch(0.577 0.245 27.325);
-  --border: oklch(0.922 0 0);
-  --input: oklch(0.922 0 0);
+  --border: oklch(0.885 0 0); /* a touch darker than the default 0.922, so lines read clearly */
+  --input: oklch(0.87 0 0);
   --ring: oklch(0.708 0 0);
   --chart-1: oklch(0.87 0 0);
   --chart-2: oklch(0.556 0 0);
@@ -194,8 +194,8 @@ html.crm {
   --accent: oklch(0.269 0 0);
   --accent-foreground: oklch(0.985 0 0);
   --destructive: oklch(0.704 0.191 22.216);
-  --border: oklch(1 0 0 / 10%);
-  --input: oklch(1 0 0 / 15%);
+  --border: oklch(1 0 0 / 14%); /* a touch stronger than the default 10% */
+  --input: oklch(1 0 0 / 19%);
   --ring: oklch(0.556 0 0);
   --chart-1: oklch(0.87 0 0);
   --chart-2: oklch(0.556 0 0);
@@ -210,4 +210,24 @@ html.crm {
   --sidebar-accent-foreground: oklch(0.985 0 0);
   --sidebar-border: oklch(1 0 0 / 10%);
   --sidebar-ring: oklch(0.556 0 0);
+}
+/* Short dividers that stop before the sides: under a side panel's title
+   (.line-below) and between list rows (.row-line, none after the last). */
+.line-below,
+.row-line {
+  position: relative;
+}
+.line-below::after,
+.row-line:not(:last-child)::after {
+  content: '';
+  position: absolute;
+  left: var(--line-inset, 1.25rem);
+  right: var(--line-inset, 1.25rem);
+  bottom: 0;
+  height: 1px;
+  background: var(--border);
+  pointer-events: none;
+}
+.row-line {
+  --line-inset: 1rem;
 }

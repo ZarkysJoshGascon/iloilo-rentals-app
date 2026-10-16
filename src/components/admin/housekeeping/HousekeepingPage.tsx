@@ -1949,7 +1949,7 @@ function CleaningDetailPanel({ cleaning, onClose, onChanged, onDelete, housekeep
               transition={{ duration: 0.18, ease: [0.4, 0, 0.2, 1] }}
               className="h-full flex flex-col min-h-0"
             >
-          <div className="flex-shrink-0 px-5 py-4 border-b border-border">
+          <div className="flex-shrink-0 px-5 py-4 line-below">
             <div className="flex items-start gap-3">
               <div className="min-w-0 flex-1">
                 <Code value={cleaning.cleaning_code} label="Cleaning code" className="text-sm" block />
@@ -2261,7 +2261,7 @@ function CleaningListRow({ cleaning, contracts, selected, highlighted, onClick, 
   ]
 
   return (
-    <ContextMenu items={contextItems} className="border-b border-border last:border-b-0">
+    <ContextMenu items={contextItems} className="row-line">
       <motion.button
         type="button"
         data-cleaning-id={cleaning.id}
