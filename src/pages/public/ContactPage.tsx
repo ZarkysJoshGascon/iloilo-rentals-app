@@ -1,20 +1,28 @@
 import { MapPin, Phone, Mail, Clock, Send } from 'lucide-react'
 import { useState } from 'react'
 import { motion } from 'framer-motion'
-import { supabase } from "../../lib/supabase";
 import toast from 'react-hot-toast'
 
 export default function Contactpage() {
   const [formData, setFormData] = useState({ name: '', email: '', message: '' })
+  // Hidden from people; bots fill it in and their message is dropped.
+  const [websiteUrl, setWebsiteUrl] = useState('')
   const [loading, setLoading] = useState(false)
 
+  // Sent to the submit-contact-message function, which checks every field,
+  // limits how often one visitor can write, and saves it.
   const handleSubmit = async (e) => {
     e.preventDefault(); setLoading(true)
     try {
-      const { error } = await supabase.from('contact_messages').insert([{ ...formData, created_at: new Date() }])
-      if (error) throw error
+      const res = await fetch(`${import.meta.env.VITE_SUPABASE_URL}/functions/v1/submit-contact-message`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ ...formData, website_url: websiteUrl }),
+      })
+      const data = await res.json().catch(() => ({}))
+      if (!res.ok) throw new Error(data?.error || 'Failed to send message.')
       toast.success('Message sent!'); setFormData({ name: '', email: '', message: '' })
-    } catch { toast.error('Failed to send message.') }
+    } catch (err) { toast.error(err?.message || 'Failed to send message.') }
     finally { setLoading(false) }
   }
 
@@ -53,9 +61,13 @@ export default function Contactpage() {
           <motion.div initial={{ opacity: 0, x: 20 }} animate={{ opacity: 1, x: 0 }} className="bg-white rounded-2xl shadow-sm border border-gray-100 p-6">
             <h2 className="text-lg font-bold text-[#2d568e] mb-4">Send a Message</h2>
             <form onSubmit={handleSubmit} className="space-y-4">
-              <div><label className="block text-sm font-medium text-gray-700 mb-1">Your Name</label><input type="text" required className="w-full border border-gray-200 rounded-xl px-4 py-2.5 text-sm focus:ring-2 focus:ring-[#2d568e] focus:border-transparent" value={formData.name} onChange={(e) => setFormData({...formData, name: e.target.value})} /></div>
-              <div><label className="block text-sm font-medium text-gray-700 mb-1">Email Address</label><input type="email" required className="w-full border border-gray-200 rounded-xl px-4 py-2.5 text-sm focus:ring-2 focus:ring-[#2d568e] focus:border-transparent" value={formData.email} onChange={(e) => setFormData({...formData, email: e.target.value})} /></div>
-              <div><label className="block text-sm font-medium text-gray-700 mb-1">Message</label><textarea rows={4} required className="w-full border border-gray-200 rounded-xl px-4 py-2.5 text-sm focus:ring-2 focus:ring-[#2d568e] focus:border-transparent resize-none" value={formData.message} onChange={(e) => setFormData({...formData, message: e.target.value})} /></div>
+              {/* Honeypot: off screen and skipped by keyboards and screen readers. */}
+              <div aria-hidden="true" className="absolute -left-[9999px] w-px h-px overflow-hidden">
+                <label>Website<input type="text" name="website_url" tabIndex={-1} autoComplete="off" value={websiteUrl} onChange={(e) => setWebsiteUrl(e.target.value)} /></label>
+              </div>
+              <div><label className="block text-sm font-medium text-gray-700 mb-1">Your Name</label><input type="text" required maxLength={120} autoComplete="name" className="w-full border border-gray-200 rounded-xl px-4 py-2.5 text-sm focus:ring-2 focus:ring-[#2d568e] focus:border-transparent" value={formData.name} onChange={(e) => setFormData({...formData, name: e.target.value})} /></div>
+              <div><label className="block text-sm font-medium text-gray-700 mb-1">Email Address</label><input type="email" required maxLength={254} autoComplete="email" className="w-full border border-gray-200 rounded-xl px-4 py-2.5 text-sm focus:ring-2 focus:ring-[#2d568e] focus:border-transparent" value={formData.email} onChange={(e) => setFormData({...formData, email: e.target.value})} /></div>
+              <div><label className="block text-sm font-medium text-gray-700 mb-1">Message</label><textarea rows={4} required maxLength={5000} className="w-full border border-gray-200 rounded-xl px-4 py-2.5 text-sm focus:ring-2 focus:ring-[#2d568e] focus:border-transparent resize-none" value={formData.message} onChange={(e) => setFormData({...formData, message: e.target.value})} /></div>
               <motion.button type="submit" disabled={loading} whileHover={{ scale: 1.01 }} whileTap={{ scale: 0.98 }} className="w-full bg-[#2d568e] text-white py-3 rounded-xl font-semibold hover:bg-[#1e3a5f] transition flex items-center justify-center gap-2 disabled:opacity-50 text-sm"><Send size={16} />{loading ? <motion.div animate={{ rotate: 360 }} transition={{ duration: 1, repeat: Infinity }} className="w-4 h-4 border-2 border-white border-t-transparent rounded-full" /> : 'Send Message'}</motion.button>
             </form>
           </motion.div>

@@ -68,8 +68,10 @@ export async function listCleanings({ status, type, housekeeperId, search }: { s
   if (housekeeperId && housekeeperId !== 'all') query = query.eq('housekeeper_id', housekeeperId)
 
   if (search && search.trim()) {
-    const s = search.trim().slice(0, 100)
-    query = query.or(`notes.ilike.%${s}%`)
+    // A plain filter, so the text is sent as a value: commas or brackets in
+    // a search can't change the query. % and _ are searched for literally.
+    const s = search.trim().slice(0, 100).replace(/[\\%_]/g, (c) => `\\${c}`)
+    query = query.ilike('notes', `%${s}%`)
   }
 
   const { data, error } = await query

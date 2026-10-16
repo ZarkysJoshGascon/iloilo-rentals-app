@@ -1,5 +1,6 @@
 // src/lib/inquiries.ts
 import { supabase } from './supabase'
+import { uploadPublicFormPhoto } from './publicUploads'
 
 const IMG_BUCKET = 'property-inquiry-images'
 const MAX_FILE_BYTES = 5 * 1024 * 1024
@@ -28,22 +29,8 @@ export async function uploadInquiryImage(file) {
 
   const resized = await resizeImage(file, 1400, 0.85)
 
-  const rand = crypto.getRandomValues(new Uint8Array(8))
-    .reduce((s, b) => s + b.toString(36).padStart(2, '0'), '')
-    .slice(0, 12)
-  const path = `${new Date().toISOString().slice(0, 7)}/${rand}.jpg`
-
-  const { error: upErr } = await supabase.storage
-    .from(IMG_BUCKET)
-    .upload(path, resized, {
-      cacheControl: '31536000',
-      upsert: false,
-      contentType: 'image/jpeg',
-    })
-  if (upErr) throw upErr
-
-  const { data } = supabase.storage.from(IMG_BUCKET).getPublicUrl(path)
-  return { path, url: data.publicUrl }
+  // Through a one-time upload link: visitors can't write to the bucket directly.
+  return uploadPublicFormPhoto('property', resized as Blob)
 }
 
 async function resizeImage(file, maxW, quality) {

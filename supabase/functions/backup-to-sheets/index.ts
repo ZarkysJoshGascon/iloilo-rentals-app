@@ -124,10 +124,19 @@ function enumerateMonths(startISO: string, endISO: string): string[] {
   return out
 }
 
+// Cells are written as if typed (USER_ENTERED) so dates and numbers come out
+// right, which also means text starting with = + - @ would run as a formula.
+// Guests, owners and website visitors type some of this text (a contact
+// message reading "=IMPORTXML(...)" could send sheet data elsewhere), so such
+// text gets a leading apostrophe: Sheets shows it as plain text and hides the
+// apostrophe.
+const FORMULA_START = /^[=+\-@\t\r]/
+
 function toCell(v: unknown): string | number {
   if (v == null) return ''
-  if (typeof v === 'object') return JSON.stringify(v)
-  return v as string | number
+  if (typeof v === 'number') return v
+  const s = typeof v === 'object' ? JSON.stringify(v) : String(v)
+  return FORMULA_START.test(s) ? `'${s}` : s
 }
 
 function pick(row: any, key: string): unknown {
