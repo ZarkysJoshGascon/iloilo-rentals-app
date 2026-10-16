@@ -15,6 +15,8 @@ function normalizeContract(c) {
     effective_date: c.effective_date,
     expiry_date: c.expiry_date,
     superseded_by: c.superseded_by,
+    // Every end date before an extension, oldest first (only in the contract detail).
+    previous_expiry_dates: Array.isArray(c.previous_expiry_dates) ? c.previous_expiry_dates : [],
     units: {
       unit_code: c.unit_code,
       building: c.building,

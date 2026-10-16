@@ -9,8 +9,12 @@
 //                   that month's computation as live formulas (gross → each
 //                   expense → net → owner / company / PM), each with a note
 //   All bookings · All cleanings · All expenses   flat lists to sort and filter
+//   Booking details · Cleaning details   every booking and cleaning in full
+//                   (payments, commissions, times, cancellations, items used)
 //
-// Guest names and contact details are left out on purpose.
+// Guest names appear only in the detail sheets, as in the owner portal.
+// Guest emails and phone numbers, staff notes and payment reference numbers
+// are left out on purpose.
 
 const MONEY = '"₱"#,##0.00;[Red]-"₱"#,##0.00'
 const DATE = 'mmm d, yyyy'
@@ -188,6 +192,9 @@ function addSummarySheet(wb, data, brand) {
   info('Unit', [contract.unitCode, contract.building].filter(Boolean).join(' · ') || '—')
   info('Owner', contract.ownerName || '—')
   info('Term', `${formatDateText(contract.start)} – ${formatDateText(contract.end)}`)
+  if (contract.previousEnds?.length) {
+    info('Extended', `${contract.previousEnds.length}× (first ended ${formatDateText(contract.previousEnds[0])})`)
+  }
   info('Prepared on', formatDateText(preparedOn))
   ws.addRow([])
 
@@ -437,8 +444,8 @@ function addLedgerSheet(wb, data, brand) {
 }
 
 // ── Flat lists ──────────────────────────────────────────────
-function addTable(wb, name, brand, columns, rows, totalsRow) {
-  const ws = wb.addWorksheet(name, { views: [{ state: 'frozen', ySplit: 1 }] })
+function addTable(wb, name, brand, columns, rows, totalsRow, { freezeFirstColumn = false } = {}) {
+  const ws = wb.addWorksheet(name, { views: [{ state: 'frozen', ySplit: 1, xSplit: freezeFirstColumn ? 1 : 0 }] })
   ws.columns = columns.map((c) => ({ header: c.header, key: c.key, width: c.width || 14, style: c.style || {} }))
   fillRow(ws.getRow(1), 1, columns.length, argb(brand), { bold: true, color: { argb: 'FFFFFFFF' } })
   for (const r of rows) ws.addRow(r)
@@ -453,8 +460,15 @@ function addTable(wb, name, brand, columns, rows, totalsRow) {
 
 /**
  * data: {
- *   contract: { code, unitCode, building, ownerName, start, end },
+ *   contract: { code, unitCode, building, ownerName, start, end, previousEnds },
  *   months: [{ month, bookings, cancelled, cleanings, bills, other, pm, figures }],
+ *   bookingDetails: [{ code, guest, guests, checkIn, checkOut, nights, checkoutTime, checkedOut,
+ *     amount, paid, balance, paymentStatus, payments, booker, bookerRate, bookerComm,
+ *     affiliate, affiliateRate, affiliateComm, afterCommissions, status, cancelledOn,
+ *     cancelReason, doneOn, bookedOn, counted }],
+ *   cleaningDetails: [{ code, date, type, status, booking, guest, guestLeft, submitted, completed,
+ *     housekeeping, housekeepingPaid, laundry, laundryPaid, total, laundryUsed, laundryReplaced,
+ *     amenitiesUsed, amenitiesReplaced, counted }],
  *   totals, preparedOn, ownerSplitPct, companySplitPct, brandColor
  * }
  */
@@ -531,6 +545,88 @@ export function buildStatementWorkbook(ExcelJS, data) {
       month: 'Total',
       amount: round2(data.totals.electricity + data.totals.internet + data.totals.water + data.totals.marketing + data.totals.otherTotal),
     },
+  )
+
+  // Every booking in full. Totals count only bookings that weren't cancelled.
+  const bookingDetails = data.bookingDetails || []
+  const countedBookings = bookingDetails.filter((b) => b.counted)
+  addTable(
+    wb, 'Booking details', brand,
+    [
+      { header: 'Booking', key: 'code', width: 16 },
+      { header: 'Guest', key: 'guest', width: 24 },
+      { header: 'Guests', key: 'guests', width: 8 },
+      dateCol('Check-in', 'checkIn'),
+      dateCol('Check-out', 'checkOut'),
+      { header: 'Nights', key: 'nights', width: 8 },
+      { header: 'Out by', key: 'checkoutTime', width: 14 },
+      { header: 'Guest checked out', key: 'checkedOut', width: 22 },
+      moneyCol('Total', 'amount'),
+      moneyCol('Paid', 'paid'),
+      moneyCol('Balance', 'balance'),
+      { header: 'Payment', key: 'paymentStatus', width: 10 },
+      { header: 'Payments made', key: 'payments', width: 44 },
+      { header: 'Booked by', key: 'booker', width: 20 },
+      { header: 'Booker rate', key: 'bookerRate', width: 11 },
+      moneyCol('Booking comm.', 'bookerComm'),
+      { header: 'Affiliate', key: 'affiliate', width: 20 },
+      { header: 'Affiliate rate', key: 'affiliateRate', width: 12 },
+      moneyCol('Affiliate comm.', 'affiliateComm'),
+      moneyCol('After commissions', 'afterCommissions', 17),
+      { header: 'Status', key: 'status', width: 22 },
+      { header: 'Cancelled on', key: 'cancelledOn', width: 22 },
+      { header: 'Cancellation reason', key: 'cancelReason', width: 30 },
+      { header: 'Marked done', key: 'doneOn', width: 22 },
+      { header: 'Booked on', key: 'bookedOn', width: 22 },
+    ],
+    bookingDetails.map((b) => ({ ...b, checkIn: toDate(b.checkIn), checkOut: toDate(b.checkOut) })),
+    {
+      code: 'Total counted',
+      nights: sum(countedBookings, 'nights'),
+      amount: round2(sum(countedBookings, 'amount')),
+      paid: round2(sum(countedBookings, 'paid')),
+      balance: round2(sum(countedBookings, 'balance')),
+      bookerComm: round2(sum(countedBookings, 'bookerComm')),
+      affiliateComm: round2(sum(countedBookings, 'affiliateComm')),
+      afterCommissions: round2(sum(countedBookings, 'afterCommissions')),
+    },
+    { freezeFirstColumn: true },
+  )
+
+  // Every cleaning in full. Totals count only cleanings that weren't cancelled.
+  const cleaningDetails = data.cleaningDetails || []
+  const countedCleanings = cleaningDetails.filter((c) => c.counted)
+  addTable(
+    wb, 'Cleaning details', brand,
+    [
+      { header: 'Cleaning', key: 'code', width: 16 },
+      dateCol('Date', 'date'),
+      { header: 'Type', key: 'type', width: 12 },
+      { header: 'Status', key: 'status', width: 14 },
+      { header: 'After booking', key: 'booking', width: 16 },
+      { header: 'Guest', key: 'guest', width: 22 },
+      { header: 'Guest left', key: 'guestLeft', width: 22 },
+      { header: 'Submitted', key: 'submitted', width: 22 },
+      { header: 'Approved', key: 'completed', width: 22 },
+      moneyCol('Housekeeping', 'housekeeping'),
+      { header: 'Housekeeping paid', key: 'housekeepingPaid', width: 22 },
+      moneyCol('Laundry', 'laundry'),
+      { header: 'Laundry paid', key: 'laundryPaid', width: 22 },
+      moneyCol('Total cost', 'total'),
+      { header: 'Laundry used', key: 'laundryUsed', width: 34 },
+      { header: 'Laundry replaced', key: 'laundryReplaced', width: 34 },
+      { header: 'Amenities used', key: 'amenitiesUsed', width: 34 },
+      { header: 'Amenities replaced', key: 'amenitiesReplaced', width: 34 },
+      { header: 'Counted', key: 'countedLabel', width: 10 },
+    ],
+    cleaningDetails.map((c) => ({ ...c, date: toDate(c.date), countedLabel: c.counted ? 'Yes' : 'No' })),
+    {
+      code: 'Total counted',
+      housekeeping: round2(sum(countedCleanings, 'housekeeping')),
+      laundry: round2(sum(countedCleanings, 'laundry')),
+      total: round2(sum(countedCleanings, 'total')),
+    },
+    { freezeFirstColumn: true },
   )
 
   return wb

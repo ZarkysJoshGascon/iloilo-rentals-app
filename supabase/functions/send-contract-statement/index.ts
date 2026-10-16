@@ -61,6 +61,44 @@ function todayISO(): string {
   return new Date().toISOString().slice(0, 10)
 }
 
+// Times as they read in Iloilo, whatever the server's clock.
+function manilaDateTime(ts: string | null): string {
+  if (!ts) return ''
+  const d = new Date(ts)
+  if (Number.isNaN(d.getTime())) return ''
+  return d.toLocaleString('en-PH', { timeZone: 'Asia/Manila', month: 'short', day: 'numeric', year: 'numeric', hour: 'numeric', minute: '2-digit' })
+}
+
+function manilaTime(ts: string | null): string {
+  if (!ts) return ''
+  const d = new Date(ts)
+  if (Number.isNaN(d.getTime())) return ''
+  return d.toLocaleTimeString('en-PH', { timeZone: 'Asia/Manila', hour: 'numeric', minute: '2-digit' })
+}
+
+// "Bath towel ×2, Bedsheet ×1" from a cleaning's item list.
+function itemsText(raw: any): string {
+  return (Array.isArray(raw) ? raw : [])
+    .filter((x: any) => x && typeof x.name === 'string' && x.name.trim())
+    .map((x: any) => `${x.name.trim().slice(0, 60)} ×${Number(x.quantity) || 0}`)
+    .join(', ')
+}
+
+// "₱1,500.00 · GCash · Oct 2, 2026; ..." from a booking's payments (no reference numbers).
+function paymentsText(raw: any): string {
+  return (Array.isArray(raw) ? raw : [])
+    .filter((t: any) => Number(t?.amount) > 0)
+    .map((t: any) => [
+      `₱${Number(t.amount).toLocaleString('en-PH', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`,
+      typeof t.method === 'string' && t.method.trim() ? t.method.trim().slice(0, 40) : '',
+      t.date ? formatDateText(t.date) : '',
+    ].filter(Boolean).join(' · '))
+    .join('; ')
+}
+
+const sentence = (s: string | null) => (s ? s.charAt(0).toUpperCase() + s.slice(1).replace(/_/g, ' ') : '')
+const ratePct = (r: any) => (r == null || r === '' ? '' : `${Number(r)}%`)
+
 function nightsBetween(checkIn: string, checkOut: string): number {
   const a = new Date(`${checkIn}T00:00:00Z`).getTime()
   const b = new Date(`${checkOut}T00:00:00Z`).getTime()
@@ -83,14 +121,19 @@ async function loadStatement(db: any, contract: any) {
   const [breakdownRes, bookingsRes, cleaningsRes, manualRes, pmRes] = await Promise.all([
     db.rpc('contract_monthly_breakdown', { p_contract_id: contract.id }),
     db.from('bookings')
-      .select('booking_code, check_in, check_out, guests, total_amount, booker_commission, affiliate_commission, cancelled_at')
+      .select(`booking_code, guest_name, check_in, check_out, guests, total_amount, amount_paid, balance, payment_status, transactions,
+        booker_name, booker_code, booker_rate, booker_commission, affiliate_name, affiliate_code, affiliate_rate, affiliate_commission,
+        cancelled_at, cancelled_reason, completed_at, created_at, checked_out_at, late_checkout_at`)
       .eq('unit_id', contract.unit_id)
       .is('deleted_at', null)
       .gte('check_in', start)
       .lte('check_in', end)
       .order('check_in', { ascending: true }),
     db.from('cleanings')
-      .select('cleaning_code, scheduled_date, type, status, payment_amount, laundry_payment_amount')
+      .select(`cleaning_code, scheduled_date, type, status, payment_amount, laundry_payment_amount,
+        submitted_at, completed_at, paid_at, laundry_paid_at, guest_left_at,
+        laundry_used_items, laundry_replaced_items, amenities_used_items, amenities_replaced_items,
+        bookings:booking_id ( booking_code, guest_name )`)
       .eq('unit_id', contract.unit_id)
       .gte('scheduled_date', start)
       .lte('scheduled_date', end)
@@ -194,6 +237,70 @@ async function loadStatement(db: any, contract: any) {
 
   const totals = computeTotals({ months, start, end })
 
+  // Every booking and cleaning of the term in full, for the detail sheets.
+  // Guest names are shown, as in the owner portal; guest emails and phone
+  // numbers, staff notes and payment reference numbers are not.
+  const bookingDetails = (bookingsRes.data || []).map((b: any) => {
+    const amount = Number(b.total_amount || 0)
+    const cancelled = !!b.cancelled_at
+    const bookerComm = cancelled ? 0 : Number(b.booker_commission || 0)
+    const affiliateComm = cancelled ? 0 : Number(b.affiliate_commission || 0)
+    return {
+      code: b.booking_code || '—',
+      guest: b.guest_name || '',
+      guests: Number(b.guests || 1),
+      checkIn: b.check_in,
+      checkOut: b.check_out,
+      nights: nightsBetween(b.check_in, b.check_out),
+      checkoutTime: b.late_checkout_at ? `${manilaTime(b.late_checkout_at)} (late)` : '11:00 AM',
+      checkedOut: manilaDateTime(b.checked_out_at),
+      amount,
+      paid: Number(b.amount_paid || 0),
+      balance: Number(b.balance || 0),
+      paymentStatus: sentence(b.payment_status),
+      payments: paymentsText(b.transactions),
+      booker: b.booker_name || b.booker_code || '',
+      bookerRate: ratePct(b.booker_rate),
+      bookerComm,
+      affiliate: b.affiliate_name || b.affiliate_code || '',
+      affiliateRate: ratePct(b.affiliate_rate),
+      affiliateComm,
+      afterCommissions: cancelled ? 0 : round2(amount - bookerComm - affiliateComm),
+      status: cancelled ? 'Cancelled, not counted' : b.completed_at ? 'Done' : 'Counted',
+      cancelledOn: cancelled ? manilaDateTime(b.cancelled_at) : '',
+      cancelReason: b.cancelled_reason || '',
+      doneOn: manilaDateTime(b.completed_at),
+      bookedOn: manilaDateTime(b.created_at),
+      counted: !cancelled,
+    }
+  })
+
+  const cleaningDetails = (cleaningsRes.data || []).map((c: any) => {
+    const housekeeping = Number(c.payment_amount || 0)
+    const laundry = Number(c.laundry_payment_amount || 0)
+    return {
+      code: c.cleaning_code || '—',
+      date: c.scheduled_date,
+      type: sentence(c.type) || '—',
+      status: sentence(c.status) || '—',
+      booking: c.bookings?.booking_code || 'Standalone',
+      guest: c.bookings?.guest_name || '',
+      guestLeft: manilaDateTime(c.guest_left_at),
+      submitted: manilaDateTime(c.submitted_at),
+      completed: manilaDateTime(c.completed_at),
+      housekeeping,
+      housekeepingPaid: manilaDateTime(c.paid_at),
+      laundry,
+      laundryPaid: manilaDateTime(c.laundry_paid_at),
+      total: round2(housekeeping + laundry),
+      laundryUsed: itemsText(c.laundry_used_items),
+      laundryReplaced: itemsText(c.laundry_replaced_items),
+      amenitiesUsed: itemsText(c.amenities_used_items),
+      amenitiesReplaced: itemsText(c.amenities_replaced_items),
+      counted: c.status !== 'cancelled',
+    }
+  })
+
   return {
     contract: {
       code: contract.contract_code,
@@ -202,9 +309,12 @@ async function loadStatement(db: any, contract: any) {
       ownerName: contract.owners?.name,
       start,
       end,
+      previousEnds: Array.isArray(contract.previous_expiry_dates) ? contract.previous_expiry_dates : [],
     },
     months,
     totals,
+    bookingDetails,
+    cleaningDetails,
     warnings,
     preparedOn: todayISO(),
     ownerSplitPct: OWNER_SPLIT_PCT,
@@ -351,7 +461,7 @@ serve(async (req) => {
 
     const { data: contract, error: cErr } = await db
       .from('contracts')
-      .select('id, contract_code, unit_id, effective_date, expiry_date, units:unit_id ( unit_code, building ), owners:owner_id ( id, name, email )')
+      .select('id, contract_code, unit_id, effective_date, expiry_date, previous_expiry_dates, units:unit_id ( unit_code, building ), owners:owner_id ( id, name, email )')
       .eq('id', contractId)
       .maybeSingle()
     if (cErr) return json({ error: `Failed to load contract: ${cErr.message}` }, 500)
