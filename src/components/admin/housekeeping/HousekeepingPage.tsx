@@ -476,13 +476,14 @@ function waitingSince(cleaning, now: number): Date | null {
   return state.kind === 'left' ? state.at : null
 }
 
-// Overdue once the guest has left and either the cleaning's day is over or
-// the next guest's check-in time has come with the unit still not cleaned.
+// Overdue once the guest has left and the cleaning's day is over with the
+// unit still not cleaned. On its own day it stays in Due today until the
+// housekeeper submits, even past the next guest's check-in (shown in red).
 // A check-out nobody has confirmed doesn't count yet.
-function isOverdue(cleaning, now: number, today: string, arrival: Arrival | null) {
+function isOverdue(cleaning, now: number, today: string) {
   if (!waitingSince(cleaning, now)) return false
-  if (cleaning.scheduled_date && cleaning.scheduled_date < today) return true
-  return !!arrival && arrival.at.getTime() <= now
+  const day = cleaning.scheduled_date || String(cleaning.bookings?.check_out || '').slice(0, 10)
+  return !!day && day < today
 }
 
 // Due today: still in, waiting for confirmation, ready since this morning, first by urgency.
@@ -491,7 +492,7 @@ const DUE_ORDER = { left: 0, unconfirmed: 1, staying: 2, none: 3 }
 // The big value at the start of a row: how long the unit has waited since
 // the guest left, how long until they leave, how long it has waited for
 // review, or when it was done.
-function queueLead(cleaning, variant: QueueVariant, now: number) {
+function queueLead(cleaning, variant: QueueVariant, now: number, arrival: Arrival | null) {
   if (variant === 'overdue') {
     const since = waitingSince(cleaning, now)
     return {
@@ -511,7 +512,14 @@ function queueLead(cleaning, variant: QueueVariant, now: number) {
       }
     }
     if (state.kind === 'unconfirmed') return { lead: clockOf(state.due), caption: 'not confirmed', tone: STATUS_TEXT.scheduled.className }
-    if (state.kind === 'left') return { lead: formatSpan(now - state.at.getTime()), caption: 'since guest left', tone: STATUS_TEXT.ready.className }
+    if (state.kind === 'left') {
+      const nextGuestDue = !!arrival && arrival.at.getTime() <= now
+      return {
+        lead: formatSpan(now - state.at.getTime()),
+        caption: 'since guest left',
+        tone: nextGuestDue ? 'text-red-600 dark:text-red-400' : STATUS_TEXT.ready.className,
+      }
+    }
     return { lead: 'Today', caption: '', tone: '' }
   }
   if (variant === 'pending') {
@@ -535,7 +543,7 @@ function CleaningQueueRow({ cleaning, variant, now, today, arrival, onClick }: C
   const housekeeper = cleaning.housekeepers
   const unit = cleaning.units
   const nights = computeNightsFromBooking(booking)
-  const { lead, caption, tone } = queueLead(cleaning, variant, now)
+  const { lead, caption, tone } = queueLead(cleaning, variant, now, arrival)
   const place = [unit?.unit_code, unit?.building].filter(Boolean).join(' · ') || 'No unit'
   const stillIn = !!booking && !waitingSince(cleaning, now)
   const late = booking?.late_checkout_at ? new Date(booking.late_checkout_at) : null
@@ -608,7 +616,7 @@ function QueueCard({ open, arrivals, pendingEvaluation, completed, today, loadin
     const overdue = []
     const dueToday = []
     for (const c of open) {
-      if (isOverdue(c, now, today, arrivals.get(c.id) || null)) overdue.push(c)
+      if (isOverdue(c, now, today)) overdue.push(c)
       else if (c.scheduled_date === today || String(c.bookings?.check_out || '').slice(0, 10) === today) dueToday.push(c)
     }
     // Longest waiting first.
@@ -633,7 +641,7 @@ function QueueCard({ open, arrivals, pendingEvaluation, completed, today, loadin
           className={QUEUE_CELL}
           icon={Clock}
           title="Overdue"
-          hint="Not cleaned by its day or the next check-in"
+          hint="Not cleaned by the end of its day"
           count={loading ? null : overdue.length}
           countTone="text-red-600 dark:text-red-400"
           loading={loading}
