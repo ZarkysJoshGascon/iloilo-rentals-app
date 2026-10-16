@@ -604,7 +604,7 @@ function ServiceSection({ service, Icon, isEven }: ServiceSectionProps) {
       <ul className="space-y-4 mb-12">
         {service.bullets.map((b) => (
           <li key={b} className="flex items-start gap-3 text-base text-gray-700">
-            <CheckCircle2 size={20} className="text-emerald-500 flex-shrink-0 mt-0.5" />
+            <CheckCircle2 size={20} className="flex-shrink-0 mt-0.5 text-foreground" />
             {b}
           </li>
         ))}

@@ -17,7 +17,7 @@ import {
   FileText, Calendar, ExternalLink, User,
   Upload, Eye, ChevronLeft, ChevronRight, Download,
   CheckCircle2, Clock, AlertTriangle, SlidersHorizontal,
-  CalendarPlus, RotateCcw, Info, ArrowRight, History,
+  CalendarPlus, RotateCcw, Info, ArrowRight, History, Copy, TrendingUp,
 } from 'lucide-react'
 import { createPortal } from 'react-dom'
 import toast from 'react-hot-toast'
@@ -42,6 +42,10 @@ import { SortHeader, nextSort, ResultsBar, SearchKeyHint, useListShortcuts, CARD
 import { StatusTabs } from '@/components/admin/_shared/StatusTabs'
 import type { ReactNode } from 'react'
 import { Code } from '@/components/common/Code'
+import { ContextMenu } from '@/components/ui/ContextMenu'
+import { crmLink } from '@/lib/crmLinks'
+import { DatePicker } from '@/components/admin/_shared/DatePicker'
+import { useRevealOnOpen } from '@/components/admin/_shared/useRevealOnOpen'
 
 const BRAND = 'var(--brand-solid)'
 
@@ -121,152 +125,6 @@ function formatDate(d) {
   const dt = new Date(`${d}T00:00:00Z`)
   if (Number.isNaN(dt.getTime())) return '—'
   return dt.toLocaleDateString('en-PH', { month: 'short', day: 'numeric', year: 'numeric', timeZone: 'UTC' })
-}
-
-type DateFieldPickerProps = {
-  value: string
-  onChange: (v: any) => void
-  placeholder: string
-  minDate?: string
-  maxDate?: any
-}
-
-// ── date picker ────────────────────────────────────────────
-function DateFieldPicker({ value, onChange, placeholder, minDate, maxDate }: DateFieldPickerProps) {
-  const [open, setOpen] = useState(false)
-  const [viewYear, setViewYear] = useState(() => Number((value || todayISO()).slice(0, 4)))
-  const [viewMonth, setViewMonth] = useState(() => Number((value || todayISO()).slice(5, 7)) - 1)
-  const wrapRef = useRef(null)
-
-  useEffect(() => {
-    if (!value) return
-    setViewYear(Number(value.slice(0, 4)))
-    setViewMonth(Number(value.slice(5, 7)) - 1)
-  }, [value])
-
-  useEffect(() => {
-    if (!open) return
-    const onDown = (e) => { if (wrapRef.current && !wrapRef.current.contains(e.target)) setOpen(false) }
-    const onKey = (e) => { if (e.key === 'Escape') setOpen(false) }
-    document.addEventListener('mousedown', onDown)
-    window.addEventListener('keydown', onKey)
-    return () => {
-      document.removeEventListener('mousedown', onDown)
-      window.removeEventListener('keydown', onKey)
-    }
-  }, [open])
-
-  const daysInMonth = new Date(Date.UTC(viewYear, viewMonth + 1, 0)).getUTCDate()
-  const firstDow = new Date(Date.UTC(viewYear, viewMonth, 1)).getUTCDay()
-
-  const cells = []
-  for (let i = 0; i < firstDow; i++) cells.push(null)
-  for (let d = 1; d <= daysInMonth; d++) cells.push(d)
-  while (cells.length % 7 !== 0) cells.push(null)
-
-  const monthLabel = `${MONTHS[viewMonth]} ${viewYear}`
-  const todayStr = todayISO()
-
-  const goPrev = () => {
-    if (viewMonth === 0) { setViewYear(viewYear - 1); setViewMonth(11) }
-    else setViewMonth(viewMonth - 1)
-  }
-  const goNext = () => {
-    if (viewMonth === 11) { setViewYear(viewYear + 1); setViewMonth(0) }
-    else setViewMonth(viewMonth + 1)
-  }
-
-  const displayValue = value ? formatISOReadable(value) : null
-
-  const isSelectable = (iso) => {
-    if (minDate && iso < minDate) return false
-    if (maxDate && iso > maxDate) return false
-    return true
-  }
-
-  return (
-    <div className="relative" ref={wrapRef}>
-      <button
-        type="button"
-        onClick={() => setOpen((v) => !v)}
-        className={cn(
-          'w-full h-9 text-xs rounded-md border bg-background px-3 flex items-center justify-between gap-2 text-left transition-colors',
-          open ? 'border-primary ring-2 ring-primary/30' : 'border-input hover:bg-muted/50',
-        )}
-      >
-        <span className={cn('truncate', !displayValue && 'text-foreground')}>
-          {displayValue || placeholder}
-        </span>
-        <Calendar size={13} className="text-foreground flex-shrink-0" />
-      </button>
-
-      <AnimatePresence>
-        {open && (
-          <motion.div
-            initial={{ opacity: 0, y: -4 }}
-            animate={{ opacity: 1, y: 0 }}
-            exit={{ opacity: 0, y: -4 }}
-            transition={{ duration: 0.12 }}
-            className="absolute z-30 mt-1 w-[300px] max-w-[calc(100vw-2rem)] rounded-lg border border-border bg-popover shadow-lg p-3"
-          >
-            <div className="flex items-center justify-between mb-3">
-              <button type="button" onClick={goPrev} className="p-1.5 rounded hover:bg-muted text-foreground">
-                <ChevronLeft size={14} />
-              </button>
-              <span className="text-sm font-bold text-foreground">{monthLabel}</span>
-              <button type="button" onClick={goNext} className="p-1.5 rounded hover:bg-muted text-foreground">
-                <ChevronRight size={14} />
-              </button>
-            </div>
-
-            <div className="grid grid-cols-7 mb-1">
-              {DOW.map((d) => (
-                <div key={d} className="text-[10px] font-semibold text-foreground text-center py-1">{d}</div>
-              ))}
-            </div>
-
-            <div className="grid grid-cols-7 gap-y-0.5">
-              {cells.map((day, idx) => {
-                if (day == null) return <div key={idx} />
-                const iso = `${viewYear}-${String(viewMonth + 1).padStart(2, '0')}-${String(day).padStart(2, '0')}`
-                const selected = value === iso
-                const isToday = iso === todayStr
-                const selectable = isSelectable(iso)
-
-                return (
-                  <button
-                    key={idx}
-                    type="button"
-                    onClick={() => { if (selectable) { onChange(iso); setOpen(false) } }}
-                    disabled={!selectable}
-                    className={cn(
-                      'relative h-8 text-[12px] rounded transition-colors flex items-center justify-center tabular-nums',
-                      !selectable && 'text-muted-foreground/40 cursor-not-allowed',
-                      selectable && !selected && 'hover:bg-muted text-foreground',
-                      selected && 'bg-brand-solid text-white font-bold',
-                      isToday && !selected && 'ring-1 ring-primary/40',
-                    )}
-                  >
-                    {day}
-                  </button>
-                )
-              })}
-            </div>
-
-            <div className="flex items-center justify-end pt-3 mt-2 border-t border-border">
-              <button
-                type="button"
-                onClick={() => { onChange(''); setOpen(false) }}
-                className="text-[10px] font-semibold text-foreground hover:text-foreground"
-              >
-                Clear
-              </button>
-            </div>
-          </motion.div>
-        )}
-      </AnimatePresence>
-    </div>
-  )
 }
 
 type NewContractModalProps = {
@@ -430,25 +288,25 @@ function NewContractModal({ open, onClose, onCreated, units, owners, contracts }
 
         <div className="flex-1 overflow-y-auto px-5 py-4 space-y-4">
           {noEligible && (
-            <div className="rounded-md border border-amber-500/30 bg-amber-500/10 p-4">
-              <p className="text-xs font-semibold text-amber-700 dark:text-amber-400 mb-1">
+            <div>
+              <p className="text-xs font-semibold text-amber-600 dark:text-amber-400 mb-1">
                 No eligible units right now.
               </p>
               {onlyBlockedByNoOwner && (
-                <p className="text-[11px] text-amber-700 dark:text-amber-400/90 leading-relaxed">
+                <p className="text-[11px] text-amber-600 dark:text-amber-400 leading-relaxed">
                   {blockedNoOwner.length} unit{blockedNoOwner.length === 1 ? '' : 's'} without a contract
                   {' '}still need{blockedNoOwner.length === 1 ? 's' : ''} an owner attached.
                   Add the owner in Registry first, then come back here.
                 </p>
               )}
               {onlyBlockedByContract && (
-                <p className="text-[11px] text-amber-700 dark:text-amber-400/90 leading-relaxed">
+                <p className="text-[11px] text-amber-600 dark:text-amber-400 leading-relaxed">
                   Every unit already has a contract. To continue one, open it and use
                   Extend (before it ends) or Renew (after it ends), or add a new unit in Registry.
                 </p>
               )}
               {!onlyBlockedByNoOwner && !onlyBlockedByContract && (
-                <p className="text-[11px] text-amber-700 dark:text-amber-400/90 leading-relaxed">
+                <p className="text-[11px] text-amber-600 dark:text-amber-400 leading-relaxed">
                   Every unit either has a contract or is missing an owner.
                 </p>
               )}
@@ -502,7 +360,7 @@ function NewContractModal({ open, onClose, onCreated, units, owners, contracts }
           <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
             <div>
               <label className={labelClass}>Effective date *</label>
-              <DateFieldPicker
+              <DatePicker
                 value={form.effective_date}
                 onChange={(v) => {
                   setField('effective_date', v)
@@ -511,15 +369,18 @@ function NewContractModal({ open, onClose, onCreated, units, owners, contracts }
                   }
                 }}
                 placeholder="Pick start date"
+                rangeEnd={form.expiry_date || null}
               />
             </div>
             <div>
               <label className={labelClass}>Expiry date *</label>
-              <DateFieldPicker
+              <DatePicker
                 value={form.expiry_date}
                 onChange={(v) => setField('expiry_date', v)}
                 placeholder="Pick end date"
                 minDate={form.effective_date || undefined}
+                rangeStart={form.effective_date || null}
+                align="right"
               />
             </div>
           </div>
@@ -672,6 +533,7 @@ function FilterPanel({
   activeCount, onClear,
 }: FilterPanelProps) {
   const panelRef = useRef(null)
+  useRevealOnOpen(panelRef, open)
 
   useEffect(() => {
     if (!open) return
@@ -752,11 +614,11 @@ function FilterPanel({
               <div className="grid grid-cols-2 gap-2">
                 <div>
                   <label className="text-[10px] uppercase tracking-wider text-foreground font-semibold mb-1 block">From</label>
-                  <Input type="date" value={rangeFrom} onChange={(e) => setRangeFrom(e.target.value)} className="h-8 text-xs rounded" />
+                  <DatePicker value={rangeFrom} onChange={setRangeFrom} maxDate={rangeTo || null} rangeEnd={rangeTo || null} placeholder="Any day" size="sm" ariaLabel="Active from" />
                 </div>
                 <div>
                   <label className="text-[10px] uppercase tracking-wider text-foreground font-semibold mb-1 block">To</label>
-                  <Input type="date" value={rangeTo} onChange={(e) => setRangeTo(e.target.value)} className="h-8 text-xs rounded" />
+                  <DatePicker value={rangeTo} onChange={setRangeTo} minDate={rangeFrom || null} rangeStart={rangeFrom || null} placeholder="Any day" size="sm" align="right" ariaLabel="Active to" />
                 </div>
               </div>
               <p className="text-[10px] text-foreground mt-1.5">
@@ -798,7 +660,27 @@ type ContractRowProps = {
 }
 
 function ContractRow({ contract, selected, onClick }: ContractRowProps) {
+  const navigate = useNavigate()
+  const extended = extendedCount(contract)
+  const contextItems = [
+    { label: 'See in Contracts', icon: FileText, onSelect: onClick },
+    { label: 'See in Accounting', icon: TrendingUp, onSelect: () => navigate(crmLink.accounting(contract.id)) },
+    { separator: true },
+    {
+      label: 'Copy contract code',
+      icon: Copy,
+      hint: contract.contract_code,
+      onSelect: () => {
+        navigator.clipboard.writeText(contract.contract_code || '').then(
+          () => toast.success('Contract code copied'),
+          () => toast.error('Failed to copy'),
+        )
+      },
+    },
+  ]
   return (
+    // ContextMenu wraps the row in its own div, so the divider goes on that.
+    <ContextMenu items={contextItems} className="border-b border-border">
     <motion.button
       type="button"
       onClick={onClick}
@@ -808,7 +690,7 @@ function ContractRow({ contract, selected, onClick }: ContractRowProps) {
       whileHover={{ backgroundColor: selected ? 'rgba(34, 81, 147, 0.14)' : 'rgba(34, 81, 147, 0.05)' }}
       whileTap={{ scale: 0.998 }}
       data-row
-      className={cn('group/row w-full text-left px-4 py-3 border-b border-border cursor-pointer select-none', ROW_GRID)}
+      className={cn('group/row w-full text-left px-4 py-3 cursor-pointer select-none', ROW_GRID)}
     >
       <div className="min-w-0">
         <Code value={contract.contract_code} label="Contract code" className="text-xs" block />
@@ -829,11 +711,13 @@ function ContractRow({ contract, selected, onClick }: ContractRowProps) {
       <div className="text-[11px] tabular-nums text-foreground min-w-0">
         <span className={PHONE_LABEL}>Expiry</span>
         <div className="truncate">{formatDate(contract.expiry_date)}</div>
+        {extended > 0 && <div className="text-[10px] truncate">extended {extended}×</div>}
       </div>
       <div className="flex items-center justify-end flex-shrink-0">
         <StatusText contract={contract} />
       </div>
     </motion.button>
+    </ContextMenu>
   )
 }
 
@@ -875,11 +759,32 @@ function EditableField({ label, value, type = 'text', options, onSave, auditTag,
   }
   const cancel = () => setDraft(value ?? '')
 
+  // A picked date saves straight away, like a picked option.
+  const saveDate = async (v) => {
+    if ((v || '') === (value ?? '')) return
+    setDraft(v || '')
+    setStatus('saving')
+    try {
+      await onSave(v || null)
+      setStatus('saved')
+      if (auditTag) {
+        logAudit(`UPDATE_CONTRACT_FIELD:${auditTag}`, 'contracts', null, { field: auditTag, from: value, to: v || null }).catch(() => {})
+      }
+      setTimeout(() => setStatus('idle'), 1200)
+    } catch (err) {
+      toast.error(err?.message || 'Save failed')
+      setDraft(value ?? '')
+      setStatus('idle')
+    }
+  }
+
   return (
     <div className="flex items-center gap-2 py-0.5">
       <span className="text-[10px] uppercase tracking-wider text-foreground font-semibold min-w-[72px] flex-shrink-0">{label}</span>
       <div className="flex items-center gap-1 flex-1 min-w-0">
-        {options ? (
+        {type === 'date' ? (
+          <DatePicker value={draft || ''} onChange={saveDate} size="sm" placeholder="—" clearable={false} ariaLabel={label} className="flex-1 min-w-0" />
+        ) : options ? (
           <Select
             value={draft || ''}
             onValueChange={async (v) => {
@@ -920,8 +825,8 @@ function EditableField({ label, value, type = 'text', options, onSave, auditTag,
             placeholder="—"
           />
         )}
-        {status === 'saving' && <Loader2 size={11} className="flex-shrink-0 animate-spin text-primary" />}
-        {status === 'saved' && <Check size={11} className="flex-shrink-0 text-emerald-500" />}
+        {status === 'saving' && <Loader2 size={11} className="flex-shrink-0 animate-spin text-foreground" />}
+        {status === 'saved' && <Check size={11} className="flex-shrink-0 text-foreground" />}
       </div>
     </div>
   )
@@ -1074,7 +979,7 @@ function ContractPdfUploader({ contract, onSaved }: ContractPdfUploaderProps) {
       {hasFile ? (
         <div className="space-y-2">
           <div className="flex items-center gap-3 p-2.5 rounded-md border border-border bg-background">
-            <div className="w-10 h-10 rounded-md bg-muted flex items-center justify-center flex-shrink-0">
+            <div className="w-10 h-10 flex items-center justify-center flex-shrink-0">
               <FileText size={18} className="text-foreground" />
             </div>
             <div className="min-w-0 flex-1">
@@ -1390,7 +1295,8 @@ function ExtendContractModal({ contract, onClose, onExtended }: ExtendContractMo
         return
       }
 
-      const { error } = await supabase.from('contracts').update({ expiry_date: newExpiry }).eq('id', contract.id)
+      // Moves the end date and keeps the old one in previous_expiry_dates, in one step.
+      const { error } = await supabase.rpc('extend_contract', { p_contract: contract.id, p_new_expiry: newExpiry })
       if (error) throw error
 
       logAudit('EXTEND_CONTRACT', 'contracts', contract.id, {
@@ -1440,7 +1346,7 @@ function ExtendContractModal({ contract, onClose, onExtended }: ExtendContractMo
 
       <div>
         <label className={FORM_LABEL}>New end date *</label>
-        <DateFieldPicker
+        <DatePicker
           value={newExpiry}
           onChange={(v) => { setNewExpiry(v); setMonths(null) }}
           placeholder="Pick the new end date"
@@ -1456,7 +1362,8 @@ function ExtendContractModal({ contract, onClose, onExtended }: ExtendContractMo
       <div className="flex items-start gap-2 rounded-md border border-border p-3">
         <Info size={13} className="text-foreground flex-shrink-0 mt-0.5" />
         <p className="text-[12px] text-foreground leading-relaxed">
-          Same contract, later end date. Accounting adds the extra months to this contract's figures.
+          Same contract, later end date. Accounting adds the extra months to this contract's figures,
+          and the current end date is kept as a previous one{extendedCount(contract) > 0 ? ` (it has been extended ${extendedCount(contract)}× before)` : ''}.
         </p>
       </div>
     </ModalShell>
@@ -1611,7 +1518,7 @@ function RenewContractModal({ contract, termNumber, unitOwner, onClose, onRenewe
       <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
         <div>
           <label className={FORM_LABEL}>Starts *</label>
-          <DateFieldPicker
+          <DatePicker
             value={start}
             onChange={(v) => { setStart(v); if (months) setEnd(termEndISO(v, months)); else if (end <= v) setEnd(termEndISO(v, 12)) }}
             placeholder="Pick start date"
@@ -1620,7 +1527,7 @@ function RenewContractModal({ contract, termNumber, unitOwner, onClose, onRenewe
         </div>
         <div>
           <label className={FORM_LABEL}>Ends *</label>
-          <DateFieldPicker
+          <DatePicker
             value={end}
             onChange={(v) => { setEnd(v); setMonths(null) }}
             placeholder="Pick end date"
@@ -1677,6 +1584,30 @@ type TermsListProps = {
 }
 
 // Every term of this unit's run of renewals; the open one is highlighted.
+/** How many times a contract was extended: one previous end date per extension. */
+function extendedCount(contract) {
+  return Array.isArray(contract?.previous_expiry_dates) ? contract.previous_expiry_dates.length : 0
+}
+
+type ExtendedLineProps = {
+  dates: string[] | null | undefined
+}
+
+// "Extended 2×", with every end date the contract had before, oldest first.
+function ExtendedLine({ dates }: ExtendedLineProps) {
+  const list = Array.isArray(dates) ? dates : []
+  if (list.length === 0) return null
+  return (
+    <div className="flex items-start gap-2 py-0.5">
+      <span className="text-[10px] uppercase tracking-wider text-foreground font-semibold min-w-[72px] flex-shrink-0 pt-0.5">Extended</span>
+      <span className="text-xs text-foreground min-w-0">
+        <span className="font-semibold">{list.length}×</span>
+        <span> · previously ended {list.map((d) => formatDate(d)).join(', then ')}</span>
+      </span>
+    </div>
+  )
+}
+
 function TermsList({ terms, currentId, onSelect }: TermsListProps) {
   if (terms.length < 2) return null
   return (
@@ -1882,7 +1813,7 @@ function ContractDetailPanel({ contract, contracts, units, owners, onClose, onCh
               <DetailSection title="Owner">
                 <div className="p-3">
                   <div className="flex items-center gap-2.5 pb-2 mb-2 border-b border-border">
-                    <div className="w-10 h-10 rounded-full bg-muted flex items-center justify-center flex-shrink-0 text-foreground">
+                    <div className="w-10 h-10 flex items-center justify-center flex-shrink-0 text-foreground">
                       <User size={16} />
                     </div>
                     <div className="min-w-0 flex-1">
@@ -1928,6 +1859,7 @@ function ContractDetailPanel({ contract, contracts, units, owners, onClose, onCh
                     onSave={(v) => updateField('expiry_date', v)}
                     auditTag="expiry_date"
                   />
+                  <ExtendedLine dates={contract.previous_expiry_dates} />
                 </div>
               </DetailSection>
 

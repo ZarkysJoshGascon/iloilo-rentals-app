@@ -541,9 +541,9 @@ function SuccessState({ onReset }: SuccessStateProps) {
         initial={{ scale: 0.5, opacity: 0 }}
         animate={{ scale: 1, opacity: 1 }}
         transition={{ type: 'spring', stiffness: 300, damping: 20, delay: 0.1 }}
-        className="w-20 h-20 rounded-full bg-emerald-500/10 flex items-center justify-center mx-auto mb-6"
+        className="w-20 h-20 flex items-center justify-center mx-auto mb-6"
       >
-        <Check size={40} className="text-emerald-600" strokeWidth={3} />
+        <Check size={40} className="text-foreground" strokeWidth={3} />
       </motion.div>
 
       <h2 className="text-2xl md:text-3xl font-black text-gray-900 tracking-tight mb-3">

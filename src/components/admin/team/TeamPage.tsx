@@ -31,6 +31,8 @@ import MessengerUpdatesPanel from './MessengerUpdatesPanel'
 import { StatStrip, StatTile } from '@/components/admin/_shared/StatStrip'
 import { ResultsBar, SearchKeyHint, useListShortcuts } from '@/components/admin/_shared/listTools'
 import { Code } from '@/components/common/Code'
+import { DatePicker } from '@/components/admin/_shared/DatePicker'
+import { revealOnMount } from '@/components/admin/_shared/useRevealOnOpen'
 
 const BRAND = 'var(--brand-solid)'
 const SOFT_SHADOW = '0 20px 40px -16px rgba(15,23,42,0.24), 0 6px 16px -6px rgba(15,23,42,0.10)'
@@ -331,7 +333,7 @@ function StaffEmailCombobox({ value, onChange, disabled, placeholder = 'user@exa
           <Loader2 size={12} className="absolute right-2.5 top-1/2 -translate-y-1/2 text-foreground animate-spin" />
         )}
         {!verifying && verifiedProfile && (
-          <Check size={12} className="absolute right-2.5 top-1/2 -translate-y-1/2 text-emerald-500" />
+          <Check size={12} className="absolute right-2.5 top-1/2 -translate-y-1/2 text-foreground" />
         )}
       </div>
 
@@ -357,7 +359,7 @@ function StaffEmailCombobox({ value, onChange, disabled, placeholder = 'user@exa
             animate={{ opacity: 1, y: 0 }}
             exit={{ opacity: 0, y: -4 }}
             transition={{ duration: 0.1 }}
-            className="absolute z-30 left-0 right-0 mt-1 bg-popover border border-border rounded-lg shadow-lg max-h-[280px] overflow-y-auto"
+            ref={revealOnMount} className="absolute z-30 left-0 right-0 mt-1 bg-popover border border-border rounded-lg shadow-lg max-h-[280px] overflow-y-auto"
           >
             {loading && results.length === 0 ? (
               <div className="px-3 py-2 text-[11px] text-foreground italic">Searching…</div>
@@ -650,9 +652,9 @@ function DateFilterBar({ preset, setPreset, customFrom, setCustomFrom, customTo,
       <StatusTabs tabs={DATE_PRESETS} value={preset} onChange={setPreset} label="Period" />
       {preset === 'custom' && (
         <div className="flex items-center gap-1.5">
-          <Input type="date" value={customFrom} onChange={(e) => setCustomFrom(e.target.value)} className="h-7 text-xs rounded w-[130px]" />
+          <DatePicker value={customFrom} onChange={setCustomFrom} maxDate={customTo || null} rangeEnd={customTo || null} placeholder="From" size="sm" ariaLabel="From" className="w-[140px]" />
           <span className="text-[11px] text-foreground">→</span>
-          <Input type="date" value={customTo} onChange={(e) => setCustomTo(e.target.value)} className="h-7 rounded w-[130px] text-xs" />
+          <DatePicker value={customTo} onChange={setCustomTo} minDate={customFrom || null} rangeStart={customFrom || null} placeholder="To" size="sm" align="right" ariaLabel="To" className="w-[140px]" />
         </div>
       )}
     </div>
@@ -2030,7 +2032,7 @@ function AssignUnitModal({ open, onClose, onSaved, pm, editingContract, units }:
           </div>
           <div>
             <label className={labelClass}>Effective Date *</label>
-            <Input type="date" value={form.effective_date} onChange={(e) => setField('effective_date', e.target.value)} className={inputClass} />
+            <DatePicker value={form.effective_date} onChange={(v) => setField('effective_date', v)} rangeEnd={form.expiry_date || null} placeholder="Pick start date" size="sm" ariaLabel="Effective date" />
             {snappedEffective && snappedEffective !== form.effective_date && (
               <p className="text-[11px] text-foreground mt-1">
                 Will be saved as <span className="font-mono text-foreground">{snappedEffective}</span> (start of month)
@@ -2039,7 +2041,7 @@ function AssignUnitModal({ open, onClose, onSaved, pm, editingContract, units }:
           </div>
           <div>
             <label className={labelClass}>Expiry Date *</label>
-            <Input type="date" value={form.expiry_date} onChange={(e) => setField('expiry_date', e.target.value)} className={inputClass} />
+            <DatePicker value={form.expiry_date} onChange={(v) => setField('expiry_date', v)} minDate={form.effective_date || null} rangeStart={form.effective_date || null} placeholder="Pick end date" size="sm" align="right" ariaLabel="Expiry date" />
             {snappedExpiry && snappedExpiry !== form.expiry_date && (
               <p className="text-[11px] text-foreground mt-1">
                 Will be saved as <span className="font-mono text-foreground">{snappedExpiry}</span> (end of month)
@@ -2153,12 +2155,12 @@ function TerminateModal({ open, onClose, onTerminated, pmContract }: TerminateMo
           </div>
           <div>
             <label className={labelClass}>Decision Date *</label>
-            <Input type="date" value={decisionDate} onChange={(e) => setDecisionDate(e.target.value)} className="h-8 text-xs rounded" />
+            <DatePicker value={decisionDate} onChange={setDecisionDate} placeholder="Pick the day" size="sm" clearable={false} ariaLabel="Decision date" />
             <p className="text-[11px] text-foreground mt-1">Termination is always effective on the last day of the month.</p>
           </div>
           {effDate && (
             <div className="flex items-start gap-2 px-3 py-2 rounded-md border border-border">
-              <AlertTriangle size={12} className="text-amber-600 dark:text-amber-400 flex-shrink-0 mt-0.5" />
+              <AlertTriangle size={12} className="flex-shrink-0 mt-0.5 text-foreground" />
               <div className="text-[11px] text-foreground leading-relaxed">
                 <p><strong className="text-amber-700 dark:text-amber-400">Effective: {formatDate(effDate)}</strong></p>
                 <p className="mt-0.5">The PM will continue to earn through this date.</p>

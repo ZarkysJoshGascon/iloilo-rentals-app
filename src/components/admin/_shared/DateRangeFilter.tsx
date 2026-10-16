@@ -5,6 +5,8 @@ import { useEffect, useRef, useState } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import { Calendar, Check, X } from 'lucide-react'
 import { cn } from '@/lib/utils'
+import { DatePicker } from './DatePicker'
+import { revealOnMount } from './useRevealOnOpen'
 
 function fmtDateShort(iso) {
   if (!iso) return null
@@ -13,7 +15,6 @@ function fmtDateShort(iso) {
   return d.toLocaleDateString('en-PH', { month: 'short', day: 'numeric', year: '2-digit', timeZone: 'UTC' })
 }
 
-const INPUT = 'w-full h-8 text-xs rounded-md border border-border bg-card px-2 text-foreground focus:outline-none focus:ring-2 focus:ring-ring/30'
 const LABEL = 'text-[11px] font-semibold text-foreground mb-1 block'
 
 type DateRangeFilterProps = {
@@ -104,17 +105,17 @@ export function DateRangeFilter({ from, to, onFromChange, onToChange, onClear, t
             animate={{ opacity: 1, y: 0 }}
             exit={{ opacity: 0, y: -4 }}
             transition={{ duration: 0.12 }}
-            className="absolute right-0 z-30 mt-1 w-[280px] max-w-[calc(100vw-2rem)] rounded-md bg-popover border border-border shadow-xl p-3"
+            ref={revealOnMount} className="absolute right-0 z-30 mt-1 w-[280px] max-w-[calc(100vw-2rem)] rounded-md bg-popover border border-border shadow-xl p-3"
           >
             <p className="text-[11px] font-semibold uppercase tracking-wider text-foreground mb-2">{title}</p>
             <div className="space-y-2">
               <div>
                 <label className={LABEL}>From</label>
-                <input type="date" value={localFrom} onChange={(e) => setLocalFrom(e.target.value)} max={localTo || undefined} className={INPUT} />
+                <DatePicker value={localFrom} onChange={setLocalFrom} maxDate={localTo || null} rangeEnd={localTo || null} placeholder="Any day" size="sm" align="right" ariaLabel="From" />
               </div>
               <div>
                 <label className={LABEL}>To</label>
-                <input type="date" value={localTo} onChange={(e) => setLocalTo(e.target.value)} min={localFrom || undefined} className={INPUT} />
+                <DatePicker value={localTo} onChange={setLocalTo} minDate={localFrom || null} rangeStart={localFrom || null} placeholder="Any day" size="sm" align="right" ariaLabel="To" />
               </div>
             </div>
             {invalid && (

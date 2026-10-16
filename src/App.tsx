@@ -1,6 +1,6 @@
 import { lazy, Suspense, useCallback, useEffect, useState } from 'react'
 import { Routes, Route, useLocation, Navigate } from 'react-router'
-import { Toaster } from 'react-hot-toast'
+import { AppToaster } from './components/common/AppToaster'
 import { Loader2 } from 'lucide-react'
 import { ThemeProvider } from './context/ThemeContext'
 import { supabase } from './lib/supabase'
@@ -120,7 +120,7 @@ function App() {
           </Suspense>
         </main>
         {!isAdminRoute && !isUnsubscribeRoute && <Footer />}
-        <Toaster position="top-right" />
+        <AppToaster />
         <TouchScrollIndicator />
       </div>
       </PageRevealContext.Provider>

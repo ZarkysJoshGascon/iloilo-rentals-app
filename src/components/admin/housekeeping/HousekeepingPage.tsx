@@ -8,7 +8,7 @@ import {
   ChevronRight, ChevronLeft, Clock,
   Image as ImageIcon, Shirt, Wallet, Send, Coffee,
   ZoomIn, RotateCcw, CheckCircle2, Lock,
-  Calendar as CalendarIcon, Copy, DoorOpen,
+  Calendar as CalendarIcon, Copy, DoorOpen, FileText, TrendingUp,
 } from 'lucide-react'
 import toast from 'react-hot-toast'
 import { Button } from '@/components/ui/button'
@@ -39,6 +39,8 @@ import { StatusTabs } from '@/components/admin/_shared/StatusTabs'
 import type { ReactNode } from 'react'
 import type { LucideIcon } from 'lucide-react'
 import { Code } from '@/components/common/Code'
+import { crmLink, findContractForCleaning } from '@/lib/crmLinks'
+import { DatePicker } from '@/components/admin/_shared/DatePicker'
 
 const BRAND = 'var(--brand-solid)'
 const SOFT_SHADOW = '0 20px 40px -16px rgba(15,23,42,0.24), 0 6px 16px -6px rgba(15,23,42,0.10)'
@@ -859,7 +861,7 @@ function CompletedReadOnlyPanel({ cleaning, onOpenPhoto }: CompletedReadOnlyPane
   return (
     <>
       <div className="rounded-md bg-emerald-500/10 border border-emerald-500/30 p-3 flex items-start gap-2">
-        <Lock size={14} className="text-emerald-600 dark:text-emerald-400 flex-shrink-0 mt-0.5" />
+        <Lock size={14} className="flex-shrink-0 mt-0.5 text-foreground" />
         <div className="min-w-0">
           <p className="text-xs font-semibold text-emerald-700 dark:text-emerald-400">
             Completed · locked
@@ -1407,7 +1409,10 @@ function HousekeeperPaymentSection({ cleaning, onChanged }: HousekeeperPaymentSe
         }).catch(() => {})
       } catch (purgeErr) {
         console.error('purgeCleaningPhotos failed:', purgeErr)
-        toast('Cleaning approved, but photo cleanup failed.', { icon: '⚠️' })
+        toast('Cleaning approved, but photo cleanup failed.', {
+          icon: <AlertTriangle size={16} strokeWidth={2.25} className="flex-shrink-0 text-foreground" />,
+          style: { borderLeftColor: '#d97706' },
+        })
       }
 
       if (purged.deleted > 0) {
@@ -1855,7 +1860,7 @@ function NewCleaningModal({ open, onClose, onCreated, units, bookings, housekeep
             </div>
             <div>
               <label className={labelClass}>Scheduled date</label>
-              <Input type="date" value={form.scheduled_date} onChange={(e) => setField('scheduled_date', e.target.value)} className={inputClass} />
+              <DatePicker value={form.scheduled_date} onChange={(v) => setField('scheduled_date', v)} placeholder="Pick the day" size="sm" clearable={false} ariaLabel="Scheduled date" />
               <p className="text-[10px] text-foreground mt-1">Window: {CLEANING_WINDOW.label}</p>
             </div>
           </div>
@@ -1976,7 +1981,7 @@ function CleaningDetailPanel({ cleaning, onClose, onChanged, onDelete, housekeep
 
             {isCancelled && (
               <div className="rounded-md bg-red-500/10 border border-red-500/30 p-3 flex items-start gap-2">
-                <X size={14} className="text-red-600 dark:text-red-400 flex-shrink-0 mt-0.5" />
+                <X size={14} className="flex-shrink-0 mt-0.5 text-foreground" />
                 <div className="min-w-0">
                   <p className="text-xs font-semibold text-red-700 dark:text-red-400">
                     This cleaning was cancelled
@@ -2074,7 +2079,7 @@ function CleaningDetailPanel({ cleaning, onClose, onChanged, onDelete, housekeep
                 </div>
                 <div className="flex items-center gap-2 py-0.5">
                   <span className="text-[10px] uppercase tracking-wider text-foreground font-semibold min-w-[72px] flex-shrink-0">Scheduled</span>
-                  <Input type="date" value={cleaning.scheduled_date || ''} onChange={(e) => updateField('scheduled_date', sanitizeDateOnly(e.target.value))} disabled={isCompleted || isCancelled} className="h-7 text-xs rounded bg-background flex-1" />
+                  <DatePicker value={cleaning.scheduled_date || ''} onChange={(v) => updateField('scheduled_date', sanitizeDateOnly(v))} disabled={isCompleted || isCancelled} size="sm" placeholder="—" clearable={false} ariaLabel="Scheduled date" className="flex-1 min-w-0" />
                 </div>
                 <div className="flex items-center gap-2 py-0.5">
                   <span className="text-[10px] uppercase tracking-wider text-foreground font-semibold min-w-[72px] flex-shrink-0">Window</span>
@@ -2209,15 +2214,31 @@ function CleaningDetailPanel({ cleaning, onClose, onChanged, onDelete, housekeep
 
 type CleaningListRowProps = {
   cleaning: any
+  contracts: any[]
   selected: boolean
   highlighted: boolean
   onClick: () => void
   onViewBooking: (cl: any) => void | Promise<void>
 }
 
-function CleaningListRow({ cleaning, selected, highlighted, onClick, onViewBooking }: CleaningListRowProps) {
+function CleaningListRow({ cleaning, contracts, selected, highlighted, onClick, onViewBooking }: CleaningListRowProps) {
+  const navigate = useNavigate()
+  const contract = findContractForCleaning(cleaning, contracts)
   const contextItems = [
     { label: 'See in Housekeeping', icon: Sparkles, onSelect: onClick },
+    {
+      label: 'See in Accounting',
+      icon: TrendingUp,
+      hint: contract ? undefined : 'No contract',
+      disabled: !contract,
+      onSelect: () => contract && navigate(crmLink.accountingCleaning(contract.id, cleaning)),
+    },
+    {
+      label: 'See its contract in Contracts',
+      icon: FileText,
+      disabled: !contract,
+      onSelect: () => contract && navigate(crmLink.contract(contract.id)),
+    },
     { separator: true },
     {
       label: 'Copy cleaning code',
@@ -2665,6 +2686,7 @@ export default function HousekeepingPage({ initialSelectedId, fromBookingId }: H
                 <CleaningListRow
                   key={c.id}
                   cleaning={c}
+                  contracts={contracts}
                   selected={selectedId === c.id}
                   highlighted={highlightedId === c.id}
                   onClick={() => handleSelect(c)}

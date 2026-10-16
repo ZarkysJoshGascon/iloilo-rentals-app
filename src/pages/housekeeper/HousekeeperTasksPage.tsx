@@ -1463,7 +1463,7 @@ export default function HousekeeperTasksPage() {
 
             {fetchError ? (
               <div className="rounded-md border border-border bg-card shadow-sm text-center py-14 px-4">
-                <AlertTriangle size={32} className="text-red-600 dark:text-red-400 mx-auto mb-3" />
+                <AlertTriangle size={32} className="mx-auto mb-3 text-foreground" />
                 <p className="text-sm font-semibold text-red-600 dark:text-red-400">Couldn't load your cleanings</p>
                 <p className="text-xs text-foreground mt-1 break-words">{fetchError}</p>
                 <button type="button" onClick={() => fetchData()} className="mt-4 inline-flex items-center gap-1.5 h-8 px-3 rounded-md border border-border text-xs font-semibold text-foreground hover:bg-muted">

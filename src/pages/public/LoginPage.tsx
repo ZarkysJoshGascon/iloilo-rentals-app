@@ -287,7 +287,7 @@ export default function LoginPage() {
           <motion.div
             initial={{ opacity: 0, y: -10 }}
             animate={{ opacity: 1, y: 0 }}
-            className="mb-6 p-4 bg-amber-50 border-l-4 border-amber-500 rounded-lg"
+            className="mb-6"
           >
             <div className="flex items-start gap-3">
               <div className="flex-shrink-0">
@@ -300,10 +300,10 @@ export default function LoginPage() {
                 </svg>
               </div>
               <div className="flex-1 min-w-0">
-                <p className="text-sm font-semibold text-amber-800">
+                <p className="text-sm font-semibold text-amber-600 dark:text-amber-400">
                   Open this page in Safari or Chrome to sign in
                 </p>
-                <p className="text-xs text-amber-700 mt-1">
+                <p className="text-xs text-foreground mt-1">
                   Google Sign-In doesn't work inside Messenger, Facebook, or Instagram.
                   Copy the link below and paste it into your browser.
                 </p>
@@ -316,12 +316,12 @@ export default function LoginPage() {
                 readOnly
                 value={typeof window !== 'undefined' ? window.location.href : ''}
                 onFocus={(e) => e.target.select()}
-                className="flex-1 min-w-0 text-[11px] font-mono px-2.5 py-2 rounded-md border border-amber-200 bg-white text-amber-900 focus:outline-none focus:ring-2 focus:ring-amber-400/40"
+                className="flex-1 min-w-0 text-[11px] font-mono px-2.5 py-2 rounded-md border border-border bg-card text-foreground focus:outline-none focus:ring-2 focus:ring-brand-solid/30"
               />
               <button
                 type="button"
                 onClick={handleCopyLink}
-                className="flex-shrink-0 inline-flex items-center gap-1.5 px-3 py-2 rounded-md bg-amber-500 hover:bg-amber-600 text-white text-xs font-semibold transition-colors"
+                className="flex-shrink-0 inline-flex items-center gap-1.5 px-3 py-2 rounded-md bg-brand-solid hover:bg-brand-solid/90 text-white text-xs font-semibold transition-colors"
               >
                 {copied ? (
                   <>

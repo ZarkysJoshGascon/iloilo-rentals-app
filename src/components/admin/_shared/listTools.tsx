@@ -83,6 +83,7 @@ export function useListCap(rows?: number) {
   useLayoutEffect(() => {
     if (!el) return
     let frame = 0
+    let settle = 0
     const measure = () => {
       cancelAnimationFrame(frame)
       frame = requestAnimationFrame(() => {
@@ -93,12 +94,18 @@ export function useListCap(rows?: number) {
         setCap(Math.round(items[n].getBoundingClientRect().top - top + ROW_PEEK))
       })
     }
+    // While a detail panel opens or closes the list resizes every frame;
+    // measuring once it has settled keeps the page from re-rendering on each.
+    const measureWhenSettled = () => {
+      clearTimeout(settle)
+      settle = window.setTimeout(measure, 140)
+    }
     measure()
-    const resize = new ResizeObserver(measure)
+    const resize = new ResizeObserver(measureWhenSettled)
     resize.observe(el)
     const rowsChange = new MutationObserver(measure)
     rowsChange.observe(el, { childList: true, subtree: true })
-    return () => { cancelAnimationFrame(frame); resize.disconnect(); rowsChange.disconnect() }
+    return () => { cancelAnimationFrame(frame); clearTimeout(settle); resize.disconnect(); rowsChange.disconnect() }
   }, [el, n])
 
   const room = `calc(100dvh - ${phone ? PAGE_ROOM.phone : PAGE_ROOM.desktop}px)`
@@ -111,7 +118,9 @@ const PANEL_EASE = [0.4, 0, 0.2, 1] as const
 /**
  * Motion props for a list's detail panel. On a desktop it opens beside the
  * list at `width`; on a phone it slides up and covers the screen (above the
- * bottom tabs, below dialogs).
+ * bottom tabs, below dialogs). On a desktop only the outer box changes width:
+ * the panel inside keeps its full width and is clipped, so its text never
+ * re-wraps while it opens or closes (that re-wrapping was the flicker).
  */
 export function useSidePanelMotion(width: number) {
   const phone = useIsPhone()
@@ -128,13 +137,17 @@ export function useSidePanelMotion(width: number) {
       },
     }
   }
+  const outer = width + 24 // the panel plus p-3 either side
   return {
     initial: { width: 0, opacity: 0 },
-    animate: { width, opacity: 1 },
+    animate: { width: outer, opacity: 1 },
     exit: { width: 0, opacity: 0 },
-    transition: { width: { duration: 0.32, ease: PANEL_EASE }, opacity: { duration: 0.2, ease: 'easeOut' as const } },
-    className: 'h-full flex-shrink-0 p-3',
-    style: { maxWidth: '100%', width: width + 24 },
+    transition: {
+      width: { duration: 0.28, ease: PANEL_EASE },
+      opacity: { duration: 0.18, ease: 'easeOut' as const },
+    },
+    className: 'h-full flex-shrink-0 p-3 overflow-hidden [&>*]:w-[var(--panel-w)] [&>*]:max-w-[calc(100vw-1.5rem)]',
+    style: { maxWidth: '100%', ['--panel-w' as any]: `${width}px`, willChange: 'width, opacity' } as CSSProperties,
   }
 }
 

@@ -119,8 +119,8 @@ export default function UnsubscribePage() {
 
           {state === 'error' && (
             <div className="text-center">
-              <div className="w-12 h-12 rounded-full bg-red-500/10 flex items-center justify-center mx-auto mb-4">
-                <AlertTriangle className="w-6 h-6 text-red-500" />
+              <div className="w-12 h-12 flex items-center justify-center mx-auto mb-4">
+                <AlertTriangle className="w-6 h-6 text-foreground" />
               </div>
               <h1 className="text-lg font-bold text-foreground mb-2">Something went wrong</h1>
               <p className="text-sm text-muted-foreground leading-relaxed">{errorMsg}</p>
@@ -189,9 +189,9 @@ export default function UnsubscribePage() {
                 initial={{ scale: 0.5, opacity: 0 }}
                 animate={{ scale: 1, opacity: 1 }}
                 transition={{ type: 'spring', stiffness: 300, damping: 20 }}
-                className="w-14 h-14 rounded-full bg-emerald-500/10 flex items-center justify-center mx-auto mb-4"
+                className="w-14 h-14 flex items-center justify-center mx-auto mb-4"
               >
-                <Check className="w-7 h-7 text-emerald-600" strokeWidth={3} />
+                <Check className="w-7 h-7 text-foreground" strokeWidth={3} />
               </motion.div>
               <h1 className="text-lg font-bold text-foreground mb-2">You're unsubscribed</h1>
               <p className="text-sm text-muted-foreground leading-relaxed mb-6">

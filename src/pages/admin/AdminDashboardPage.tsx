@@ -161,11 +161,12 @@ type ActiveTabProps = {
   bookingId: string
   cleaningId: string
   fromBookingId: string
+  month: string
   onNavigateTab: (tab: any) => void
 }
 
 const ActiveTab = memo(function ActiveTab({
-  activeTab, contractId, bookingId, cleaningId, fromBookingId, onNavigateTab,
+  activeTab, contractId, bookingId, cleaningId, fromBookingId, month, onNavigateTab,
 }: ActiveTabProps) {
   switch (activeTab) {
     case 'dashboard':
@@ -175,7 +176,7 @@ const ActiveTab = memo(function ActiveTab({
     case 'contracts':
       return <ContractsPage />
     case 'accounting':
-      return <AccountingPage initialSelectedId={contractId} />
+      return <AccountingPage initialSelectedId={contractId} focusMonth={month} focusBookingId={bookingId} focusCleaningId={cleaningId} />
     case 'bookings':
       return <BookingsPage initialSelectedId={bookingId} />
     case 'housekeeping':
@@ -258,6 +259,7 @@ export default function AdminDashboardPage() {
     if (tab !== 'bookings') next.delete('booking')
     if (tab !== 'housekeeping') next.delete('cleaning')
     if (tab !== 'housekeeping') next.delete('fromBooking')
+    if (tab !== 'accounting') next.delete('month')
     setSearchParams(next, { replace: true })
   }, [searchParams, setSearchParams])
 
@@ -525,6 +527,7 @@ export default function AdminDashboardPage() {
                     bookingId={searchParams.get('booking')}
                     cleaningId={searchParams.get('cleaning')}
                     fromBookingId={searchParams.get('fromBooking')}
+                    month={searchParams.get('month')}
                     onNavigateTab={handleTabChange}
                   />
                 </Suspense>

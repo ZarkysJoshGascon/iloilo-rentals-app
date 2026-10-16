@@ -23,6 +23,7 @@ import { STAGE_BY_ID, isDecided, localDay, stageOf, stagePatch, timeAgo } from '
 import type { Dispatch, FormEvent, KeyboardEvent as ReactKeyboardEvent, ReactNode, SetStateAction } from 'react'
 import type { LucideIcon } from 'lucide-react'
 import type { ActivityEntry, InquiryBoard } from '@/lib/inquiryActivity'
+import { DatePicker } from '@/components/admin/_shared/DatePicker'
 
 const SOFT_SHADOW = '0 20px 40px -16px rgba(15,23,42,0.24), 0 6px 16px -6px rgba(15,23,42,0.10)'
 const LABEL = 'block mb-1.5 text-[11px] font-semibold uppercase tracking-wider text-foreground'
@@ -192,16 +193,15 @@ function FollowUpPicker({ value, onChange, disabled = false }: FollowUpPickerPro
       })}
       {/* The date and its × wrap together. */}
       <span className="inline-flex items-center gap-1">
-        <input
-          type="date"
+        <DatePicker
           value={value || ''}
           disabled={disabled}
-          onChange={(e) => onChange(e.target.value || null)}
-          aria-label="Follow-up date"
-          className={cn(
-            'h-9 md:h-7 px-2 rounded-md border bg-card text-[12px] font-semibold text-foreground outline-none focus-visible:ring-2 focus-visible:ring-brand/40 disabled:opacity-50',
-            value && !picked ? 'border-brand-solid' : 'border-border',
-          )}
+          onChange={(v) => onChange(v || null)}
+          ariaLabel="Follow-up date"
+          placeholder="Pick a day"
+          size="sm"
+          clearable={false}
+          className="w-[140px]"
         />
         {value && (
           <button

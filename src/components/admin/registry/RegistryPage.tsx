@@ -31,6 +31,8 @@ import { StatusTabs } from '@/components/admin/_shared/StatusTabs'
 import type { ReactNode } from 'react'
 import type { LucideIcon } from 'lucide-react'
 import { Code } from '@/components/common/Code'
+import { DatePicker } from '@/components/admin/_shared/DatePicker'
+import { revealOnMount } from '@/components/admin/_shared/useRevealOnOpen'
 
 const BRAND = 'var(--brand-solid)'
 const SOFT_SHADOW = '0 20px 40px -16px rgba(15,23,42,0.24), 0 6px 16px -6px rgba(15,23,42,0.10)'
@@ -175,7 +177,7 @@ function ProfileEmailCombobox({
           <Loader2 size={12} className="absolute right-2.5 top-1/2 -translate-y-1/2 text-foreground animate-spin" />
         )}
         {!verifying && verifiedProfile && (
-          <Check size={12} className="absolute right-2.5 top-1/2 -translate-y-1/2 text-emerald-500" />
+          <Check size={12} className="absolute right-2.5 top-1/2 -translate-y-1/2 text-foreground" />
         )}
       </div>
 
@@ -184,7 +186,7 @@ function ProfileEmailCombobox({
           {verifiedProfile.avatar_url ? (
             <img src={verifiedProfile.avatar_url} alt="" className="w-4 h-4 rounded-full object-cover flex-shrink-0" />
           ) : (
-            <div className="w-4 h-4 rounded-full bg-emerald-500/20 flex items-center justify-center text-[8px] font-bold flex-shrink-0">
+            <div className="w-4 h-4 rounded-full bg-card ring-1 ring-border text-foreground flex items-center justify-center text-[8px] font-bold flex-shrink-0">
               {initials(verifiedProfile.full_name || verifiedProfile.email)}
             </div>
           )}
@@ -202,7 +204,7 @@ function ProfileEmailCombobox({
             exit={{ opacity: 0, y: -4 }}
             transition={{ duration: 0.1 }}
             style={BTN_RADIUS}
-            className="absolute z-30 left-0 right-0 mt-1 bg-popover border border-border shadow-lg max-h-[280px] overflow-y-auto"
+            ref={revealOnMount} className="absolute z-30 left-0 right-0 mt-1 bg-popover border border-border shadow-lg max-h-[280px] overflow-y-auto"
           >
             {loading && results.length === 0 ? (
               <div className="px-3 py-2 text-[11px] text-foreground italic">Searching…</div>
@@ -228,7 +230,7 @@ function ProfileEmailCombobox({
                   {r.avatar_url ? (
                     <img src={r.avatar_url} alt="" className="w-6 h-6 rounded-full object-cover flex-shrink-0" />
                   ) : (
-                    <div className="w-6 h-6 rounded-full bg-muted flex items-center justify-center text-[9px] font-bold flex-shrink-0">
+                    <div className="w-6 h-6 rounded-full bg-card ring-1 ring-border text-foreground flex items-center justify-center text-[9px] font-bold flex-shrink-0">
                       {initials(r.full_name || r.email)}
                     </div>
                   )}
@@ -340,7 +342,7 @@ function DateRangeFilter({ from, to, onFromChange, onToChange, onClear }: DateRa
             exit={{ opacity: 0, y: -4 }}
             transition={{ duration: 0.12 }}
             style={BTN_RADIUS}
-            className="absolute right-0 z-30 mt-1 w-[280px] max-w-[calc(100vw-2rem)] bg-popover border border-border shadow-xl p-3"
+            ref={revealOnMount} className="absolute right-0 z-30 mt-1 w-[280px] max-w-[calc(100vw-2rem)] bg-popover border border-border shadow-xl p-3"
           >
             <p className="text-[10px] font-bold uppercase tracking-wider text-foreground mb-2">
               Contract expiry range
@@ -348,15 +350,11 @@ function DateRangeFilter({ from, to, onFromChange, onToChange, onClear }: DateRa
             <div className="space-y-2">
               <div>
                 <label className="text-[10px] uppercase tracking-wider text-foreground font-semibold mb-1 block">From</label>
-                <input type="date" value={localFrom} onChange={(e) => setLocalFrom(e.target.value)} max={localTo || undefined}
-                  style={BTN_RADIUS}
-                  className="w-full h-8 text-xs border border-border bg-background px-2 focus:outline-none focus:ring-2 focus:ring-ring/30" />
+                <DatePicker value={localFrom} onChange={setLocalFrom} maxDate={localTo || null} rangeEnd={localTo || null} placeholder="Any day" size="sm" align="right" ariaLabel="From" />
               </div>
               <div>
                 <label className="text-[10px] uppercase tracking-wider text-foreground font-semibold mb-1 block">To</label>
-                <input type="date" value={localTo} onChange={(e) => setLocalTo(e.target.value)} min={localFrom || undefined}
-                  style={BTN_RADIUS}
-                  className="w-full h-8 border border-border bg-background px-2 text-xs focus:outline-none focus:ring-2 focus:ring-ring/30" />
+                <DatePicker value={localTo} onChange={setLocalTo} minDate={localFrom || null} rangeStart={localFrom || null} placeholder="Any day" size="sm" align="right" ariaLabel="To" />
               </div>
             </div>
             <div className="flex items-center justify-between pt-3 mt-3 border-t border-border">
@@ -625,8 +623,8 @@ function EditableField({ label, value, type = 'text', options, onSave, actionHre
             className={cn('h-8 text-xs bg-background flex-1 transition-colors', !value && 'border-border', value && 'border-transparent hover:border-border')}
           />
         )}
-        {status === 'saving' && <Loader2 size={11} className="flex-shrink-0 animate-spin text-primary" />}
-        {status === 'saved' && <Check size={11} className="flex-shrink-0 text-emerald-500" />}
+        {status === 'saving' && <Loader2 size={11} className="flex-shrink-0 animate-spin text-foreground" />}
+        {status === 'saved' && <Check size={11} className="flex-shrink-0 text-foreground" />}
       </div>
       {actionHref && ActionIcon && value && (
         <Button variant="ghost" size="icon" className="h-7 w-7 flex-shrink-0 text-foreground hover:text-primary" style={BTN_RADIUS}
@@ -793,7 +791,7 @@ function DropdownPanel({ title, subtitle, onClose, children }: DropdownPanelProp
   return (
     <motion.div initial={{ opacity: 0, y: -4 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -4 }} transition={{ duration: 0.12 }}
       style={BTN_RADIUS}
-      className="absolute right-0 top-full mt-2 w-[420px] max-w-[calc(100vw-2rem)] max-h-[520px] bg-popover border border-border z-50 overflow-hidden flex flex-col">
+      ref={revealOnMount} className="absolute right-0 top-full mt-2 w-[420px] max-w-[calc(100vw-2rem)] max-h-[520px] bg-popover border border-border z-50 overflow-hidden flex flex-col">
       <div className="flex items-start justify-between gap-3 px-4 py-3 border-b border-border">
         <div className="min-w-0">
           <p className="text-xs font-semibold text-foreground">{title}</p>
@@ -844,7 +842,7 @@ function WarningsStrip({ missingUnits, onSelectUnit }: WarningsStripProps) {
                   </div>
                   <div className="flex flex-wrap gap-1">
                     {missing.warnings.map((f) => (
-                      <span key={f.key} className="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-semibold bg-amber-600 text-white">{f.label}</span>
+                      <span key={f.key} className="text-[10px] font-semibold text-amber-600 dark:text-amber-400">{f.label}</span>
                     ))}
                   </div>
                 </button>
@@ -949,7 +947,7 @@ function LogCallModal({ open, onClose, unit, onSaved }: LogCallModalProps) {
           </div>
           <div>
             <label className="text-[10px] uppercase tracking-wider text-foreground font-semibold mb-1.5 block">Next Follow-up (optional)</label>
-            <Input type="date" value={nextDate} onChange={(e) => setNextDate(e.target.value)} placeholder="Select date" style={BTN_RADIUS} className="h-9 text-xs" />
+            <DatePicker value={nextDate} onChange={setNextDate} placeholder="Select date" ariaLabel="Next follow-up" />
           </div>
         </div>
         <div className="flex items-center justify-end gap-2 px-5 py-3 border-t border-border bg-card">
@@ -1031,10 +1029,10 @@ function InteractionRow({ record, onUpdated, onDeleted }: InteractionRowProps) {
   }
 
   const outcomeClasses =
-    record.outcome === 'positive' ? 'bg-emerald-600 text-white'
-    : record.outcome === 'negative' ? 'bg-red-600 text-white'
-    : record.outcome === 'no_answer' ? 'bg-gray-500 text-white'
-    : 'bg-amber-600 text-white'
+    record.outcome === 'positive' ? 'text-emerald-600 dark:text-emerald-400'
+    : record.outcome === 'negative' ? 'text-red-600 dark:text-red-400'
+    : record.outcome === 'no_answer' ? 'text-foreground'
+    : 'text-amber-600 dark:text-amber-400'
 
   if (editing) {
     return (
@@ -1048,7 +1046,7 @@ function InteractionRow({ record, onUpdated, onDeleted }: InteractionRowProps) {
             <SelectTrigger style={BTN_RADIUS} className="h-8 text-xs"><SelectValue /></SelectTrigger>
             <SelectContent>{OUTCOME_OPTIONS.map((o) => <SelectItem key={o} value={o} className="text-xs">{o}</SelectItem>)}</SelectContent>
           </Select>
-          <Input type="date" value={draft.next_follow_up_date} onChange={(e) => setDraft((p) => ({ ...p, next_follow_up_date: e.target.value }))} placeholder="Follow-up" style={BTN_RADIUS} className="h-8 text-xs" />
+          <DatePicker value={draft.next_follow_up_date || ''} onChange={(v) => setDraft((p) => ({ ...p, next_follow_up_date: v }))} placeholder="Follow-up" size="sm" align="right" ariaLabel="Next follow-up" />
         </div>
         <Textarea value={draft.content} onChange={(e) => setDraft((p) => ({ ...p, content: e.target.value }))} rows={2} style={BTN_RADIUS} className="text-xs resize-none" placeholder="What was discussed?" />
         <div className="flex items-center justify-end gap-2">
@@ -1066,7 +1064,7 @@ function InteractionRow({ record, onUpdated, onDeleted }: InteractionRowProps) {
     <div style={BTN_RADIUS} className="group flex items-start gap-2 px-3 py-2 border border-border bg-card hover:bg-muted/40 transition-colors">
       <div className="flex flex-col gap-1 pt-0.5 flex-shrink-0 w-[86px]">
         <span className="text-[10px] uppercase tracking-wider font-bold text-foreground">{record.type}</span>
-        <span className={cn('inline-flex items-center justify-center px-2.5 py-0.5 rounded-full text-[11px] font-semibold', outcomeClasses)}>{record.outcome}</span>
+        <span className={cn('text-[11px] font-semibold capitalize', outcomeClasses)}>{String(record.outcome || '').replace(/_/g, ' ')}</span>
       </div>
       <div className="min-w-0 flex-1">
         <p className="text-xs text-foreground whitespace-pre-wrap break-words">{record.content}</p>
@@ -1480,7 +1478,7 @@ function AddUnitModal({ open, onClose, onCreated, existingBuildings = [], channe
                   onFocus={() => setBuildingFocus(true)} onBlur={() => setTimeout(() => setBuildingFocus(false), 150)}
                   placeholder="Type to search or add new" style={BTN_RADIUS} className={inputClass} />
                 {buildingFocus && buildingSuggestions.length > 0 && (
-                  <div style={BTN_RADIUS} className="absolute left-0 right-0 top-full mt-1 bg-popover border border-border z-10 max-h-44 overflow-y-auto">
+                  <div style={BTN_RADIUS} ref={revealOnMount} className="absolute left-0 right-0 top-full mt-1 bg-popover border border-border z-10 max-h-44 overflow-y-auto">
                     {buildingSuggestions.map((b) => (
                       <button key={b} type="button" onMouseDown={(e) => { e.preventDefault(); setField('building', b); setBuildingFocus(false) }}
                         className="w-full text-left px-3 py-2 text-xs hover:bg-muted transition-colors">{b}</button>

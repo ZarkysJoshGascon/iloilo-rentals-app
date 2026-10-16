@@ -885,7 +885,7 @@ function ConfirmSendDialog({ recipientCount, subject, greeting, body, heroImage,
 
         <div className="p-5 space-y-4 overflow-y-auto">
           <div className="flex items-start gap-2">
-            <AlertTriangle size={14} className="text-amber-600 dark:text-amber-400 flex-shrink-0 mt-0.5" />
+            <AlertTriangle size={14} className="flex-shrink-0 mt-0.5 text-foreground" />
             <p className="text-[12px] text-foreground leading-relaxed">
               <strong className="text-amber-700 dark:text-amber-400">This can't be undone.</strong> Sent emails can't be recalled or edited.
               Each guest gets their own email with <Placeholder /> replaced by their name.

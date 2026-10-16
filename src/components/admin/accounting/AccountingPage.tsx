@@ -38,6 +38,7 @@ import { SortHeader, nextSort, ResultsBar, SearchKeyHint, useListShortcuts, CARD
 import type { CSSProperties, ReactNode } from 'react'
 import type { LucideIcon } from 'lucide-react'
 import { Code } from '@/components/common/Code'
+import { crmLink } from '@/lib/crmLinks'
 
 // Logo blue: BRAND fills sit behind white text; CHART is for chart marks
 // (a lighter tint in dark mode so it reads on dark cards).
@@ -729,12 +730,26 @@ type ContractRowProps = {
 }
 
 function ContractRow({ contract, lifetime, onClick }: ContractRowProps) {
+  const navigate = useNavigate()
+  const contextItems = [
+    { label: 'Open in Accounting', icon: TrendingUp, onSelect: onClick },
+    { label: 'See in Contracts', icon: FileText, onSelect: () => navigate(crmLink.contract(contract.id)) },
+    { separator: true },
+    {
+      label: 'Copy contract code',
+      icon: Copy,
+      hint: contract.contract_code,
+      onSelect: () => copyText(contract.contract_code, 'Contract code copied'),
+    },
+  ]
   return (
+    // ContextMenu wraps the row in its own div, so the divider goes on that.
+    <ContextMenu items={contextItems} className="border-b border-border last:border-0">
     <button
       type="button"
       onClick={onClick}
       data-row
-      className={cn(ROW_GRID, 'w-full text-left px-5 py-3 border-b border-border last:border-0 hover:bg-muted/40 transition-colors cursor-pointer')}
+      className={cn(ROW_GRID, 'w-full text-left px-5 py-3 hover:bg-muted/40 transition-colors cursor-pointer')}
     >
       <div className="min-w-0">
         <Code value={contract.units?.unit_code} label="Unit code" className="text-[12px]" block />
@@ -765,6 +780,7 @@ function ContractRow({ contract, lifetime, onClick }: ContractRowProps) {
         <StatusText status={deriveContractStatus(contract)} />
       </div>
     </button>
+    </ContextMenu>
   )
 }
 
@@ -1911,6 +1927,8 @@ type ContractCardProps = {
 // inside the card, so the row height comes from the chart.
 function ContractCard({ contract }: ContractCardProps) {
   const owner = contract.owners || null
+  // Every end date the contract had before it was extended, oldest first.
+  const previousEnds = Array.isArray(contract.previous_expiry_dates) ? contract.previous_expiry_dates : []
   return (
     <Panel>
       <PanelHeader icon={FileText} title="Contract" subtitle={`${OWNER_SPLIT_PCT}/${COMPANY_SPLIT_PCT} owner/company split`} />
@@ -1921,6 +1939,9 @@ function ContractCard({ contract }: ContractCardProps) {
             <Field label="Code" value={<Code value={contract.contract_code} label="Contract code" className="text-[12px]" />} />
             <Field label="Starts" value={formatDateLong(contract.effective_date)} />
             <Field label="Ends" value={contract.expiry_date ? formatDateLong(contract.expiry_date) : 'Open-ended'} />
+            {previousEnds.length > 0 && (
+              <Field label="Extended" value={`${previousEnds.length}× · first ended ${formatDateLong(previousEnds[0])}`} />
+            )}
             <Field label="Split" value={`${OWNER_SPLIT_PCT}% owner · ${COMPANY_SPLIT_PCT}% company`} />
             <Field label="PM" value={`${PM_SHARE_OF_COMPANY_PCT}% of the company share`} />
           </div>
@@ -2983,16 +3004,18 @@ function ActivityRowShell({ barColor, isSelected, onClick, contextItems, childre
 
 type AccountingBookingRowProps = {
   booking: any
+  contractId: string
   isSelected: boolean
   onClick: () => void
 }
 
-function AccountingBookingRow({ booking, isSelected, onClick }: AccountingBookingRowProps) {
+function AccountingBookingRow({ booking, contractId, isSelected, onClick }: AccountingBookingRowProps) {
   const navigate = useNavigate()
   const isCancelled = !!booking.cancelled_at
 
   const contextItems = [
-    { label: 'See in Bookings', icon: Calendar, onSelect: () => navigate(`/admin?tab=bookings&booking=${booking.id}`) },
+    { label: 'See in Bookings', icon: Calendar, onSelect: () => navigate(crmLink.booking(booking.id)) },
+    { label: 'See its contract in Contracts', icon: FileText, onSelect: () => navigate(crmLink.contract(contractId)) },
     { separator: true },
     {
       label: 'Copy booking code',
@@ -3033,25 +3056,27 @@ function AccountingBookingRow({ booking, isSelected, onClick }: AccountingBookin
 
 type AccountingCleaningRowProps = {
   cleaning: any
+  contractId: string
   isSelected: boolean
   onClick: () => void
 }
 
-function AccountingCleaningRow({ cleaning, isSelected, onClick }: AccountingCleaningRowProps) {
+function AccountingCleaningRow({ cleaning, contractId, isSelected, onClick }: AccountingCleaningRowProps) {
   const navigate = useNavigate()
   const hk = Number(cleaning.payment_amount || 0)
   const laundry = Number(cleaning.laundry_payment_amount || 0)
   const booking = cleaning.bookings || null
 
   const contextItems = [
-    { label: 'See in Housekeeping', icon: Sparkles, onSelect: () => navigate(`/admin?tab=housekeeping&cleaning=${cleaning.id}`) },
+    { label: 'See in Housekeeping', icon: Sparkles, onSelect: () => navigate(crmLink.cleaning(cleaning.id)) },
     ...(booking?.id
       ? [{
-          label: 'See in Bookings',
+          label: 'See its booking in Bookings',
           icon: Calendar,
-          onSelect: () => navigate(`/admin?tab=bookings&booking=${booking.id}`),
+          onSelect: () => navigate(crmLink.booking(booking.id)),
         }]
       : []),
+    { label: 'See its contract in Contracts', icon: FileText, onSelect: () => navigate(crmLink.contract(contractId)) },
     { separator: true },
     {
       label: 'Copy cleaning code',
@@ -3153,6 +3178,7 @@ type MonthlySectionProps = {
   onStatementPatched: (monthKey: any, patch: any) => void
   allBookings: any
   allCleanings: any
+  linkFocus?: { month: string; type: string | null; id: string | null } | null
 }
 
 function MonthlySection({
@@ -3165,6 +3191,7 @@ function MonthlySection({
   onStatementPatched,
   allBookings,
   allCleanings,
+  linkFocus = null,
 }: MonthlySectionProps) {
   const options = useMemo(() => [...statements].reverse(), [statements])
   const statement = statements.find((s) => s.month === selectedMonth) || null
@@ -3187,6 +3214,20 @@ function MonthlySection({
   useEffect(() => {
     setListSearch('')
   }, [contract.id])
+
+  // Opened from a link: once on its month and loaded, pick that booking or
+  // cleaning (after the month change above has cleared any pick).
+  const linkPickedRef = useRef(null)
+  useEffect(() => {
+    if (!linkFocus?.id || !linkFocus.type || selectedMonth !== linkFocus.month) return
+    const key = `${linkFocus.type}:${linkFocus.id}`
+    if (linkPickedRef.current === key) return
+    const list = linkFocus.type === 'booking' ? allBookings : allCleanings
+    if (!(list || []).some((x) => x.id === linkFocus.id)) return
+    linkPickedRef.current = key
+    setSelectedCalendarId({ type: linkFocus.type, id: linkFocus.id })
+    setListTab(linkFocus.type === 'booking' ? 'bookings' : 'cleanings')
+  }, [linkFocus, selectedMonth, allBookings, allCleanings])
 
   const monthOccupancy = useMemo(() => {
     if (!statement) return null
@@ -3351,20 +3392,21 @@ function MonthlySection({
 
   return (
     <div className="space-y-4">
-      <div className="flex flex-wrap items-end justify-between gap-3 pt-2">
-        <div className="min-w-0">
-          <h2 className="text-[18px] font-semibold text-foreground tracking-tight leading-tight">
-            {statement ? monthLabelLong(statement.month) : 'Month'}
-          </h2>
-          <p className="text-[12.5px] text-foreground mt-1 truncate">
-            {monthSummary}
-            {monthCounts.cancelled > 0 && (
-              <> · <span className="font-semibold text-red-600 dark:text-red-400">{monthCounts.cancelled} cancelled</span></>
-            )}
-          </p>
-        </div>
+      {/* Stays at the top while scrolling through this month's section (and
+          lets go once past it), so the month in view and the way to change
+          it are always at hand, as in the owner portal. */}
+      <div className="sticky top-0 z-20 -mx-4 px-4 md:-mx-8 md:px-8 py-2.5 bg-background/95 backdrop-blur-sm border-b border-border flex items-center justify-between gap-3">
+        <h2 className="text-[17px] sm:text-[18px] font-semibold text-foreground tracking-tight leading-tight truncate">
+          {statement ? monthLabelLong(statement.month) : 'Month'}
+        </h2>
         <MonthSelector options={options} selectedMonth={selectedMonth} onSelectMonth={onSelectMonth} />
       </div>
+      <p className="text-[12.5px] text-foreground -mt-1 truncate">
+        {monthSummary}
+        {monthCounts.cancelled > 0 && (
+          <> · <span className="font-semibold text-red-600 dark:text-red-400">{monthCounts.cancelled} cancelled</span></>
+        )}
+      </p>
 
       {!statement ? (
         <Panel>
@@ -3411,7 +3453,7 @@ function MonthlySection({
           </div>
 
           <div className="grid grid-cols-1 lg:grid-cols-[minmax(0,2fr)_minmax(0,1fr)] gap-4">
-            <div ref={calendarRef} className="scroll-mt-4 min-w-0">
+            <div ref={calendarRef} className="scroll-mt-20 min-w-0">
               <BookingCalendar
                 title={`${monthLabel(statement.month)} calendar`}
                 subtitle={calendarSubtitle}
@@ -3493,6 +3535,7 @@ function MonthlySection({
                         <AccountingBookingRow
                           key={b.id}
                           booking={b}
+                          contractId={contract.id}
                           isSelected={selectedCalendarId?.type === 'booking' && selectedCalendarId.id === b.id}
                           onClick={() => focusBooking(b)}
                         />
@@ -3509,6 +3552,7 @@ function MonthlySection({
                       <AccountingCleaningRow
                         key={c.id}
                         cleaning={c}
+                        contractId={contract.id}
                         isSelected={selectedCalendarId?.type === 'cleaning' && selectedCalendarId.id === c.id}
                         onClick={() => focusCleaning(c)}
                       />
@@ -3606,10 +3650,11 @@ type ContractDetailProps = {
   onSelectContract: (id: any) => void
   onBack: () => void
   onChanged: (signal?: any) => Promise<void>
+  focus?: { month: string; type: string | null; id: string | null } | null
 }
 
 // ─── Contract detail ────────────────────────────────────────
-const ContractDetail = memo(function ContractDetail({ contract, terms = [], lifetimeMap, onSelectContract, onBack, onChanged }: ContractDetailProps) {
+const ContractDetail = memo(function ContractDetail({ contract, terms = [], lifetimeMap, onSelectContract, onBack, onChanged, focus = null }: ContractDetailProps) {
   const [bookings, setBookings] = useState([])
   const [cleanings, setCleanings] = useState([])
   const [monthlyExpenses, setMonthlyExpenses] = useState([])
@@ -3870,6 +3915,21 @@ const ContractDetail = memo(function ContractDetail({ contract, terms = [], life
     monthSectionRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' })
   }, [selectedMonth])
 
+  // Opened from a link (a booking or cleaning elsewhere): go to its month once
+  // the months are in.
+  const focusDoneRef = useRef(null)
+  useEffect(() => {
+    if (!focus?.month || !statements.some((s) => s.month === focus.month)) return
+    const key = `${contractId}:${focus.month}:${focus.id}`
+    if (focusDoneRef.current === key) return
+    focusDoneRef.current = key
+    if (selectedMonth === focus.month) {
+      requestAnimationFrame(() => monthSectionRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' }))
+    } else {
+      handleJumpToMonth(focus.month)
+    }
+  }, [focus, statements, contractId, selectedMonth, handleJumpToMonth])
+
   const parentRefreshTimer = useRef(null)
 
   const handleChanged = useCallback(() => {
@@ -3942,6 +4002,7 @@ const ContractDetail = memo(function ContractDetail({ contract, terms = [], life
             onStatementPatched={handleStatementPatched}
             allBookings={bookings}
             allCleanings={cleanings}
+            linkFocus={focus}
           />
         </section>
       </div>
@@ -4570,11 +4631,22 @@ function ContractList({
 
 type AccountingPageProps = {
   initialSelectedId?: any
+  // From a link elsewhere: open this month of the contract, with this booking or cleaning picked.
+  focusMonth?: string | null
+  focusBookingId?: string | null
+  focusCleaningId?: string | null
 }
 
 // ─── Main page ──────────────────────────────────────────────
-export default function AccountingPage({ initialSelectedId }: AccountingPageProps) {
+export default function AccountingPage({ initialSelectedId, focusMonth, focusBookingId, focusCleaningId }: AccountingPageProps) {
   const [selectedContractId, setSelectedContractId] = useState(initialSelectedId || null)
+  const linkFocus = useMemo(() => (focusMonth
+    ? {
+        month: focusMonth,
+        type: focusBookingId ? 'booking' : focusCleaningId ? 'cleaning' : null,
+        id: focusBookingId || focusCleaningId || null,
+      }
+    : null), [focusMonth, focusBookingId, focusCleaningId])
 
   const [contracts, setContracts] = useState([])
   const [lifetimeMap, setLifetimeMap] = useState(new Map())
@@ -4693,6 +4765,7 @@ export default function AccountingPage({ initialSelectedId }: AccountingPageProp
               onSelectContract={handleSelectContract}
               onBack={handleBack}
               onChanged={fetchAll}
+              focus={selectedContract.id === initialSelectedId ? linkFocus : null}
             />
           </motion.div>
         ) : (

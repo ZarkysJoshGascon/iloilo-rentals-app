@@ -267,7 +267,7 @@ function PreviewPanel({
 
       {!validEmail && (
         <div className="flex items-start gap-2 px-3 py-2 rounded-md border border-red-200 dark:border-red-800 bg-red-50 dark:bg-red-950/20">
-          <AlertTriangle size={13} className="text-red-600 dark:text-red-400 flex-shrink-0 mt-0.5" />
+          <AlertTriangle size={13} className="flex-shrink-0 mt-0.5 text-foreground" />
           <p className="text-[11px] text-red-700 dark:text-red-400">
             This booking has no valid guest email. Edit the booking to add one before sending.
           </p>

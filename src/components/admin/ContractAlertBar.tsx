@@ -72,9 +72,9 @@ export default function ContractAlertBar({ alerts, onOpenContract, onOpenContrac
   }
 
   return (
-    <div role="status" className="flex-shrink-0 border-b border-amber-200 bg-amber-50 dark:border-amber-500/25 dark:bg-[#1c1709]">
+    <div role="status" className="flex-shrink-0 border-b border-border bg-card">
       <div className="flex items-center gap-3 px-5 h-10">
-        <AlertTriangle size={15} strokeWidth={2} className="text-foreground flex-shrink-0" />
+        <AlertTriangle size={15} strokeWidth={2} className="flex-shrink-0 text-foreground" />
         <p className="flex-1 min-w-0 truncate text-[12.5px] text-foreground">
           <span className="font-semibold">Contracts:</span>{' '}
           {parts.map((p, i) => (

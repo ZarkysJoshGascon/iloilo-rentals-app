@@ -8,7 +8,7 @@ import {
   Plus, RefreshCw, Search, X, Trash2,
   Building2, CheckCircle2, Clock, AlertTriangle, Calendar as CalendarIcon, User, Wallet, Users,
   Edit2, Lock, KeyRound, Luggage, ChevronLeft, ChevronRight,
-  Mail, Copy, Sparkles, ChevronDown, Undo2, AlarmClockPlus, CalendarClock, BedDouble,
+  Mail, Copy, Sparkles, ChevronDown, Undo2, AlarmClockPlus, CalendarClock, BedDouble, FileText, TrendingUp,
 } from 'lucide-react'
 import toast from 'react-hot-toast'
 import { Button } from '@/components/ui/button'
@@ -47,9 +47,12 @@ import {
 } from '@/lib/stay'
 import { StatStrip, StatTile } from '@/components/admin/_shared/StatStrip'
 import { StatusTabs } from '@/components/admin/_shared/StatusTabs'
+import { DatePicker } from '@/components/admin/_shared/DatePicker'
+import { revealOnMount } from '@/components/admin/_shared/useRevealOnOpen'
 import type { ReactNode } from 'react'
 import type { LucideIcon } from 'lucide-react'
 import { Code } from '@/components/common/Code'
+import { crmLink } from '@/lib/crmLinks'
 
 const BRAND = 'var(--brand-solid)'
 const SOFT_SHADOW = '0 20px 40px -16px rgba(15,23,42,0.24), 0 6px 16px -6px rgba(15,23,42,0.10)'
@@ -283,7 +286,7 @@ function PaymentStatusBadge({ status }: PaymentStatusBadgeProps) {
   return <span className={cn('text-[12px] font-semibold', config.className)}>{config.label}</span>
 }
 
-type RangeCalendarProps = {
+type StayDatePickerProps = {
   value: string
   onChange: (v: any) => void
   placeholder: string
@@ -292,19 +295,14 @@ type RangeCalendarProps = {
   maxDate: any
   excludeBookingId: any
   otherDateISO: string
-  mode: string
+  mode: 'check-in' | 'check-out'
 }
 
-// ─────────────────────────────────────────────────────────────
-// RangeCalendar
-// Single-month calendar styled like the reference.
-//   • Red circle  = blocked / occupied day (overlaps another booking)
-//   • Blue circle = selected check-in or check-out
-//   • Blue strip  = days between check-in and check-out
-//   • Amber ring  = today
-//   • Disabled    = before contract start / after contract end
-// ─────────────────────────────────────────────────────────────
-function RangeCalendar({
+// Check-in or check-out on the shared calendar, with the other end of the
+// stay marked blue. Nights other bookings hold are red. A stay can start the
+// day another guest leaves and end the day another guest arrives (out by
+// 11 AM, in from 3 PM), but can't take a night that's held.
+function StayDatePicker({
   value, onChange, placeholder,
   bookings = [],
   minDate,
@@ -312,222 +310,53 @@ function RangeCalendar({
   excludeBookingId,
   otherDateISO,
   mode,
-}: RangeCalendarProps) {
-  const [open, setOpen] = useState(false)
-  const initialBase = value || todayISO()
-  const [viewYear, setViewYear] = useState(() => Number(initialBase.slice(0, 4)))
-  const [viewMonth, setViewMonth] = useState(() => Number(initialBase.slice(5, 7)) - 1)
-  const wrapRef = useRef(null)
-
-  useEffect(() => {
-    if (!value) return
-    setViewYear(Number(value.slice(0, 4)))
-    setViewMonth(Number(value.slice(5, 7)) - 1)
-  }, [value])
-
-  useEffect(() => {
-    if (!open) return
-    const onDown = (e) => { if (wrapRef.current && !wrapRef.current.contains(e.target)) setOpen(false) }
-    const onKey = (e) => { if (e.key === 'Escape') setOpen(false) }
-    document.addEventListener('mousedown', onDown)
-    window.addEventListener('keydown', onKey)
-    return () => {
-      document.removeEventListener('mousedown', onDown)
-      window.removeEventListener('keydown', onKey)
-    }
-  }, [open])
-
-  // Set of occupied ISO dates from existing bookings
-  const occupiedDays = useMemo(() => {
-    const set = new Set()
+}: StayDatePickerProps) {
+  const heldNights = useMemo(() => {
+    const set = new Set<string>()
     for (const b of bookings || []) {
-      if (!b.check_in || !b.check_out) continue
-      if (b.deleted_at) continue
-      if (b.cancelled_at) continue
+      if (!b.check_in || !b.check_out || b.deleted_at || b.cancelled_at) continue
       if (excludeBookingId && b.id === excludeBookingId) continue
-      let cur = b.check_in
-      let guard = 0
-      while (cur < b.check_out && guard < 1000) {
-        set.add(cur)
-        cur = isoAddDays(cur, 1)
-        guard++
-      }
+      for (let cur = b.check_in, guard = 0; cur < b.check_out && guard < 1000; cur = isoAddDays(cur, 1), guard++) set.add(cur)
     }
     return set
   }, [bookings, excludeBookingId])
 
-  const daysInMonth = new Date(viewYear, viewMonth + 1, 0).getDate()
-  const firstDow = new Date(viewYear, viewMonth, 1).getDay()
+  // A check-out day is taken when the night before it is.
+  const blocked = useMemo(
+    () => (mode === 'check-in' ? heldNights : new Set([...heldNights].map((night) => isoAddDays(night, 1)))),
+    [heldNights, mode],
+  )
 
-  const cells = []
-  for (let i = 0; i < firstDow; i++) cells.push(null)
-  for (let d = 1; d <= daysInMonth; d++) cells.push(d)
-  while (cells.length % 7 !== 0) cells.push(null)
-
-  const monthLabel = `${MONTHS[viewMonth]} ${viewYear}`
-  const todayStr = todayISO()
-
-  const goPrevMonth = () => {
-    if (viewMonth === 0) { setViewYear(viewYear - 1); setViewMonth(11) }
-    else setViewMonth(viewMonth - 1)
+  // Every night of the stay has to be free, not just the day picked.
+  const crossesHeldNight = (from: string, to: string) => {
+    for (let d = from, guard = 0; d < to && guard < 1000; d = isoAddDays(d, 1), guard++) {
+      if (heldNights.has(d)) return true
+    }
+    return false
   }
-  const goNextMonth = () => {
-    if (viewMonth === 11) { setViewYear(viewYear + 1); setViewMonth(0) }
-    else setViewMonth(viewMonth + 1)
-  }
-
-  const displayValue = value ? formatDate(value) : null
-  const rangeStart = mode === 'check-out' ? otherDateISO : value
-  const rangeEnd = mode === 'check-in' ? otherDateISO : value
-
-  const isInRange = (iso) => {
-    if (!rangeStart || !rangeEnd) return false
-    return iso > rangeStart && iso < rangeEnd
-  }
-
-  const isSelectable = (iso) => {
-    if (minDate && iso < minDate) return false
-    if (maxDate && iso > maxDate) return false
-    if (mode === 'check-out' && otherDateISO && iso <= otherDateISO) return false
-    if (mode === 'check-in' && otherDateISO && iso >= otherDateISO) return false
-    if (occupiedDays.has(iso)) return false
-    return true
-  }
-
-  const handlePick = (day) => {
-    if (day == null) return
-    const iso = toISODate(viewYear, viewMonth, day)
-    if (!isSelectable(iso)) return
-    onChange(iso)
-    setOpen(false)
+  const isDisabled = (iso: string) => {
+    if (!otherDateISO) return false
+    return mode === 'check-in'
+      ? iso >= otherDateISO || crossesHeldNight(iso, otherDateISO)
+      : iso <= otherDateISO || crossesHeldNight(otherDateISO, iso)
   }
 
   return (
-    <div className="relative" ref={wrapRef}>
-      <button
-        type="button"
-        onClick={() => setOpen((v) => !v)}
-        className={cn(
-          'w-full h-10 text-sm rounded-lg border bg-background px-3 flex items-center justify-between gap-2 text-left transition-colors',
-          open ? 'border-primary ring-2 ring-primary/25' : 'border-input hover:bg-muted/40',
-        )}
-      >
-        <span className={cn('truncate', !displayValue && 'text-foreground')}>
-          {displayValue || placeholder}
-        </span>
-        <CalendarIcon size={14} className="text-foreground flex-shrink-0" />
-      </button>
-
-      <AnimatePresence>
-        {open && (
-          <motion.div
-            initial={{ opacity: 0, y: -4, scale: 0.98 }}
-            animate={{ opacity: 1, y: 0, scale: 1 }}
-            exit={{ opacity: 0, y: -4, scale: 0.98 }}
-            transition={{ duration: 0.12, ease: [0.16, 1, 0.3, 1] }}
-            className="absolute z-40 mt-2 w-[320px] max-w-[calc(100vw-2rem)] rounded-2xl border border-border bg-popover p-4"
-            style={{ boxShadow: SOFT_SHADOW }}
-          >
-            {/* Month nav */}
-            <div className="flex items-center justify-between mb-4">
-              <button
-                type="button"
-                onClick={goPrevMonth}
-                className="p-1.5 rounded-full hover:bg-muted text-foreground transition-colors"
-                aria-label="Previous month"
-              >
-                <ChevronLeft size={15} />
-              </button>
-              <span className="text-sm font-bold text-foreground tabular-nums">{monthLabel}</span>
-              <button
-                type="button"
-                onClick={goNextMonth}
-                className="p-1.5 rounded-full hover:bg-muted text-foreground transition-colors"
-                aria-label="Next month"
-              >
-                <ChevronRight size={15} />
-              </button>
-            </div>
-
-            {/* Day of week header */}
-            <div className="grid grid-cols-7 mb-2">
-              {DOW.map((d, i) => (
-                <div key={`${d}-${i}`} className="text-[10px] font-bold text-foreground text-center">
-                  {d}
-                </div>
-              ))}
-            </div>
-
-            {/* Day cells */}
-            <div className="grid grid-cols-7 gap-y-1">
-              {cells.map((day, idx) => {
-                if (day == null) return <div key={idx} className="h-9" />
-
-                const iso = toISODate(viewYear, viewMonth, day)
-                const occupied = occupiedDays.has(iso)
-                const selected = value === iso
-                const isToday = iso === todayStr
-                const selectable = isSelectable(iso)
-                const inRange = isInRange(iso)
-
-                return (
-                  <div key={idx} className="flex items-center justify-center">
-                    <button
-                      type="button"
-                      onClick={() => handlePick(day)}
-                      disabled={!selectable}
-                      title={occupied ? 'Occupied by another booking' : undefined}
-                      className={cn(
-                        'relative h-9 w-9 rounded-full text-[12px] font-semibold tabular-nums transition-all',
-                        'flex items-center justify-center',
-
-                        // Default: plain text
-                        !selected && !occupied && !inRange && selectable &&
-                          'text-foreground hover:bg-muted',
-                        !selectable && 'text-muted-foreground/40 cursor-not-allowed',
-
-                        // In range strip
-                        inRange && !selected && 'bg-brand-solid/10 text-foreground',
-
-                        // Occupied — red circle
-                        occupied && !selected && 'bg-red-100 text-red-600 dark:bg-red-900/40 dark:text-red-400 cursor-not-allowed',
-
-                        // Selected — solid blue circle
-                        selected && 'bg-brand-solid text-white shadow-md',
-
-                        // Today indicator (only if not selected)
-                        isToday && !selected && 'ring-2 ring-amber-400/70',
-                      )}
-                    >
-                      {day}
-                    </button>
-                  </div>
-                )
-              })}
-            </div>
-
-            {/* Legend + clear */}
-            <div className="mt-4 pt-3 border-t border-border flex items-center justify-between gap-2">
-              <div className="flex items-center gap-3 text-[10px] text-foreground">
-                <span className="inline-flex items-center gap-1">
-                  <span className="w-2.5 h-2.5 rounded-full bg-red-400" /> Occupied
-                </span>
-                <span className="inline-flex items-center gap-1">
-                  <span className="w-2.5 h-2.5 rounded-full bg-brand-solid" /> Selected
-                </span>
-              </div>
-              <button
-                type="button"
-                onClick={() => { onChange(''); setOpen(false) }}
-                className="text-[10px] font-semibold text-foreground hover:text-foreground transition-colors"
-              >
-                Clear
-              </button>
-            </div>
-          </motion.div>
-        )}
-      </AnimatePresence>
-    </div>
+    <DatePicker
+      value={value}
+      onChange={onChange}
+      placeholder={placeholder}
+      minDate={minDate}
+      maxDate={maxDate}
+      blocked={blocked}
+      blockedLabel="Booked"
+      isDisabled={isDisabled}
+      rangeStart={mode === 'check-out' ? otherDateISO : null}
+      rangeEnd={mode === 'check-in' ? otherDateISO : null}
+      pickedLabel="Check-in / out"
+      size="lg"
+      ariaLabel={mode === 'check-in' ? 'Check-in date' : 'Check-out date'}
+    />
   )
 }
 
@@ -617,7 +446,7 @@ function PersonCombobox({
             animate={{ opacity: 1, y: 0, scale: 1 }}
             exit={{ opacity: 0, y: -4, scale: 0.98 }}
             transition={{ duration: 0.12, ease: [0.16, 1, 0.3, 1] }}
-            className="absolute z-40 mt-2 w-full rounded-xl border border-border bg-popover overflow-hidden"
+            ref={revealOnMount} className="absolute z-40 mt-2 w-full rounded-xl border border-border bg-popover overflow-hidden"
             style={{ boxShadow: SOFT_SHADOW }}
           >
             <div className="p-2 border-b border-border bg-card">
@@ -679,7 +508,7 @@ function PersonCombobox({
                           </p>
                         )}
                       </div>
-                      {isActive && <Check size={12} className="text-emerald-500 flex-shrink-0" />}
+                      {isActive && <Check size={12} className="flex-shrink-0 text-foreground" />}
                     </button>
                   )
                 })
@@ -862,7 +691,7 @@ function DateRangeFilter({ from, to, onFromChange, onToChange, onClear }: DateRa
             animate={{ opacity: 1, y: 0 }}
             exit={{ opacity: 0, y: -4 }}
             transition={{ duration: 0.12 }}
-            className="absolute right-0 z-30 mt-1 w-[280px] max-w-[calc(100vw-2rem)] rounded-xl bg-popover border border-border shadow-xl p-3"
+            ref={revealOnMount} className="absolute right-0 z-30 mt-1 w-[280px] max-w-[calc(100vw-2rem)] rounded-xl bg-popover border border-border shadow-xl p-3"
           >
             <p className="text-[10px] font-bold uppercase tracking-wider text-foreground mb-2">
               Booking check-in range
@@ -870,23 +699,11 @@ function DateRangeFilter({ from, to, onFromChange, onToChange, onClear }: DateRa
             <div className="space-y-2">
               <div>
                 <label className="text-[10px] uppercase tracking-wider text-foreground font-semibold mb-1 block">From</label>
-                <input
-                  type="date"
-                  value={localFrom}
-                  onChange={(e) => setLocalFrom(e.target.value)}
-                  max={localTo || undefined}
-                  className="w-full h-8 text-xs rounded border border-border bg-background px-2 focus:outline-none focus:ring-2 focus:ring-ring/30"
-                />
+                <DatePicker value={localFrom} onChange={setLocalFrom} maxDate={localTo || null} rangeEnd={localTo || null} placeholder="Any day" size="sm" align="right" ariaLabel="Check-in from" />
               </div>
               <div>
                 <label className="text-[10px] uppercase tracking-wider text-foreground font-semibold mb-1 block">To</label>
-                <input
-                  type="date"
-                  value={localTo}
-                  onChange={(e) => setLocalTo(e.target.value)}
-                  min={localFrom || undefined}
-                  className="w-full h-8 text-xs rounded border border-border bg-background px-2 focus:outline-none focus:ring-2 focus:ring-ring/30"
-                />
+                <DatePicker value={localTo} onChange={setLocalTo} minDate={localFrom || null} rangeStart={localFrom || null} placeholder="Any day" size="sm" align="right" ariaLabel="Check-in to" />
               </div>
             </div>
             <div className="flex items-center justify-between pt-3 mt-3 border-t border-border">
@@ -1655,6 +1472,7 @@ type BookingListRowProps = {
 }
 
 function BookingListRow({ booking, contracts, selected, highlighted, onClick, onViewCleaning }: BookingListRowProps) {
+  const navigate = useNavigate()
   const status = deriveBookingStatus(booking)
   const nights = computeNights(booking.check_in, booking.check_out)
   const governing = findContractForBooking(booking, contracts)
@@ -1664,6 +1482,19 @@ function BookingListRow({ booking, contracts, selected, highlighted, onClick, on
 
   const contextItems = [
     { label: 'See in Bookings', icon: CalendarIcon, onSelect: onClick },
+    {
+      label: 'See in Accounting',
+      icon: TrendingUp,
+      hint: governing ? undefined : 'No contract',
+      disabled: !governing,
+      onSelect: () => governing && navigate(crmLink.accountingBooking(governing.id, booking)),
+    },
+    {
+      label: 'See its contract in Contracts',
+      icon: FileText,
+      disabled: !governing,
+      onSelect: () => governing && navigate(crmLink.contract(governing.id)),
+    },
     { separator: true },
     {
       label: 'Copy booking code',
@@ -2178,9 +2009,7 @@ function BookingFormModal({ open, onClose, onSaved, units, editing, specialists,
         {/* Header */}
         <div className="flex items-center justify-between px-6 py-4 border-b border-border flex-shrink-0">
           <div className="flex items-center gap-3 min-w-0">
-            <div className="w-10 h-10 rounded-xl bg-brand-solid/10 flex items-center justify-center flex-shrink-0">
-              <CalendarIcon size={18} className="text-brand" />
-            </div>
+            <CalendarIcon size={20} className="text-foreground flex-shrink-0" />
             <div className="min-w-0">
               <h2 id="booking-form-title" className="text-base font-bold text-foreground truncate">
                 {editing ? 'Edit Booking' : 'New Booking'}
@@ -2234,7 +2063,7 @@ function BookingFormModal({ open, onClose, onSaved, units, editing, specialists,
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
                   <div>
                     <label className={labelClass}>Check-in *</label>
-                    <RangeCalendar
+                    <StayDatePicker
                       value={form.check_in}
                       onChange={(v) => setField('check_in', v)}
                       placeholder={`From ${STAY_TIMES.checkIn.label}`}
@@ -2249,7 +2078,7 @@ function BookingFormModal({ open, onClose, onSaved, units, editing, specialists,
                   </div>
                   <div>
                     <label className={labelClass}>Check-out *</label>
-                    <RangeCalendar
+                    <StayDatePicker
                       value={form.check_out}
                       onChange={(v) => setField('check_out', v)}
                       placeholder={`Before ${STAY_TIMES.checkOut.label}`}
@@ -2358,7 +2187,7 @@ function BookingFormModal({ open, onClose, onSaved, units, editing, specialists,
                       </div>
                       <div>
                         <label className={labelClass}>Date</label>
-                        <Input type="date" value={form.initial_date} onChange={(e) => setField('initial_date', e.target.value)} className="h-10 text-sm rounded-lg" />
+                        <DatePicker value={form.initial_date} onChange={(v) => setField('initial_date', v)} placeholder="Payment date" size="lg" align="right" clearable={false} ariaLabel="Payment date" />
                       </div>
                     </div>
                   </div>
@@ -2546,7 +2375,7 @@ function AddPaymentModal({ open, onClose, booking, onSaved }: AddPaymentModalPro
         <div><label className={labelClass}>Amount (₱) *</label><Input type="number" min={0} value={amount} onChange={(e) => setAmount(e.target.value)} className="h-9 text-xs rounded" autoFocus /></div>
         <div><label className={labelClass}>Method</label><Input value={method} onChange={(e) => setMethod(e.target.value)} placeholder="GCash, Bank transfer, Cash..." className="h-9 text-xs rounded" maxLength={60} /></div>
         <div><label className={labelClass}>Reference</label><Input value={reference} onChange={(e) => setReference(e.target.value)} className="h-9 text-xs rounded" maxLength={100} /></div>
-        <div><label className={labelClass}>Date</label><Input type="date" value={date} onChange={(e) => setDate(e.target.value)} className="h-9 text-xs rounded" /></div>
+        <div><label className={labelClass}>Date</label><DatePicker value={date} onChange={setDate} placeholder="Payment date" clearable={false} ariaLabel="Payment date" /></div>
       </div>
       <div className="flex items-center justify-end gap-2 px-5 py-3 border-t border-border bg-card">
         <Button variant="outline" size="sm" className="h-9 rounded text-xs" onClick={onClose} disabled={saving}>Cancel</Button>
@@ -2589,7 +2418,8 @@ type LateTimePickerProps = {
 }
 
 // A time past 11 AM on the guest's last day: until 1 PM when another guest
-// checks in that day, otherwise any time until midnight.
+// checks in that day, otherwise any time until midnight. Quick picks for the
+// usual hours, and every half hour in the list beside them.
 function LateTimePicker({ day, value, onChange, latest, arrival, openHint }: LateTimePickerProps) {
   const picked = momentAt(day, value)
   const usual = stayMoment(day, STAY_TIMES.checkOut)
@@ -2597,6 +2427,20 @@ function LateTimePicker({ day, value, onChange, latest, arrival, openHint }: Lat
   const tooLate = !!picked && !!latest && picked > latest
   const arrivalAt = arrival ? stayMoment(day, STAY_TIMES.checkIn) : null
   const arrivalCode = arrival ? <Code value={arrival.booking_code} label="Booking code" /> : null
+
+  // Every half hour after 11 AM up to the limit for the day.
+  const slots = useMemo(() => {
+    const out: { value: string; label: string }[] = []
+    for (let mins = 11 * 60 + 30; mins <= 23 * 60 + 30; mins += 30) {
+      const h = Math.floor(mins / 60), m = mins % 60
+      const at = stayMoment(day, { hour: h, minute: m })
+      if (!at || (latest && at > latest)) break
+      out.push({ value: `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}`, label: formatClock(h, m) })
+    }
+    return out
+  }, [day, latest])
+  const quick = LATE_CHECKOUT_PICKS.map((hour) => `${String(hour).padStart(2, '0')}:00`)
+  const fromList = !!value && !quick.includes(value)
 
   let hint: ReactNode
   if (tooEarly) hint = `Pick a time after ${STAY_TIMES.checkOut.label}.`
@@ -2606,12 +2450,12 @@ function LateTimePicker({ day, value, onChange, latest, arrival, openHint }: Lat
   else hint = openHint
 
   return (
-    <div>
-      <div className="flex flex-wrap gap-1.5">
-        {LATE_CHECKOUT_PICKS.map((hour) => {
+    <div className="space-y-2">
+      <div className="grid grid-cols-3 sm:grid-cols-6 gap-1.5">
+        {LATE_CHECKOUT_PICKS.map((hour, i) => {
           const at = stayMoment(day, { hour, minute: 0 })
           const allowed = !!at && (!latest || at <= latest)
-          const pick = `${String(hour).padStart(2, '0')}:00`
+          const pick = quick[i]
           const on = value === pick
           return (
             <button
@@ -2622,25 +2466,27 @@ function LateTimePicker({ day, value, onChange, latest, arrival, openHint }: Lat
               onClick={() => onChange(pick)}
               title={allowed ? undefined : `${arrival?.booking_code || 'The next guest'} checks in at ${STAY_TIMES.checkIn.label}: out by ${TURNOVER_CHECKOUT.label}`}
               className={cn(
-                'h-8 px-2.5 rounded-md border text-[12px] font-semibold tabular-nums transition-colors disabled:opacity-40 disabled:cursor-not-allowed',
-                on ? 'border-brand-solid bg-brand-solid text-white' : 'border-border text-foreground hover:border-brand/40 hover:bg-brand/[0.05]',
+                'h-9 rounded-md border text-[12px] font-semibold tabular-nums transition-colors disabled:opacity-35 disabled:cursor-not-allowed',
+                on ? 'border-brand-solid bg-brand-solid text-white' : 'border-border text-foreground hover:border-brand-solid/50',
               )}
             >
               {formatClock(hour)}
             </button>
           )
         })}
-        <Input
-          type="time"
-          value={value}
-          onChange={(e) => onChange(e.target.value)}
-          min="11:01"
-          max={arrival && latest ? hhmm(latest) : undefined}
-          aria-label="Other time"
-          className={cn('h-8 w-[118px] text-xs rounded', value && !LATE_CHECKOUT_PICKS.some((hr) => `${String(hr).padStart(2, '0')}:00` === value) && 'border-brand-solid')}
-        />
       </div>
-      <p className={cn('text-[11px] mt-1.5', tooEarly || tooLate ? 'text-red-600 dark:text-red-400 font-semibold' : 'text-foreground')}>
+      <div className="flex items-center gap-2">
+        <span className="text-[11px] font-semibold text-foreground flex-shrink-0">Other time</span>
+        <Select value={fromList ? value : ''} onValueChange={(v) => v && onChange(v)}>
+          <SelectTrigger aria-label="Other time" className={cn('h-9 text-xs rounded-md flex-1 min-w-0', fromList && 'border-brand-solid ring-1 ring-brand-solid/30')}>
+            <SelectValue placeholder="Every half hour…">{fromList ? formatClock(Number(value.slice(0, 2)), Number(value.slice(3, 5))) : null}</SelectValue>
+          </SelectTrigger>
+          <SelectContent>
+            {slots.map((s) => <SelectItem key={s.value} value={s.value} className="text-xs tabular-nums">{s.label}</SelectItem>)}
+          </SelectContent>
+        </Select>
+      </div>
+      <p className={cn('text-[11px]', tooEarly || tooLate ? 'text-red-600 dark:text-red-400 font-semibold' : 'text-foreground')}>
         {hint}
       </p>
     </div>
@@ -2929,15 +2775,17 @@ function ExtendStayModal({ open, onClose, booking, bookings, mode: startMode, on
           <>
             <div>
               <label htmlFor="extend-checkout" className={labelClass}>New check-out day</label>
-              <Input
+              <DatePicker
                 id="extend-checkout"
-                type="date"
                 value={newCheckOut}
-                onChange={(e) => setNewCheckOut(e.target.value)}
-                min={isoAddDays(out, 1)}
-                max={maxCheckOut || undefined}
+                onChange={setNewCheckOut}
+                minDate={isoAddDays(out, 1)}
+                maxDate={maxCheckOut}
+                rangeStart={String(booking.check_in).slice(0, 10)}
+                pickedLabel="Stay"
+                placeholder="Pick the new check-out day"
                 disabled={!canAddNights}
-                className="h-8 text-xs rounded"
+                clearable={false}
               />
               <p className={cn('text-[11px] mt-1.5', nightsHintBad ? 'text-red-600 dark:text-red-400 font-semibold' : 'text-foreground')}>
                 {nightsHint}
@@ -2971,15 +2819,11 @@ function ExtendStayModal({ open, onClose, booking, bookings, mode: startMode, on
           </>
         )}
 
-        {bookerRateWasInferred && (
-          <div className="rounded-md bg-amber-500/10 border border-amber-500/30 p-2.5 text-[11px] text-amber-700 dark:text-amber-400">
-            <strong>Booker rate missing.</strong> Commission will <em>not</em> be recalculated.
-          </div>
-        )}
-        {affiliateRateWasInferred && (
-          <div className="rounded-md bg-amber-500/10 border border-amber-500/30 p-2.5 text-[11px] text-amber-700 dark:text-amber-400">
-            <strong>Affiliate rate missing.</strong> Commission will <em>not</em> be recalculated.
-          </div>
+        {(bookerRateWasInferred || affiliateRateWasInferred) && (
+          <p className="text-[11px] text-amber-600 dark:text-amber-400">
+            <span className="font-semibold">{bookerRateWasInferred && affiliateRateWasInferred ? 'Booker and affiliate rates' : bookerRateWasInferred ? 'Booker rate' : 'Affiliate rate'} missing.</span>{' '}
+            Their commission won't be recalculated.
+          </p>
         )}
 
         <div>
@@ -3020,7 +2864,7 @@ function ExtendStayModal({ open, onClose, booking, bookings, mode: startMode, on
             <div><label className={labelClass}>Amount (₱)</label><Input type="number" min={0} value={payAmount} onChange={(e) => setPayAmount(e.target.value)} className="h-8 text-xs rounded" /></div>
             <div><label className={labelClass}>Method</label><Input value={payMethod} onChange={(e) => setPayMethod(e.target.value)} placeholder="GCash, Bank..." className="h-8 text-xs rounded" maxLength={60} /></div>
             <div><label className={labelClass}>Reference</label><Input value={payReference} onChange={(e) => setPayReference(e.target.value)} className="h-8 text-xs rounded" maxLength={100} /></div>
-            <div><label className={labelClass}>Date</label><Input type="date" value={payDate} onChange={(e) => setPayDate(e.target.value)} className="h-8 text-xs rounded" /></div>
+            <div><label className={labelClass}>Date</label><DatePicker value={payDate} onChange={setPayDate} placeholder="Payment date" size="sm" clearable={false} ariaLabel="Payment date" /></div>
           </div>
         )}
       </div>
