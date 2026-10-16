@@ -1903,36 +1903,14 @@ function Field({ label, value, mono = false }: FieldProps) {
   )
 }
 
-// Terms and owner, beside the revenue chart. On wide screens the body scrolls
-// inside the card, so the row height comes from the chart.
-// Extensions of this contract, oldest first (empty if none, or if the
-// contract_extensions table isn't there yet).
-function useContractExtensions(contractId, expiryDate) {
-  const [rows, setRows] = useState([])
-  useEffect(() => {
-    let cancelled = false
-    if (!contractId) return undefined
-    supabase
-      .from('contract_extensions')
-      .select('id, previous_expiry, new_expiry, created_at')
-      .eq('contract_id', contractId)
-      .order('created_at', { ascending: true })
-      .then(({ data, error }) => {
-        if (cancelled) return
-        setRows(error ? [] : data || [])
-      })
-    return () => { cancelled = true }
-  }, [contractId, expiryDate])
-  return rows
-}
-
 type ContractCardProps = {
   contract: any
 }
 
+// Terms and owner, beside the revenue chart. On wide screens the body scrolls
+// inside the card, so the row height comes from the chart.
 function ContractCard({ contract }: ContractCardProps) {
   const owner = contract.owners || null
-  const extensions = useContractExtensions(contract.id, contract.expiry_date)
   return (
     <Panel>
       <PanelHeader icon={FileText} title="Contract" subtitle={`${OWNER_SPLIT_PCT}/${COMPANY_SPLIT_PCT} owner/company split`} />
@@ -1943,12 +1921,6 @@ function ContractCard({ contract }: ContractCardProps) {
             <Field label="Code" value={<Code value={contract.contract_code} label="Contract code" className="text-[12px]" />} />
             <Field label="Starts" value={formatDateLong(contract.effective_date)} />
             <Field label="Ends" value={contract.expiry_date ? formatDateLong(contract.expiry_date) : 'Open-ended'} />
-            {extensions.length > 0 && (
-              <Field
-                label="Extended"
-                value={`${extensions.length}× · first ended ${formatDateLong(extensions[0].previous_expiry)}`}
-              />
-            )}
             <Field label="Split" value={`${OWNER_SPLIT_PCT}% owner · ${COMPANY_SPLIT_PCT}% company`} />
             <Field label="PM" value={`${PM_SHARE_OF_COMPANY_PCT}% of the company share`} />
           </div>

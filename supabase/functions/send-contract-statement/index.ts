@@ -80,7 +80,7 @@ async function loadStatement(db: any, contract: any) {
   const start = contract.effective_date
   const end = contract.expiry_date || todayISO()
 
-  const [breakdownRes, bookingsRes, cleaningsRes, manualRes, extensionsRes, pmRes] = await Promise.all([
+  const [breakdownRes, bookingsRes, cleaningsRes, manualRes, pmRes] = await Promise.all([
     db.rpc('contract_monthly_breakdown', { p_contract_id: contract.id }),
     db.from('bookings')
       .select('booking_code, check_in, check_out, guests, total_amount, booker_commission, affiliate_commission, cancelled_at')
@@ -98,10 +98,6 @@ async function loadStatement(db: any, contract: any) {
     db.from('contract_monthly_expenses')
       .select('month, electricity, internet, water, marketing, custom_items')
       .eq('contract_id', contract.id),
-    db.from('contract_extensions')
-      .select('previous_expiry, new_expiry, created_at')
-      .eq('contract_id', contract.id)
-      .order('created_at', { ascending: true }),
     db.from('pm_contracts')
       .select('pm_id, pm_share_of_company_pct, effective_date')
       .eq('unit_id', contract.unit_id)
@@ -112,7 +108,7 @@ async function loadStatement(db: any, contract: any) {
   if (bookingsRes.error) throw new Error(`Bookings: ${bookingsRes.error.message}`)
   if (cleaningsRes.error) throw new Error(`Cleanings: ${cleaningsRes.error.message}`)
   if (manualRes.error) throw new Error(`Expenses: ${manualRes.error.message}`)
-  // Extension history and PM percentages are optional extras.
+  // PM percentages are an optional extra.
 
   const monthOf = (iso: string) => String(iso || '').slice(0, 7)
 
@@ -206,7 +202,6 @@ async function loadStatement(db: any, contract: any) {
       ownerName: contract.owners?.name,
       start,
       end,
-      extensions: extensionsRes.error ? [] : (extensionsRes.data || []),
     },
     months,
     totals,

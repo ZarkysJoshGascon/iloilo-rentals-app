@@ -6,7 +6,7 @@
 // Lifecycle:
 //   active  → expiring (within EXPIRING_SOON_DAYS) → expired
 //   - While active or expiring, a contract can be EXTENDED: same contract,
-//     later expiry date (history in contract_extensions).
+//     later expiry date.
 //   - Once expired it is "For renewal" until the owner agrees; RENEWING
 //     creates the next contract (a new term) and the old one points to it
 //     through superseded_by, which makes it "renewed".

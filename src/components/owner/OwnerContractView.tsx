@@ -349,7 +349,6 @@ export default function OwnerContractView({ contractId, contracts, onOpen, onBac
             </p>
             <p className="text-[12.5px] text-foreground mt-0.5">
               {formatDate(contract.effective_date)} → {contract.expiry_date ? formatDate(contract.expiry_date) : 'open-ended'}
-              {data.extensions.length > 0 && ` · extended ${data.extensions.length}× (first ended ${formatDate(data.extensions[0].previous_expiry)})`}
             </p>
           </div>
         </div>

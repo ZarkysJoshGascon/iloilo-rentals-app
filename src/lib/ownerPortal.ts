@@ -82,7 +82,6 @@ export async function fetchOwnerContract(contractId) {
     })),
     // Bills and other expenses per month, with receipt paths (expense-proofs bucket).
     expenses: (data?.expenses || []).map((e) => ({ ...e, month: monthKey(e.month) })),
-    extensions: data?.extensions || [],
   }
 }
 

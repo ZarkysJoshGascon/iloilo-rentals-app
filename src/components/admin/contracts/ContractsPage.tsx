@@ -4,7 +4,7 @@
 // do not appear in the New Contract modal's unit dropdown.
 // A unit's first contract is made here; after that it continues by:
 //   - Extend: while the contract is running (active or nearing its end),
-//     push its end date out. Same contract; history in contract_extensions.
+//     push its end date out. Same contract, nothing else recorded.
 //   - Renew: once it has ended ("For renewal") and the owner agrees, create
 //     the next term as a new contract linked through superseded_by.
 // Terms on a unit never overlap, so Accounting never counts a month twice.
@@ -1366,15 +1366,13 @@ type ExtendContractModalProps = {
   onExtended: () => void
 }
 
-// Extend: same contract, later end date. Accounting simply covers the
-// extra months under this contract.
+// Extend: same contract, later end date, nothing else to record. Accounting
+// simply covers the extra months under this contract.
 function ExtendContractModal({ contract, onClose, onExtended }: ExtendContractModalProps) {
   const current = contract.expiry_date
   const firstNewDay = dayAfterISO(current)
   const [months, setMonths] = useState(6)
   const [newExpiry, setNewExpiry] = useState(() => termEndISO(firstNewDay, 6))
-  const [note, setNote] = useState('')
-  const [file, setFile] = useState(null)
   const [saving, setSaving] = useState(false)
 
   const pickMonths = (m) => { setMonths(m); setNewExpiry(termEndISO(firstNewDay, m)) }
@@ -1392,25 +1390,11 @@ function ExtendContractModal({ contract, onClose, onExtended }: ExtendContractMo
         return
       }
 
-      const documentPath = file ? await uploadContractFile(file, contract.id, 'extension-') : null
-
       const { error } = await supabase.from('contracts').update({ expiry_date: newExpiry }).eq('id', contract.id)
       if (error) throw error
 
-      const { error: historyError } = await supabase.from('contract_extensions').insert({
-        contract_id: contract.id,
-        previous_expiry: current,
-        new_expiry: newExpiry,
-        note: sanitizeText(note, { max: 1000, allowNewlines: true }) || null,
-        document_path: documentPath,
-      })
-      if (historyError) {
-        console.error('Extension history not saved:', historyError)
-        toast('Extended, but the history could not be saved. Run the contract_extensions migration in Supabase.', { icon: '⚠️', duration: 7000 })
-      }
-
       logAudit('EXTEND_CONTRACT', 'contracts', contract.id, {
-        contract_code: contract.contract_code, from: current, to: newExpiry, document_path: documentPath,
+        contract_code: contract.contract_code, from: current, to: newExpiry,
       }).catch(() => {})
 
       toast.success(`Extended to ${formatDate(newExpiry)}`)
@@ -1467,16 +1451,6 @@ function ExtendContractModal({ contract, onClose, onExtended }: ExtendContractMo
             ? <>Adds <span className="font-semibold">{added} day{added === 1 ? '' : 's'}</span> · runs to {formatDate(newExpiry)}</>
             : <span className="text-red-600 dark:text-red-400 font-semibold">Pick a date after {formatDate(current)}</span>}
         </p>
-      </div>
-
-      <div>
-        <label className={FORM_LABEL}>Signed addendum (optional)</label>
-        <FilePick file={file} onFile={setFile} label="Attach the signed extension" />
-      </div>
-
-      <div>
-        <label className={FORM_LABEL}>Note (optional)</label>
-        <Textarea value={note} onChange={(e) => setNote(e.target.value)} rows={2} maxLength={1000} placeholder="e.g. Owner agreed by phone on Oct 10" className="text-xs rounded-md resize-none" />
       </div>
 
       <div className="flex items-start gap-2 rounded-md border border-border p-3">
@@ -1696,65 +1670,6 @@ function RenewContractModal({ contract, termNumber, unitOwner, onClose, onRenewe
   )
 }
 
-type ExtensionHistoryProps = {
-  contractId: any
-  refreshKey: string
-}
-
-// Past extensions of a contract, newest first. Hidden until there are any
-// (or if the contract_extensions table hasn't been created yet).
-function ExtensionHistory({ contractId, refreshKey }: ExtensionHistoryProps) {
-  const [rows, setRows] = useState([])
-
-  useEffect(() => {
-    let cancelled = false
-    supabase
-      .from('contract_extensions')
-      .select('id, previous_expiry, new_expiry, note, document_path, created_at')
-      .eq('contract_id', contractId)
-      .order('created_at', { ascending: false })
-      .then(({ data, error }) => {
-        if (cancelled) return
-        if (error) { console.warn('Extension history unavailable:', error.message); setRows([]); return }
-        setRows(data || [])
-      })
-    return () => { cancelled = true }
-  }, [contractId, refreshKey])
-
-  const openDocument = async (path) => {
-    const { data, error } = await supabase.storage.from(PDF_BUCKET).createSignedUrl(path, 3600)
-    if (error || !data?.signedUrl) { toast.error('Could not open the file'); return }
-    window.open(data.signedUrl, '_blank', 'noopener,noreferrer')
-  }
-
-  if (rows.length === 0) return null
-
-  return (
-    <DetailSection title={`Extensions · ${rows.length}`}>
-      <div>
-        {rows.map((r) => (
-          <div key={r.id} className="px-3 py-2.5 border-b border-border last:border-0">
-            <div className="flex items-baseline justify-between gap-2">
-              <p className="text-[12px] text-foreground">
-                <span className="tabular-nums">{formatDate(r.previous_expiry)}</span>
-                {' → '}
-                <span className="font-semibold tabular-nums">{formatDate(r.new_expiry)}</span>
-              </p>
-              <span className="text-[11px] text-foreground tabular-nums flex-shrink-0">{formatDate(String(r.created_at).slice(0, 10))}</span>
-            </div>
-            {r.note && <p className="text-[11px] text-foreground mt-0.5 whitespace-pre-wrap break-words">{r.note}</p>}
-            {r.document_path && (
-              <button type="button" onClick={() => openDocument(r.document_path)} className="mt-1 inline-flex items-center gap-1 text-[11px] font-semibold text-foreground hover:underline underline-offset-2">
-                <FileText size={11} /> Addendum
-              </button>
-            )}
-          </div>
-        ))}
-      </div>
-    </DetailSection>
-  )
-}
-
 type TermsListProps = {
   terms: any
   currentId: any
@@ -1833,7 +1748,6 @@ function ContractDetailPanel({ contract, contracts, units, owners, onClose, onCh
   const statusConfig = STATUS_TEXT[status] || STATUS_TEXT.incomplete
   const [extendOpen, setExtendOpen] = useState(false)
   const [renewOpen, setRenewOpen] = useState(false)
-  const [historyKey, setHistoryKey] = useState(0)
 
   // This contract's run of renewals, and where it sits in it.
   const terms = useMemo(() => contractTerms(contract, contracts), [contract, contracts])
@@ -1959,7 +1873,6 @@ function ContractDetailPanel({ contract, contracts, units, owners, onClose, onCh
 
             <div className="flex-1 overflow-y-auto p-4 space-y-4">
               <TermsList terms={terms} currentId={contract.id} onSelect={onSelect} />
-              <ExtensionHistory contractId={contract.id} refreshKey={`${historyKey}-${contract.expiry_date}`} />
 
               <DetailSection title="Owner statement">
                 <div className="p-3">
@@ -2066,7 +1979,7 @@ function ContractDetailPanel({ contract, contracts, units, owners, onClose, onCh
         <ExtendContractModal
           contract={contract}
           onClose={() => setExtendOpen(false)}
-          onExtended={() => { setHistoryKey((k) => k + 1); onChanged() }}
+          onExtended={onChanged}
         />,
         document.body,
       )}

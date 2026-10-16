@@ -188,9 +188,6 @@ function addSummarySheet(wb, data, brand) {
   info('Unit', [contract.unitCode, contract.building].filter(Boolean).join(' · ') || '—')
   info('Owner', contract.ownerName || '—')
   info('Term', `${formatDateText(contract.start)} – ${formatDateText(contract.end)}`)
-  if (contract.extensions?.length) {
-    info('Extended', `${contract.extensions.length}× (first ended ${formatDateText(contract.extensions[0].previous_expiry)})`)
-  }
   info('Prepared on', formatDateText(preparedOn))
   ws.addRow([])
 
@@ -456,7 +453,7 @@ function addTable(wb, name, brand, columns, rows, totalsRow) {
 
 /**
  * data: {
- *   contract: { code, unitCode, building, ownerName, start, end, extensions },
+ *   contract: { code, unitCode, building, ownerName, start, end },
  *   months: [{ month, bookings, cancelled, cleanings, bills, other, pm, figures }],
  *   totals, preparedOn, ownerSplitPct, companySplitPct, brandColor
  * }

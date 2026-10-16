@@ -217,12 +217,6 @@ export async function logInteraction(payload) {
   return data
 }
 
-export async function listTodayFollowUps() {
-  const { data, error } = await supabase.from('v_today').select('*')
-  if (error) throw error
-  return data || []
-}
-
 export async function listExpiring() {
   const { data, error } = await supabase.from('v_expiring').select('*')
   if (error) throw error

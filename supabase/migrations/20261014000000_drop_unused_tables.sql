@@ -10,6 +10,9 @@
 --   user_roles            user_id, role (staff access lives in admin_users,
 --                         housekeepers, property_managers, owners)
 --   accounting_orphan_log found_at, kind, row_id, unit_id, code, date_field, detail
+-- Two views nothing reads go too (checked again 2026-10-17):
+--   v_today                follow-ups due today, from the old Registry design
+--   v_bookings_with_status bookings with a computed status column
 -- A plain drop (no cascade), so it stops if anything still depends on one.
 --
 -- The Contact page saves to contact_messages, whose trigger copied each
@@ -25,6 +28,9 @@ drop table if exists public.extras;
 drop table if exists public.association_accounts;
 drop table if exists public.user_roles;
 drop table if exists public.accounting_orphan_log;
+
+drop view if exists public.v_today;
+drop view if exists public.v_bookings_with_status;
 
 drop trigger if exists on_contact_message_created on public.contact_messages;
 drop function if exists public.handle_new_contact_message();
