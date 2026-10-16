@@ -10,6 +10,7 @@ import AdminRoute from './components/admin/AdminRoute'
 import HousekeeperRoute from './components/housekeeper/HousekeeperRoute'
 import { Preloader } from './components/ui/preloader'
 import { PageImagesProbe } from './components/common/PageImagesProbe'
+import { TouchScrollIndicator } from './components/common/TouchScrollIndicator'
 import { PageRevealContext } from './lib/pageReveal'
 
 // ---- Lazy-loaded pages (each becomes its own chunk) ----
@@ -120,6 +121,7 @@ function App() {
         </main>
         {!isAdminRoute && !isUnsubscribeRoute && <Footer />}
         <Toaster position="top-right" />
+        <TouchScrollIndicator />
       </div>
       </PageRevealContext.Provider>
     </ThemeProvider>

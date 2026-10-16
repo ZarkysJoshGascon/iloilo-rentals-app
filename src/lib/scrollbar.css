@@ -57,3 +57,18 @@
     scrollbar-color: var(--scrollbar-thumb) transparent;
   }
 }
+
+/* ── Touch screens ──────────────────────────────────────────── */
+/* Phones and tablets draw their own grey scroll indicator, which can't be
+   coloured or reshaped. It's hidden here and TouchScrollIndicator draws the
+   logo-blue bar instead. */
+
+@media (pointer: coarse) {
+  * {
+    scrollbar-width: none;
+  }
+
+  ::-webkit-scrollbar {
+    display: none;
+  }
+}

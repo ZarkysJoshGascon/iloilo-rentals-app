@@ -64,6 +64,7 @@ export function StatusTabs({ tabs, value, onChange, counts, label, fill = false,
       role="group"
       aria-label={label}
       onKeyDown={onKeyDown}
+      data-no-scroll-indicator
       className={cn(
         'relative items-center gap-0.5 p-0.5 rounded-md bg-card border border-border max-w-full overflow-x-auto [scrollbar-width:none]',
         fill ? 'flex w-full' : 'inline-flex',

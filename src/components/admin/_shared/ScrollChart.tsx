@@ -157,6 +157,7 @@ export function ScrollChart({
             <div
               ref={scrollRef}
               onScroll={updateEdges}
+              data-no-scroll-indicator
               className="flex-1 min-w-0 overflow-x-auto overflow-y-hidden overscroll-x-contain [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
               style={mask}
               role="region"

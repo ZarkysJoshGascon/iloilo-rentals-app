@@ -310,7 +310,7 @@ type ArrowStripProps = {
 function ArrowStrip({ items, onSelect, label, minSegment = 0, compactOnPhone = false }: ArrowStripProps) {
   const depth = 10
   return (
-    <div role="group" aria-label={label} className="flex w-full overflow-x-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+    <div role="group" aria-label={label} data-no-scroll-indicator className="flex w-full overflow-x-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
       {items.map((item, i) => {
         const first = i === 0
         const last = i === items.length - 1
