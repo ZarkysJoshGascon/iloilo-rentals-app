@@ -31,6 +31,7 @@ import MessengerUpdatesPanel from './MessengerUpdatesPanel'
 import { StatStrip, StatTile } from '@/components/admin/_shared/StatStrip'
 import { ResultsBar, SearchKeyHint, useListShortcuts } from '@/components/admin/_shared/listTools'
 import { Code } from '@/components/common/Code'
+import { cleanFields } from '@/lib/clean'
 import { DatePicker } from '@/components/admin/_shared/DatePicker'
 import { revealOnMount } from '@/components/admin/_shared/useRevealOnOpen'
 
@@ -1259,13 +1260,13 @@ async function deletePMRow(id) {
 async function createPMContractRow(payload) {
   const { data, error } = await supabase
     .from('pm_contracts')
-    .insert({ ...payload, pm_share_of_company_pct: payload.pm_share_of_company_pct ?? PM_SHARE_OF_COMPANY_PCT })
+    .insert(cleanFields({ ...payload, pm_share_of_company_pct: payload.pm_share_of_company_pct ?? PM_SHARE_OF_COMPANY_PCT }))
     .select().single()
   if (error) throw error
   return data
 }
 async function updatePMContractRow(id, patch) {
-  const { data, error } = await supabase.from('pm_contracts').update(patch).eq('id', id).select().single()
+  const { data, error } = await supabase.from('pm_contracts').update(cleanFields(patch)).eq('id', id).select().single()
   if (error) throw error
   return data
 }
@@ -1280,7 +1281,7 @@ async function terminatePMContractRow(id, decisionDateISO, note = null) {
     terminated_at: new Date().toISOString(),
   }
   if (note != null) patch.notes = note
-  const { data, error } = await supabase.from('pm_contracts').update(patch).eq('id', id).select().single()
+  const { data, error } = await supabase.from('pm_contracts').update(cleanFields(patch)).eq('id', id).select().single()
   if (error) throw error
   return data
 }

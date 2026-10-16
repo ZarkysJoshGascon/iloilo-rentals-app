@@ -1,5 +1,6 @@
 // src/lib/bookings.ts
 import { supabase } from './supabase'
+import { cleanFields } from './clean'
 
 // Columns callers are allowed to write. Anything else is dropped.
 const BOOKING_WRITABLE_COLUMNS = [
@@ -57,7 +58,7 @@ export async function getBooking(id) {
 }
 
 export async function createBooking(payload) {
-  const clean = pickWritable(payload)
+  const clean = cleanFields(pickWritable(payload))
   const { data, error } = await supabase
     .from('bookings')
     .insert(clean)

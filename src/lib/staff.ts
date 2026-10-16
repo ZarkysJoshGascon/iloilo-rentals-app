@@ -9,6 +9,7 @@
 // ============================================================
 
 import { supabase } from './supabase'
+import { cleanFields } from './clean'
 
 export const STAFF_ROLES = {
   specialists: {
@@ -181,7 +182,7 @@ export async function createStaffMember(role, payload) {
   for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
     const { data, error } = await supabase
       .from(meta.table)
-      .insert(body)
+      .insert(cleanFields(body))
       .select('*')
       .single()
     if (!error) return data
@@ -217,7 +218,7 @@ export async function updateStaffMember(role, id, payload) {
 
   const { data, error } = await supabase
     .from(meta.table)
-    .update(body)
+    .update(cleanFields(body))
     .eq('id', id)
     .select('*')
     .single()

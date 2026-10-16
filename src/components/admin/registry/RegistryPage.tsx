@@ -31,6 +31,7 @@ import { StatusTabs } from '@/components/admin/_shared/StatusTabs'
 import type { ReactNode } from 'react'
 import type { LucideIcon } from 'lucide-react'
 import { Code } from '@/components/common/Code'
+import { cleanFields } from '@/lib/clean'
 import { DatePicker } from '@/components/admin/_shared/DatePicker'
 import { revealOnMount } from '@/components/admin/_shared/useRevealOnOpen'
 
@@ -890,10 +891,10 @@ function LogCallModal({ open, onClose, unit, onSaved }: LogCallModalProps) {
     if (content.length > 2000) { toast.error('Note is too long (max 2000)'); return }
     setSaving(true)
     try {
-      const { error } = await supabase.from('unit_interactions').insert({
+      const { error } = await supabase.from('unit_interactions').insert(cleanFields({
         unit_id: unit.id, owner_id: unit.owner_id || null,
-        type, content: content.trim(), outcome, next_follow_up_date: nextDate || null,
-      })
+        type, content, outcome, next_follow_up_date: nextDate || null,
+      }))
       if (error) throw error
       logAudit('LOG_UNIT_INTERACTION', 'unit_interactions', unit.id, { type, outcome }).catch(() => {})
       toast.success('Interaction logged'); onSaved?.(); onClose()
@@ -1441,7 +1442,7 @@ function AddUnitModal({ open, onClose, onCreated, existingBuildings = [], channe
       toast.success('Unit created'); onCreated(); onClose()
     } catch (err) {
       console.error(err)
-      toast.error(String(err.message || '').includes('duplicate') ? 'Unit Code already exists' : 'Failed to create unit')
+      toast.error(String(err?.message || '').includes('duplicate') ? 'Unit Code already exists' : (err?.message || 'Failed to create unit'))
     } finally { setSaving(false) }
   }
 

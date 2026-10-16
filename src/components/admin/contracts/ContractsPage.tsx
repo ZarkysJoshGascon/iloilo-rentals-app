@@ -44,6 +44,7 @@ import type { ReactNode } from 'react'
 import { Code } from '@/components/common/Code'
 import { ContextMenu } from '@/components/ui/ContextMenu'
 import { crmLink } from '@/lib/crmLinks'
+import { cleanFields } from '@/lib/clean'
 import { DatePicker } from '@/components/admin/_shared/DatePicker'
 import { useRevealOnOpen } from '@/components/admin/_shared/useRevealOnOpen'
 
@@ -1723,7 +1724,7 @@ function ContractDetailPanel({ contract, contracts, units, owners, onClose, onCh
       }
     }
 
-    const { error } = await supabase.from('contracts').update({ [field]: value }).eq('id', contract.id)
+    const { error } = await supabase.from('contracts').update(cleanFields({ [field]: value })).eq('id', contract.id)
     if (error) throw error
     logAudit(`UPDATE_CONTRACT_FIELD:${field}`, 'contracts', contract.id, { field, from: contract[field], to: value }).catch(() => {})
     onChanged()

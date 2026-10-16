@@ -4,6 +4,7 @@
 // both inquiry boards; `board` picks which inquiry table a row belongs to.
 // Who wrote a row and when are filled in by the database.
 import { supabase } from './supabase'
+import { cleanFields } from './clean'
 
 export type InquiryBoard = 'property' | 'interior'
 
@@ -41,14 +42,14 @@ export async function addActivity(board: InquiryBoard, inquiryId, entry: Activit
   const body = entry.body?.trim() || null
   const { data, error } = await supabase
     .from('inquiry_activities')
-    .insert({
+    .insert(cleanFields({
       [INQUIRY_COLUMN[board]]: inquiryId,
       kind: entry.kind || 'note',
       stage: entry.stage ?? null,
       from_stage: entry.from_stage ?? null,
       tag: entry.tag || null,
       body: body ? body.slice(0, 2000) : null,
-    })
+    }))
     .select()
     .single()
   if (error) throw error

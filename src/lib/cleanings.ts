@@ -1,5 +1,6 @@
 // src/lib/cleanings.ts
 import { supabase } from './supabase'
+import { cleanFields } from './clean'
 import { generateCleaningCode } from './utils'
 
 const BUCKET = 'cleaning-photos'
@@ -98,7 +99,7 @@ export async function createCleaning(payload) {
   const code = payload.cleaning_code || generateCleaningCode()
   const { data, error } = await supabase
     .from('cleanings')
-    .insert({ ...payload, cleaning_code: code })
+    .insert(cleanFields({ ...payload, cleaning_code: code }))
     .select()
     .single()
   if (error) throw error
@@ -108,7 +109,7 @@ export async function createCleaning(payload) {
 export async function updateCleaning(id, patch) {
   const { data, error } = await supabase
     .from('cleanings')
-    .update(patch)
+    .update(cleanFields(patch))
     .eq('id', id)
     .select()
     .single()

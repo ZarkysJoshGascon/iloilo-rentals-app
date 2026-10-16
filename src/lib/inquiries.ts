@@ -1,6 +1,7 @@
 // src/lib/inquiries.ts
 import { supabase } from './supabase'
 import { uploadPublicFormPhoto } from './publicUploads'
+import { cleanFields } from './clean'
 
 const IMG_BUCKET = 'property-inquiry-images'
 const MAX_FILE_BYTES = 5 * 1024 * 1024
@@ -110,7 +111,7 @@ export async function listInquiries({ limit = 500 } = {}) {
 export async function updateInquiry(id, patch) {
   const { data, error } = await supabase
     .from('property_inquiries')
-    .update(patch)
+    .update(cleanFields(patch))
     .eq('id', id)
     .select()
     .single()

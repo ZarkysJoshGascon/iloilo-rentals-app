@@ -1,4 +1,5 @@
 import { supabase } from './supabase'
+import { cleanFields } from './clean'
 
 export async function listUnits({ pipeline, building, search }: { pipeline?: string; building?: string; search?: string } = {}) {
   let query = supabase.from('v_pipeline').select('*')
@@ -61,7 +62,7 @@ export async function getUnitInteractions(unitId) {
 export async function createUnit(payload) {
   const { data, error } = await supabase
     .from('units')
-    .insert(payload)
+    .insert(cleanFields(payload))
     .select()
     .single()
   if (error) throw error
@@ -71,7 +72,7 @@ export async function createUnit(payload) {
 export async function updateUnit(id, patch) {
   const ownerFields = ['owner_name', 'owner_email', 'owner_phone']
   const ownerPatch = {}
-  const unitPatch = { ...patch }
+  const unitPatch = { ...cleanFields(patch) }
 
   for (const f of ownerFields) {
     if (f in unitPatch) {
@@ -119,7 +120,7 @@ export async function deleteUnit(id) {
 export async function createContract(payload) {
   const { data, error } = await supabase
     .from('contracts')
-    .insert(payload)
+    .insert(cleanFields(payload))
     .select()
     .single()
   if (error) throw error
@@ -129,7 +130,7 @@ export async function createContract(payload) {
 export async function updateContract(id, patch) {
   const { data, error } = await supabase
     .from('contracts')
-    .update(patch)
+    .update(cleanFields(patch))
     .eq('id', id)
     .select()
     .single()
@@ -189,7 +190,7 @@ export async function getOwner(id) {
 export async function createOwner(payload) {
   const { data, error } = await supabase
     .from('owners')
-    .insert(payload)
+    .insert(cleanFields(payload))
     .select()
     .single()
   if (error) throw error
@@ -199,7 +200,7 @@ export async function createOwner(payload) {
 export async function updateOwner(id, patch) {
   const { data, error } = await supabase
     .from('owners')
-    .update(patch)
+    .update(cleanFields(patch))
     .eq('id', id)
     .select()
     .single()
@@ -210,7 +211,7 @@ export async function updateOwner(id, patch) {
 export async function logInteraction(payload) {
   const { data, error } = await supabase
     .from('unit_interactions')
-    .insert(payload)
+    .insert(cleanFields(payload))
     .select()
     .single()
   if (error) throw error
@@ -244,7 +245,7 @@ export function formatDate(dateStr) {
 export async function updateInteraction(id, patch) {
   const { data, error } = await supabase
     .from('unit_interactions')
-    .update(patch)
+    .update(cleanFields(patch))
     .eq('id', id)
     .select()
     .single()
