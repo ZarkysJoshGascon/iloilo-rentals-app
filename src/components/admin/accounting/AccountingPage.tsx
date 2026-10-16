@@ -1526,6 +1526,7 @@ export function BookingCalendar({ title, subtitle, month, bookings, cleanings, s
                         key={`b-${b.id}`}
                         booking={b}
                         selected={selectedId?.type === 'booking' && selectedId.id === b.id}
+                        dimmed={!!selectedId && !(selectedId.type === 'booking' && selectedId.id === b.id)}
                         onSelect={() => onSelect?.('booking', b.id)}
                         isCheckinDay={it.isCheckinDay}
                         isCheckoutDay={it.isCheckoutDay}
@@ -1539,6 +1540,7 @@ export function BookingCalendar({ title, subtitle, month, bookings, cleanings, s
                       key={`c-${c.id}`}
                       cleaning={c}
                       selected={selectedId?.type === 'cleaning' && selectedId.id === c.id}
+                      dimmed={!!selectedId && !(selectedId.type === 'cleaning' && selectedId.id === c.id)}
                       onSelect={() => onSelect?.('cleaning', c.id)}
                     />
                   )
@@ -1690,13 +1692,19 @@ function CompactCalendar({ month, cells, dayItems, todayDay, selectedId, onSelec
 type CalendarBookingBarProps = {
   booking: any
   selected: boolean
+  dimmed?: boolean
   onSelect: () => any
   isCheckinDay: any
   isCheckoutDay: any
   isCancelled: any
 }
 
-function CalendarBookingBar({ booking, selected, onSelect, isCheckinDay, isCheckoutDay, isCancelled }: CalendarBookingBarProps) {
+// While something is picked, it gets a ring in the text colour (black in light
+// mode, white in dark) and everything else on the calendar fades back.
+const CAL_SELECTED_RING = 'relative z-10 ring-2 ring-offset-1 ring-offset-card ring-foreground'
+const CAL_DIMMED_OPACITY = 0.3
+
+function CalendarBookingBar({ booking, selected, dimmed = false, onSelect, isCheckinDay, isCheckoutDay, isCancelled }: CalendarBookingBarProps) {
   const { cursor, onMove, onLeave } = useCursorTooltip()
   const bookerComm = Number(booking.booker_commission || 0)
   const affiliateComm = Number(booking.affiliate_commission || 0)
@@ -1710,11 +1718,11 @@ function CalendarBookingBar({ booking, selected, onSelect, isCheckinDay, isCheck
         onMouseMove={onMove}
         onMouseLeave={onLeave}
         initial={{ opacity: 0, x: -4 }}
-        animate={{ opacity: 1, x: 0 }}
+        animate={{ opacity: dimmed ? CAL_DIMMED_OPACITY : isCancelled ? 0.75 : 1, x: 0 }}
         transition={{ duration: 0.2 }}
         className={cn(
           'w-full text-left px-1.5 py-0.5 rounded text-[10px] font-semibold truncate cursor-pointer transition-all',
-          selected && 'ring-2 ring-offset-1 ring-offset-card ring-white',
+          selected && CAL_SELECTED_RING,
           (isDepartureOnly || isCancelled) && 'italic',
           isCancelled && 'line-through',
         )}
@@ -1722,7 +1730,6 @@ function CalendarBookingBar({ booking, selected, onSelect, isCheckinDay, isCheck
           backgroundColor: isCancelled ? CANCELLED_COLOR : isDepartureOnly ? 'color-mix(in srgb, var(--brand-solid) 50%, transparent)' : BRAND,
           color: 'white',
           borderLeft: isDepartureOnly ? '2px dashed rgba(255,255,255,0.85)' : undefined,
-          opacity: isCancelled ? 0.75 : 1,
         }}
         title={
           isCancelled
@@ -1779,10 +1786,11 @@ function CalendarBookingBar({ booking, selected, onSelect, isCheckinDay, isCheck
 type CalendarCleaningChipProps = {
   cleaning: any
   selected: boolean
+  dimmed?: boolean
   onSelect: () => any
 }
 
-function CalendarCleaningChip({ cleaning, selected, onSelect }: CalendarCleaningChipProps) {
+function CalendarCleaningChip({ cleaning, selected, dimmed = false, onSelect }: CalendarCleaningChipProps) {
   const { cursor, onMove, onLeave } = useCursorTooltip()
   const housekeeper = Number(cleaning.payment_amount || 0)
   const laundry = Number(cleaning.laundry_payment_amount || 0)
@@ -1796,11 +1804,11 @@ function CalendarCleaningChip({ cleaning, selected, onSelect }: CalendarCleaning
         onMouseMove={onMove}
         onMouseLeave={onLeave}
         initial={{ opacity: 0, x: -4 }}
-        animate={{ opacity: 1, x: 0 }}
+        animate={{ opacity: dimmed ? CAL_DIMMED_OPACITY : 1, x: 0 }}
         transition={{ duration: 0.2 }}
         className={cn(
           'w-full text-left px-1.5 py-0.5 rounded text-[10px] font-semibold text-white truncate italic cursor-pointer',
-          selected && 'ring-2 ring-offset-1 ring-offset-card ring-white',
+          selected && CAL_SELECTED_RING,
         )}
         style={{ backgroundColor: CLEAN_COLOR }}
         title={`Cleaning · ${CLEANING_WINDOW.label}`}
@@ -2961,6 +2969,16 @@ function monthKeyFromDate(iso) {
   return s.slice(0, 7)
 }
 
+// Codes match without their dashes and spaces, so "ir 1234" finds "IR-1234";
+// names match as typed.
+function matchesListSearch(query, codes, names) {
+  const q = query.trim().toLowerCase()
+  if (!q) return true
+  const qCode = q.replace(/[^a-z0-9]/g, '')
+  if (qCode && codes.some((c) => c && String(c).toLowerCase().replace(/[^a-z0-9]/g, '').includes(qCode))) return true
+  return names.some((n) => n && String(n).toLowerCase().includes(q))
+}
+
 type ActivityRowShellProps = {
   barColor: string
   isSelected: any
@@ -3138,6 +3156,14 @@ function CloseButton({ onClick, label = 'Close' }: CloseButtonProps) {
   )
 }
 
+function ClearSearchButton({ onClick }: { onClick: () => void }) {
+  return (
+    <button type="button" onClick={onClick} className="mt-2 text-[11px] font-semibold text-foreground underline underline-offset-2 hover:no-underline">
+      Clear search
+    </button>
+  )
+}
+
 const FOCUS_MOTION = {
   initial: { opacity: 0, y: 8 },
   animate: { opacity: 1, y: 0 },
@@ -3172,12 +3198,23 @@ function MonthlySection({
   const statement = statements.find((s) => s.month === selectedMonth) || null
   const [selectedCalendarId, setSelectedCalendarId] = useState(null)
   const [listTab, setListTab] = useState('bookings')
+  const [listSearch, setListSearch] = useState('')
   const calendarRef = useRef(null)
+  // Set when picking a row moves to another month, so that move keeps the pick.
+  const keepFocusRef = useRef(false)
 
   useEffect(() => {
+    if (keepFocusRef.current) {
+      keepFocusRef.current = false
+      return
+    }
     setSelectedCalendarId(null)
     setListTab('bookings')
   }, [contract.id, selectedMonth])
+
+  useEffect(() => {
+    setListSearch('')
+  }, [contract.id])
 
   const monthOccupancy = useMemo(() => {
     if (!statement) return null
@@ -3245,6 +3282,18 @@ function MonthlySection({
     })
   }, [allCleanings])
 
+  const shownBookings = useMemo(
+    () => allBookingsSorted.filter((b) => matchesListSearch(listSearch, [b.booking_code], [b.guest_name])),
+    [allBookingsSorted, listSearch],
+  )
+
+  // A booking code also finds the cleanings done after that stay.
+  const shownCleanings = useMemo(
+    () => allCleaningsSorted.filter((c) =>
+      matchesListSearch(listSearch, [c.cleaning_code, c.bookings?.booking_code], [c.bookings?.guest_name])),
+    [allCleaningsSorted, listSearch],
+  )
+
   const focusBooking = useCallback((booking) => {
     if (!booking?.id) return
     const isSame = selectedCalendarId?.type === 'booking' && selectedCalendarId.id === booking.id
@@ -3255,7 +3304,10 @@ function MonthlySection({
     }
     const mk = monthKeyFromDate(booking.check_in)
     const monthChanged = mk && mk !== selectedMonth
-    if (monthChanged) onSelectMonth(mk)
+    if (monthChanged) {
+      keepFocusRef.current = true
+      onSelectMonth(mk)
+    }
     setSelectedCalendarId({ type: 'booking', id: booking.id })
 
     if (monthChanged) {
@@ -3277,7 +3329,10 @@ function MonthlySection({
     }
     const mk = monthKeyFromDate(cleaning.scheduled_date)
     const monthChanged = mk && mk !== selectedMonth
-    if (monthChanged) onSelectMonth(mk)
+    if (monthChanged) {
+      keepFocusRef.current = true
+      onSelectMonth(mk)
+    }
     setSelectedCalendarId({ type: 'cleaning', id: cleaning.id })
 
     if (monthChanged) {
@@ -3406,23 +3461,63 @@ function MonthlySection({
 
             <Panel>
               <PanelHeader icon={CalendarRange} title="Bookings and cleanings" subtitle="Everything on this unit · click one to find it" />
-              <div className="px-5 py-3 border-b border-border">
+              <div className="px-5 py-3 border-b border-border space-y-2">
                 <StatusTabs
                   tabs={[{ id: 'bookings', label: 'Bookings' }, { id: 'cleanings', label: 'Cleanings' }]}
                   value={listTab}
                   onChange={setListTab}
-                  counts={{ bookings: allBookingsSorted.length, cleanings: allCleaningsSorted.length }}
+                  counts={{ bookings: shownBookings.length, cleanings: shownCleanings.length }}
                   label="Show bookings or cleanings"
                   fill
                 />
+                <div className="relative">
+                  <Search size={13} className="absolute left-3 top-1/2 -translate-y-1/2 text-foreground pointer-events-none" />
+                  <Input
+                    type="search"
+                    aria-label="Search bookings and cleanings"
+                    placeholder={listTab === 'bookings' ? 'Search booking code or guest…' : 'Search cleaning or booking code…'}
+                    value={listSearch}
+                    onChange={(e) => setListSearch(e.target.value)}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Escape' && listSearch) {
+                        e.stopPropagation()
+                        setListSearch('')
+                      } else if (e.key === 'Enter') {
+                        // Enter opens the top match, the same as clicking it.
+                        const isBookings = listTab === 'bookings'
+                        const first = isBookings ? shownBookings[0] : shownCleanings[0]
+                        const type = isBookings ? 'booking' : 'cleaning'
+                        if (!first || (selectedCalendarId?.type === type && selectedCalendarId.id === first.id)) return
+                        if (isBookings) focusBooking(first)
+                        else focusCleaning(first)
+                      }
+                    }}
+                    className="pl-9 pr-9 h-9 text-xs rounded-md [&::-webkit-search-cancel-button]:hidden"
+                  />
+                  {listSearch && (
+                    <button
+                      type="button"
+                      onClick={() => setListSearch('')}
+                      aria-label="Clear search"
+                      title="Clear search"
+                      className="absolute right-1.5 top-1/2 -translate-y-1/2 p-1.5 rounded-md text-foreground hover:bg-muted/60"
+                    >
+                      <X size={13} />
+                    </button>
+                  )}
+                </div>
               </div>
               <div className="relative flex-1 min-h-[320px]">
                 <div className="max-h-[520px] lg:max-h-none lg:absolute lg:inset-0 overflow-y-auto flex flex-col">
                   {listTab === 'bookings' ? (
                     allBookingsSorted.length === 0 ? (
                       <EmptyState icon={Calendar} title="No bookings yet" hint="Bookings on this unit show here." />
+                    ) : shownBookings.length === 0 ? (
+                      <EmptyState icon={Search} title="No bookings match" hint={`Nothing on this unit matches "${listSearch.trim()}".`}>
+                        <ClearSearchButton onClick={() => setListSearch('')} />
+                      </EmptyState>
                     ) : (
-                      allBookingsSorted.map((b) => (
+                      shownBookings.map((b) => (
                         <AccountingBookingRow
                           key={b.id}
                           booking={b}
@@ -3433,8 +3528,12 @@ function MonthlySection({
                     )
                   ) : allCleaningsSorted.length === 0 ? (
                     <EmptyState icon={Sparkles} title="No cleanings yet" hint="Cleanings on this unit show here." />
+                  ) : shownCleanings.length === 0 ? (
+                    <EmptyState icon={Search} title="No cleanings match" hint={`Nothing on this unit matches "${listSearch.trim()}".`}>
+                      <ClearSearchButton onClick={() => setListSearch('')} />
+                    </EmptyState>
                   ) : (
-                    allCleaningsSorted.map((c) => (
+                    shownCleanings.map((c) => (
                       <AccountingCleaningRow
                         key={c.id}
                         cleaning={c}
