@@ -3,12 +3,22 @@
 // Someone in the CRM confirms the check-out ("Guest checked out"); that
 // moment starts the cleaning. A guest may also have a late check-out on
 // their last day (bookings.late_checkout_at). The database enforces the
-// limits (see 20261015000001_checkout_confirmation.sql); this mirrors them
-// for the screens. Times are local to the browser (Manila).
+// limits (see 20261015000001_checkout_confirmation.sql and
+// 20261017000000_late_checkout_turnover.sql); this mirrors them for the
+// screens. Times are local to the browser (Manila).
 import { supabase } from './supabase'
 import { STAY_TIMES } from './utils'
 
 type StayTime = { hour: number; minute: number }
+
+/**
+ * The latest check-out on a day another guest checks in (at 3 PM): leaves
+ * housekeeping two hours to clean.
+ */
+export const TURNOVER_CHECKOUT = { hour: 13, minute: 0, label: '1:00 PM' }
+
+// Cancelled and deleted bookings don't hold their dates.
+const holdsDates = (b) => !b?.deleted_at && !b?.cancelled_at
 
 /** A stay day (YYYY-MM-DD) at a stay time, or null. */
 export function stayMoment(day, time: StayTime): Date | null {
@@ -60,23 +70,44 @@ export function hasGuestLeft(booking, now = Date.now()) {
   return guestState(booking, now).kind === 'left'
 }
 
-/** The booking checking in to the same unit on this booking's check-out day, if any. */
-export function sameDayArrival(booking, bookings: any[]) {
-  if (!booking?.check_out || !booking?.unit_id) return null
-  const day = String(booking.check_out).slice(0, 10)
+/** The other booking checking in to this booking's unit on `day`, if any. */
+export function arrivalOn(booking, day, bookings: any[]) {
+  if (!day || !booking?.unit_id) return null
+  const d = String(day).slice(0, 10)
   return bookings.find((b) =>
-    b.id !== booking.id && !b.deleted_at && b.unit_id === booking.unit_id && String(b.check_in).slice(0, 10) === day,
+    b.id !== booking.id && holdsDates(b) && b.unit_id === booking.unit_id && String(b.check_in).slice(0, 10) === d,
   ) || null
 }
 
+/** The booking checking in to the same unit on this booking's check-out day, if any. */
+export function sameDayArrival(booking, bookings: any[]) {
+  return arrivalOn(booking, booking?.check_out, bookings)
+}
+
 /**
- * The latest a late check-out can be: the next guest's check-in if one
- * arrives that day, otherwise the end of the check-out day.
+ * The latest a late check-out on `day` (the booking's check-out day unless
+ * given) can be: 1 PM if another guest checks in that day, otherwise the
+ * end of the day.
  */
-export function latestCheckout(booking, bookings: any[]): Date | null {
-  const next = sameDayArrival(booking, bookings)
-  if (next) return stayMoment(next.check_in, STAY_TIMES.checkIn)
-  return stayMoment(booking?.check_out, { hour: 23, minute: 59 })
+export function latestCheckout(booking, bookings: any[], day = booking?.check_out): Date | null {
+  const next = arrivalOn(booking, day, bookings)
+  return stayMoment(day, next ? TURNOVER_CHECKOUT : { hour: 23, minute: 59 })
+}
+
+/**
+ * The next booking in this unit once this stay ends. Its check-in day is
+ * the furthest the stay can be extended to.
+ */
+export function nextBookingAfter(booking, bookings: any[]) {
+  if (!booking?.check_out || !booking?.unit_id) return null
+  const out = String(booking.check_out).slice(0, 10)
+  let next = null
+  for (const b of bookings) {
+    if (b.id === booking.id || !holdsDates(b) || b.unit_id !== booking.unit_id) continue
+    const day = String(b.check_in || '').slice(0, 10)
+    if (day && day >= out && (!next || day < String(next.check_in).slice(0, 10))) next = b
+  }
+  return next
 }
 
 /** "Guest checked out" (or undo it). The server records when and who. */

@@ -43,7 +43,7 @@ import { Panel, PanelHeader, InitialsAvatar } from '@/components/admin/_shared/P
 import { QueueColumn, QueueRow, RowAction, WithDot, useNow, formatSpan, formatClock } from '@/components/admin/_shared/WorkQueue'
 import {
   stayMoment, checkoutDue, guestState, hasGuestLeft, sameDayArrival, latestCheckout,
-  confirmCheckout, setLateCheckout,
+  arrivalOn, nextBookingAfter, TURNOVER_CHECKOUT, confirmCheckout, setLateCheckout,
 } from '@/lib/stay'
 import { StatStrip, StatTile } from '@/components/admin/_shared/StatStrip'
 import { StatusTabs } from '@/components/admin/_shared/StatusTabs'
@@ -1315,7 +1315,7 @@ function CheckoutSection({ booking, nextArrival, editable, onConfirm, onLate }: 
           <div className="flex items-baseline gap-2 py-0.5">
             <span className={label}>Next guest</span>
             <span className="text-xs text-foreground">
-              <Code value={nextArrival.booking_code} label="Booking code" /> checks in at {formatClock(STAY_TIMES.checkIn.hour, STAY_TIMES.checkIn.minute)} that day
+              <Code value={nextArrival.booking_code} label="Booking code" /> checks in at {formatClock(STAY_TIMES.checkIn.hour, STAY_TIMES.checkIn.minute)} that day, so a late check-out ends by {TURNOVER_CHECKOUT.label}
             </span>
           </div>
         )}
@@ -2559,16 +2559,118 @@ function AddPaymentModal({ open, onClose, booking, onSaved }: AddPaymentModalPro
   )
 }
 
+type ExtendMode = 'hours' | 'nights'
+
+const EXTEND_MODES = [
+  { id: 'hours', label: 'More hours', icon: AlarmClockPlus },
+  { id: 'nights', label: 'More nights', icon: BedDouble },
+]
+
+// Quick picks for a late check-out (each switched off past the limit).
+const LATE_CHECKOUT_PICKS = [12, 13, 14, 15, 16, 18]
+
+function hhmm(d: Date | null) {
+  return d ? `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}` : ''
+}
+
+/** A stay day at an "HH:MM" time, or null. */
+function momentAt(day, time) {
+  const [h, m] = String(time || '').split(':').map(Number)
+  return day && time && Number.isFinite(h) ? stayMoment(day, { hour: h, minute: m || 0 }) : null
+}
+
+type LateTimePickerProps = {
+  day: string
+  value: string
+  onChange: (value: string) => void
+  latest: Date | null
+  arrival: any
+  openHint: ReactNode
+}
+
+// A time past 11 AM on the guest's last day: until 1 PM when another guest
+// checks in that day, otherwise any time until midnight.
+function LateTimePicker({ day, value, onChange, latest, arrival, openHint }: LateTimePickerProps) {
+  const picked = momentAt(day, value)
+  const usual = stayMoment(day, STAY_TIMES.checkOut)
+  const tooEarly = !!picked && !!usual && picked <= usual
+  const tooLate = !!picked && !!latest && picked > latest
+  const arrivalAt = arrival ? stayMoment(day, STAY_TIMES.checkIn) : null
+  const arrivalCode = arrival ? <Code value={arrival.booking_code} label="Booking code" /> : null
+
+  let hint: ReactNode
+  if (tooEarly) hint = `Pick a time after ${STAY_TIMES.checkOut.label}.`
+  else if (tooLate) hint = <>Too late: {arrivalCode} checks in at {STAY_TIMES.checkIn.label}, so the guest has to be out by {TURNOVER_CHECKOUT.label}.</>
+  else if (arrival && picked && arrivalAt) hint = <>Leaves {formatSpan(arrivalAt.getTime() - picked.getTime())} to clean before {arrivalCode} checks in at {STAY_TIMES.checkIn.label}.</>
+  else if (arrival) hint = <>Until {TURNOVER_CHECKOUT.label} at the latest: {arrivalCode} checks in at {STAY_TIMES.checkIn.label} that day.</>
+  else hint = openHint
+
+  return (
+    <div>
+      <div className="flex flex-wrap gap-1.5">
+        {LATE_CHECKOUT_PICKS.map((hour) => {
+          const at = stayMoment(day, { hour, minute: 0 })
+          const allowed = !!at && (!latest || at <= latest)
+          const pick = `${String(hour).padStart(2, '0')}:00`
+          const on = value === pick
+          return (
+            <button
+              key={hour}
+              type="button"
+              disabled={!allowed}
+              aria-pressed={on}
+              onClick={() => onChange(pick)}
+              title={allowed ? undefined : `${arrival?.booking_code || 'The next guest'} checks in at ${STAY_TIMES.checkIn.label}: out by ${TURNOVER_CHECKOUT.label}`}
+              className={cn(
+                'h-8 px-2.5 rounded-md border text-[12px] font-semibold tabular-nums transition-colors disabled:opacity-40 disabled:cursor-not-allowed',
+                on ? 'border-brand-solid bg-brand-solid text-white' : 'border-border text-foreground hover:border-brand/40 hover:bg-brand/[0.05]',
+              )}
+            >
+              {formatClock(hour)}
+            </button>
+          )
+        })}
+        <Input
+          type="time"
+          value={value}
+          onChange={(e) => onChange(e.target.value)}
+          min="11:01"
+          max={arrival && latest ? hhmm(latest) : undefined}
+          aria-label="Other time"
+          className={cn('h-8 w-[118px] text-xs rounded', value && !LATE_CHECKOUT_PICKS.some((hr) => `${String(hr).padStart(2, '0')}:00` === value) && 'border-brand-solid')}
+        />
+      </div>
+      <p className={cn('text-[11px] mt-1.5', tooEarly || tooLate ? 'text-red-600 dark:text-red-400 font-semibold' : 'text-foreground')}>
+        {hint}
+      </p>
+    </div>
+  )
+}
+
 type ExtendStayModalProps = {
   open: boolean
   onClose: () => void
   booking: any
-  onSaved: (signal?: any) => Promise<void>
+  bookings: any[]
+  mode?: ExtendMode
+  onSaved: (signal?: any) => Promise<void> | void
   contracts: any
 }
 
-function ExtendStayModal({ open, onClose, booking, onSaved, contracts }: ExtendStayModalProps) {
+// Extending a stay, either way:
+//   More hours  - a late check-out on the current last day
+//   More nights - a later check-out day, with or without a late check-out on it
+// A late check-out runs until 1 PM when another guest checks in that day
+// (housekeeping gets two hours before their 3 PM check-in), otherwise any time
+// that day. Nights can be added up to the next guest's check-in day or the
+// contract's end, whichever comes first. The database holds to the same
+// limits. The booker sets the new total for what's added.
+function ExtendStayModal({ open, onClose, booking, bookings, mode: startMode, onSaved, contracts }: ExtendStayModalProps) {
+  const [mode, setMode] = useState<ExtendMode>('hours')
+  const [hoursTime, setHoursTime] = useState('')
   const [newCheckOut, setNewCheckOut] = useState('')
+  const [lateOnLastDay, setLateOnLastDay] = useState(false)
+  const [nightsTime, setNightsTime] = useState('')
   const [newTotal, setNewTotal] = useState('')
   const [addPayment, setAddPayment] = useState(false)
   const [payAmount, setPayAmount] = useState('')
@@ -2579,25 +2681,18 @@ function ExtendStayModal({ open, onClose, booking, onSaved, contracts }: ExtendS
 
   useEffect(() => {
     if (open && booking) {
-      setNewCheckOut(booking.check_out || '')
-      setNewTotal(booking.total_amount || '')
+      const out = String(booking.check_out || '').slice(0, 10)
+      setMode(startMode || (out === todayISO() ? 'hours' : 'nights'))
+      setHoursTime(booking.late_checkout_at ? hhmm(new Date(booking.late_checkout_at)) : '')
+      setNewCheckOut(out ? isoAddDays(out, 1) : '')
+      setLateOnLastDay(false)
+      setNightsTime('')
+      setNewTotal(booking.total_amount != null ? String(booking.total_amount) : '')
       setAddPayment(false)
       setPayAmount(''); setPayMethod(''); setPayReference('')
-      setPayDate(new Date().toISOString().slice(0, 10))
+      setPayDate(todayISO())
     }
-  }, [open, booking])
-
-  useEffect(() => {
-    if (!open) return
-    const prevOverflow = document.body.style.overflow
-    document.body.style.overflow = 'hidden'
-    const onKey = (e) => { if (e.key === 'Escape') onClose?.() }
-    window.addEventListener('keydown', onKey)
-    return () => {
-      document.body.style.overflow = prevOverflow
-      window.removeEventListener('keydown', onKey)
-    }
-  }, [open, onClose])
+  }, [open, booking, startMode])
 
   const governingContract = useMemo(() => {
     if (!booking) return null
@@ -2607,152 +2702,293 @@ function ExtendStayModal({ open, onClose, booking, onSaved, contracts }: ExtendS
     return findGoverningContract(unit, contracts || [])
   }, [booking, contracts])
 
+  const next = useMemo(() => (booking ? nextBookingAfter(booking, bookings || []) : null), [booking, bookings])
+
   if (!open || !booking) return null
 
-  const labelClass = 'text-[10px] uppercase tracking-wider text-foreground font-semibold mb-1 block'
+  const all = bookings || []
+  const out = String(booking.check_out).slice(0, 10)
+  const lateNow = booking.late_checkout_at ? new Date(booking.late_checkout_at) : null
+  const labelClass = 'text-[10px] uppercase tracking-wider text-foreground font-semibold mb-1.5 block'
+  const nextCode = next ? <Code value={next.booking_code} label="Booking code" /> : null
+
+  // More hours: on the current last day.
+  const hoursArrival = arrivalOn(booking, out, all)
+  const hoursLatest = latestCheckout(booking, all, out)
+  const hoursPicked = momentAt(out, hoursTime)
+  const hoursBad = !hoursPicked
+    || hoursPicked <= stayMoment(out, STAY_TIMES.checkOut)
+    || (!!hoursLatest && hoursPicked > hoursLatest)
+
+  // More nights: as far as the next guest's check-in day or the contract's end.
+  const nextIn = next ? String(next.check_in).slice(0, 10) : null
+  const contractEnd = governingContract?.expiry_date ? String(governingContract.expiry_date).slice(0, 10) : null
+  const maxCheckOut = [nextIn, contractEnd].filter(Boolean).sort()[0] || null
+  const limitIsBooking = !!nextIn && nextIn === maxCheckOut
+  const canAddNights = !!governingContract && (!maxCheckOut || maxCheckOut > out)
+  const nightsDay = sanitizeDateOnly(newCheckOut) || ''
+  const nightsAdded = nightsDay > out ? computeNights(out, nightsDay) : 0
+  const pastLimit = !!nightsDay && !!maxCheckOut && nightsDay > maxCheckOut
+  const nightsArrival = nightsDay ? arrivalOn(booking, nightsDay, all) : null
+  const nightsLatest = nightsDay ? latestCheckout(booking, all, nightsDay) : null
+  const nightsPicked = lateOnLastDay ? momentAt(nightsDay, nightsTime) : null
+  const nightsLateBad = lateOnLastDay && (!nightsPicked
+    || nightsPicked <= stayMoment(nightsDay, STAY_TIMES.checkOut)
+    || (!!nightsLatest && nightsPicked > nightsLatest))
+  const nightsOk = canAddNights && nightsAdded > 0 && !pastLimit && !nightsLateBad
+
+  let nightsHint: ReactNode
+  let nightsHintBad = false
+  if (!governingContract) {
+    nightsHint = 'No contract covers this unit, so nights can\'t be added.'
+    nightsHintBad = true
+  } else if (!canAddNights) {
+    nightsHint = limitIsBooking
+      ? <>{nextCode} checks in on {formatDateShort(nextIn)}, the day this guest leaves, so no nights can be added. More hours (until {TURNOVER_CHECKOUT.label}) still works.</>
+      : `The contract ends ${formatDate(contractEnd)}. Renew it to add nights.`
+    nightsHintBad = true
+  } else if (nightsDay && nightsDay <= out) {
+    nightsHint = 'Pick a day after the current check-out.'
+    nightsHintBad = true
+  } else if (pastLimit) {
+    nightsHint = limitIsBooking
+      ? <>Too far: {nextCode} checks in on {formatDateShort(nextIn)}. Pick that day or earlier.</>
+      : `Too far: the contract ends ${formatDate(contractEnd)}. Renew it first.`
+    nightsHintBad = true
+  } else {
+    const added = nightsAdded > 0
+      ? `${nightsAdded} more night${nightsAdded === 1 ? '' : 's'}, ${computeNights(booking.check_in, nightsDay)} in all. `
+      : ''
+    nightsHint = maxCheckOut
+      ? <>{added}As far as {formatDateShort(maxCheckOut)}{limitIsBooking ? <>: {nextCode} checks in that day.</> : ': the contract ends then.'}</>
+      : `${added}Nothing is booked after this stay.`
+  }
+
   const snapshotBookerRate = booking.booker_rate != null ? Number(booking.booker_rate) : (booking.booker_code ? SPECIALIST_FLAT_RATE : null)
   const bookerRateWasInferred = !!booking.booker_code && booking.booker_rate == null
   const snapshotAffiliateRate = booking.affiliate_rate != null ? Number(booking.affiliate_rate) : null
   const affiliateRateWasInferred = !!booking.affiliate_code && booking.affiliate_rate == null
   const previewTotal = Number(newTotal) || 0
-
   const previewBooker = booking.booker_code && snapshotBookerRate != null && !bookerRateWasInferred
     ? computeCommissionAtRate(previewTotal, snapshotBookerRate) : 0
   const previewAffiliate = booking.affiliate_code && snapshotAffiliateRate != null && !affiliateRateWasInferred
     ? computeCommissionAtRate(previewTotal, snapshotAffiliateRate) : 0
 
+  const ready = mode === 'hours' ? !hoursBad : nightsOk
+
   const save = async () => {
-    const newCheckOutClean = sanitizeDateOnly(newCheckOut)
-    if (!newCheckOutClean) { toast.error('Set a new check-out date'); return }
-
-    const oldCheckOut = parseDateOnly(booking.check_out)
-    const parsed = parseDateOnly(newCheckOutClean)
-    if (parsed <= oldCheckOut) { toast.error('New check-out must be after the current one'); return }
-
-    if (!governingContract) { toast.error('No contract covers this unit. Cannot extend.'); return }
-    if (governingContract.effective_date && newCheckOutClean < governingContract.effective_date) {
-      toast.error(`New check-out is before the contract start (${governingContract.effective_date}).`); return
-    }
-    if (governingContract.expiry_date && newCheckOutClean > governingContract.expiry_date) {
-      toast.error(`New check-out is after the contract ends (${governingContract.expiry_date}). Renew the contract first.`); return
-    }
-
-    const conflict = await findOverlappingBooking({
-      unitId: booking.unit_id,
-      checkIn: booking.check_in,
-      checkOut: newCheckOutClean,
-      excludeId: booking.id,
-    })
-    if (conflict) {
-      toast.error(`Extending would overlap with booking ${conflict.booking_code} (${conflict.check_in} → ${conflict.check_out}). Pick an earlier check-out.`)
-      return
-    }
-
     const total = sanitizeMoney(newTotal)
+    const totalChanged = total !== Number(booking.total_amount || 0)
+    const alreadyPaid = Number(booking.amount_paid || 0)
     if (total <= 0) { toast.error('Total amount must be greater than 0'); return }
-
-    const alreadyPaidBase = Number(booking.amount_paid || 0)
-    if (total < alreadyPaidBase) {
-      toast.error(`New total (${formatMoney(total)}) is less than already paid (${formatMoney(alreadyPaidBase)}).`)
+    if (total < alreadyPaid) {
+      toast.error(`New total (${formatMoney(total)}) is less than already paid (${formatMoney(alreadyPaid)}).`)
       return
     }
 
-    let payAmt = 0, payMethodClean = null, payRefClean = null, payDateClean = null
+    let payment = null
     if (addPayment) {
-      payAmt = sanitizeMoney(payAmount)
-      if (!payAmt || payAmt <= 0) { toast.error('Enter a valid extension payment amount'); return }
-      if (alreadyPaidBase + payAmt > total) {
-        toast.error(`Payment would overpay. Max extra: ${formatMoney(Math.max(0, total - alreadyPaidBase))}`)
+      const amount = sanitizeMoney(payAmount)
+      if (!amount || amount <= 0) { toast.error('Enter a valid extension payment amount'); return }
+      if (alreadyPaid + amount > total) {
+        toast.error(`Payment would overpay. Max extra: ${formatMoney(Math.max(0, total - alreadyPaid))}`)
         return
       }
-      payMethodClean = sanitizeText(payMethod, { max: 60 })
-      payRefClean = sanitizeText(payReference, { max: 100 })
-      payDateClean = sanitizeDateOnly(payDate) || new Date().toISOString().slice(0, 10)
+      payment = {
+        amount,
+        method: sanitizeText(payMethod, { max: 60 }) || '',
+        reference: sanitizeText(payReference, { max: 100 }) || '',
+        date: sanitizeDateOnly(payDate) || todayISO(),
+      }
     }
+
+    const patch: Record<string, any> = {}
+    if (mode === 'hours') {
+      if (hoursBad) { toast.error('Pick a check-out time the day allows'); return }
+      patch.late_checkout_at = hoursPicked.toISOString()
+    } else {
+      if (!nightsOk) { toast.error('Pick a check-out day the stay can reach'); return }
+      // Fresh from the database: someone may have booked the unit since this page loaded.
+      const conflict = await findOverlappingBooking({
+        unitId: booking.unit_id,
+        checkIn: booking.check_in,
+        checkOut: nightsDay,
+        excludeId: booking.id,
+      })
+      if (conflict) {
+        toast.error(`Extending would overlap with booking ${conflict.booking_code} (${conflict.check_in} → ${conflict.check_out}). Pick an earlier check-out.`)
+        return
+      }
+      patch.check_out = nightsDay
+      // Set in the same update, so it lands on the new last day; any late
+      // check-out on the old last day is dropped.
+      patch.late_checkout_at = nightsPicked ? nightsPicked.toISOString() : null
+    }
+    if (totalChanged) Object.assign(patch, { total_amount: total, ...commissionsForTotal(booking, total) })
+    if (payment) patch.transactions = [...(Array.isArray(booking.transactions) ? booking.transactions : []), payment]
 
     setSaving(true)
     try {
-      const tx = Array.isArray(booking.transactions) ? [...booking.transactions] : []
-      if (addPayment) tx.push({ amount: payAmt, method: payMethodClean || '', reference: payRefClean || '', date: payDateClean })
-
-      const patch = {
-        check_out: newCheckOutClean,
-        total_amount: total,
-        transactions: tx,
-        ...commissionsForTotal(booking, total),
-      }
       const { error } = await supabase.from('bookings').update(patch).eq('id', booking.id)
       if (error) throw error
 
-      logAudit('EXTEND_BOOKING', 'bookings', booking.id, {
-        booking_code: booking.booking_code,
-        old_check_out: booking.check_out,
-        new_check_out: newCheckOutClean,
-        old_total: booking.total_amount,
-        new_total: total,
-        added_payment: addPayment ? payAmt : 0,
-      }).catch(() => {})
+      const totalNote = totalChanged ? ` · total ${formatMoney(total)}` : ''
+      if (mode === 'hours') {
+        logAudit('LATE_CHECKOUT', 'bookings', booking.id, {
+          booking_code: booking.booking_code,
+          until: patch.late_checkout_at,
+          old_total: booking.total_amount,
+          new_total: total,
+          added_payment: payment?.amount || 0,
+        }).catch(() => {})
+        toast.success(`Late check-out until ${clockOf(hoursPicked)}${totalNote}`)
+      } else {
+        logAudit('EXTEND_BOOKING', 'bookings', booking.id, {
+          booking_code: booking.booking_code,
+          old_check_out: booking.check_out,
+          new_check_out: nightsDay,
+          late_checkout_until: patch.late_checkout_at,
+          old_total: booking.total_amount,
+          new_total: total,
+          added_payment: payment?.amount || 0,
+        }).catch(() => {})
 
-      const sync = await syncLinkedCleanings({
-        bookingId: booking.id,
-        newCheckIn: booking.check_in,
-        newCheckOut: newCheckOutClean,
-        bookingCode: booking.booking_code,
-      })
-
-      if (sync.updated > 0) toast.success(`Booking extended · ${sync.updated} cleaning${sync.updated === 1 ? '' : 's'} rescheduled`)
-      else toast.success('Booking extended')
-      if (sync.failed > 0) toast.error(`${sync.failed} cleaning${sync.failed === 1 ? '' : 's'} failed to reschedule — check Housekeeping`)
-
+        const sync = await syncLinkedCleanings({
+          bookingId: booking.id,
+          newCheckIn: booking.check_in,
+          newCheckOut: nightsDay,
+          bookingCode: booking.booking_code,
+        })
+        const stay = `Stay extended to ${formatDateShort(nightsDay)}${nightsPicked ? `, ${clockOf(nightsPicked)}` : ''}${totalNote}`
+        toast.success(sync.updated > 0 ? `${stay} · ${sync.updated} cleaning${sync.updated === 1 ? '' : 's'} moved` : stay)
+        if (sync.failed > 0) toast.error(`${sync.failed} cleaning${sync.failed === 1 ? '' : 's'} failed to reschedule — check Housekeeping`)
+      }
       onSaved()
       onClose()
     } catch (err) {
       console.error(err)
-      toast.error(err?.message || 'Failed to extend')
-    } finally { setSaving(false) }
+      toast.error(err?.message || 'Could not extend the stay')
+    } finally {
+      setSaving(false)
+    }
   }
 
-  const oldNights = computeNights(booking.check_in, booking.check_out)
-  const newNights = computeNights(booking.check_in, newCheckOut)
+  const removeLate = async () => {
+    setSaving(true)
+    try {
+      await setLateCheckout(booking.id, null)
+      logAudit('REMOVE_LATE_CHECKOUT', 'bookings', booking.id, { booking_code: booking.booking_code }).catch(() => {})
+      toast.success(`Check-out back to ${STAY_TIMES.checkOut.label}`)
+      onSaved()
+      onClose()
+    } catch (err) {
+      console.error(err)
+      toast.error(err?.message || 'Could not remove the late check-out')
+    } finally {
+      setSaving(false)
+    }
+  }
 
   return (
-    <ModalShell open={open} onClose={onClose} title="Extend Stay" titleId="extend-stay-title">
-      <div className="p-5 space-y-3 max-h-[70vh] overflow-y-auto">
-        <div className="grid grid-cols-2 gap-2 text-xs bg-card border border-border rounded p-3">
-          <div><div className="text-foreground">Current check-out</div><div className="font-semibold text-foreground">{formatDate(booking.check_out)}</div></div>
-          <div><div className="text-foreground">Current nights</div><div className="font-semibold tabular-nums text-foreground">{oldNights}</div></div>
+    <ModalShell open={open} onClose={onClose} title="Extend stay" titleId="extend-stay-title">
+      <div className="p-5 space-y-4 max-h-[70vh] overflow-y-auto">
+        <div className="rounded-md border border-border p-3 text-xs space-y-1">
+          <div className="flex justify-between gap-3">
+            <span className="text-foreground">Guest</span>
+            <span className="font-semibold text-foreground inline-flex items-center gap-1 min-w-0"><span className="truncate">{booking.guest_name} ·</span> <Code value={booking.units?.unit_code} label="Unit code" /></span>
+          </div>
+          <div className="flex justify-between gap-3">
+            <span className="text-foreground">Check-out now</span>
+            <span className="font-semibold text-foreground tabular-nums text-right">
+              {formatDate(out)} · {lateNow ? `${clockOf(lateNow)} (late)` : STAY_TIMES.checkOut.label}
+            </span>
+          </div>
+          <div className="flex justify-between gap-3">
+            <span className="text-foreground">Next booking</span>
+            <span className="font-semibold text-foreground text-right">
+              {next ? <>{nextCode} checks in {formatDateShort(nextIn)}</> : 'None after this stay'}
+            </span>
+          </div>
         </div>
+
+        <StatusTabs tabs={EXTEND_MODES} value={mode} onChange={setMode} label="How to extend the stay" fill />
+
+        {mode === 'hours' ? (
+          <div>
+            <span className={labelClass}>Leaves {formatDateShort(out)} at</span>
+            <LateTimePicker
+              day={out}
+              value={hoursTime}
+              onChange={setHoursTime}
+              latest={hoursLatest}
+              arrival={hoursArrival}
+              openHint="Nobody checks in that day, so any time until midnight. To stay the night, use More nights."
+            />
+          </div>
+        ) : (
+          <>
+            <div>
+              <label htmlFor="extend-checkout" className={labelClass}>New check-out day</label>
+              <Input
+                id="extend-checkout"
+                type="date"
+                value={newCheckOut}
+                onChange={(e) => setNewCheckOut(e.target.value)}
+                min={isoAddDays(out, 1)}
+                max={maxCheckOut || undefined}
+                disabled={!canAddNights}
+                className="h-8 text-xs rounded"
+              />
+              <p className={cn('text-[11px] mt-1.5', nightsHintBad ? 'text-red-600 dark:text-red-400 font-semibold' : 'text-foreground')}>
+                {nightsHint}
+              </p>
+            </div>
+
+            {canAddNights && nightsAdded > 0 && !pastLimit && (
+              <div className="space-y-2">
+                <label className="flex items-center gap-2 text-xs text-foreground">
+                  <input type="checkbox" checked={lateOnLastDay} onChange={(e) => setLateOnLastDay(e.target.checked)} className="rounded border-border" />
+                  Also stay past {STAY_TIMES.checkOut.label} on {formatDateShort(nightsDay)}
+                </label>
+                {lateOnLastDay && (
+                  <LateTimePicker
+                    day={nightsDay}
+                    value={nightsTime}
+                    onChange={setNightsTime}
+                    latest={nightsLatest}
+                    arrival={nightsArrival}
+                    openHint="Nobody checks in that day, so any time until midnight."
+                  />
+                )}
+              </div>
+            )}
+
+            {lateNow && nightsAdded > 0 && (
+              <p className="text-[11px] text-foreground">
+                The late check-out on {formatDateShort(out)} ({clockOf(lateNow)}) is dropped: the stay now ends on {formatDateShort(nightsDay)}.
+              </p>
+            )}
+          </>
+        )}
 
         {bookerRateWasInferred && (
           <div className="rounded-md bg-amber-500/10 border border-amber-500/30 p-2.5 text-[11px] text-amber-700 dark:text-amber-400">
             <strong>Booker rate missing.</strong> Commission will <em>not</em> be recalculated.
           </div>
         )}
-
         {affiliateRateWasInferred && (
           <div className="rounded-md bg-amber-500/10 border border-amber-500/30 p-2.5 text-[11px] text-amber-700 dark:text-amber-400">
             <strong>Affiliate rate missing.</strong> Commission will <em>not</em> be recalculated.
           </div>
         )}
 
-        {governingContract && (
-          <p className="text-[10px] text-foreground">
-            Contract range: {governingContract.effective_date || '—'} → {governingContract.expiry_date || 'open-ended'}
+        <div>
+          <label htmlFor="extend-total" className={labelClass}>Booking total (₱)</label>
+          <Input id="extend-total" type="number" min={0} value={newTotal} onChange={(e) => setNewTotal(e.target.value)} className="h-8 text-xs rounded" />
+          <p className="text-[11px] text-foreground mt-1">
+            Was {formatMoney(booking.total_amount)}. Add what the guest pays for the extra {mode === 'hours' ? 'hours' : 'nights'}; commissions follow the new total.
           </p>
-        )}
-        <div>
-          <label className={labelClass}>New Check-out *</label>
-          <Input type="date" value={newCheckOut} onChange={(e) => setNewCheckOut(e.target.value)}
-            min={booking.check_out || governingContract?.effective_date || undefined}
-            max={governingContract?.expiry_date || undefined}
-            className="h-8 text-xs rounded" />
-          <p className="text-[10px] text-foreground mt-1">Before {STAY_TIMES.checkOut.label} · linked cleanings will move</p>
         </div>
-        <div>
-          <label className={labelClass}>New Total Amount (₱) *</label>
-          <Input type="number" min={0} value={newTotal} onChange={(e) => setNewTotal(e.target.value)} className="h-8 text-xs rounded" />
-        </div>
-        {newNights > oldNights && <p className="text-[10px] text-foreground">Extended by {newNights - oldNights} night{newNights - oldNights === 1 ? '' : 's'} · new total {newNights} night{newNights === 1 ? '' : 's'}</p>}
 
         {(booking.booker_code || booking.affiliate_code) && previewTotal > 0 && (
           <div className="rounded-md bg-card border border-border p-2.5 space-y-1">
@@ -2788,206 +3024,18 @@ function ExtendStayModal({ open, onClose, booking, onSaved, contracts }: ExtendS
           </div>
         )}
       </div>
-      <div className="flex items-center justify-end gap-2 px-5 py-3 border-t border-border bg-card">
-        <Button variant="outline" size="sm" className="h-8 rounded text-xs" onClick={onClose} disabled={saving}>Cancel</Button>
-        <Button size="sm" className="h-8 rounded text-xs" onClick={save} disabled={saving} style={{ backgroundColor: BRAND }}>
-          {saving ? <Loader2 size={12} className="mr-1.5 animate-spin" /> : <CalendarIcon size={12} className="mr-1.5" />}
-          {saving ? 'Saving...' : 'Extend Stay'}
-        </Button>
-      </div>
-    </ModalShell>
-  )
-}
-
-type LateCheckoutModalProps = {
-  open: boolean
-  onClose: () => void
-  booking: any
-  bookings: any[]
-  onSaved: () => void
-}
-
-// Quick picks for a late check-out (each switched off past the limit).
-const LATE_CHECKOUT_PICKS = [12, 13, 14, 15, 16, 18]
-
-function hhmm(d: Date | null) {
-  return d ? `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}` : ''
-}
-
-// The guest stays past 11 AM on their check-out day: as late as they like
-// unless another guest checks in that day (then until their 3 PM check-in at
-// the latest; the database holds to the same limit). The booker sets the new
-// total for the extra hours here too.
-function LateCheckoutModal({ open, onClose, booking, bookings, onSaved }: LateCheckoutModalProps) {
-  const [time, setTime] = useState('')
-  const [newTotal, setNewTotal] = useState('')
-  const [saving, setSaving] = useState(false)
-
-  useEffect(() => {
-    if (open && booking) {
-      setTime(booking.late_checkout_at ? hhmm(new Date(booking.late_checkout_at)) : '')
-      setNewTotal(booking.total_amount != null ? String(booking.total_amount) : '')
-    }
-  }, [open, booking])
-
-  if (!open || !booking) return null
-
-  const next = sameDayArrival(booking, bookings)
-  const latest = latestCheckout(booking, bookings)
-  const usual = stayMoment(booking.check_out, STAY_TIMES.checkOut)
-  const [h, m] = time.split(':').map(Number)
-  const picked = time && Number.isFinite(h) ? stayMoment(booking.check_out, { hour: h, minute: m || 0 }) : null
-  const tooEarly = !!picked && !!usual && picked <= usual
-  const tooLate = !!picked && !!latest && picked > latest
-  const cleaningGap = picked && next && latest ? latest.getTime() - picked.getTime() : null
-  const labelClass = 'text-[10px] uppercase tracking-wider text-foreground font-semibold mb-1.5 block'
-
-  const save = async () => {
-    if (!picked) { toast.error('Pick the new check-out time'); return }
-    if (tooEarly) { toast.error(`Pick a time after ${STAY_TIMES.checkOut.label}`); return }
-    if (tooLate) { toast.error(`${next?.booking_code || 'The next guest'} checks in at ${clockOf(latest)}. Pick that or earlier.`); return }
-
-    const total = sanitizeMoney(newTotal)
-    const totalChanged = total !== Number(booking.total_amount || 0)
-    if (totalChanged) {
-      if (total <= 0) { toast.error('Total amount must be greater than 0'); return }
-      if (total < Number(booking.amount_paid || 0)) {
-        toast.error(`New total (${formatMoney(total)}) is less than already paid (${formatMoney(booking.amount_paid)}).`)
-        return
-      }
-    }
-
-    setSaving(true)
-    try {
-      await setLateCheckout(booking.id, picked)
-      if (totalChanged) {
-        const { error } = await supabase
-          .from('bookings')
-          .update({ total_amount: total, ...commissionsForTotal(booking, total) })
-          .eq('id', booking.id)
-        if (error) throw error
-      }
-      logAudit('LATE_CHECKOUT', 'bookings', booking.id, {
-        booking_code: booking.booking_code,
-        until: picked.toISOString(),
-        old_total: booking.total_amount,
-        new_total: total,
-      }).catch(() => {})
-      toast.success(`Late check-out until ${clockOf(picked)}${totalChanged ? ` · total ${formatMoney(total)}` : ''}`)
-      onSaved()
-      onClose()
-    } catch (err) {
-      console.error(err)
-      toast.error(err?.message || 'Could not save the late check-out')
-    } finally {
-      setSaving(false)
-    }
-  }
-
-  const removeLate = async () => {
-    setSaving(true)
-    try {
-      await setLateCheckout(booking.id, null)
-      logAudit('REMOVE_LATE_CHECKOUT', 'bookings', booking.id, { booking_code: booking.booking_code }).catch(() => {})
-      toast.success(`Check-out back to ${STAY_TIMES.checkOut.label}`)
-      onSaved()
-      onClose()
-    } catch (err) {
-      console.error(err)
-      toast.error(err?.message || 'Could not remove the late check-out')
-    } finally {
-      setSaving(false)
-    }
-  }
-
-  return (
-    <ModalShell open={open} onClose={onClose} title="Late check-out" titleId="late-checkout-title">
-      <div className="p-5 space-y-4 max-h-[70vh] overflow-y-auto">
-        <div className="rounded-md border border-border p-3 text-xs space-y-1">
-          <div className="flex justify-between gap-3">
-            <span className="text-foreground">Guest</span>
-            <span className="font-semibold text-foreground inline-flex items-center gap-1 min-w-0"><span className="truncate">{booking.guest_name} ·</span> <Code value={booking.units?.unit_code} label="Unit code" /></span>
-          </div>
-          <div className="flex justify-between gap-3">
-            <span className="text-foreground">Usual check-out</span>
-            <span className="font-semibold text-foreground tabular-nums">{formatDate(booking.check_out)} · {STAY_TIMES.checkOut.label}</span>
-          </div>
-          <div className="flex justify-between gap-3">
-            <span className="text-foreground">Next guest</span>
-            <span className="font-semibold text-foreground text-right">
-              {next
-                ? <><Code value={next.booking_code} label="Booking code" /> at {formatClock(STAY_TIMES.checkIn.hour, STAY_TIMES.checkIn.minute)}</>
-                : 'Nobody that day'}
-            </span>
-          </div>
-        </div>
-
-        <div>
-          <span className={labelClass}>New check-out time</span>
-          <div className="flex flex-wrap gap-1.5">
-            {LATE_CHECKOUT_PICKS.map((hour) => {
-              const at = stayMoment(booking.check_out, { hour, minute: 0 })
-              const allowed = !!at && (!latest || at <= latest)
-              const value = `${String(hour).padStart(2, '0')}:00`
-              const on = time === value
-              return (
-                <button
-                  key={hour}
-                  type="button"
-                  disabled={!allowed}
-                  aria-pressed={on}
-                  onClick={() => setTime(value)}
-                  title={allowed ? undefined : `${next?.booking_code || 'The next guest'} checks in at ${clockOf(latest)}`}
-                  className={cn(
-                    'h-8 px-2.5 rounded-md border text-[12px] font-semibold tabular-nums transition-colors disabled:opacity-40 disabled:cursor-not-allowed',
-                    on ? 'border-brand-solid bg-brand-solid text-white' : 'border-border text-foreground hover:border-brand/40 hover:bg-brand/[0.05]',
-                  )}
-                >
-                  {formatClock(hour)}
-                </button>
-              )
-            })}
-            <Input
-              type="time"
-              value={time}
-              onChange={(e) => setTime(e.target.value)}
-              min="11:01"
-              max={next && latest ? hhmm(latest) : undefined}
-              aria-label="Other time"
-              className={cn('h-8 w-[118px] text-xs rounded', time && !LATE_CHECKOUT_PICKS.some((hr) => `${String(hr).padStart(2, '0')}:00` === time) && 'border-brand-solid')}
-            />
-          </div>
-          <p className={cn('text-[11px] mt-1.5', tooEarly || tooLate ? 'text-red-600 dark:text-red-400 font-semibold' : 'text-foreground')}>
-            {tooEarly
-              ? `Pick a time after ${STAY_TIMES.checkOut.label}.`
-              : tooLate
-                ? `Too late: ${next?.booking_code} checks in at ${clockOf(latest)}.`
-                : next
-                  ? cleaningGap != null
-                    ? `Leaves ${cleaningGap > 0 ? formatSpan(cleaningGap) : 'no time'} for cleaning before ${next.booking_code} arrives.`
-                    : `Until ${clockOf(latest)} at the latest: ${next.booking_code} checks in then.`
-                  : 'Any time that day. To stay another night, use Extend stay.'}
-          </p>
-        </div>
-
-        <div>
-          <label htmlFor="late-total" className={labelClass}>Booking total (₱)</label>
-          <Input id="late-total" type="number" min={0} value={newTotal} onChange={(e) => setNewTotal(e.target.value)} className="h-8 text-xs rounded" />
-          <p className="text-[11px] text-foreground mt-1">
-            Was {formatMoney(booking.total_amount)}. Add what the guest pays for the extra hours; commissions follow the new total.
-          </p>
-        </div>
-      </div>
       <div className="flex flex-wrap items-center gap-2 px-5 py-3 border-t border-border bg-card">
-        {booking.late_checkout_at && (
+        {mode === 'hours' && lateNow && (
           <Button variant="outline" size="sm" className="h-8 rounded text-xs mr-auto" onClick={removeLate} disabled={saving}>
             Back to {STAY_TIMES.checkOut.label}
           </Button>
         )}
         <Button variant="outline" size="sm" className="h-8 rounded text-xs ml-auto" onClick={onClose} disabled={saving}>Cancel</Button>
-        <Button size="sm" className="h-8 rounded text-xs text-white" onClick={save} disabled={saving || !picked || tooEarly || tooLate} style={{ backgroundColor: BRAND }}>
-          {saving ? <Loader2 size={12} className="mr-1.5 animate-spin" /> : <AlarmClockPlus size={12} className="mr-1.5" />}
-          {saving ? 'Saving…' : <>Save<span className="max-sm:hidden">&nbsp;late check-out</span></>}
+        <Button size="sm" className="h-8 rounded text-xs text-white" onClick={save} disabled={saving || !ready} style={{ backgroundColor: BRAND }}>
+          {saving
+            ? <Loader2 size={12} className="mr-1.5 animate-spin" />
+            : mode === 'hours' ? <AlarmClockPlus size={12} className="mr-1.5" /> : <BedDouble size={12} className="mr-1.5" />}
+          {saving ? 'Saving…' : mode === 'hours' ? <>Save<span className="max-sm:hidden">&nbsp;late check-out</span></> : 'Extend stay'}
         </Button>
       </div>
     </ModalShell>
@@ -3092,9 +3140,9 @@ export default function BookingsPage({ initialSelectedId }: BookingsPageProps) {
   const [formOpen, setFormOpen] = useState(false)
   const [editing, setEditing] = useState(null)
   const [payForBooking, setPayForBooking] = useState(null)
-  const [extendForBooking, setExtendForBooking] = useState(null)
+  // { booking, mode }: the Extend stay window, on More hours or More nights (or picked from the day).
+  const [extendFor, setExtendFor] = useState(null)
   const [completeForBooking, setCompleteForBooking] = useState(null)
-  const [lateForBooking, setLateForBooking] = useState(null)
   const [confirmForBooking, setConfirmForBooking] = useState(null)
 
   const hasLoadedOnce = useRef(false)
@@ -3370,7 +3418,7 @@ export default function BookingsPage({ initialSelectedId }: BookingsPageProps) {
             loading={isFirstLoad}
             onRowClick={handleTodayPanelRowClick}
             onConfirmCheckout={(b) => confirmCheckoutFor(b)}
-            onLateCheckout={setLateForBooking}
+            onLateCheckout={(b) => setExtendFor({ booking: b, mode: 'hours' })}
           />
         </div>
 
@@ -3463,14 +3511,14 @@ export default function BookingsPage({ initialSelectedId }: BookingsPageProps) {
             onBookingChange={() => {}}
             onClose={() => setSelectedId(null)}
             onAddPayment={() => setPayForBooking(selected)}
-            onExtend={() => setExtendForBooking(selected)}
+            onExtend={() => setExtendFor({ booking: selected })}
             onComplete={() => setCompleteForBooking(selected)}
             onEdit={() => openEdit(selected)}
             onDelete={() => handleDelete(selected)}
             onEmail={() => setConfirmForBooking(selected)}
             nextArrival={sameDayArrival(selected, bookings)}
             onConfirmCheckout={(confirmed) => confirmCheckoutFor(selected, confirmed)}
-            onLateCheckout={() => setLateForBooking(selected)}
+            onLateCheckout={() => setExtendFor({ booking: selected, mode: 'hours' })}
           />
         )}
       </AnimatePresence>
@@ -3489,8 +3537,15 @@ export default function BookingsPage({ initialSelectedId }: BookingsPageProps) {
       />
 
       <AddPaymentModal open={!!payForBooking} onClose={() => setPayForBooking(null)} booking={payForBooking} onSaved={fetchData} />
-      <ExtendStayModal open={!!extendForBooking} onClose={() => setExtendForBooking(null)} booking={extendForBooking} onSaved={fetchData} contracts={contracts} />
-      <LateCheckoutModal open={!!lateForBooking} onClose={() => setLateForBooking(null)} booking={lateForBooking} bookings={bookings} onSaved={fetchData} />
+      <ExtendStayModal
+        open={!!extendFor}
+        onClose={() => setExtendFor(null)}
+        booking={extendFor?.booking}
+        mode={extendFor?.mode}
+        bookings={bookings}
+        onSaved={fetchData}
+        contracts={contracts}
+      />
       <CompleteConfirmModal open={!!completeForBooking} onClose={() => setCompleteForBooking(null)} booking={completeForBooking} onConfirmed={fetchData} />
       <BookingConfirmationModal open={!!confirmForBooking} onClose={() => setConfirmForBooking(null)} booking={confirmForBooking} onSent={fetchData} />
     </div>

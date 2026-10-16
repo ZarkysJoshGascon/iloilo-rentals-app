@@ -82,11 +82,11 @@ exception when others then
   insert into t (test, ok, detail) values ('Refuse confirming a stay that hasn''t started (C)', true, sqlerrm);
 end $$;
 
--- Late check-out with the next guest arriving the same day: until 3 PM at most.
+-- Late check-out with the next guest arriving the same day: until 1 PM at most (20261017000000).
 insert into t (test, ok, detail)
-select 'A late until 2 PM (B arrives 3 PM)', late_checkout_at is not null,
+select 'A late until 1 PM (B arrives 3 PM)', late_checkout_at is not null,
        to_char(late_checkout_at at time zone 'Asia/Manila', 'FMHH12:MI AM') || ' by ' || late_checkout_by_name
-  from set_late_checkout((select a from ids), stay_moment((select today from ctx), time '14:00'));
+  from set_late_checkout((select a from ids), stay_moment((select today from ctx), time '13:00'));
 
 do $$ begin
   perform set_late_checkout((select a from ids), stay_moment((select today from ctx), time '16:00'));
@@ -123,10 +123,10 @@ exception when others then
   insert into t (test, ok, detail) values ('Refuse moving C''s check-in into B''s late check-out', true, sqlerrm);
 end $$;
 
-select set_late_checkout((select b from ids), stay_moment((select today from ctx) + 2, time '14:00'));
+select set_late_checkout((select b from ids), stay_moment((select today from ctx) + 2, time '13:00'));
 update bookings set check_in = (select today from ctx) + 2 where id = (select c from ids);
 insert into t (test, ok, detail)
-select 'Allow it once B''s late check-out ends at 2 PM', check_in = (select today from ctx) + 2, 'C now checks in ' || check_in
+select 'Allow it once B''s late check-out ends at 1 PM', check_in = (select today from ctx) + 2, 'C now checks in ' || check_in
   from bookings where id = (select c from ids);
 
 -- Changing the check-out date drops the late check-out and the confirmation.
