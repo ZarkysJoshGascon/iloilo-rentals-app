@@ -70,11 +70,16 @@ serve(async (req) => {
     const remoteIp = (req.headers.get('x-forwarded-for') || '').split(',')[0].trim() || null
     const ipHash = remoteIp ? await hashIp(remoteIp) : null
     if (ipHash) {
-      const { data: allowed } = await supabase.rpc('check_inquiry_rate_limit', {
+      const { data: allowed, error: limitError } = await supabase.rpc('check_inquiry_rate_limit', {
         p_ip_hash: ipHash,
         p_max: 5,
         p_window_minutes: 60,
       })
+      // If the count can't be checked, refuse rather than let it through.
+      if (limitError) {
+        console.error('rate limit check failed:', limitError)
+        return json({ error: 'Please try again in a moment.' }, 503)
+      }
       if (allowed === false) return json({ error: 'Too many messages. Please try again in an hour.' }, 429)
     }
 

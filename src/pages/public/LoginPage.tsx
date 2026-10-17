@@ -31,6 +31,10 @@ function safeRedirectTarget(raw) {
   if (raw.startsWith('//')) return null
   if (raw.includes('://')) return null
   if (raw.includes('\\')) return null
+  // Browsers drop tabs and line breaks from URLs, so "/<tab>/evil.example"
+  // would act as "//evil.example".
+  // eslint-disable-next-line no-control-regex
+  if (/[\u0000-\u001F\u007F]/.test(raw)) return null
   return raw
 }
 
