@@ -14,7 +14,7 @@ import App from './App'
 import { AuthProvider } from './context/AuthContext'
 import { UserRoleProvider } from './context/UserRoleContext'
 import ErrorBoundary from './components/common/ErrorBoundary'
-import './lib/scrollbar.css'
+import '@/styles/scrollbar.css'
 
 if ('scrollRestoration' in history) {
   history.scrollRestoration = 'manual'

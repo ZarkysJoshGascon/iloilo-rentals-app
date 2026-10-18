@@ -4,7 +4,7 @@
 // Supabase photo folders to be listed, and downloads every image the page
 // uses, lazy ones further down included, so nothing pops in afterwards.
 import { useEffect } from 'react'
-import { whenSitePhotosListed } from '@/lib/siteImages'
+import { whenSitePhotosListed } from '@/lib/api/siteImages'
 import { preloadImages } from '@/lib/preloadImages'
 
 const nextFrame = () => new Promise<void>((resolve) => requestAnimationFrame(() => resolve()))

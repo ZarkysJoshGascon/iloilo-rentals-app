@@ -1,0 +1,2945 @@
+// src/features/admin/team/TeamPage.tsx
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { motion, AnimatePresence } from 'framer-motion'
+import { createPortal } from 'react-dom'
+import {
+  Plus, Search, RefreshCw, X, Check, Loader2, Trash2,
+  UserPlus, Users, Award, Mail, Phone, Edit2, User,
+  Calendar, Building2,
+  AlertTriangle, Pencil, Wallet, FileText, Eye, Upload, ExternalLink,
+  Lock, ShieldCheck, MessageCircle,
+} from 'lucide-react'
+import toast from 'react-hot-toast'
+import { Button } from '@/components/ui/button'
+import { Input } from '@/components/ui/input'
+import { Skeleton } from '@/components/ui/skeleton'
+import { Textarea } from '@/components/ui/textarea'
+import { supabase } from '@/lib/supabase'
+import { logAudit } from '@/lib/api/auditLog'
+import { cn } from '@/lib/utils'
+import {
+  getTierInfo, SPECIALIST_FLAT_RATE,
+  fetchTeamCompletedCounts,
+} from '@/lib/domain/commissions'
+import {
+  STAFF_ROLES, roleMeta, searchProfiles, isEmailRegistered,
+  validateStaffEmail, createStaffMember, updateStaffMember,
+} from '@/lib/api/staff'
+import { StatusTabs } from '@/components/crm/StatusTabs'
+import CrmAccessPanel from './CrmAccessPanel'
+import MessengerUpdatesPanel from './MessengerUpdatesPanel'
+import { StatStrip, StatTile } from '@/components/crm/StatStrip'
+import { ResultsBar, SearchKeyHint, useListShortcuts } from '@/components/crm/listTools'
+import { Code } from '@/components/common/Code'
+import { cleanFields } from '@/lib/domain/clean'
+import { DatePicker } from '@/components/crm/DatePicker'
+import { revealOnMount } from '@/components/crm/useRevealOnOpen'
+
+const BRAND = 'var(--brand-solid)'
+const SOFT_SHADOW = '0 20px 40px -16px rgba(15,23,42,0.24), 0 6px 16px -6px rgba(15,23,42,0.10)'
+const PM_SHARE_OF_COMPANY_PCT = 35
+const PM_PDF_BUCKET = 'contract-pdfs'
+const PM_PDF_MAX_BYTES = 15 * 1024 * 1024
+const PM_PDF_ALLOWED = new Set(['application/pdf', 'image/jpeg', 'image/png', 'image/webp'])
+
+const TABS = [
+  { id: 'specialists',       label: 'Booking specialists', icon: UserPlus },
+  { id: 'affiliates',        label: 'Affiliates',          icon: Award },
+  { id: 'housekeepers',      label: 'Housekeepers',        icon: Users },
+  { id: 'property_managers', label: 'Property managers',   icon: Building2 },
+  // Not staff: who can open the CRM (and its backup sheet).
+  { id: 'crm_access',        label: 'CRM access',          icon: ShieldCheck },
+  // Not staff: who gets the 8am Messenger update.
+  { id: 'messenger',         label: 'Daily updates',       icon: MessageCircle },
+]
+
+// ============================================================
+// SHARED HELPERS
+// ============================================================
+function initials(name) {
+  if (!name) return '?'
+  return name.trim().split(/\s+/).slice(0, 2).map((p) => p[0]?.toUpperCase() || '').join('') || '?'
+}
+
+function formatDate(d) {
+  if (!d) return '—'
+  const dt = new Date(String(d).length === 10 ? d + 'T00:00:00Z' : d)
+  if (Number.isNaN(dt.getTime())) return '—'
+  return dt.toLocaleDateString('en-PH', { month: 'short', day: 'numeric', year: 'numeric' })
+}
+function formatDateShort(d) {
+  if (!d) return '—'
+  const dt = new Date(String(d).length === 10 ? d + 'T00:00:00Z' : d)
+  if (Number.isNaN(dt.getTime())) return '—'
+  return dt.toLocaleDateString('en-PH', { month: 'short', day: 'numeric', year: '2-digit' })
+}
+function formatMoney(n) {
+  const v = Number(n || 0)
+  return `₱${v.toLocaleString('en-PH', { minimumFractionDigits: 0, maximumFractionDigits: 2 })}`
+}
+function toISODate(d) {
+  const y = d.getFullYear()
+  const m = String(d.getMonth() + 1).padStart(2, '0')
+  const dd = String(d.getDate()).padStart(2, '0')
+  return `${y}-${m}-${dd}`
+}
+function computeNights(checkIn, checkOut) {
+  if (!checkIn || !checkOut) return 0
+  const a = new Date(checkIn + 'T00:00:00Z')
+  const b = new Date(checkOut + 'T00:00:00Z')
+  return Math.max(0, Math.round((b.getTime() - a.getTime()) / 86400000))
+}
+
+function snapEffectiveToMonthStart(iso) {
+  if (!iso) return null
+  const d = new Date(iso + 'T00:00:00Z')
+  if (Number.isNaN(d.getTime())) return null
+  return new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), 1)).toISOString().slice(0, 10)
+}
+function snapExpiryToMonthEnd(iso) {
+  if (!iso) return null
+  const d = new Date(iso + 'T00:00:00Z')
+  if (Number.isNaN(d.getTime())) return null
+  return new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth() + 1, 0)).toISOString().slice(0, 10)
+}
+
+function deriveBookingStatus(b) {
+  if (b.completed_at) return 'completed'
+  const t = new Date(); t.setHours(0, 0, 0, 0)
+  const ci = b.check_in ? new Date(b.check_in) : null
+  const co = b.check_out ? new Date(b.check_out) : null
+  if (ci) ci.setHours(0, 0, 0, 0)
+  if (co) co.setHours(0, 0, 0, 0)
+  if (!ci || !co) return 'upcoming'
+  if (ci > t) return 'upcoming'
+  if (ci <= t && co >= t) return 'in-house'
+  return b.payment_status === 'paid' ? 'checked-out' : 'needs-attention'
+}
+
+const BOOKING_STATUS_TEXT = {
+  upcoming:          { label: 'Upcoming',        className: 'text-blue-600 dark:text-blue-400' },
+  'in-house':        { label: 'In-House',        className: 'text-emerald-600 dark:text-emerald-400' },
+  'checked-out':     { label: 'Checked Out',     className: 'text-foreground' },
+  'needs-attention': { label: 'Needs Attention', className: 'text-amber-600 dark:text-amber-400' },
+  completed:         { label: 'Done',            className: 'text-foreground' },
+}
+
+const CLEANING_STATUS_TEXT = {
+  scheduled: { label: 'Scheduled', className: 'text-amber-600 dark:text-amber-400' },
+  ready: { label: 'Ready', className: 'text-blue-600 dark:text-blue-400' },
+  submitted: { label: 'Submitted', className: 'text-violet-600 dark:text-violet-400' },
+  completed: { label: 'Completed', className: 'text-emerald-600 dark:text-emerald-400' },
+  cancelled: { label: 'Cancelled', className: 'text-red-600 dark:text-red-400' },
+}
+
+// ============================================================
+// PDF helpers
+// ============================================================
+function pmPdfBytesLabel(b) {
+  if (!b) return '—'
+  if (b < 1024) return `${b} B`
+  if (b < 1024 * 1024) return `${(b / 1024).toFixed(1)} KB`
+  return `${(b / 1024 / 1024).toFixed(1)} MB`
+}
+
+function pmPdfRandomId() {
+  const bytes = new Uint8Array(8)
+  crypto.getRandomValues(bytes)
+  return Array.from(bytes).map((b) => b.toString(36).padStart(2, '0')).join('').slice(0, 12)
+}
+
+// ============================================================
+// AVATARS
+// ============================================================
+// Plain initials on white with a hairline, as on the Dashboard.
+const PLAIN_AVATAR = 'rounded-full bg-card ring-1 ring-border text-foreground flex items-center justify-center font-semibold flex-shrink-0'
+
+type GuestAvatarProps = {
+  name: any
+  size?: string
+}
+
+function GuestAvatar({ name, size = 'sm' }: GuestAvatarProps) {
+  const sizeClasses = size === 'md' ? 'w-9 h-9 text-xs' : 'w-8 h-8 text-[11px]'
+  return <div className={cn(PLAIN_AVATAR, sizeClasses)}>{initials(name)}</div>
+}
+
+type WorkerAvatarProps = {
+  name: any
+  photo_url: any
+  size?: string
+}
+
+function WorkerAvatar({ name, photo_url, size = 'md' }: WorkerAvatarProps) {
+  const sizeClasses = size === 'xl' ? 'w-20 h-20 text-2xl' : size === 'lg' ? 'w-16 h-16 text-lg' : size === 'sm' ? 'w-8 h-8 text-[11px]' : 'w-10 h-10 text-sm'
+  if (photo_url) return <img src={photo_url} alt={name} className={cn('rounded-full object-cover flex-shrink-0', sizeClasses)} />
+  return <div className={cn(PLAIN_AVATAR, sizeClasses)}>{initials(name)}</div>
+}
+
+type CommissionBadgeProps = {
+  role: any
+  completedCount: any
+  size?: string
+}
+
+// ============================================================
+// BADGES
+// ============================================================
+function CommissionBadge({ role, completedCount, size = 'sm' }: CommissionBadgeProps) {
+  const sizeClass = size === 'lg' ? 'px-3 py-1 text-xs' : 'px-2.5 py-0.5 text-[10px]'
+  if (role === 'specialists') {
+    return (
+      <span className={cn('inline-flex items-center rounded-md font-bold uppercase tracking-wide', sizeClass, 'bg-brand-solid text-white')}>
+        Flat {SPECIALIST_FLAT_RATE}%
+      </span>
+    )
+  }
+  if (role === 'affiliates') {
+    const info = getTierInfo(completedCount)
+    return (
+      <span className={cn('inline-flex items-center rounded-md font-bold uppercase tracking-wide', sizeClass, info.badge)}>
+        {info.tier} · {info.rate}%
+      </span>
+    )
+  }
+  return null
+}
+
+type RoleBadgeProps = {
+  role: any
+  size?: string
+}
+
+function RoleBadge({ role, size = 'sm' }: RoleBadgeProps) {
+  const meta = roleMeta(role)
+  const label = meta?.label || '—'
+  const sizeClass = size === 'lg' ? 'px-3 py-1 text-xs' : 'px-2.5 py-0.5 text-[10px]'
+  return (
+    <span className={cn('inline-flex items-center rounded-md font-bold uppercase tracking-wide', sizeClass, 'border border-border text-foreground')}>
+      {label}
+    </span>
+  )
+}
+
+type StaffEmailComboboxProps = {
+  value: string
+  onChange: (v: any) => void
+  disabled: boolean
+  placeholder?: string
+  autoFocus?: boolean
+  verifiedProfile: any
+  onVerifiedChange: (profile: any) => void
+}
+
+// ============================================================
+// StaffEmailCombobox
+// ============================================================
+function StaffEmailCombobox({ value, onChange, disabled, placeholder = 'user@example.com', autoFocus = false, verifiedProfile, onVerifiedChange }: StaffEmailComboboxProps) {
+  const wrapRef = useRef(null)
+  const [open, setOpen] = useState(false)
+  const [query, setQuery] = useState(value || '')
+  const [results, setResults] = useState([])
+  const [loading, setLoading] = useState(false)
+  const [highlight, setHighlight] = useState(0)
+  const [verifying, setVerifying] = useState(false)
+
+  useEffect(() => { setQuery(value || '') }, [value])
+
+  useEffect(() => {
+    if (!open) return
+    const q = query.trim()
+    if (q.length < 2) { setResults([]); return }
+    const ac = new AbortController()
+    const t = setTimeout(async () => {
+      setLoading(true)
+      const rows = await searchProfiles(q, { signal: ac.signal, limit: 10 })
+      if (ac.signal.aborted) return
+      setResults(rows)
+      setHighlight(0)
+      setLoading(false)
+    }, 200)
+    return () => { ac.abort(); clearTimeout(t); setLoading(false) }
+  }, [query, open])
+
+  useEffect(() => {
+    if (!open) return
+    const onDown = (e) => { if (wrapRef.current && !wrapRef.current.contains(e.target)) setOpen(false) }
+    const onKey = (e) => { if (e.key === 'Escape') setOpen(false) }
+    document.addEventListener('mousedown', onDown)
+    window.addEventListener('keydown', onKey)
+    return () => {
+      document.removeEventListener('mousedown', onDown)
+      window.removeEventListener('keydown', onKey)
+    }
+  }, [open])
+
+  const choose = (row) => {
+    setQuery(row.email)
+    onChange(row.email)
+    onVerifiedChange?.(row)
+    setOpen(false)
+  }
+
+  const handleBlur = async () => {
+    const typed = query.trim().toLowerCase()
+    if (!typed) { onVerifiedChange?.(null); return }
+    if (verifiedProfile && verifiedProfile.email.toLowerCase() === typed) return
+    setVerifying(true)
+    const { registered, profile } = await isEmailRegistered(typed)
+    setVerifying(false)
+    if (registered) onVerifiedChange?.(profile)
+    else onVerifiedChange?.(null)
+  }
+
+  const onKeyDown = (e) => {
+    if (!open) {
+      if (e.key === 'ArrowDown') { setOpen(true); e.preventDefault() }
+      return
+    }
+    if (e.key === 'ArrowDown') { e.preventDefault(); setHighlight((h) => Math.min(h + 1, results.length - 1)) }
+    else if (e.key === 'ArrowUp') { e.preventDefault(); setHighlight((h) => Math.max(h - 1, 0)) }
+    else if (e.key === 'Enter') {
+      if (results[highlight]) { e.preventDefault(); choose(results[highlight]) }
+    }
+  }
+
+  const showDropdown = open && (loading || results.length > 0 || query.trim().length >= 2)
+
+  return (
+    <div className="relative" ref={wrapRef}>
+      <div className="relative">
+        <Input
+          type="email"
+          value={query}
+          onChange={(e) => {
+            const v = e.target.value
+            setQuery(v)
+            onChange(v)
+            onVerifiedChange?.(null)
+            if (!open) setOpen(true)
+          }}
+          onFocus={() => setOpen(true)}
+          onBlur={() => setTimeout(handleBlur, 120)}
+          onKeyDown={onKeyDown}
+          placeholder={placeholder}
+          disabled={disabled}
+          autoFocus={autoFocus}
+          maxLength={254}
+          className={cn(
+            'h-9 text-xs rounded-lg pr-8',
+            verifiedProfile && 'border-emerald-400/60 focus-visible:ring-emerald-400/30',
+          )}
+        />
+        {verifying && (
+          <Loader2 size={12} className="absolute right-2.5 top-1/2 -translate-y-1/2 text-foreground animate-spin" />
+        )}
+        {!verifying && verifiedProfile && (
+          <Check size={12} className="absolute right-2.5 top-1/2 -translate-y-1/2 text-foreground" />
+        )}
+      </div>
+
+      {verifiedProfile && (
+        <div className="mt-1 flex items-center gap-2 text-[11px] text-emerald-700 dark:text-emerald-400">
+          {verifiedProfile.avatar_url ? (
+            <img src={verifiedProfile.avatar_url} alt="" className="w-4 h-4 rounded-full object-cover flex-shrink-0" />
+          ) : (
+            <div className="w-4 h-4 rounded-full bg-card ring-1 ring-border text-foreground flex items-center justify-center text-[8px] font-bold flex-shrink-0">
+              {initials(verifiedProfile.full_name || verifiedProfile.email)}
+            </div>
+          )}
+          <span className="truncate">
+            {verifiedProfile.full_name || verifiedProfile.email} · registered
+          </span>
+        </div>
+      )}
+
+      <AnimatePresence>
+        {showDropdown && (
+          <motion.div
+            initial={{ opacity: 0, y: -4 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: -4 }}
+            transition={{ duration: 0.1 }}
+            ref={revealOnMount} className="absolute z-30 left-0 right-0 mt-1 bg-popover border border-border rounded-lg shadow-lg max-h-[280px] overflow-y-auto"
+          >
+            {loading && results.length === 0 ? (
+              <div className="px-3 py-2 text-[11px] text-foreground italic">Searching…</div>
+            ) : results.length === 0 && query.trim().length >= 2 ? (
+              <div className="px-3 py-3 text-[11px] text-foreground italic">
+                No registered user matches.
+                <div className="mt-1 text-[11px]">
+                  Ask them to log in at Iloilo Rentals first, then come back.
+                </div>
+              </div>
+            ) : (
+              results.map((r, i) => (
+                <button
+                  key={r.id}
+                  type="button"
+                  onMouseDown={(e) => { e.preventDefault(); choose(r) }}
+                  onMouseEnter={() => setHighlight(i)}
+                  className={cn(
+                    'w-full text-left px-3 py-2 flex items-center gap-2 transition-colors',
+                    i === highlight ? 'bg-muted' : 'hover:bg-muted/60',
+                  )}
+                >
+                  {r.avatar_url ? (
+                    <img src={r.avatar_url} alt="" className="w-6 h-6 rounded-full object-cover flex-shrink-0" />
+                  ) : (
+                    <div className="w-6 h-6 rounded-full bg-card ring-1 ring-border text-foreground flex items-center justify-center text-[9px] font-bold flex-shrink-0">
+                      {initials(r.full_name || r.email)}
+                    </div>
+                  )}
+                  <div className="min-w-0 flex-1">
+                    {r.full_name && (
+                      <p className="text-[11px] font-semibold text-foreground truncate">{r.full_name}</p>
+                    )}
+                    <p className="text-[11px] text-foreground truncate font-mono">{r.email}</p>
+                  </div>
+                </button>
+              ))
+            )}
+          </motion.div>
+        )}
+      </AnimatePresence>
+    </div>
+  )
+}
+
+type ReadOnlyCodeFieldProps = {
+  code: any
+  isEditing: boolean
+}
+
+// ============================================================
+// ReadOnlyCodeField
+// ============================================================
+function ReadOnlyCodeField({ code, isEditing }: ReadOnlyCodeFieldProps) {
+  if (isEditing && code) {
+    return (
+      <div className="flex items-center gap-2 h-9 px-3 rounded-lg border border-border bg-card">
+        <Lock size={11} className="text-foreground flex-shrink-0" />
+        <Code value={code} label="Team code" className="text-xs" />
+        <span className="ml-auto text-[11px] text-foreground whitespace-nowrap">Locked</span>
+      </div>
+    )
+  }
+  return (
+    <div className="flex items-center gap-2 h-9 px-3 rounded-lg border border-dashed border-border bg-card">
+      <Lock size={11} className="text-foreground flex-shrink-0" />
+      <span className="text-xs text-foreground italic">Auto-generated on save</span>
+    </div>
+  )
+}
+
+// ============================================================
+// SUMMARY CARDS
+// ============================================================
+// KPI strip as on the Dashboard: one tile per group (clicking switches to it)
+// and the money paid to the selected group.
+const PAYOUT_TILE = {
+  specialists:       { label: 'Specialist commissions', key: 'specialistCommission', sub: `Flat ${SPECIALIST_FLAT_RATE}% of each booking` },
+  affiliates:        { label: 'Affiliate commissions',  key: 'affiliateCommission',  sub: 'By tier, on completed bookings' },
+  housekeepers:      { label: 'Housekeeper payouts',    key: 'housekeeperPayout',    sub: 'Cleaning and laundry pay' },
+  property_managers: { label: 'PM earnings',            key: 'pmEarnings',           sub: `${PM_SHARE_OF_COMPANY_PCT}% of the company share` },
+}
+
+type SummaryCardsProps = {
+  data: any
+  pmCount: number
+  teamTotals: any
+  activeTab: string
+  onSelect: (tab: any) => void
+  loading: boolean
+}
+
+function SummaryCards({ data, pmCount, teamTotals, activeTab, onSelect, loading }: SummaryCardsProps) {
+  const payout = PAYOUT_TILE[activeTab] || PAYOUT_TILE.specialists
+  const tile = (id, icon, label, value, sub) => (
+    <StatTile icon={icon} label={label} value={value} sub={sub} loading={loading} active={activeTab === id} onClick={() => onSelect(id)} />
+  )
+  return (
+    <StatStrip cols={5}>
+      {tile('specialists', UserPlus, 'Booking specialists', (data.specialists || []).length, 'Book stays for guests')}
+      {tile('affiliates', Award, 'Affiliates', (data.affiliates || []).length, 'Refer guests')}
+      {tile('housekeepers', Users, 'Housekeepers', (data.housekeepers || []).length, 'Clean between stays')}
+      {tile('property_managers', Building2, 'Property managers', pmCount, 'Look after units')}
+      <StatTile
+        icon={Wallet}
+        label={payout.label}
+        value={formatMoney(teamTotals?.[payout.key] || 0)}
+        sub={payout.sub}
+        loading={loading}
+        valueClassName="text-[22px] sm:text-[24px]"
+        className="col-span-2 sm:col-span-1"
+      />
+    </StatStrip>
+  )
+}
+
+// ============================================================
+// SKELETON
+// ============================================================
+function WorkerCardSkeleton() {
+  return (
+    <div className="rounded-md bg-card border border-border shadow-sm overflow-hidden">
+      <div className="p-5 space-y-3">
+        <Skeleton className="w-16 h-16 rounded-full" />
+        <Skeleton className="h-5 w-32" />
+        <Skeleton className="h-3 w-20" />
+        <div className="flex gap-1.5 pt-1">
+          <Skeleton className="h-5 w-24 rounded-md" />
+          <Skeleton className="h-5 w-20 rounded-md" />
+        </div>
+      </div>
+      <div className="bg-card border-t border-border p-5 space-y-3">
+        <div className="grid grid-cols-2 gap-3">
+          <div className="space-y-1"><Skeleton className="h-2.5 w-16" /><Skeleton className="h-3.5 w-10" /></div>
+          <div className="space-y-1"><Skeleton className="h-2.5 w-12" /><Skeleton className="h-3.5 w-20" /></div>
+        </div>
+        <div className="space-y-2 pt-1">
+          <Skeleton className="h-3 w-full" />
+          <Skeleton className="h-3 w-3/4" />
+        </div>
+      </div>
+    </div>
+  )
+}
+
+type WorkerCardSkeletonGridProps = {
+  count?: number
+}
+
+function WorkerCardSkeletonGrid({ count = 6 }: WorkerCardSkeletonGridProps) {
+  return (
+    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+      {[...Array(count)].map((_, i) => <WorkerCardSkeleton key={i} />)}
+    </div>
+  )
+}
+
+type WorkerCardProps = {
+  worker: any
+  role: string
+  liveCount: any
+  onClick: () => void
+}
+
+// ============================================================
+// WORKER CARD
+// ============================================================
+function WorkerCard({ worker, role, liveCount, onClick }: WorkerCardProps) {
+  const isHousekeeper = role === 'housekeepers'
+  return (
+    <motion.button
+      type="button"
+      onClick={onClick}
+      whileHover={{ y: -2 }}
+      whileTap={{ scale: 0.99 }}
+      transition={{ type: 'spring', stiffness: 400, damping: 30 }}
+      className={cn(
+        'group/card relative w-full text-left rounded-md bg-card border border-border overflow-hidden',
+        'shadow-sm hover:shadow-lg hover:border-brand/40 transition-all duration-200 flex flex-col',
+      )}
+    >
+      <div className="p-5">
+        <WorkerAvatar name={worker.name} photo_url={worker.photo_url} size="lg" />
+        <div className="mt-4">
+          <p className="text-base font-bold text-foreground truncate leading-tight">{worker.name}</p>
+          <div className="mt-0.5"><Code value={worker.code} label="Team code" className="text-[11px] uppercase tracking-wide" /></div>
+          <div className="mt-2 flex flex-wrap items-center gap-1.5">
+            <RoleBadge role={role} />
+            {!isHousekeeper && <CommissionBadge role={role} completedCount={liveCount} />}
+          </div>
+        </div>
+      </div>
+      <div className="mt-auto bg-card border-t border-border p-5 space-y-4">
+        <div className="grid grid-cols-2 gap-3">
+          {!isHousekeeper && (
+            <>
+              <div>
+                <p className="text-[11px] font-medium text-foreground">Completed</p>
+                <p className="text-sm font-bold text-foreground tabular-nums mt-0.5">{liveCount}</p>
+              </div>
+              <div>
+                <p className="text-[11px] font-medium text-foreground">Hired</p>
+                <p className="text-sm font-semibold text-foreground tabular-nums mt-0.5 truncate">
+                  {worker.created_at ? formatDate(worker.created_at) : '—'}
+                </p>
+              </div>
+            </>
+          )}
+          {isHousekeeper && (
+            <>
+              <div>
+                <p className="text-[11px] font-medium text-foreground">Hired</p>
+                <p className="text-sm font-semibold text-foreground tabular-nums mt-0.5 truncate">
+                  {worker.created_at ? formatDate(worker.created_at) : '—'}
+                </p>
+              </div>
+              <div>
+                <p className="text-[11px] font-medium text-foreground">Completed</p>
+                <p className="text-sm font-bold text-foreground tabular-nums mt-0.5">—</p>
+              </div>
+            </>
+          )}
+        </div>
+        <div className="space-y-2">
+          <div className="flex items-center gap-2 text-[11px] min-w-0">
+            <Mail size={12} className="text-foreground flex-shrink-0" />
+            {worker.email ? <span className="text-foreground truncate">{worker.email}</span> : <span className="text-foreground italic">No email</span>}
+          </div>
+          <div className="flex items-center gap-2 text-[11px] min-w-0">
+            <Phone size={12} className="text-foreground flex-shrink-0" />
+            {worker.phone ? <span className="text-foreground truncate">{worker.phone}</span> : <span className="text-foreground italic">No phone</span>}
+          </div>
+        </div>
+      </div>
+    </motion.button>
+  )
+}
+
+// ============================================================
+// DATE RANGE PICKER
+// ============================================================
+const DATE_PRESETS = [
+  { id: 'all', label: 'All' },
+  { id: 'this-month', label: 'This month' },
+  { id: 'last-month', label: 'Last month' },
+  { id: 'this-year', label: 'This year' },
+  { id: 'custom', label: 'Custom' },
+]
+
+function resolveRange(preset, customFrom, customTo) {
+  const now = new Date()
+  const y = now.getFullYear()
+  const m = now.getMonth()
+  switch (preset) {
+    case 'this-month': {
+      const start = new Date(y, m, 1)
+      const end = new Date(y, m + 1, 0)
+      return { from: toISODate(start), to: toISODate(end) }
+    }
+    case 'last-month': {
+      const start = new Date(y, m - 1, 1)
+      const end = new Date(y, m, 0)
+      return { from: toISODate(start), to: toISODate(end) }
+    }
+    case 'this-year': {
+      const start = new Date(y, 0, 1)
+      const end = new Date(y, 11, 31)
+      return { from: toISODate(start), to: toISODate(end) }
+    }
+    case 'custom':
+      return { from: customFrom || null, to: customTo || null }
+    case 'all':
+    default:
+      return { from: null, to: null }
+  }
+}
+
+type DateFilterBarProps = {
+  preset: string
+  setPreset: (...args: any[]) => any
+  customFrom: string
+  setCustomFrom: (...args: any[]) => any
+  customTo: string
+  setCustomTo: (...args: any[]) => any
+}
+
+function DateFilterBar({ preset, setPreset, customFrom, setCustomFrom, customTo, setCustomTo }: DateFilterBarProps) {
+  return (
+    <div className="flex items-center gap-2 flex-wrap">
+      <StatusTabs tabs={DATE_PRESETS} value={preset} onChange={setPreset} label="Period" />
+      {preset === 'custom' && (
+        <div className="flex items-center gap-1.5">
+          <DatePicker value={customFrom} onChange={setCustomFrom} maxDate={customTo || null} rangeEnd={customTo || null} placeholder="From" size="sm" ariaLabel="From" className="w-[140px]" />
+          <span className="text-[11px] text-foreground">→</span>
+          <DatePicker value={customTo} onChange={setCustomTo} minDate={customFrom || null} rangeStart={customFrom || null} placeholder="To" size="sm" align="right" ariaLabel="To" className="w-[140px]" />
+        </div>
+      )}
+    </div>
+  )
+}
+
+type WorkerActivitySectionProps = {
+  worker: any
+  role: any
+}
+
+// ============================================================
+// WORKER ACTIVITY SECTION
+// ============================================================
+function WorkerActivitySection({ worker, role }: WorkerActivitySectionProps) {
+  const [preset, setPreset] = useState('all')
+  const [customFrom, setCustomFrom] = useState('')
+  const [customTo, setCustomTo] = useState('')
+  const [items, setItems] = useState([])
+  const [loading, setLoading] = useState(true)
+  const [error, setError] = useState(null)
+
+  const range = useMemo(
+    () => resolveRange(preset, customFrom, customTo),
+    [preset, customFrom, customTo],
+  )
+
+  const isHousekeeper = role === 'housekeepers'
+
+  useEffect(() => {
+    let cancelled = false
+    async function load() {
+      setLoading(true)
+      setError(null)
+      try {
+        if (isHousekeeper) {
+          let q = supabase
+            .from('cleanings')
+            .select('id, cleaning_code, unit_id, type, scheduled_date, status, payment_amount, units:unit_id ( unit_code, building )')
+            .eq('housekeeper_id', worker.id)
+            .order('scheduled_date', { ascending: false })
+            .limit(500)
+          if (range.from) q = q.gte('scheduled_date', range.from)
+          if (range.to) q = q.lte('scheduled_date', range.to)
+          const { data, error: err } = await q
+          if (err) throw err
+          if (!cancelled) setItems(data || [])
+        } else {
+          let q = supabase
+            .from('bookings')
+            .select('id, booking_code, guest_name, check_in, check_out, completed_at, payment_status, unit_id, booker_commission, affiliate_commission, units:unit_id ( unit_code, building )')
+            .is('deleted_at', null)
+            .not('completed_at', 'is', null)
+            .order('check_in', { ascending: false })
+            .limit(500)
+          if (role === 'specialists') q = q.eq('booker_code', worker.code)
+          else if (role === 'affiliates') q = q.eq('affiliate_code', worker.code)
+          if (range.from) q = q.gte('check_in', range.from)
+          if (range.to) q = q.lte('check_in', range.to)
+          const { data, error: err } = await q
+          if (err) throw err
+          if (!cancelled) setItems(data || [])
+        }
+      } catch (err) {
+        console.error('WorkerActivitySection load failed:', err)
+        if (!cancelled) { setItems([]); setError(err?.message || 'Failed to load') }
+      } finally {
+        if (!cancelled) setLoading(false)
+      }
+    }
+    load()
+    return () => { cancelled = true }
+  }, [worker.id, worker.code, role, isHousekeeper, range.from, range.to])
+
+  const earnings = useMemo(() => {
+    if (isHousekeeper) {
+      return items
+        .filter((c) => c.status === 'completed')
+        .reduce((sum, c) => sum + Number(c.payment_amount || 0), 0)
+    }
+    if (role === 'specialists') {
+      return items.reduce((sum, b) => sum + Number(b.booker_commission || 0), 0)
+    }
+    if (role === 'affiliates') {
+      return items.reduce((sum, b) => sum + Number(b.affiliate_commission || 0), 0)
+    }
+    return 0
+  }, [items, role, isHousekeeper])
+
+  const title = isHousekeeper ? 'Cleanings' : 'Bookings'
+
+  return (
+    <div className="space-y-3">
+      <div className="rounded-lg bg-card border border-border p-4">
+        <div className="flex items-center gap-2 mb-1">
+          <Wallet size={13} className="text-foreground" />
+          <span className="text-[11px] font-bold uppercase tracking-wider text-foreground">
+            Total Earnings {preset !== 'all' ? '· in range' : '· lifetime'}
+          </span>
+        </div>
+        {loading ? (
+          <div className="h-7 w-32 rounded bg-muted animate-pulse" />
+        ) : (
+          <p className="text-2xl font-bold tabular-nums text-foreground">{formatMoney(earnings)}</p>
+        )}
+        {!loading && (
+          <p className="text-[11px] text-foreground mt-1">
+            From {isHousekeeper
+              ? items.filter((c) => c.status === 'completed').length
+              : items.length} completed {isHousekeeper ? 'cleaning' : 'booking'}{items.length === 1 ? '' : 's'}
+          </p>
+        )}
+      </div>
+
+      <div className="flex items-center justify-between gap-3 flex-wrap pr-12">
+        <h3 className="text-[11px] font-bold uppercase tracking-wider text-foreground">
+          {title} {!loading && <span className="text-foreground">· {items.length}</span>}
+        </h3>
+        <DateFilterBar
+          preset={preset} setPreset={setPreset}
+          customFrom={customFrom} setCustomFrom={setCustomFrom}
+          customTo={customTo} setCustomTo={setCustomTo}
+        />
+      </div>
+
+      <div className="rounded-lg bg-card border border-border shadow-sm overflow-hidden">
+        {loading ? (
+          <div className="p-3 space-y-2">
+            {[...Array(4)].map((_, i) => (
+              <div key={i} className="flex items-center gap-3 px-3.5 py-2.5">
+                <Skeleton className="w-8 h-8 rounded-full flex-shrink-0" />
+                <div className="flex-1 min-w-0 space-y-1.5">
+                  <Skeleton className="h-3.5 w-2/3" />
+                  <Skeleton className="h-2.5 w-1/2" />
+                </div>
+                <Skeleton className="h-3 w-16 rounded" />
+              </div>
+            ))}
+          </div>
+        ) : error ? (
+          <div className="py-8 px-4 text-center"><p className="text-xs text-red-500">{error}</p></div>
+        ) : items.length === 0 ? (
+          <div className="py-10 px-4 text-center">
+            <p className="text-xs text-foreground italic">
+              {isHousekeeper ? 'No completed cleanings in this range' : 'No completed bookings in this range'}
+            </p>
+          </div>
+        ) : (
+          <div className="divide-y divide-border">
+            {items.map((item) => {
+              if (isHousekeeper) {
+                const status = item.status || 'scheduled'
+                const config = CLEANING_STATUS_TEXT[status] || CLEANING_STATUS_TEXT.scheduled
+                return (
+                  <div key={item.id} className="flex items-center gap-3 px-3.5 py-2.5">
+                    <div className="min-w-0 flex-1">
+                      <div className="flex items-baseline gap-2 flex-wrap">
+                        <Code value={item.cleaning_code} label="Cleaning code" className="text-[11px]" iconSize={11} />
+                        <span className="text-[11px] text-foreground capitalize">{item.type}</span>
+                      </div>
+                      <p className="text-[11px] text-foreground mt-0.5 tabular-nums truncate">
+                        {formatDateShort(item.scheduled_date)}
+                        {item.units?.unit_code && <> · <Code value={item.units.unit_code} label="Unit code" className="text-[11px]" iconSize={11} /></>}
+                        {item.units?.building && ` · ${item.units.building}`}
+                      </p>
+                    </div>
+                    <div className="flex flex-col items-end gap-0.5 flex-shrink-0">
+                      <span className={cn('text-[11px] font-semibold', config.className)}>{config.label}</span>
+                      {status === 'completed' && (
+                        <span className="text-[11px] font-semibold tabular-nums text-foreground">
+                          {formatMoney(item.payment_amount || 0)}
+                        </span>
+                      )}
+                    </div>
+                  </div>
+                )
+              }
+              const status = deriveBookingStatus(item)
+              const config = BOOKING_STATUS_TEXT[status] || BOOKING_STATUS_TEXT.upcoming
+              const nights = computeNights(item.check_in, item.check_out)
+              const earned = role === 'specialists'
+                ? Number(item.booker_commission || 0)
+                : Number(item.affiliate_commission || 0)
+              return (
+                <div key={item.id} className="flex items-center gap-3 px-3.5 py-2.5">
+                  <GuestAvatar name={item.guest_name} size="sm" />
+                  <div className="min-w-0 flex-1">
+                    <div className="flex items-baseline gap-2 flex-wrap">
+                      <span className="text-[12px] font-semibold text-foreground truncate">{item.guest_name}</span>
+                      <Code value={item.booking_code} label="Booking code" className="text-[11px]" iconSize={11} />
+                    </div>
+                    <p className="text-[11px] text-foreground mt-0.5 tabular-nums truncate">
+                      {formatDateShort(item.check_in)} → {formatDateShort(item.check_out)} · {nights} night{nights === 1 ? '' : 's'}
+                      {item.units?.unit_code && <> · <Code value={item.units.unit_code} label="Unit code" className="text-[11px]" iconSize={11} /></>}
+                      {item.units?.building && ` · ${item.units.building}`}
+                    </p>
+                  </div>
+                  <div className="flex flex-col items-end gap-0.5 flex-shrink-0">
+                    <span className={cn('text-[11px] font-semibold', config.className)}>{config.label}</span>
+                    {earned > 0 && (
+                      <span className="text-[11px] font-semibold tabular-nums text-foreground">
+                        {formatMoney(earned)}
+                      </span>
+                    )}
+                  </div>
+                </div>
+              )
+            })}
+          </div>
+        )}
+      </div>
+    </div>
+  )
+}
+
+type WorkerDetailModalProps = {
+  worker: any
+  role: string
+  counts: any
+  onClose: () => void
+  onChanged: (updated: any) => void
+  onEdit: () => void
+  onDelete: () => Promise<void>
+}
+
+// ============================================================
+// WORKER DETAIL MODAL
+// ============================================================
+function WorkerDetailModal({ worker, role, counts, onClose, onChanged, onEdit, onDelete }: WorkerDetailModalProps) {
+  useEffect(() => {
+    const prev = document.body.style.overflow
+    document.body.style.overflow = 'hidden'
+    return () => { document.body.style.overflow = prev }
+  }, [])
+
+  useEffect(() => {
+    const onKey = (e) => { if (e.key === 'Escape') onClose() }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [onClose])
+
+  const liveCount = useMemo(() => {
+    if (!worker?.code) return 0
+    if (role === 'affiliates') return counts?.affiliates?.[worker.code] || 0
+    if (role === 'specialists') return counts?.specialists?.[worker.code] || 0
+    return 0
+  }, [worker?.code, role, counts])
+
+  if (!worker) return null
+
+  const isHousekeeper = role === 'housekeepers'
+
+  return (
+    <div className="fixed inset-0 z-[10000] flex items-center justify-center p-4">
+      <motion.button
+        type="button"
+        aria-label="Close"
+        initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
+        transition={{ duration: 0.2 }}
+        className="absolute inset-0 bg-black/50 cursor-default"
+        onClick={onClose}
+      />
+      <motion.div
+        initial={{ opacity: 0, scale: 0.96, y: 8 }}
+        animate={{ opacity: 1, scale: 1, y: 0 }}
+        exit={{ opacity: 0, scale: 0.96, y: 8 }}
+        transition={{ type: 'spring', stiffness: 320, damping: 28 }}
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="worker-detail-title"
+        className="relative w-full max-w-5xl h-[85vh] bg-card rounded-lg border border-border overflow-hidden flex flex-col"
+        style={{ boxShadow: SOFT_SHADOW }}
+        onClick={(e) => e.stopPropagation()}
+      >
+        <button
+          onClick={onClose}
+          className="absolute top-3 right-3 z-20 p-2 rounded-full bg-card border border-border hover:bg-muted transition-colors shadow-sm"
+        >
+          <X size={16} />
+        </button>
+
+        <div className="flex-1 min-h-0 flex flex-col md:flex-row overflow-hidden">
+          <div className="flex-shrink-0 md:w-[300px] border-b md:border-b-0 md:border-r border-border bg-card flex flex-col overflow-y-auto">
+            <div className="p-6 flex flex-col items-center text-center">
+              <WorkerAvatar name={worker.name} photo_url={worker.photo_url} size="xl" />
+              <p id="worker-detail-title" className="mt-4 text-lg font-bold text-foreground truncate w-full leading-tight">{worker.name}</p>
+              <div className="mt-1 flex justify-center"><Code value={worker.code} label="Team code" className="text-[11px] uppercase tracking-wide" /></div>
+              <div className="mt-4 flex flex-col items-center gap-2">
+                <RoleBadge role={role} size="lg" />
+                {!isHousekeeper && <CommissionBadge role={role} completedCount={liveCount} size="lg" />}
+              </div>
+              <div className="w-full mt-6 pt-5 border-t border-border space-y-3 text-left">
+                <div className="flex items-start gap-2 min-w-0">
+                  <Mail size={12} className="text-foreground flex-shrink-0 mt-0.5" />
+                  <div className="min-w-0 flex-1">
+                    <p className="text-[11px] uppercase tracking-wider text-foreground font-semibold">Email</p>
+                    {worker.email ? <p className="text-xs text-foreground truncate mt-0.5">{worker.email}</p> : <p className="text-xs text-foreground italic mt-0.5">No email</p>}
+                  </div>
+                </div>
+                <div className="flex items-start gap-2 min-w-0">
+                  <Phone size={12} className="text-foreground flex-shrink-0 mt-0.5" />
+                  <div className="min-w-0 flex-1">
+                    <p className="text-[11px] uppercase tracking-wider text-foreground font-semibold">Phone</p>
+                    {worker.phone ? <p className="text-xs text-foreground truncate mt-0.5">{worker.phone}</p> : <p className="text-xs text-foreground italic mt-0.5">No phone</p>}
+                  </div>
+                </div>
+                {!isHousekeeper && (
+                  <div>
+                    <p className="text-[11px] font-medium text-foreground">Completed</p>
+                    <p className="text-xs font-bold text-foreground tabular-nums mt-0.5">{liveCount}</p>
+                  </div>
+                )}
+                <div>
+                  <p className="text-[11px] font-medium text-foreground">Hired</p>
+                  <p className="text-xs font-semibold text-foreground tabular-nums mt-0.5">
+                    {worker.created_at ? formatDate(worker.created_at) : '—'}
+                  </p>
+                </div>
+              </div>
+            </div>
+            <div className="mt-auto p-4 border-t border-border bg-card">
+              <div className="flex flex-col gap-2">
+                <Button variant="outline" size="sm" className="h-9 rounded-lg text-xs gap-2 w-full justify-start" onClick={onEdit}>
+                  <Edit2 size={12} /> Edit
+                </Button>
+                <Button variant="outline" size="sm"
+                  className="h-9 rounded-lg text-xs gap-2 w-full justify-start text-red-600 border-red-200 hover:bg-red-50 dark:text-red-400 dark:border-red-800 dark:hover:bg-red-900/20"
+                  onClick={onDelete}>
+                  <Trash2 size={12} /> Delete
+                </Button>
+              </div>
+            </div>
+          </div>
+          <div className="flex-1 min-h-0 overflow-y-auto p-5">
+            <WorkerActivitySection worker={worker} role={role} />
+          </div>
+        </div>
+      </motion.div>
+    </div>
+  )
+}
+
+type WorkerFormModalProps = {
+  open: boolean
+  onClose: () => void
+  onSaved: (signal?: any) => Promise<void>
+  role: string
+  editing: any
+}
+
+// ============================================================
+// WORKER FORM MODAL
+// Photo comes from the picked profile — no file upload.
+// ============================================================
+function WorkerFormModal({ open, onClose, onSaved, role, editing }: WorkerFormModalProps) {
+  const [form, setForm] = useState({ name: '', email: '', phone: '', notes: '', photoUrl: null })
+  const [verifiedProfile, setVerifiedProfile] = useState(null)
+  const [saving, setSaving] = useState(false)
+
+  const meta = roleMeta(role)
+
+  useEffect(() => {
+    if (!open) return
+    if (editing) {
+      setForm({
+        name: editing.name || '',
+        email: editing.email || '',
+        phone: editing.phone || '',
+        notes: editing.notes || '',
+        photoUrl: editing.photo_url || null,
+      })
+      setVerifiedProfile(editing.email ? { email: editing.email, full_name: editing.name, avatar_url: editing.photo_url } : null)
+    } else {
+      setForm({ name: '', email: '', phone: '', notes: '', photoUrl: null })
+      setVerifiedProfile(null)
+    }
+  }, [open, editing])
+
+  useEffect(() => {
+    if (!open) return
+    const prevOverflow = document.body.style.overflow
+    document.body.style.overflow = 'hidden'
+    const onKey = (e) => { if (e.key === 'Escape') onClose?.() }
+    window.addEventListener('keydown', onKey)
+    return () => {
+      document.body.style.overflow = prevOverflow
+      window.removeEventListener('keydown', onKey)
+    }
+  }, [open, onClose])
+
+  if (!open) return null
+
+  const setField = (k, v) => setForm((p) => ({ ...p, [k]: v }))
+
+  const handleVerifiedProfileChange = (profile) => {
+    setVerifiedProfile(profile)
+    // Sync name and photo from the verified profile when picking a user
+    if (profile) {
+      setForm((p) => ({
+        ...p,
+        photoUrl: profile.avatar_url || null,
+        name: p.name?.trim() ? p.name : (profile.full_name || ''),
+      }))
+    } else {
+      setForm((p) => ({ ...p, photoUrl: null }))
+    }
+  }
+
+  const handleSubmit = async () => {
+    if (saving) return
+    if (!form.name.trim()) { toast.error('Name is required'); return }
+    if (!form.email.trim()) { toast.error('Email is required'); return }
+
+    setSaving(true)
+    try {
+      const check = await validateStaffEmail(role, form.email, editing?.id)
+      if (!check.ok) {
+        toast.error(check.message)
+        setSaving(false)
+        return
+      }
+
+      // Photo always comes from the verified profile (or existing photo on edit)
+      const photoUrl = verifiedProfile?.avatar_url || form.photoUrl || null
+
+      if (editing) {
+        const updated = await updateStaffMember(role, editing.id, {
+          name: form.name,
+          email: form.email,
+          phone: form.phone,
+          notes: form.notes,
+          photo_url: photoUrl,
+        })
+        logAudit(`UPDATE_${role.toUpperCase()}`, role, editing.id, { code: updated?.code }).catch(() => {})
+        toast.success('Updated')
+      } else {
+        const created = await createStaffMember(role, {
+          name: form.name,
+          email: form.email,
+          phone: form.phone,
+          notes: form.notes,
+          photo_url: photoUrl,
+        })
+        logAudit(`CREATE_${role.toUpperCase()}`, role, created?.id, { code: created?.code }).catch(() => {})
+        toast.success(`Created · ${created?.code || ''}`)
+      }
+      onSaved()
+      onClose()
+    } catch (err) {
+      console.error(err)
+      toast.error(err?.message || 'Save failed')
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  const labelClass = 'text-[11px] uppercase tracking-wider text-foreground font-semibold mb-1 block'
+  const inputClass = 'h-9 text-xs rounded-lg'
+  const title = editing
+    ? `Edit ${meta?.label || 'Staff'}`
+    : `New ${meta?.label || 'Staff'}`
+
+  return (
+    <div className="fixed inset-0 z-[10001] flex items-center justify-center p-4">
+      <button
+        type="button"
+        aria-label="Close"
+        onClick={onClose}
+        className="absolute inset-0 bg-black/50 cursor-default"
+      />
+      <motion.div initial={{ opacity: 0, scale: 0.98 }} animate={{ opacity: 1, scale: 1 }} transition={{ duration: 0.15 }}
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="worker-form-title"
+        className="relative bg-card rounded-lg max-w-lg w-full max-h-[92vh] flex flex-col overflow-hidden border border-border"
+        style={{ boxShadow: SOFT_SHADOW }}>
+        <div className="flex items-center justify-between px-5 py-3 border-b border-border">
+          <h2 id="worker-form-title" className="text-sm font-bold text-foreground">{title}</h2>
+          <button onClick={onClose} className="p-1 rounded hover:bg-muted transition-colors"><X size={16} /></button>
+        </div>
+        <div className="flex-1 overflow-y-auto px-5 py-4 space-y-4">
+
+          <div className="flex items-center gap-4">
+            {form.photoUrl ? (
+              <img src={form.photoUrl} alt="" className="w-16 h-16 rounded-full object-cover" />
+            ) : (
+              <div className="w-16 h-16 rounded-full bg-card ring-1 ring-border flex items-center justify-center">
+                <User size={24} className="text-foreground" />
+              </div>
+            )}
+            <div className="min-w-0">
+              <p className="text-xs font-semibold text-foreground">Photo from Google account</p>
+              <p className="text-[11px] text-foreground mt-0.5">
+                {form.photoUrl
+                  ? 'Shown here. Update it in their Google account to change.'
+                  : 'They have no Google avatar, or none was picked yet.'}
+              </p>
+            </div>
+          </div>
+
+          <div>
+            <label className={labelClass}>Code</label>
+            <ReadOnlyCodeField code={editing?.code || null} isEditing={!!editing} />
+            <p className="text-[11px] text-foreground mt-1">
+              {editing
+                ? 'Codes are permanent and cannot be changed.'
+                : `A ${meta?.codePrefix || 'XX'}-XXXXXX code will be generated on save.`}
+            </p>
+          </div>
+
+          <div>
+            <label className={labelClass}>Email *</label>
+            <StaffEmailCombobox
+              value={form.email}
+              onChange={(v) => setField('email', v)}
+              verifiedProfile={verifiedProfile}
+              onVerifiedChange={handleVerifiedProfileChange}
+              disabled={saving}
+              autoFocus={!editing}
+            />
+            <p className="text-[11px] text-foreground mt-1">
+              Must be a registered Iloilo Rentals user. They log in with Google first.
+            </p>
+          </div>
+
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+            <div>
+              <label className={labelClass}>Name *</label>
+              <Input
+                value={form.name}
+                onChange={(e) => setField('name', e.target.value)}
+                className={inputClass}
+                maxLength={120}
+              />
+            </div>
+            <div>
+              <label className={labelClass}>Phone</label>
+              <Input
+                type="tel"
+                value={form.phone}
+                onChange={(e) => setField('phone', e.target.value)}
+                className={inputClass}
+                maxLength={40}
+              />
+            </div>
+          </div>
+
+          <div>
+            <label className={labelClass}>Notes</label>
+            <Textarea
+              value={form.notes}
+              onChange={(e) => setField('notes', e.target.value)}
+              rows={2}
+              maxLength={2000}
+              className="text-xs rounded-lg resize-none"
+            />
+          </div>
+        </div>
+        <div className="flex items-center justify-end gap-2 px-5 py-3 border-t border-border bg-card">
+          <Button variant="outline" size="sm" className="h-9 rounded-lg text-xs" onClick={onClose} disabled={saving}>Cancel</Button>
+          <Button size="sm" className="h-9 rounded-lg text-xs" onClick={handleSubmit} disabled={saving} style={{ backgroundColor: BRAND }}>
+            {saving ? <Loader2 size={12} className="mr-1.5 animate-spin" /> : <Check size={12} className="mr-1.5" />}
+            {saving ? 'Saving...' : editing ? 'Save Changes' : 'Create'}
+          </Button>
+        </div>
+      </motion.div>
+    </div>
+  )
+}
+
+// ============================================================
+// PM DATA CLIENT
+// ============================================================
+async function fetchPMs() {
+  const { data, error } = await supabase.from('property_managers').select('*').order('name')
+  if (error) throw error
+  return data || []
+}
+async function fetchContractsForPM(pmId) {
+  const { data, error } = await supabase
+    .from('pm_contracts')
+    .select(`
+      *,
+      property_managers:pm_id ( id, name, code ),
+      units:unit_id ( id, unit_code, building ),
+      contracts:contract_id ( id, contract_code )
+    `)
+    .eq('pm_id', pmId)
+    .order('effective_date', { ascending: false })
+  if (error) throw error
+  return data || []
+}
+async function fetchUnitsForSelect() {
+  const { data, error } = await supabase.from('units').select('id, unit_code, building').order('unit_code')
+  if (error) throw error
+  return data || []
+}
+async function deletePMRow(id) {
+  const { error } = await supabase.from('property_managers').delete().eq('id', id)
+  if (error) throw error
+}
+async function createPMContractRow(payload) {
+  const { data, error } = await supabase
+    .from('pm_contracts')
+    .insert(cleanFields({ ...payload, pm_share_of_company_pct: payload.pm_share_of_company_pct ?? PM_SHARE_OF_COMPANY_PCT }))
+    .select().single()
+  if (error) throw error
+  return data
+}
+async function updatePMContractRow(id, patch) {
+  const { data, error } = await supabase.from('pm_contracts').update(cleanFields(patch)).eq('id', id).select().single()
+  if (error) throw error
+  return data
+}
+async function terminatePMContractRow(id, decisionDateISO, note = null) {
+  const d = new Date(decisionDateISO + 'T00:00:00Z')
+  if (Number.isNaN(d.getTime())) throw new Error('Invalid decision date')
+  const last = new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth() + 1, 0))
+  const eff = last.toISOString().slice(0, 10)
+  const patch: Record<string, string> = {
+    termination_requested_at: decisionDateISO,
+    termination_effective_date: eff,
+    terminated_at: new Date().toISOString(),
+  }
+  if (note != null) patch.notes = note
+  const { data, error } = await supabase.from('pm_contracts').update(cleanFields(patch)).eq('id', id).select().single()
+  if (error) throw error
+  return data
+}
+async function deletePMContractRow(id) {
+  const { error } = await supabase.from('pm_contracts').delete().eq('id', id)
+  if (error) throw error
+}
+
+function lastDayOfMonth(iso) {
+  if (!iso) return null
+  const d = new Date(iso + 'T00:00:00Z')
+  if (Number.isNaN(d.getTime())) return null
+  const last = new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth() + 1, 0))
+  return last.toISOString().slice(0, 10)
+}
+function pmContractStatus(pmc) {
+  if (!pmc) return 'unknown'
+  const today = new Date().toISOString().slice(0, 10)
+  if (pmc.terminated_at) {
+    if (pmc.termination_effective_date && pmc.termination_effective_date >= today) return 'ending'
+    return 'terminated'
+  }
+  if (pmc.expiry_date && pmc.expiry_date < today) return 'expired'
+  if (pmc.expiry_date) {
+    const diff = Math.round((new Date(pmc.expiry_date + 'T00:00:00Z').getTime() - new Date(today + 'T00:00:00Z').getTime()) / 86400000)
+    if (diff <= 30) return 'expiring'
+  }
+  return 'active'
+}
+function pmStatusLabel(pmc) {
+  const s = pmContractStatus(pmc)
+  if (s === 'active')     return { label: 'Active',     className: 'text-emerald-600 dark:text-emerald-400' }
+  if (s === 'expiring')   return { label: 'Expiring',   className: 'text-amber-600 dark:text-amber-400' }
+  if (s === 'ending')     return { label: 'Ending',     className: 'text-amber-600 dark:text-amber-400' }
+  if (s === 'expired')    return { label: 'Expired',    className: 'text-red-600 dark:text-red-400' }
+  if (s === 'terminated') return { label: 'Terminated', className: 'text-foreground' }
+  return { label: '—', className: 'text-foreground' }
+}
+
+type PMCardProps = {
+  pm: any
+  onClick: () => void
+}
+
+// ============================================================
+// PM CARD
+// ============================================================
+function PMCard({ pm, onClick }: PMCardProps) {
+  const activeCount = pm._activeCount ?? 0
+  const totalEarnings = pm._totalEarnings ?? 0
+  return (
+    <motion.button
+      type="button"
+      onClick={onClick}
+      whileHover={{ y: -2 }}
+      whileTap={{ scale: 0.99 }}
+      transition={{ type: 'spring', stiffness: 400, damping: 30 }}
+      className={cn(
+        'group/card relative w-full text-left rounded-md bg-card border border-border overflow-hidden',
+        'shadow-sm hover:shadow-lg hover:border-brand/40 transition-all duration-200 flex flex-col',
+      )}
+    >
+      <div className="p-5">
+        <WorkerAvatar name={pm.name} photo_url={pm.photo_url} size="lg" />
+        <div className="mt-4">
+          <p className="text-base font-bold text-foreground truncate leading-tight">{pm.name}</p>
+          <div className="mt-0.5"><Code value={pm.code} label="Team code" className="text-[11px] uppercase tracking-wide" /></div>
+          <div className="mt-2 flex flex-wrap items-center gap-1.5">
+            <RoleBadge role="property_managers" />
+            <span className={cn(
+              'text-[11.5px] font-semibold capitalize',
+              (pm.status || 'active') === 'active' ? 'text-emerald-600 dark:text-emerald-400' : 'text-foreground',
+            )}>
+              {pm.status || 'active'}
+            </span>
+          </div>
+        </div>
+      </div>
+      <div className="mt-auto bg-card border-t border-border p-5 space-y-4">
+        <div className="grid grid-cols-2 gap-3">
+          <div>
+            <p className="text-[11px] font-medium text-foreground">Managing</p>
+            <p className="text-sm font-bold text-foreground tabular-nums mt-0.5">
+              {activeCount} unit{activeCount === 1 ? '' : 's'}
+            </p>
+          </div>
+          <div>
+            <p className="text-[11px] font-medium text-foreground">Earnings</p>
+            <p className="text-sm font-bold text-foreground tabular-nums mt-0.5 truncate">
+              {totalEarnings > 0 ? formatMoney(totalEarnings) : '—'}
+            </p>
+          </div>
+        </div>
+        <div className="space-y-2">
+          <div className="flex items-center gap-2 text-[11px] min-w-0">
+            <Mail size={12} className="text-foreground flex-shrink-0" />
+            {pm.email ? <span className="text-foreground truncate">{pm.email}</span> : <span className="text-foreground italic">No email</span>}
+          </div>
+          <div className="flex items-center gap-2 text-[11px] min-w-0">
+            <Phone size={12} className="text-foreground flex-shrink-0" />
+            {pm.phone ? <span className="text-foreground truncate">{pm.phone}</span> : <span className="text-foreground italic">No phone</span>}
+          </div>
+        </div>
+      </div>
+    </motion.button>
+  )
+}
+
+type PMFormModalProps = {
+  open: boolean
+  onClose: () => void
+  onSaved: ((...args: any[]) => any)
+  editing: any
+}
+
+// ============================================================
+// PM FORM MODAL
+// ============================================================
+function PMFormModal({ open, onClose, onSaved, editing }: PMFormModalProps) {
+  const [form, setForm] = useState({ name: '', email: '', phone: '', notes: '', status: 'active', photoUrl: null })
+  const [verifiedProfile, setVerifiedProfile] = useState(null)
+  const [saving, setSaving] = useState(false)
+
+  useEffect(() => {
+    if (!open) return
+    if (editing) {
+      setForm({
+        name: editing.name || '',
+        email: editing.email || '',
+        phone: editing.phone || '',
+        notes: editing.notes || '',
+        status: editing.status || 'active',
+        photoUrl: editing.photo_url || null,
+      })
+      setVerifiedProfile(editing.email ? { email: editing.email, full_name: editing.name, avatar_url: editing.photo_url } : null)
+    } else {
+      setForm({ name: '', email: '', phone: '', notes: '', status: 'active', photoUrl: null })
+      setVerifiedProfile(null)
+    }
+  }, [open, editing])
+
+  useEffect(() => {
+    if (!open) return
+    const prevOverflow = document.body.style.overflow
+    document.body.style.overflow = 'hidden'
+    const onKey = (e) => { if (e.key === 'Escape') onClose?.() }
+    window.addEventListener('keydown', onKey)
+    return () => {
+      document.body.style.overflow = prevOverflow
+      window.removeEventListener('keydown', onKey)
+    }
+  }, [open, onClose])
+
+  if (!open) return null
+
+  const setField = (k, v) => setForm((p) => ({ ...p, [k]: v }))
+
+  const handleVerifiedProfileChange = (profile) => {
+    setVerifiedProfile(profile)
+    if (profile) {
+      setForm((p) => ({
+        ...p,
+        photoUrl: profile.avatar_url || null,
+        name: p.name?.trim() ? p.name : (profile.full_name || ''),
+      }))
+    } else {
+      setForm((p) => ({ ...p, photoUrl: null }))
+    }
+  }
+
+  const handleSubmit = async () => {
+    if (saving) return
+    if (!form.name.trim()) { toast.error('Name is required'); return }
+    if (!form.email.trim()) { toast.error('Email is required'); return }
+
+    setSaving(true)
+    try {
+      const check = await validateStaffEmail('property_managers', form.email, editing?.id)
+      if (!check.ok) {
+        toast.error(check.message)
+        setSaving(false)
+        return
+      }
+
+      const photoUrl = verifiedProfile?.avatar_url || form.photoUrl || null
+
+      if (editing) {
+        const updated = await updateStaffMember('property_managers', editing.id, {
+          name: form.name,
+          email: form.email,
+          phone: form.phone,
+          notes: form.notes,
+          status: form.status,
+          photo_url: photoUrl,
+        })
+        logAudit('UPDATE_PROPERTY_MANAGER', 'property_managers', editing.id, { code: updated?.code }).catch(() => {})
+        toast.success('Updated')
+      } else {
+        const created = await createStaffMember('property_managers', {
+          name: form.name,
+          email: form.email,
+          phone: form.phone,
+          notes: form.notes,
+          status: form.status,
+          photo_url: photoUrl,
+        })
+        logAudit('CREATE_PROPERTY_MANAGER', 'property_managers', created?.id, { code: created?.code }).catch(() => {})
+        toast.success(`Created · ${created?.code || ''}`)
+      }
+      onSaved()
+      onClose()
+    } catch (err) {
+      console.error(err)
+      toast.error(err?.message || 'Save failed')
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  const labelClass = 'text-[11px] uppercase tracking-wider text-foreground font-semibold mb-1 block'
+  const inputClass = 'h-9 text-xs rounded-lg'
+
+  return (
+    <div className="fixed inset-0 z-[10001] flex items-center justify-center p-4">
+      <button
+        type="button"
+        aria-label="Close"
+        onClick={onClose}
+        className="absolute inset-0 bg-black/50 cursor-default"
+      />
+      <motion.div initial={{ opacity: 0, scale: 0.98 }} animate={{ opacity: 1, scale: 1 }} transition={{ duration: 0.15 }}
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="pm-form-title"
+        className="relative bg-card rounded-lg max-w-lg w-full max-h-[92vh] flex flex-col overflow-hidden border border-border"
+        style={{ boxShadow: SOFT_SHADOW }}>
+        <div className="flex items-center justify-between px-5 py-3 border-b border-border">
+          <h2 id="pm-form-title" className="text-sm font-bold text-foreground">{editing ? 'Edit Property Manager' : 'New Property Manager'}</h2>
+          <button onClick={onClose} className="p-1 rounded hover:bg-muted transition-colors"><X size={16} /></button>
+        </div>
+        <div className="flex-1 overflow-y-auto px-5 py-4 space-y-4">
+
+          <div className="flex items-center gap-4">
+            {form.photoUrl ? (
+              <img src={form.photoUrl} alt="" className="w-16 h-16 rounded-full object-cover" />
+            ) : (
+              <div className="w-16 h-16 rounded-full bg-card ring-1 ring-border flex items-center justify-center">
+                <User size={24} className="text-foreground" />
+              </div>
+            )}
+            <div className="min-w-0">
+              <p className="text-xs font-semibold text-foreground">Photo from Google account</p>
+              <p className="text-[11px] text-foreground mt-0.5">
+                {form.photoUrl
+                  ? 'Shown here. Update it in their Google account to change.'
+                  : 'They have no Google avatar, or none was picked yet.'}
+              </p>
+            </div>
+          </div>
+
+          <div>
+            <label className={labelClass}>Code</label>
+            <ReadOnlyCodeField code={editing?.code || null} isEditing={!!editing} />
+            <p className="text-[11px] text-foreground mt-1">
+              {editing
+                ? 'Codes are permanent and cannot be changed.'
+                : 'A PM-XXXXXX code will be generated on save.'}
+            </p>
+          </div>
+
+          <div>
+            <label className={labelClass}>Email *</label>
+            <StaffEmailCombobox
+              value={form.email}
+              onChange={(v) => setField('email', v)}
+              verifiedProfile={verifiedProfile}
+              onVerifiedChange={handleVerifiedProfileChange}
+              disabled={saving}
+              autoFocus={!editing}
+            />
+            <p className="text-[11px] text-foreground mt-1">
+              Must be a registered Iloilo Rentals user.
+            </p>
+          </div>
+
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+            <div>
+              <label className={labelClass}>Name *</label>
+              <Input value={form.name} onChange={(e) => setField('name', e.target.value)} className={inputClass} maxLength={120} />
+            </div>
+            <div>
+              <label className={labelClass}>Phone</label>
+              <Input type="tel" value={form.phone} onChange={(e) => setField('phone', e.target.value)} className={inputClass} maxLength={40} />
+            </div>
+          </div>
+
+          <div>
+            <label className={labelClass}>Status</label>
+            <div>
+              <StatusTabs
+                tabs={[{ id: 'active', label: 'Active' }, { id: 'inactive', label: 'Inactive' }]}
+                value={form.status}
+                onChange={(v) => setField('status', v)}
+                label="Status"
+              />
+            </div>
+          </div>
+
+          <div>
+            <label className={labelClass}>Notes</label>
+            <Textarea value={form.notes} onChange={(e) => setField('notes', e.target.value)} rows={2} maxLength={2000} className="text-xs rounded-lg resize-none" />
+          </div>
+        </div>
+        <div className="flex items-center justify-end gap-2 px-5 py-3 border-t border-border bg-card">
+          <Button variant="outline" size="sm" className="h-9 rounded-lg text-xs" onClick={onClose} disabled={saving}>Cancel</Button>
+          <Button size="sm" className="h-9 rounded-lg text-xs" onClick={handleSubmit} disabled={saving} style={{ backgroundColor: BRAND }}>
+            {saving ? <Loader2 size={12} className="mr-1.5 animate-spin" /> : <Check size={12} className="mr-1.5" />}
+            {saving ? 'Saving…' : editing ? 'Save Changes' : 'Create'}
+          </Button>
+        </div>
+      </motion.div>
+    </div>
+  )
+}
+
+type PMPdfUploaderProps = {
+  pmContract: any
+  onSaved: () => void
+}
+
+// ============================================================
+// PM PDF UPLOADER
+// ============================================================
+function PMPdfUploader({ pmContract, onSaved }: PMPdfUploaderProps) {
+  const inputRef = useRef(null)
+  const [uploading, setUploading] = useState(false)
+  const [busyRemove, setBusyRemove] = useState(false)
+  const [signedUrl, setSignedUrl] = useState(null)
+  const [loadingUrl, setLoadingUrl] = useState(false)
+  const [lightboxOpen, setLightboxOpen] = useState(false)
+
+  const path = pmContract?.pm_pdf_path || null
+
+  useEffect(() => {
+    let cancelled = false
+    if (!path) { setSignedUrl(null); return }
+    setLoadingUrl(true)
+    supabase.storage.from(PM_PDF_BUCKET).createSignedUrl(path, 3600)
+      .then(({ data, error }) => {
+        if (cancelled) return
+        if (error) { console.warn(error); setSignedUrl(null) }
+        else setSignedUrl(data?.signedUrl || null)
+      })
+      .finally(() => { if (!cancelled) setLoadingUrl(false) })
+    return () => { cancelled = true }
+  }, [path])
+
+  const handleFile = async (e) => {
+    const file = e.target.files?.[0]
+    if (!file) return
+
+    if (file.size > PM_PDF_MAX_BYTES) {
+      toast.error(`File too large (max ${pmPdfBytesLabel(PM_PDF_MAX_BYTES)})`)
+      if (inputRef.current) inputRef.current.value = ''
+      return
+    }
+
+    let buffer
+    try {
+      buffer = await file.arrayBuffer()
+    } catch (err) {
+      console.error('File read failed:', err)
+      toast.error('Could not read file. Try again.')
+      if (inputRef.current) inputRef.current.value = ''
+      return
+    }
+
+    const head = new Uint8Array(buffer.slice(0, 12))
+    const hex = Array.from(head).map((b) => b.toString(16).padStart(2, '0')).join('')
+    let mime = null
+    if (hex.startsWith('25504446')) mime = 'application/pdf'
+    else if (hex.startsWith('ffd8ff')) mime = 'image/jpeg'
+    else if (hex.startsWith('89504e470d0a1a0a')) mime = 'image/png'
+    else if (hex.startsWith('52494646') && hex.slice(16, 24) === '57454250') mime = 'image/webp'
+
+    if (!mime || !PM_PDF_ALLOWED.has(mime)) {
+      toast.error('Unsupported file. Use PDF, JPEG, PNG, or WebP.')
+      if (inputRef.current) inputRef.current.value = ''
+      return
+    }
+
+    setUploading(true)
+    try {
+      const ext = mime === 'application/pdf' ? 'pdf'
+        : mime === 'image/png' ? 'png'
+        : mime === 'image/webp' ? 'webp'
+        : 'jpg'
+
+      const newPath = `pm_contracts/${pmContract.id}/${pmPdfRandomId()}.${ext}`
+
+      const { error: upErr } = await supabase
+        .storage
+        .from(PM_PDF_BUCKET)
+        .upload(newPath, buffer, {
+          cacheControl: '31536000',
+          upsert: false,
+          contentType: mime,
+        })
+      if (upErr) throw upErr
+
+      const { data: signedData, error: signErr } = await supabase
+        .storage
+        .from(PM_PDF_BUCKET)
+        .createSignedUrl(newPath, 3600)
+      if (signErr) throw signErr
+
+      await updatePMContractRow(pmContract.id, {
+        pm_pdf_path: newPath,
+        pm_pdf_url: signedData?.signedUrl || null,
+      })
+
+      if (path) {
+        supabase.storage.from(PM_PDF_BUCKET).remove([path]).catch((err) => {
+          console.warn('Failed to remove old PM PDF:', err)
+        })
+      }
+
+      logAudit('UPLOAD_PM_PDF', 'pm_contracts', pmContract.id, {
+        filename: file.name, size: file.size, mime,
+      }).catch(() => {})
+
+      toast.success('PDF uploaded')
+      setSignedUrl(signedData?.signedUrl || null)
+      onSaved?.()
+    } catch (err) {
+      console.error(err)
+      toast.error(err?.message || 'Upload failed')
+    } finally {
+      setUploading(false)
+      if (inputRef.current) inputRef.current.value = ''
+    }
+  }
+
+  const handleRemove = async () => {
+    if (!path) return
+    if (!window.confirm('Remove the PM contract file? This cannot be undone.')) return
+    setBusyRemove(true)
+    try {
+      const { error: rmErr } = await supabase.storage.from(PM_PDF_BUCKET).remove([path])
+      if (rmErr) console.warn('Storage remove failed:', rmErr)
+      await updatePMContractRow(pmContract.id, {
+        pm_pdf_path: null,
+        pm_pdf_url: null,
+      })
+      logAudit('REMOVE_PM_PDF', 'pm_contracts', pmContract.id, {}).catch(() => {})
+      toast.success('PDF removed')
+      setSignedUrl(null)
+      onSaved?.()
+    } catch (err) {
+      console.error(err)
+      toast.error(err?.message || 'Failed to remove')
+    } finally {
+      setBusyRemove(false)
+    }
+  }
+
+  const hasFile = !!path
+
+  return (
+    <>
+      <input
+        ref={inputRef}
+        type="file"
+        accept="application/pdf,image/jpeg,image/png,image/webp"
+        className="hidden"
+        onChange={handleFile}
+        disabled={uploading || busyRemove}
+      />
+
+      {hasFile ? (
+        <div className="flex items-center gap-1 flex-shrink-0">
+          <button
+            type="button"
+            onClick={() => signedUrl && setLightboxOpen(true)}
+            disabled={!signedUrl}
+            className="p-1.5 rounded hover:bg-muted text-foreground hover:text-foreground transition-colors disabled:opacity-40"
+            title="Preview"
+          >
+            {loadingUrl ? <Loader2 size={12} className="animate-spin" /> : <Eye size={12} />}
+          </button>
+          <a
+            href={signedUrl || '#'}
+            download
+            className="p-1.5 rounded hover:bg-muted text-foreground hover:text-foreground transition-colors"
+            title="Download"
+          >
+            <Upload size={12} style={{ transform: 'rotate(180deg)' }} />
+          </a>
+          <button
+            type="button"
+            onClick={() => inputRef.current?.click()}
+            disabled={uploading}
+            className="p-1.5 rounded hover:bg-muted text-foreground hover:text-foreground transition-colors"
+            title="Replace"
+          >
+            {uploading ? <Loader2 size={12} className="animate-spin" /> : <Upload size={12} />}
+          </button>
+          <button
+            type="button"
+            onClick={handleRemove}
+            disabled={busyRemove}
+            className="p-1.5 rounded hover:bg-red-500/10 text-foreground hover:text-red-500 transition-colors"
+            title="Remove"
+          >
+            {busyRemove ? <Loader2 size={12} className="animate-spin" /> : <Trash2 size={12} />}
+          </button>
+        </div>
+      ) : (
+        <button
+          type="button"
+          onClick={() => inputRef.current?.click()}
+          disabled={uploading}
+          className="inline-flex items-center gap-1 px-2 py-1 rounded text-[11px] font-semibold border border-dashed border-border text-foreground hover:bg-muted/50 hover:border-primary/40 transition-colors disabled:opacity-50 flex-shrink-0"
+          title="Upload contract PDF"
+        >
+          {uploading ? <Loader2 size={11} className="animate-spin" /> : <FileText size={11} />}
+          Upload
+        </button>
+      )}
+
+      {lightboxOpen && signedUrl && createPortal(
+        <motion.div
+          initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
+          transition={{ duration: 0.15 }}
+          className="fixed inset-0 z-[2147483647] bg-black/85 backdrop-blur-sm flex flex-col"
+          onClick={(e) => { if (e.target === e.currentTarget) setLightboxOpen(false) }}
+        >
+          <div className="flex-shrink-0 h-14 px-4 flex items-center gap-3 border-b border-white/10 bg-black/60">
+            <FileText size={16} className="text-white/80 flex-shrink-0" />
+            <p className="text-sm font-semibold text-white truncate flex-1">
+              <Code value={pmContract.pm_contract_code} label="PM contract code" empty="PM Contract" className="text-sm text-white" buttonClassName="text-white hover:bg-white/10" />
+            </p>
+            <a
+              href={signedUrl}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="inline-flex items-center gap-1.5 h-8 px-3 rounded-md text-xs font-semibold text-white/90 hover:text-white bg-white/10 hover:bg-white/20 transition-colors"
+            >
+              <ExternalLink size={12} />
+              <span className="hidden sm:inline">Open in new tab</span>
+            </a>
+            <button
+              type="button"
+              onClick={() => setLightboxOpen(false)}
+              className="inline-flex items-center gap-1.5 h-8 px-3 rounded-md text-xs font-semibold text-white/90 hover:text-white bg-white/10 hover:bg-white/20 transition-colors"
+            >
+              <X size={12} />
+              <span className="hidden sm:inline">Close</span>
+            </button>
+          </div>
+          <div className="flex-1 min-h-0 p-4 sm:p-6 flex items-center justify-center">
+            <div className="relative w-full h-full max-w-[1100px] rounded-lg overflow-hidden bg-white shadow-2xl">
+              <iframe
+                src={signedUrl}
+                title={pmContract.pm_contract_code || 'PM Contract'}
+                className="w-full h-full border-0"
+              />
+            </div>
+          </div>
+        </motion.div>,
+        document.body
+      )}
+    </>
+  )
+}
+
+type AssignUnitModalProps = {
+  open: boolean
+  onClose: () => void
+  onSaved: () => Promise<void>
+  pm: any
+  editingContract: any
+  units: any
+}
+
+// ============================================================
+// ASSIGN UNIT MODAL
+// ============================================================
+function AssignUnitModal({ open, onClose, onSaved, pm, editingContract, units }: AssignUnitModalProps) {
+  const [form, setForm] = useState({ unit_id: '', effective_date: '', expiry_date: '', notes: '' })
+  const [saving, setSaving] = useState(false)
+
+  useEffect(() => {
+    if (!open) return
+    if (editingContract) {
+      setForm({
+        unit_id: editingContract.unit_id,
+        effective_date: editingContract.effective_date || '',
+        expiry_date: editingContract.expiry_date || '',
+        notes: editingContract.notes || '',
+      })
+    } else {
+      const today = new Date()
+      const firstOfMonth = new Date(today.getFullYear(), today.getMonth(), 1)
+      const oneYearEnd = new Date(today.getFullYear() + 1, today.getMonth() + 1, 0)
+      setForm({
+        unit_id: '',
+        effective_date: toISODate(firstOfMonth),
+        expiry_date: toISODate(oneYearEnd),
+        notes: '',
+      })
+    }
+  }, [open, editingContract])
+
+  useEffect(() => {
+    if (!open) return
+    const prevOverflow = document.body.style.overflow
+    document.body.style.overflow = 'hidden'
+    const onKey = (e) => { if (e.key === 'Escape') onClose?.() }
+    window.addEventListener('keydown', onKey)
+    return () => {
+      document.body.style.overflow = prevOverflow
+      window.removeEventListener('keydown', onKey)
+    }
+  }, [open, onClose])
+
+  const sortedUnits = useMemo(() => {
+    return [...units].sort((a, b) => {
+      const av = `${a.building || ''} ${a.unit_code || ''}`.trim()
+      const bv = `${b.building || ''} ${b.unit_code || ''}`.trim()
+      return av.localeCompare(bv)
+    })
+  }, [units])
+
+  const snappedEffective = useMemo(() => snapEffectiveToMonthStart(form.effective_date), [form.effective_date])
+  const snappedExpiry = useMemo(() => snapExpiryToMonthEnd(form.expiry_date), [form.expiry_date])
+
+  if (!open) return null
+
+  const setField = (k, v) => setForm((p) => ({ ...p, [k]: v }))
+
+  const handleSubmit = async () => {
+    if (saving) return
+    if (!form.unit_id) { toast.error('Select a unit'); return }
+    if (!form.effective_date) { toast.error('Set an effective date'); return }
+    if (!form.expiry_date) { toast.error('Set an expiry date'); return }
+
+    if (snappedEffective && snappedExpiry && snappedExpiry < snappedEffective) {
+      toast.error('Expiry must be after effective date')
+      return
+    }
+
+    if (editingContract) {
+      const changed =
+        form.unit_id !== editingContract.unit_id ||
+        snappedEffective !== editingContract.effective_date ||
+        snappedExpiry !== editingContract.expiry_date
+      if (changed) {
+        const ok = window.confirm(
+          'Changing the unit, effective date, or expiry date will RETROACTIVELY rewrite accounting history.\n\nContinue?'
+        )
+        if (!ok) return
+      }
+    }
+
+    setSaving(true)
+    try {
+      let resolvedContractId = editingContract?.contract_id || null
+      if (!resolvedContractId) {
+        const { data: candidates } = await supabase
+          .from('contracts')
+          .select('id, effective_date, expiry_date')
+          .eq('unit_id', form.unit_id)
+          .lte('effective_date', form.effective_date)
+          .order('effective_date', { ascending: false })
+          .limit(10)
+        const match = (candidates || []).find((c) =>
+          !c.expiry_date || c.expiry_date >= form.effective_date
+        )
+        if (match) resolvedContractId = match.id
+      }
+
+      const payload = {
+        pm_id: pm.id,
+        unit_id: form.unit_id,
+        contract_id: resolvedContractId,
+        effective_date: form.effective_date,
+        expiry_date: form.expiry_date,
+        notes: form.notes.trim() || null,
+        pm_share_of_company_pct: PM_SHARE_OF_COMPANY_PCT,
+      }
+      if (editingContract) {
+        await updatePMContractRow(editingContract.id, payload)
+        logAudit('UPDATE_PM_CONTRACT', 'pm_contracts', editingContract.id, payload).catch(() => {})
+        toast.success('Assignment updated')
+      } else {
+        const created = await createPMContractRow(payload)
+        logAudit('CREATE_PM_CONTRACT', 'pm_contracts', created?.id, payload).catch(() => {})
+        toast.success('PM assigned to unit')
+      }
+      onSaved()
+      onClose()
+    } catch (err) {
+      console.error(err)
+      if (err?.message?.includes('pm_contracts_one_active_per_unit')) {
+        toast.error('This unit already has an active PM. Terminate the current one first.')
+      } else {
+        toast.error(err?.message || 'Save failed')
+      }
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  const labelClass = 'text-[11px] uppercase tracking-wider text-foreground font-semibold mb-1 block'
+  const inputClass = 'h-8 text-xs rounded'
+
+  return (
+    <div className="fixed inset-0 z-[10002] flex items-center justify-center p-4">
+      <button
+        type="button"
+        aria-label="Close"
+        onClick={onClose}
+        className="absolute inset-0 bg-black/60 cursor-default"
+      />
+      <motion.div initial={{ opacity: 0, scale: 0.98 }} animate={{ opacity: 1, scale: 1 }} transition={{ duration: 0.15 }}
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="assign-unit-title"
+        className="relative bg-card rounded-lg max-w-md w-full border border-border overflow-hidden max-h-[90vh] flex flex-col"
+        style={{ boxShadow: SOFT_SHADOW }}>
+        <div className="flex items-center justify-between px-5 py-3 border-b border-border flex-shrink-0">
+          <h3 id="assign-unit-title" className="text-sm font-bold text-foreground">{editingContract ? 'Edit Assignment' : 'Assign PM to Unit'}</h3>
+          <button onClick={onClose} className="p-1 rounded hover:bg-muted"><X size={14} /></button>
+        </div>
+        <div className="p-5 space-y-3 overflow-y-auto flex-1">
+          <div>
+            <label className={labelClass}>Unit *</label>
+            <select
+              value={form.unit_id}
+              onChange={(e) => setField('unit_id', e.target.value)}
+              className="w-full h-8 text-xs rounded border border-border bg-background px-2"
+            >
+              <option value="">Select a unit…</option>
+              {sortedUnits.map((u) => (
+                <option key={u.id} value={u.id}>{u.building || '—'} — {u.unit_code || '—'}</option>
+              ))}
+            </select>
+          </div>
+          <div>
+            <label className={labelClass}>Effective Date *</label>
+            <DatePicker value={form.effective_date} onChange={(v) => setField('effective_date', v)} rangeEnd={form.expiry_date || null} placeholder="Pick start date" size="sm" ariaLabel="Effective date" />
+            {snappedEffective && snappedEffective !== form.effective_date && (
+              <p className="text-[11px] text-foreground mt-1">
+                Will be saved as <span className="font-mono text-foreground">{snappedEffective}</span> (start of month)
+              </p>
+            )}
+          </div>
+          <div>
+            <label className={labelClass}>Expiry Date *</label>
+            <DatePicker value={form.expiry_date} onChange={(v) => setField('expiry_date', v)} minDate={form.effective_date || null} rangeStart={form.effective_date || null} placeholder="Pick end date" size="sm" align="right" ariaLabel="Expiry date" />
+            {snappedExpiry && snappedExpiry !== form.expiry_date && (
+              <p className="text-[11px] text-foreground mt-1">
+                Will be saved as <span className="font-mono text-foreground">{snappedExpiry}</span> (end of month)
+              </p>
+            )}
+          </div>
+          <div>
+            <label className={labelClass}>Notes</label>
+            <Textarea value={form.notes} onChange={(e) => setField('notes', e.target.value)} rows={2} className="text-xs rounded resize-none" />
+          </div>
+        </div>
+        <div className="flex items-center justify-end gap-2 px-5 py-3 border-t border-border bg-card flex-shrink-0">
+          <Button variant="outline" size="sm" className="h-8 rounded text-xs" onClick={onClose} disabled={saving}>Cancel</Button>
+          <Button size="sm" className="h-8 rounded text-xs" onClick={handleSubmit} disabled={saving} style={{ backgroundColor: BRAND }}>
+            {saving ? <Loader2 size={12} className="mr-1.5 animate-spin" /> : <Check size={12} className="mr-1.5" />}
+            {saving ? 'Saving…' : editingContract ? 'Save' : 'Assign'}
+          </Button>
+        </div>
+      </motion.div>
+    </div>
+  )
+}
+
+type TerminateModalProps = {
+  open: boolean
+  onClose: () => void
+  onTerminated: () => Promise<void>
+  pmContract: any
+}
+
+// ============================================================
+// TERMINATE MODAL
+// ============================================================
+function TerminateModal({ open, onClose, onTerminated, pmContract }: TerminateModalProps) {
+  const [decisionDate, setDecisionDate] = useState('')
+  const [note, setNote] = useState('')
+  const [confirmed, setConfirmed] = useState(false)
+  const [saving, setSaving] = useState(false)
+
+  useEffect(() => {
+    if (!open) return
+    setDecisionDate(new Date().toISOString().slice(0, 10))
+    setNote('')
+    setConfirmed(false)
+  }, [open])
+
+  useEffect(() => {
+    if (!open) return
+    const prevOverflow = document.body.style.overflow
+    document.body.style.overflow = 'hidden'
+    const onKey = (e) => { if (e.key === 'Escape') onClose?.() }
+    window.addEventListener('keydown', onKey)
+    return () => {
+      document.body.style.overflow = prevOverflow
+      window.removeEventListener('keydown', onKey)
+    }
+  }, [open, onClose])
+
+  const effDate = useMemo(() => lastDayOfMonth(decisionDate), [decisionDate])
+
+  if (!open || !pmContract) return null
+
+  const handleSubmit = async () => {
+    if (saving) return
+    if (!decisionDate) { toast.error('Set the decision date'); return }
+    if (!effDate) { toast.error('Invalid decision date'); return }
+    if (!confirmed) { toast.error('Please confirm'); return }
+
+    setSaving(true)
+    try {
+      await terminatePMContractRow(pmContract.id, decisionDate, note.trim() || null)
+      logAudit('TERMINATE_PM_CONTRACT', 'pm_contracts', pmContract.id, {
+        decision_date: decisionDate, effective_date: effDate,
+      }).catch(() => {})
+      toast.success(`Effective ${effDate}`)
+      onTerminated()
+      onClose()
+    } catch (err) {
+      console.error(err)
+      toast.error(err?.message || 'Failed')
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  const labelClass = 'text-[11px] uppercase tracking-wider text-foreground font-semibold mb-1 block'
+
+  return (
+    <div className="fixed inset-0 z-[10002] flex items-center justify-center p-4">
+      <button
+        type="button"
+        aria-label="Close"
+        onClick={onClose}
+        className="absolute inset-0 bg-black/60 cursor-default"
+      />
+      <motion.div initial={{ opacity: 0, scale: 0.98 }} animate={{ opacity: 1, scale: 1 }} transition={{ duration: 0.15 }}
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="terminate-title"
+        className="relative bg-card rounded-lg max-w-md w-full border border-border overflow-hidden"
+        style={{ boxShadow: SOFT_SHADOW }}>
+        <div className="flex items-center justify-between px-5 py-3 border-b border-border">
+          <h3 id="terminate-title" className="text-sm font-bold text-foreground">Terminate Assignment</h3>
+          <button onClick={onClose} className="p-1 rounded hover:bg-muted"><X size={14} /></button>
+        </div>
+        <div className="p-5 space-y-3">
+          <div className="rounded-md bg-card border border-border p-3 text-xs space-y-1">
+            <div className="flex justify-between"><span className="text-foreground">Contract</span><Code value={pmContract.pm_contract_code} label="PM contract code" /></div>
+            <div className="flex justify-between"><span className="text-foreground">Unit</span><Code value={pmContract.units?.unit_code} label="Unit code" /></div>
+            <div className="flex justify-between"><span className="text-foreground">Effective</span><span className="font-semibold">{formatDate(pmContract.effective_date)}</span></div>
+          </div>
+          <div>
+            <label className={labelClass}>Decision Date *</label>
+            <DatePicker value={decisionDate} onChange={setDecisionDate} placeholder="Pick the day" size="sm" clearable={false} ariaLabel="Decision date" />
+            <p className="text-[11px] text-foreground mt-1">Termination is always effective on the last day of the month.</p>
+          </div>
+          {effDate && (
+            <div className="flex items-start gap-2 px-3 py-2 rounded-md border border-border">
+              <AlertTriangle size={12} className="flex-shrink-0 mt-0.5 text-foreground" />
+              <div className="text-[11px] text-foreground leading-relaxed">
+                <p><strong className="text-amber-700 dark:text-amber-400">Effective: {formatDate(effDate)}</strong></p>
+                <p className="mt-0.5">The PM will continue to earn through this date.</p>
+              </div>
+            </div>
+          )}
+          <div>
+            <label className={labelClass}>Note (optional)</label>
+            <Textarea value={note} onChange={(e) => setNote(e.target.value)} rows={2} className="text-xs rounded resize-none" />
+          </div>
+          <label className="flex items-start gap-2 text-xs cursor-pointer">
+            <input type="checkbox" checked={confirmed} onChange={(e) => setConfirmed(e.target.checked)} className="rounded border-border mt-0.5" />
+            <span className="text-foreground">I understand the effective date above.</span>
+          </label>
+        </div>
+        <div className="flex items-center justify-end gap-2 px-5 py-3 border-t border-border bg-card">
+          <Button variant="outline" size="sm" className="h-8 rounded text-xs" onClick={onClose} disabled={saving}>Cancel</Button>
+          <Button size="sm" className="h-8 rounded text-xs" onClick={handleSubmit} disabled={saving || !confirmed} style={{ backgroundColor: '#dc2626' }}>
+            {saving ? <Loader2 size={12} className="mr-1.5 animate-spin" /> : <X size={12} className="mr-1.5" />}
+            {saving ? 'Terminating…' : 'Terminate'}
+          </Button>
+        </div>
+      </motion.div>
+    </div>
+  )
+}
+
+type PMDetailModalProps = {
+  pm: any
+  onClose: () => void
+  onChanged: (signal?: any) => Promise<void>
+  units: any
+}
+
+// ============================================================
+// PM DETAIL MODAL
+// ============================================================
+function PMDetailModal({ pm, onClose, onChanged, units }: PMDetailModalProps) {
+  const [contracts, setContracts] = useState([])
+  const [loading, setLoading] = useState(true)
+  const [editPmOpen, setEditPmOpen] = useState(false)
+  const [assignOpen, setAssignOpen] = useState(false)
+  const [editingContract, setEditingContract] = useState(null)
+  const [terminating, setTerminating] = useState(null)
+
+  const [preset, setPreset] = useState('all')
+  const [customFrom, setCustomFrom] = useState('')
+  const [customTo, setCustomTo] = useState('')
+  const range = useMemo(
+    () => resolveRange(preset, customFrom, customTo),
+    [preset, customFrom, customTo]
+  )
+
+  useEffect(() => {
+    const prev = document.body.style.overflow
+    document.body.style.overflow = 'hidden'
+    return () => { document.body.style.overflow = prev }
+  }, [])
+
+  useEffect(() => {
+    const onKey = (e) => { if (e.key === 'Escape') onClose() }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [onClose])
+
+  const pmId = pm?.id
+  const load = useCallback(async () => {
+    if (!pmId) return
+    setLoading(true)
+    try { setContracts(await fetchContractsForPM(pmId)) }
+    catch (err) { console.error(err); toast.error('Failed to load') }
+    finally { setLoading(false) }
+  }, [pmId])
+
+  useEffect(() => { load() }, [load])
+
+  const activeCount = useMemo(
+    () => contracts.filter((c) => !c.terminated_at).length,
+    [contracts]
+  )
+
+  const [earningsLoading, setEarningsLoading] = useState(true)
+  const [earningsTotal, setEarningsTotal] = useState(0)
+
+  useEffect(() => {
+    let cancelled = false
+
+    async function load() {
+      setEarningsLoading(true)
+      try {
+        if (contracts.length === 0) {
+          if (!cancelled) { setEarningsTotal(0); setEarningsLoading(false) }
+          return
+        }
+
+        const unitIds = [...new Set(contracts.map((c) => c.unit_id).filter(Boolean))]
+        if (unitIds.length === 0) {
+          if (!cancelled) { setEarningsTotal(0); setEarningsLoading(false) }
+          return
+        }
+
+        const { data: ownerContracts, error: ocErr } = await supabase
+          .from('contracts')
+          .select('id, unit_id, effective_date, expiry_date')
+          .in('unit_id', unitIds)
+        if (ocErr) throw ocErr
+
+        const relevant = []
+        for (const oc of ownerContracts || []) {
+          const overlapping = contracts.some((pc) => {
+            if (pc.unit_id !== oc.unit_id) return false
+            if (oc.effective_date && pc.expiry_date && oc.effective_date > pc.expiry_date) return false
+            if (oc.expiry_date && pc.effective_date && oc.expiry_date < pc.effective_date) return false
+            return true
+          })
+          if (overlapping) relevant.push(oc.id)
+        }
+
+        const pmIds = new Set(contracts.map((pc) => pc.pm_id))
+        let sum = 0
+
+        for (const cid of relevant) {
+          const { data, error: rpcErr } = await supabase.rpc('contract_monthly_breakdown', {
+            p_contract_id: cid,
+          })
+          if (rpcErr) {
+            console.warn('monthly breakdown failed for', cid, rpcErr)
+            continue
+          }
+          for (const r of data || []) {
+            if (!r.pm_id) continue
+            if (!pmIds.has(r.pm_id)) continue
+
+            const monthKey = typeof r.month === 'string' ? r.month.slice(0, 7) : ''
+            if (range.from && monthKey < range.from.slice(0, 7)) continue
+            if (range.to && monthKey > range.to.slice(0, 7)) continue
+
+            sum += Number(r.pm_share || 0)
+          }
+        }
+
+        if (!cancelled) setEarningsTotal(sum)
+      } catch (err) {
+        console.error('PM earnings load failed:', err)
+        if (!cancelled) setEarningsTotal(0)
+      } finally {
+        if (!cancelled) setEarningsLoading(false)
+      }
+    }
+
+    load()
+    return () => { cancelled = true }
+  }, [contracts, range.from, range.to])
+
+  const handleDeletePM = async () => {
+    if (activeCount > 0) {
+      toast.error(`Cannot delete — ${activeCount} active assignment${activeCount === 1 ? '' : 's'}. Terminate them first.`)
+      return
+    }
+    if (!window.confirm(`Delete "${pm.name}" (${pm.code})?\n\nThis cannot be undone.`)) return
+    try {
+      await deletePMRow(pm.id)
+      logAudit('DELETE_PROPERTY_MANAGER', 'property_managers', pm.id, { code: pm.code }).catch(() => {})
+      toast.success('Deleted')
+      onChanged()
+      onClose()
+    } catch (err) { console.error(err); toast.error('Failed to delete') }
+  }
+
+  const handleDeleteContract = async (c) => {
+    if (!window.confirm('Delete this assignment record permanently?\n\nThis is not the same as terminating. It removes the row entirely and affects accounting history.')) return
+    try {
+      if (c.pm_pdf_path) {
+        supabase.storage.from(PM_PDF_BUCKET).remove([c.pm_pdf_path]).catch(() => {})
+      }
+      await deletePMContractRow(c.id)
+      logAudit('DELETE_PM_CONTRACT', 'pm_contracts', c.id, {}).catch(() => {})
+      toast.success('Deleted'); load(); onChanged()
+    } catch (err) { console.error(err); toast.error('Failed to delete') }
+  }
+
+  return (
+    <div className="fixed inset-0 z-[10000] flex items-center justify-center p-4">
+      <motion.button
+        type="button"
+        aria-label="Close"
+        initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} transition={{ duration: 0.2 }}
+        className="absolute inset-0 bg-black/50 cursor-default"
+        onClick={onClose}
+      />
+      <motion.div initial={{ opacity: 0, scale: 0.96, y: 8 }} animate={{ opacity: 1, scale: 1, y: 0 }}
+        exit={{ opacity: 0, scale: 0.96, y: 8 }}
+        transition={{ type: 'spring', stiffness: 320, damping: 28 }}
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="pm-detail-title"
+        className="relative w-full max-w-5xl h-[88vh] bg-card rounded-lg border border-border overflow-hidden flex flex-col"
+        style={{ boxShadow: SOFT_SHADOW }}
+        onClick={(e) => e.stopPropagation()}
+      >
+        <button onClick={onClose} className="absolute top-3 right-3 z-20 p-2 rounded-full bg-card border border-border hover:bg-muted transition-colors shadow-sm">
+          <X size={16} />
+        </button>
+
+        <div className="flex-1 min-h-0 flex flex-col md:flex-row overflow-hidden">
+          <div className="flex-shrink-0 md:w-[320px] border-b md:border-b-0 md:border-r border-border bg-card flex flex-col overflow-y-auto">
+            <div className="p-6 flex flex-col items-center text-center">
+              <WorkerAvatar name={pm.name} photo_url={pm.photo_url} size="xl" />
+              <p id="pm-detail-title" className="mt-4 text-lg font-bold text-foreground truncate w-full leading-tight">{pm.name}</p>
+              <div className="mt-1 flex justify-center"><Code value={pm.code} label="Team code" className="text-[11px] uppercase tracking-wide" /></div>
+              <div className="mt-4 flex flex-col items-center gap-2">
+                <RoleBadge role="property_managers" size="lg" />
+              </div>
+
+              <div className="w-full mt-5 p-4 rounded-lg bg-background border border-border">
+                <div className="flex items-center gap-2 mb-1 justify-center">
+                  <Wallet size={13} className="text-foreground" />
+                  <span className="text-[11px] font-bold uppercase tracking-wider text-foreground">
+                    Total Earnings {preset !== 'all' ? '· in range' : '· lifetime'}
+                  </span>
+                </div>
+                {earningsLoading ? (
+                  <div className="h-7 w-32 rounded bg-muted animate-pulse mx-auto" />
+                ) : (
+                  <p className="text-2xl font-bold tabular-nums text-foreground text-center">
+                    {formatMoney(earningsTotal)}
+                  </p>
+                )}
+                <p className="text-[11px] text-foreground mt-1 text-center">
+                  {activeCount} active · {contracts.length} total assignment{contracts.length === 1 ? '' : 's'}
+                </p>
+              </div>
+
+              <div className="w-full mt-5 pt-5 border-t border-border space-y-3 text-left">
+                <div className="flex items-start gap-2 min-w-0">
+                  <Mail size={12} className="text-foreground flex-shrink-0 mt-0.5" />
+                  <div className="min-w-0 flex-1">
+                    <p className="text-[11px] uppercase tracking-wider text-foreground font-semibold">Email</p>
+                    {pm.email ? <p className="text-xs text-foreground truncate mt-0.5">{pm.email}</p> : <p className="text-xs text-foreground italic mt-0.5">No email</p>}
+                  </div>
+                </div>
+                <div className="flex items-start gap-2 min-w-0">
+                  <Phone size={12} className="text-foreground flex-shrink-0 mt-0.5" />
+                  <div className="min-w-0 flex-1">
+                    <p className="text-[11px] uppercase tracking-wider text-foreground font-semibold">Phone</p>
+                    {pm.phone ? <p className="text-xs text-foreground truncate mt-0.5">{pm.phone}</p> : <p className="text-xs text-foreground italic mt-0.5">No phone</p>}
+                  </div>
+                </div>
+                <div>
+                  <p className="text-[11px] font-medium text-foreground">Hired</p>
+                  <p className="text-xs font-semibold text-foreground tabular-nums mt-0.5">
+                    {pm.created_at ? formatDate(pm.created_at) : '—'}
+                  </p>
+                </div>
+              </div>
+            </div>
+            <div className="mt-auto p-4 border-t border-border bg-card">
+              <div className="flex flex-col gap-2">
+                <Button variant="outline" size="sm" className="h-9 rounded-lg text-xs gap-2 w-full justify-start" onClick={() => setEditPmOpen(true)}>
+                  <Edit2 size={12} /> Edit PM
+                </Button>
+                <Button variant="outline" size="sm"
+                  className="h-9 rounded-lg text-xs gap-2 w-full justify-start text-red-600 border-red-200 hover:bg-red-50 dark:text-red-400 dark:border-red-800 dark:hover:bg-red-900/20"
+                  onClick={handleDeletePM}>
+                  <Trash2 size={12} /> Delete PM
+                </Button>
+              </div>
+            </div>
+          </div>
+
+          <div className="flex-1 min-h-0 overflow-y-auto p-5">
+            <div className="flex items-center justify-between gap-3 mb-3 flex-wrap pr-12">
+              <div>
+                <h3 className="text-sm font-bold text-foreground">
+                  Unit Assignments {!loading && <span className="text-foreground font-normal">· {contracts.length}</span>}
+                </h3>
+                <p className="text-[11px] text-foreground mt-0.5">
+                  Every unit this PM has managed or is currently managing.
+                </p>
+              </div>
+              <div className="flex items-center gap-2 flex-wrap">
+                <DateFilterBar
+                  preset={preset} setPreset={setPreset}
+                  customFrom={customFrom} setCustomFrom={setCustomFrom}
+                  customTo={customTo} setCustomTo={setCustomTo}
+                />
+                <Button size="sm" className="h-8 rounded-lg text-xs" style={{ backgroundColor: BRAND }}
+                  onClick={() => { setEditingContract(null); setAssignOpen(true) }}>
+                  <Plus size={12} /> Assign
+                </Button>
+              </div>
+            </div>
+
+            <div className="rounded-lg bg-card border border-border shadow-sm overflow-hidden">
+              {loading ? (
+                <div className="p-3 space-y-2">
+                  {[...Array(3)].map((_, i) => <Skeleton key={i} className="h-20 w-full" />)}
+                </div>
+              ) : contracts.length === 0 ? (
+                <div className="py-12 px-4 text-center">
+                  <Building2 size={28} className="text-foreground mx-auto mb-2" />
+                  <p className="text-xs text-foreground italic">No units assigned yet</p>
+                </div>
+              ) : (
+                <div className="divide-y divide-border">
+                  {contracts.map((c) => {
+                    const st = pmStatusLabel(c)
+                    return (
+                      <div key={c.id} className="px-4 py-3">
+                        <div className="flex items-start justify-between gap-3 flex-wrap">
+                          <div className="min-w-0 flex-1">
+                            <div className="flex items-baseline gap-2 flex-wrap">
+                              <Code value={c.pm_contract_code} label="PM contract code" className="text-[11px]" />
+                              <span className={cn('text-[11px] font-semibold', st.className)}>{st.label}</span>
+                            </div>
+                            <div className="flex items-baseline gap-2 mt-1 flex-wrap">
+                              <Code value={c.units?.unit_code} label="Unit code" className="text-xs" />
+                              <span className="text-[11px] text-foreground truncate">{c.units?.building || '—'}</span>
+                            </div>
+                            <p className="text-[11px] text-foreground mt-1 tabular-nums">
+                              <Calendar size={10} className="inline mr-1" />
+                              {formatDate(c.effective_date)} → {formatDate(c.expiry_date)}
+                              {c.termination_effective_date && (
+                                <span className="ml-2 text-amber-600 dark:text-amber-400">
+                                  · terminated {formatDate(c.termination_effective_date)}
+                                </span>
+                              )}
+                            </p>
+                            <p className="text-[11px] text-foreground mt-0.5">
+                              {Number(c.pm_share_of_company_pct).toFixed(0)}% of company's 25% · PM earns {((25 * Number(c.pm_share_of_company_pct)) / 100).toFixed(2)}% of net
+                            </p>
+                          </div>
+                          <div className="flex items-center gap-1 flex-shrink-0 flex-wrap">
+                            <PMPdfUploader pmContract={c} onSaved={() => { load(); onChanged() }} />
+                            {!c.terminated_at && (
+                              <Button variant="outline" size="sm"
+                                className="h-7 rounded text-[11px] gap-1 text-red-600 border-red-200 hover:bg-red-50 dark:text-red-400 dark:border-red-800 dark:hover:bg-red-900/20"
+                                onClick={() => setTerminating(c)}>
+                                Terminate
+                              </Button>
+                            )}
+                            <button type="button" onClick={() => { setEditingContract(c); setAssignOpen(true) }}
+                              className="p-1.5 rounded hover:bg-muted text-foreground hover:text-foreground" title="Edit">
+                              <Pencil size={12} />
+                            </button>
+                            <button type="button" onClick={() => handleDeleteContract(c)}
+                              className="p-1.5 rounded hover:bg-red-500/10 text-foreground hover:text-red-500" title="Delete record">
+                              <Trash2 size={12} />
+                            </button>
+                          </div>
+                        </div>
+                        {c.notes && (
+                          <p className="text-[11px] text-foreground italic mt-2 whitespace-pre-wrap break-words">{c.notes}</p>
+                        )}
+                      </div>
+                    )
+                  })}
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+
+        <AnimatePresence>
+          {editPmOpen && (
+            <PMFormModal key="edit-pm" open={editPmOpen} onClose={() => setEditPmOpen(false)}
+              onSaved={() => { load(); onChanged() }} editing={pm} />
+          )}
+          {assignOpen && (
+            <AssignUnitModal key="assign" open={assignOpen}
+              onClose={() => { setAssignOpen(false); setEditingContract(null) }}
+              onSaved={load} pm={pm} editingContract={editingContract} units={units} />
+          )}
+          {terminating && (
+            <TerminateModal key="term" open={!!terminating}
+              onClose={() => setTerminating(null)} onTerminated={load} pmContract={terminating} />
+          )}
+        </AnimatePresence>
+      </motion.div>
+    </div>
+  )
+}
+
+// ============================================================
+// MAIN PAGE
+// ============================================================
+export default function TeamPage() {
+  const [activeTab, setActiveTab] = useState('specialists')
+  // How many people have CRM access (for the tab's count); the panel keeps it current.
+  const [accessCount, setAccessCount] = useState(0)
+  useEffect(() => {
+    supabase.rpc('crm_access_list').then(({ data }) => { if (Array.isArray(data)) setAccessCount(data.length) })
+  }, [])
+  // How many people are connected to the 8am Messenger update.
+  const [messengerCount, setMessengerCount] = useState(0)
+  useEffect(() => {
+    supabase.functions.invoke('messenger-team', { body: { mode: 'list' } }).then(({ data }) => {
+      if (Array.isArray(data?.people)) setMessengerCount(data.people.filter((p) => p.connected).length)
+    })
+  }, [])
+  const [data, setData] = useState({ specialists: [], affiliates: [], housekeepers: [] })
+  const [counts, setCounts] = useState({ specialists: {}, affiliates: {} })
+  const [teamTotals, setTeamTotals] = useState({
+    specialistCommission: 0,
+    affiliateCommission: 0,
+    housekeeperPayout: 0,
+    pmEarnings: 0,
+  })
+  const [loading, setLoading] = useState(true)
+  const [refreshing, setRefreshing] = useState(false)
+  const [search, setSearch] = useState('')
+  const [debouncedSearch, setDebouncedSearch] = useState('')
+  const [selected, setSelected] = useState(null)
+  const [formOpen, setFormOpen] = useState(false)
+  const [editing, setEditing] = useState(null)
+
+  const [pms, setPMs] = useState([])
+  const [pmUnits, setPMUnits] = useState([])
+  const [pmSelected, setPMSelected] = useState(null)
+  const [pmFormOpen, setPMFormOpen] = useState(false)
+
+  const hasLoadedOnce = useRef(false)
+
+  useEffect(() => {
+    const t = setTimeout(() => setDebouncedSearch(search), 250)
+    return () => clearTimeout(t)
+  }, [search])
+
+  useEffect(() => { setSelected(null); setPMSelected(null) }, [activeTab])
+
+  // "/" jumps to the search box.
+  const searchRef = useRef(null)
+  useListShortcuts({ searchRef, onEscape: null })
+
+  const fetchAll = useCallback(async (signal?) => {
+    if (!hasLoadedOnce.current) setLoading(true)
+    else setRefreshing(true)
+    try {
+      const [s, a, h, countResult, pmList, unitList, totalsRes] = await Promise.all([
+        supabase.from('specialists').select('*').order('name'),
+        supabase.from('affiliates').select('*').order('name'),
+        supabase.from('housekeepers').select('*').order('name'),
+        fetchTeamCompletedCounts(),
+        fetchPMs(),
+        fetchUnitsForSelect(),
+        supabase.rpc('team_totals_bulk'),
+      ])
+      if (signal?.aborted) return
+      if (s.error) throw s.error
+      if (a.error) throw a.error
+      if (h.error) throw h.error
+
+      setData({ specialists: s.data || [], affiliates: a.data || [], housekeepers: h.data || [] })
+      setCounts({
+        specialists: countResult.specialists || {},
+        affiliates: countResult.affiliates || {},
+      })
+
+      if (totalsRes.error) {
+        console.error('team_totals_bulk failed:', totalsRes.error)
+        setTeamTotals({
+          specialistCommission: 0,
+          affiliateCommission: 0,
+          housekeeperPayout: 0,
+          pmEarnings: 0,
+        })
+      } else {
+        const row = (totalsRes.data || [])[0] || {}
+        setTeamTotals({
+          specialistCommission: Number(row.specialist_commission) || 0,
+          affiliateCommission: Number(row.affiliate_commission) || 0,
+          housekeeperPayout: Number(row.housekeeper_payout) || 0,
+          pmEarnings: Number(row.pm_earnings) || 0,
+        })
+      }
+
+      const { data: activeContracts } = await supabase
+        .from('pm_contracts')
+        .select('pm_id')
+        .is('terminated_at', null)
+      const activeCounts = new Map()
+      for (const c of activeContracts || []) {
+        activeCounts.set(c.pm_id, (activeCounts.get(c.pm_id) || 0) + 1)
+      }
+
+      const pmIds = pmList.map((p) => p.id)
+      const earningsMap = new Map()
+      if (pmIds.length > 0) {
+        const { data: earningsRows, error: earnErr } = await supabase.rpc('pm_earnings_bulk', {
+          p_pm_ids: pmIds,
+        })
+        if (earnErr) {
+          console.error('pm_earnings_bulk failed:', earnErr)
+        } else {
+          for (const row of earningsRows || []) {
+            earningsMap.set(row.pm_id, Number(row.total_earnings) || 0)
+          }
+        }
+      }
+
+      const enrichedPMs = pmList.map((p) => ({
+        ...p,
+        _activeCount: activeCounts.get(p.id) || 0,
+        _totalEarnings: earningsMap.get(p.id) || 0,
+      }))
+
+      setPMs(enrichedPMs)
+      setPMUnits(unitList)
+    } catch (err) {
+      if (err?.name === 'AbortError') return
+      console.error('Failed to load team:', err)
+      toast.error('Failed to load team')
+    } finally {
+      if (!signal?.aborted) {
+        setLoading(false); setRefreshing(false); hasLoadedOnce.current = true
+      }
+    }
+  }, [])
+
+  useEffect(() => {
+    const ac = new AbortController()
+    fetchAll(ac.signal)
+    return () => ac.abort()
+  }, [fetchAll])
+
+  useEffect(() => {
+    let timer = null
+    const schedule = () => {
+      if (timer) clearTimeout(timer)
+      timer = setTimeout(() => { fetchAll() }, 1500)
+    }
+
+    const chs = [
+      supabase.channel('team-specialists').on('postgres_changes', { event: '*', schema: 'public', table: 'specialists' }, schedule).subscribe(),
+      supabase.channel('team-affiliates').on('postgres_changes', { event: '*', schema: 'public', table: 'affiliates' }, schedule).subscribe(),
+      supabase.channel('team-housekeepers').on('postgres_changes', { event: '*', schema: 'public', table: 'housekeepers' }, schedule).subscribe(),
+      supabase.channel('team-bookings').on('postgres_changes', { event: '*', schema: 'public', table: 'bookings' }, schedule).subscribe(),
+      supabase.channel('team-pms').on('postgres_changes', { event: '*', schema: 'public', table: 'property_managers' }, schedule).subscribe(),
+      supabase.channel('team-pm-contracts').on('postgres_changes', { event: '*', schema: 'public', table: 'pm_contracts' }, schedule).subscribe(),
+    ]
+    return () => {
+      if (timer) clearTimeout(timer)
+      chs.forEach((c) => supabase.removeChannel(c))
+    }
+  }, [fetchAll])
+
+  const activeList = data[activeTab] || []
+
+  const filtered = useMemo(() => {
+    const q = debouncedSearch.trim().toLowerCase()
+    if (activeTab === 'property_managers') {
+      if (!q) return pms
+      return pms.filter((p) =>
+        (p.name || '').toLowerCase().includes(q) ||
+        (p.code || '').toLowerCase().includes(q) ||
+        (p.email || '').toLowerCase().includes(q) ||
+        (p.phone || '').toLowerCase().includes(q)
+      )
+    }
+    if (!q) return activeList
+    return activeList.filter((w) =>
+      (w.name || '').toLowerCase().includes(q) ||
+      (w.code || '').toLowerCase().includes(q) ||
+      (w.email || '').toLowerCase().includes(q) ||
+      (w.phone || '').toLowerCase().includes(q)
+    )
+  }, [activeTab, activeList, pms, debouncedSearch])
+
+  const liveCountFor = (worker) => {
+    if (activeTab === 'specialists') return counts.specialists[worker.code] || 0
+    if (activeTab === 'affiliates') return counts.affiliates[worker.code] || 0
+    return 0
+  }
+
+  const handleSelect = (worker) => setSelected(worker)
+
+  const handleChanged = (updated) => {
+    setData((prev) => ({
+      ...prev,
+      [activeTab]: prev[activeTab].map((x) => (x.id === updated.id ? { ...x, ...updated } : x)),
+    }))
+    setSelected(updated)
+  }
+
+  const handleDelete = async (worker) => {
+    const confirmed = window.confirm(`Delete "${worker.name}" (${worker.code})?\n\nThis cannot be undone.`)
+    if (!confirmed) return
+    try {
+      const { error } = await supabase.from(activeTab).delete().eq('id', worker.id)
+      if (error) throw error
+      logAudit(`DELETE_${activeTab.toUpperCase()}`, activeTab, worker.id, { code: worker.code }).catch(() => {})
+      toast.success('Deleted')
+      setSelected(null)
+      fetchAll()
+    } catch (err) { console.error(err); toast.error('Failed to delete') }
+  }
+
+  const openNew = () => {
+    if (activeTab === 'property_managers') setPMFormOpen(true)
+    else { setEditing(null); setFormOpen(true) }
+  }
+  const openEdit = (worker) => { setEditing(worker); setFormOpen(true) }
+
+  const showSkeleton = loading
+  const isPMTab = activeTab === 'property_managers'
+  // Tabs that show a panel instead of people cards.
+  const isPanelTab = activeTab === 'crm_access' || activeTab === 'messenger'
+
+  const groupLabel = TABS.find((t) => t.id === activeTab)?.label || 'people'
+  const totalInGroup = isPMTab ? pms.length : activeList.length
+  const searchChips = debouncedSearch.trim()
+    ? [{ key: 'search', label: `"${debouncedSearch.trim()}"`, onRemove: () => setSearch('') }]
+    : []
+
+  return (
+    <div className="h-full flex min-h-0">
+      <div data-page-scroll className="flex-1 min-w-0 min-h-0 flex flex-col px-4 py-4 md:px-8 md:py-6 gap-4 overflow-y-auto [&>*]:flex-shrink-0">
+
+        <div className="flex-shrink-0">
+          <SummaryCards
+            data={data}
+            pmCount={pms.length}
+            teamTotals={teamTotals}
+            activeTab={activeTab}
+            loading={loading}
+            onSelect={(tab) => { setActiveTab(tab); setSelected(null); setPMSelected(null) }}
+          />
+        </div>
+
+        <div className="flex-shrink-0 flex items-center gap-2 flex-wrap">
+          <StatusTabs
+            tabs={TABS}
+            value={activeTab}
+            label="Team group"
+            onChange={(tab) => { setActiveTab(tab); setSelected(null); setPMSelected(null) }}
+            counts={{
+              specialists: data.specialists.length,
+              affiliates: data.affiliates.length,
+              housekeepers: data.housekeepers.length,
+              property_managers: pms.length,
+              crm_access: accessCount,
+              messenger: messengerCount,
+            }}
+          />
+          {!isPanelTab && (<>
+          <div className="relative flex-1 min-w-[200px]">
+            <Search size={13} className="absolute left-3 top-1/2 -translate-y-1/2 text-foreground pointer-events-none" />
+            <Input
+              ref={searchRef}
+              placeholder="Search name, code, email…"
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              className="pl-9 pr-9 h-9 text-xs rounded-md"
+            />
+            {!search && <SearchKeyHint />}
+          </div>
+          <Button size="sm" className="h-9 rounded-md text-xs text-white" style={{ backgroundColor: BRAND }} onClick={openNew}>
+            <Plus size={13} />
+            <span className="hidden sm:inline ml-1">
+              {isPMTab ? 'New PM' : 'New'}
+            </span>
+          </Button>
+          <Button variant="outline" size="sm" onClick={() => fetchAll()} disabled={refreshing} className="h-9 rounded-md" title="Refresh">
+            <RefreshCw size={13} className={cn(refreshing && 'animate-spin')} />
+          </Button>
+          </>)}
+        </div>
+
+        {activeTab === 'crm_access' && (
+          <div className="-mx-1 px-1 pb-2">
+            <CrmAccessPanel onCount={setAccessCount} />
+          </div>
+        )}
+
+        {activeTab === 'messenger' && (
+          <div className="-mx-1 px-1 pb-2">
+            <MessengerUpdatesPanel onCount={setMessengerCount} />
+          </div>
+        )}
+
+        {!isPanelTab && !loading && (
+          <ResultsBar
+            shown={filtered.length}
+            total={totalInGroup}
+            noun={groupLabel.toLowerCase()}
+            chips={searchChips}
+            onClearAll={() => setSearch('')}
+            hint="Press / to search"
+          />
+        )}
+
+        <div
+          hidden={isPanelTab}
+          className={cn('-mx-1 px-1 pb-2 transition-opacity', refreshing && 'opacity-60')}
+        >
+          {showSkeleton ? (
+            <WorkerCardSkeletonGrid count={6} />
+          ) : filtered.length === 0 ? (
+            <div className="h-full flex items-center justify-center text-center py-12">
+              <div>
+                <Users size={32} strokeWidth={1.5} className="text-foreground mx-auto mb-3" />
+                <p className="text-sm text-foreground font-semibold">
+                  {totalInGroup > 0 ? 'Nobody matches your search' : isPMTab ? 'No property managers yet' : 'Nobody here yet'}
+                </p>
+                <p className="text-xs text-foreground mt-1">
+                  {totalInGroup > 0
+                    ? 'Try another name, code or email.'
+                    : isPMTab ? 'Click "New PM" to add the first one.' : 'Click "New" to add the first one.'}
+                </p>
+                {totalInGroup > 0 && (
+                  <button type="button" onClick={() => setSearch('')} className="mt-4 inline-flex items-center h-8 px-3 rounded-md border border-border text-xs font-semibold text-foreground hover:bg-muted">
+                    Clear search
+                  </button>
+                )}
+              </div>
+            </div>
+          ) : (
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 2xl:grid-cols-4 gap-4">
+              {isPMTab
+                ? filtered.map((pm) => (
+                    <PMCard key={pm.id} pm={pm} onClick={() => setPMSelected(pm)} />
+                  ))
+                : filtered.map((worker) => (
+                    <WorkerCard
+                      key={worker.id}
+                      worker={worker}
+                      role={activeTab}
+                      liveCount={liveCountFor(worker)}
+                      onClick={() => handleSelect(worker)}
+                    />
+                  ))}
+            </div>
+          )}
+        </div>
+      </div>
+
+      <AnimatePresence>
+        {!isPMTab && !isPanelTab && selected && (
+          <WorkerDetailModal
+            key={selected.id}
+            worker={selected}
+            role={activeTab}
+            counts={counts}
+            onClose={() => setSelected(null)}
+            onChanged={handleChanged}
+            onEdit={() => openEdit(selected)}
+            onDelete={() => handleDelete(selected)}
+          />
+        )}
+        {isPMTab && pmSelected && (
+          <PMDetailModal
+            key={pmSelected.id}
+            pm={pmSelected}
+            onClose={() => setPMSelected(null)}
+            onChanged={fetchAll}
+            units={pmUnits}
+          />
+        )}
+      </AnimatePresence>
+
+      {!isPMTab && !isPanelTab && (
+        <WorkerFormModal
+          open={formOpen}
+          onClose={() => { setFormOpen(false); setEditing(null) }}
+          onSaved={fetchAll}
+          role={activeTab}
+          editing={editing}
+        />
+      )}
+
+      {isPMTab && (
+        <PMFormModal
+          open={pmFormOpen}
+          onClose={() => setPMFormOpen(false)}
+          onSaved={fetchAll}
+          editing={null}
+        />
+      )}
+    </div>
+  )
+}

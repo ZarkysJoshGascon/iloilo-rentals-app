@@ -5,7 +5,7 @@ import { motion, useScroll, useTransform, useReducedMotion, AnimatePresence, typ
 import Footer from '../../components/layout/Footer'
 import { Photo } from '@/components/ui/photo'
 import { WorksWheel } from '@/components/ui/works-wheel'
-import { spot, useSitePhotos, useSiteGallery, REVIEWS } from '@/lib/siteImages'
+import { spot, useSitePhotos, useSiteGallery, REVIEWS } from '@/lib/api/siteImages'
 import { usePageRevealed } from '@/lib/pageReveal'
 import {
   ArrowRight,
@@ -124,7 +124,7 @@ const getInitialMountKey = () => Date.now()
 // view.jpg hasn't been uploaded yet, so the banner borrows hero-10 (the spot
 // inside spot(...)) until it is. Spots with nothing uploaded show the stock
 // photo written next to them.
-// A replaced photo shows on the next page load (see src/lib/siteImages.ts).
+// A replaced photo shows on the next page load (see src/lib/api/siteImages.ts).
 // ============================================================
 const UNSPLASH = (id) => `https://images.unsplash.com/photo-${id}?w=1200&q=75&auto=format&fit=crop`
 

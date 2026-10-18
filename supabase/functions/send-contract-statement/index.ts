@@ -28,7 +28,7 @@ const FROM_NAME             = Deno.env.get('FROM_NAME')      || 'Iloilo Rentals'
 const DEFAULT_REPLY_TO      = Deno.env.get('REPLY_TO_EMAIL') || null
 const BRAND_COLOR           = Deno.env.get('BRAND_COLOR')    || '#2d568e'
 
-// Same split as src/lib/accounting.js.
+// Same split as src/lib/domain/accounting.js.
 const OWNER_SPLIT_PCT = 75
 const COMPANY_SPLIT_PCT = 25
 

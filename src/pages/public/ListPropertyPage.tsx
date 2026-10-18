@@ -7,7 +7,7 @@ import {
 } from 'lucide-react'
 import toast from 'react-hot-toast'
 import { cn } from '@/lib/utils'
-import { uploadInquiryImage, submitPropertyInquiry } from '@/lib/inquiries'
+import { uploadInquiryImage, submitPropertyInquiry } from '@/lib/api/inquiries'
 import type { ReactNode } from 'react'
 
 const BRAND = '#2d568e'

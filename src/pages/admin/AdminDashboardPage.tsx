@@ -16,38 +16,38 @@ import AdminSidebar, {
   SIDEBAR_PUSH_DELTA,
   SIDEBAR_SLIDE_MS,
   SIDEBAR_SLIDE_EASE,
-} from '../../components/admin/AdminSidebar'
-import { InquiryNotifications } from '../../components/admin/InquiryNotifications'
-import ContractAlertBar from '../../components/admin/ContractAlertBar'
-import { useContractAlerts } from '../../hooks/useContractAlerts'
+} from '@/features/admin/shell/AdminSidebar'
+import { InquiryNotifications } from '@/features/admin/shell/InquiryNotifications'
+import ContractAlertBar from '@/features/admin/shell/ContractAlertBar'
+import { useContractAlerts } from '@/features/admin/shell/useContractAlerts'
 import { useIsPhone } from '../../hooks/useIsPhone'
-import { PageScrollHelper } from '../../components/admin/_shared/PageScrollHelper'
+import { PageScrollHelper } from '@/components/crm/PageScrollHelper'
 
 // ─────────────────────────────────────────────────────────────
 // Lazy pages
 // ─────────────────────────────────────────────────────────────
-const DashboardPage         = lazy(() => import('../../components/admin/dashboard/DashboardPage'))
-const RegistryPage          = lazy(() => import('../../components/admin/registry/RegistryPage'))
-const ContractsPage         = lazy(() => import('../../components/admin/contracts/ContractsPage'))
-const AccountingPage        = lazy(() => import('../../components/admin/accounting/AccountingPage'))
-const BookingsPage          = lazy(() => import('../../components/admin/bookings/BookingsPage'))
-const CampaignsPage         = lazy(() => import('../../components/admin/campaigns/CampaignsPage'))
-const ListPropertyInquiriesPage   = lazy(() => import('../../components/admin/inquiries/ListPropertyInquiriesPage'))
-const InteriorDesignInquiriesPage = lazy(() => import('../../components/admin/interior/InteriorDesignInquiriesPage'))
-const TeamPage              = lazy(() => import('../../components/admin/team/TeamPage'))
-const HousekeepingPage      = lazy(() => import('../../components/admin/housekeeping/HousekeepingPage'))
+const DashboardPage         = lazy(() => import('@/features/admin/dashboard/DashboardPage'))
+const RegistryPage          = lazy(() => import('@/features/admin/registry/RegistryPage'))
+const ContractsPage         = lazy(() => import('@/features/admin/contracts/ContractsPage'))
+const AccountingPage        = lazy(() => import('@/features/admin/accounting/AccountingPage'))
+const BookingsPage          = lazy(() => import('@/features/admin/bookings/BookingsPage'))
+const CampaignsPage         = lazy(() => import('@/features/admin/campaigns/CampaignsPage'))
+const ListPropertyInquiriesPage   = lazy(() => import('@/features/admin/inquiries/ListPropertyInquiriesPage'))
+const InteriorDesignInquiriesPage = lazy(() => import('@/features/admin/interior/InteriorDesignInquiriesPage'))
+const TeamPage              = lazy(() => import('@/features/admin/team/TeamPage'))
+const HousekeepingPage      = lazy(() => import('@/features/admin/housekeeping/HousekeepingPage'))
 
 const PREFETCH = {
-  dashboard:    () => import('../../components/admin/dashboard/DashboardPage'),
-  registry:     () => import('../../components/admin/registry/RegistryPage'),
-  contracts:    () => import('../../components/admin/contracts/ContractsPage'),
-  accounting:   () => import('../../components/admin/accounting/AccountingPage'),
-  bookings:     () => import('../../components/admin/bookings/BookingsPage'),
-  housekeeping: () => import('../../components/admin/housekeeping/HousekeepingPage'),
-  inquiries:    () => import('../../components/admin/inquiries/ListPropertyInquiriesPage'),
-  interior:     () => import('../../components/admin/interior/InteriorDesignInquiriesPage'),
-  campaigns:    () => import('../../components/admin/campaigns/CampaignsPage'),
-  team:         () => import('../../components/admin/team/TeamPage'),
+  dashboard:    () => import('@/features/admin/dashboard/DashboardPage'),
+  registry:     () => import('@/features/admin/registry/RegistryPage'),
+  contracts:    () => import('@/features/admin/contracts/ContractsPage'),
+  accounting:   () => import('@/features/admin/accounting/AccountingPage'),
+  bookings:     () => import('@/features/admin/bookings/BookingsPage'),
+  housekeeping: () => import('@/features/admin/housekeeping/HousekeepingPage'),
+  inquiries:    () => import('@/features/admin/inquiries/ListPropertyInquiriesPage'),
+  interior:     () => import('@/features/admin/interior/InteriorDesignInquiriesPage'),
+  campaigns:    () => import('@/features/admin/campaigns/CampaignsPage'),
+  team:         () => import('@/features/admin/team/TeamPage'),
 }
 
 const IDLE_LIMIT_MS   = 30 * 60 * 1000
