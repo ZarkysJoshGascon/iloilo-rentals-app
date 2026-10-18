@@ -6,27 +6,27 @@ import { ThemeProvider } from './context/ThemeContext'
 import { supabase } from './lib/supabase'
 import Navbar from './components/layout/Navbar'
 import Footer from './components/layout/Footer'
-import AdminRoute from '@/features/admin/shell/AdminRoute'
-import HousekeeperRoute from '@/features/housekeeper/HousekeeperRoute'
+import AdminRoute from '@/admin/shell/AdminRoute'
+import HousekeeperRoute from '@/housekeeper/HousekeeperRoute'
 import { Preloader } from './components/ui/preloader'
 import { PageImagesProbe } from './components/common/PageImagesProbe'
 import { TouchScrollIndicator } from './components/common/TouchScrollIndicator'
 import { PageRevealContext } from './lib/pageReveal'
 
 // ---- Lazy-loaded pages (each becomes its own chunk) ----
-const HomePage = lazy(() => import('./pages/public/HomePage'))
-const LoginPage = lazy(() => import('./pages/public/LoginPage'))
-const PostLoginPage = lazy(() => import('./pages/public/PostLoginPage'))
-const AboutPage = lazy(() => import('./pages/public/AboutPage'))
-const ContactPage = lazy(() => import('./pages/public/ContactPage'))
-const ListPropertyPage = lazy(() => import('./pages/public/ListPropertyPage'))
-const InteriorDesignPage = lazy(() => import('./pages/public/InteriorDesignPage'))
-const PrivacyPolicyPage = lazy(() => import('./pages/public/PrivacyPolicyPage'))
-const TermsPage = lazy(() => import('./pages/public/TermsPage'))
-const UnsubscribePage = lazy(() => import('./pages/public/UnsubscribePage'))
-const AdminDashboardPage = lazy(() => import('./pages/admin/AdminDashboardPage'))
-const OwnerPortalPage = lazy(() => import('./pages/owner/OwnerPortalPage'))
-const HousekeeperTasksPage = lazy(() => import('./pages/housekeeper/HousekeeperTasksPage'))
+const HomePage = lazy(() => import('@/pages/HomePage'))
+const LoginPage = lazy(() => import('@/pages/LoginPage'))
+const PostLoginPage = lazy(() => import('@/pages/PostLoginPage'))
+const AboutPage = lazy(() => import('@/pages/AboutPage'))
+const ContactPage = lazy(() => import('@/pages/ContactPage'))
+const ListPropertyPage = lazy(() => import('@/pages/ListPropertyPage'))
+const InteriorDesignPage = lazy(() => import('@/pages/InteriorDesignPage'))
+const PrivacyPolicyPage = lazy(() => import('@/pages/PrivacyPolicyPage'))
+const TermsPage = lazy(() => import('@/pages/TermsPage'))
+const UnsubscribePage = lazy(() => import('@/pages/UnsubscribePage'))
+const AdminDashboardPage = lazy(() => import('@/admin/AdminDashboardPage'))
+const OwnerPortalPage = lazy(() => import('@/owner/OwnerPortalPage'))
+const HousekeeperTasksPage = lazy(() => import('@/housekeeper/HousekeeperTasksPage'))
 
 // First visit only: a loading screen covers the site until the page and every
 // image on it have loaded, so no photo is seen half-loaded. It gives up after

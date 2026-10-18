@@ -7,7 +7,7 @@ description: Framer Motion animation patterns for this project — scroll reveal
 
 `framer-motion` (v12) is already installed and used across the app. Import from `'framer-motion'`, never add another animation library (GSAP, AOS, react-spring, etc.).
 
-Reference implementation: `src/pages/public/HomePage.tsx`. Copy its helpers rather than reinventing them.
+Reference implementation: `src/pages/HomePage.tsx`. Copy its helpers rather than reinventing them.
 
 > **Note (Oct 2026):** the homepage went back to its layout from before the parallax redesign (parent of commit `593ba63`): the hero card over two drifting photo rows, alternating service sections that slide in from the sides, the "Look out the window" banner, the closing section with no buttons and no hero button. It scrolls inside its own container (`containerRef`, passed as a prop, with no `ScrollContainerContext`). From the redesign it kept:
 > - the redesign's service content (Property Management, Interior Design, Booking Stays, Affiliate Partner), shown in the old layout;

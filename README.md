@@ -15,14 +15,13 @@ npm run lint
 ```
 src/
   main.tsx, App.tsx, index.css   entry point, routes, global styles
-  pages/          one file per route: public/, admin/, owner/, housekeeper/
-  features/       everything that belongs to one part of the app
-    admin/
-      shell/      around every CRM page: sidebar, sign-in guard, alerts
-      <area>/     one folder per CRM page: accounting, bookings, contracts, …
-    owner/        owner portal
-    housekeeper/  housekeepers' sign-in guard
-    public/       public site pieces: walkthroughs, interior stories
+  pages/          the public website, one file per page (Home, About, Contact…)
+    interior-design/   the Interior Design page's pieces: walkthroughs, image stories
+  admin/          the CRM: AdminDashboardPage.tsx is /admin
+    shell/        around every CRM page: sidebar, sign-in guard, alerts
+    <area>/       one folder per CRM page: accounting, bookings, contracts, …
+  owner/          the owner portal: OwnerPortalPage.tsx and its parts
+  housekeeper/    the housekeepers' portal: HousekeeperTasksPage.tsx and its guard
   components/     used across the app
     ui/           shadcn building blocks (button, input, select, …)
     crm/          CRM-style blocks the admin, owner and housekeeper portals
@@ -41,7 +40,8 @@ supabase/
 ```
 
 Rules of thumb:
-- Used by one part of the app only: it goes in that part's folder under `features/`.
+- Each part of the app has one folder: `pages/` (website), `admin/`, `owner/`, `housekeeper/`.
+  Something only that part uses goes in its folder.
 - Used by several parts: `components/` (screens) or `lib/` (logic).
 - Calls Supabase: `lib/api/`. Pure rules with no network: `lib/domain/`.
 - Import with the `@/` alias (`@/lib/api/staff`); `./file` only within the same folder.
