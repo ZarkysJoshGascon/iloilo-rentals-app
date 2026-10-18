@@ -30,7 +30,7 @@ src/
     common/       small shared pieces: Code, toasts, error boundary
     layout/       public site navbar and footer
   lib/
-    supabase.ts, utils.ts, format.ts, …   app-wide basics
+    supabase.ts, utils.ts, …   app-wide basics
     api/          talks to the database, storage or edge functions
     domain/       business rules: accounting, commissions, stays, contracts
   context/  hooks/  styles/  types/
