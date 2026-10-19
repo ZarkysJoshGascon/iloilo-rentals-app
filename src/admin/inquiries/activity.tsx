@@ -1,6 +1,6 @@
 // src/admin/inquiries/activity.tsx
 // What happened with each inquiry, shared by the two inquiry pages. Moving an
-// inquiry to another stage asks how it went: a quick pick (Messenger, Call,
+// inquiry to another stage asks how it went: a quick pick (Call, Text,
 // In person, …; for Lost, why), a note, and when to follow up. The detail
 // panel's timeline lists every move and note with who wrote it and takes new
 // notes; board cards show the latest note and the follow-up date.
@@ -10,7 +10,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { motion } from 'framer-motion'
 import {
-  Banknote, CalendarClock, Handshake, Hourglass, Inbox, Loader2, Mail, MapPin, MessageCircle,
+  Banknote, CalendarClock, Handshake, Hourglass, Inbox, Loader2, Mail, MapPin,
   MessageCircleOff, MessageSquareText, PenLine, Phone, Smartphone, StickyNote, ThumbsUp, Undo2,
   User, Users, Video, Wallet, X,
 } from 'lucide-react'
@@ -37,8 +37,7 @@ const PRIMARY_BUTTON = 'inline-flex items-center justify-center gap-1.5 h-9 md:h
 type Tag = { label: string; icon: LucideIcon }
 
 const TAGS: Record<string, Tag> = {
-  messenger:     { label: 'Messenger',           icon: MessageCircle },
-  call:          { label: 'Call',                icon: Phone },
+  call:         { label: 'Call',                icon: Phone },
   text:          { label: 'Text',                icon: MessageSquareText },
   viber:         { label: 'Viber',               icon: Smartphone },
   email:         { label: 'Email',               icon: Mail },
@@ -73,15 +72,15 @@ const MOVE_PROMPTS: Record<string, MovePrompt> = {
   },
   contacted: {
     question: 'How did you reach them?',
-    tags: ['messenger', 'call', 'text', 'viber', 'email'],
+    tags: ['call', 'text', 'viber', 'email'],
     placeholder: {
-      property: 'e.g. Messaged the owner on Messenger, waiting for a reply',
-      interior: 'e.g. Messaged them on Messenger, waiting for a reply',
+      property: 'e.g. Texted the owner, waiting for a reply',
+      interior: 'e.g. Texted them, waiting for a reply',
     },
   },
   discussed: {
     question: 'How did you talk?',
-    tags: ['in_person', 'call', 'video', 'messenger', 'site_visit'],
+    tags: ['in_person', 'call', 'video', 'site_visit'],
     placeholder: {
       property: 'e.g. Met the owner at Coffee Break to go over Iloilo Rentals services',
       interior: 'e.g. Met at Coffee Break to talk through the design and budget',
@@ -89,7 +88,7 @@ const MOVE_PROMPTS: Record<string, MovePrompt> = {
   },
   proposal: {
     question: 'How did you send it?',
-    tags: ['email', 'messenger', 'viber', 'in_person'],
+    tags: ['email', 'viber', 'in_person'],
     placeholder: {
       property: 'e.g. Sent the management proposal with our rates',
       interior: 'e.g. Sent the design proposal and quotation',
@@ -114,7 +113,7 @@ const MOVE_PROMPTS: Record<string, MovePrompt> = {
 }
 
 // A note added from the timeline, any time.
-const NOTE_TAGS = ['messenger', 'call', 'text', 'viber', 'email', 'in_person']
+const NOTE_TAGS = ['call', 'text', 'viber', 'email', 'in_person']
 const NOTE_PLACEHOLDER = "Add a note, e.g. Called, they'll decide by Friday"
 
 function chipClass(on: boolean) {

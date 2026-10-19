@@ -388,7 +388,7 @@ const DERIVED_STATUS_TEXT = {
 
 const UNIT_TYPES = ['Studio', '1-Bedroom', '2-Bedroom', 'Executive Studio', 'STOCKROOM']
 const OUTCOME_OPTIONS = ['positive', 'neutral', 'negative', 'no_answer']
-const INTERACTION_TYPES = ['call', 'email', 'messenger', 'whatsapp', 'sms', 'in_person', 'note']
+const INTERACTION_TYPES = ['call', 'email', 'whatsapp', 'sms', 'in_person', 'note']
 
 const STATUS_PILLS = [
   { id: 'all', label: 'All' },

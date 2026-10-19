@@ -96,7 +96,7 @@ create table if not exists unit_interactions (
   unit_id uuid not null references units(id) on delete cascade,
   owner_id uuid references owners(id) on delete set null,
   type text not null
-    check (type in ('call', 'email', 'messenger', 'whatsapp', 'sms', 'in_person', 'note')),
+    check (type in ('call', 'email', 'whatsapp', 'sms', 'in_person', 'note')),
   content text,
   outcome text
     check (outcome is null or outcome in ('positive', 'neutral', 'negative', 'no_answer')),

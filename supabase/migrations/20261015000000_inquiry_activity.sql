@@ -3,7 +3,7 @@
 --
 -- On both inquiry boards (List Property, Interior Design) each inquiry
 -- gets a timeline: every move to another stage, with an optional note on
--- how it went ("Messaged on Messenger", "Met the owner at Coffee Break"),
+-- how it went ("Texted the owner", "Met the owner at Coffee Break"),
 -- and notes added any time. Each inquiry can also have a follow-up date;
 -- the board shows it and flags the ones that are due.
 --
@@ -26,7 +26,7 @@ create table if not exists public.inquiry_activities (
   kind                text not null default 'note' check (kind in ('note', 'stage')),
   stage               text,  -- 'stage': the stage it moved to; 'note': the stage it was in
   from_stage          text,  -- 'stage': the stage it left
-  tag                 text check (char_length(tag) <= 40),     -- how they were reached (messenger, call, …) or, for Lost, why
+  tag                 text check (char_length(tag) <= 40),     -- how they were reached (call, text, …) or, for Lost, why
   body                text check (char_length(body) <= 2000),
   author_id           uuid references auth.users (id) on delete set null,
   author_name         text,

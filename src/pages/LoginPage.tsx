@@ -15,11 +15,12 @@ function isEmbeddedBrowser() {
   if (typeof navigator === 'undefined') return false
   const ua = navigator.userAgent || navigator.vendor || ''
   return (
+    // FBAN / FBAV: every Facebook app's built-in browser.
     ua.includes('FBAN') || ua.includes('FBAV') ||
-    ua.includes('Instagram') || ua.includes('Messenger') ||
+    ua.includes('Instagram') ||
     ua.includes('WhatsApp') || ua.includes('Twitter') ||
     ua.includes('LinkedIn') || ua.includes('Line/') ||
-    ua.includes('MicroMessenger')
+    ua.includes('MicroMessenger') // WeChat
   )
 }
 
@@ -308,7 +309,7 @@ export default function LoginPage() {
                   Open this page in Safari or Chrome to sign in
                 </p>
                 <p className="text-xs text-foreground mt-1">
-                  Google Sign-In doesn't work inside Messenger, Facebook, or Instagram.
+                  Google Sign-In doesn't work inside Facebook, Instagram, or other in-app browsers.
                   Copy the link below and paste it into your browser.
                 </p>
               </div>
