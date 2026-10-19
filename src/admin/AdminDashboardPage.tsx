@@ -18,6 +18,8 @@ import AdminSidebar, {
   SIDEBAR_SLIDE_EASE,
 } from '@/admin/shell/AdminSidebar'
 import { InquiryNotifications } from '@/admin/shell/InquiryNotifications'
+import { ActivityPills } from '@/admin/shell/ActivityPills'
+import { WelcomeModal } from '@/components/common/WelcomeModal'
 import ContractAlertBar from '@/admin/shell/ContractAlertBar'
 import { useContractAlerts } from '@/admin/shell/useContractAlerts'
 import { useIsPhone } from '@/hooks/useIsPhone'
@@ -389,6 +391,11 @@ export default function AdminDashboardPage() {
     <MotionConfig reducedMotion="user">
       <div className="fixed inset-0 overflow-hidden text-foreground">
         <InquiryNotifications onNavigateTab={handleTabChange} />
+        <ActivityPills
+          userId={user?.id}
+          bottom={phone ? `calc(${MOBILE_NAV_HEIGHT + 12}px + env(safe-area-inset-bottom, 0px))` : '20px'}
+        />
+        <WelcomeModal workspace="crm" userId={user?.id} name={user?.user_metadata?.full_name || ''} />
 
         {phone ? (
           <AdminMobileNav

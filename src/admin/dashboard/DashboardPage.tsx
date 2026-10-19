@@ -430,20 +430,21 @@ function TodaySection({ icon, title, emptyText, rows }: TodaySectionProps) {
 type TodayCardProps = {
   checkIns: any
   checkOuts: any
+  inHouse: any
   comingUp: any
   loading: boolean
   onViewAll: () => void
 }
 
-// Arrivals, departures and the week ahead in one card. On wide screens the list scrolls inside
-// the card, so the row height comes from the chart beside it.
-function TodayCard({ checkIns, checkOuts, comingUp, loading, onViewAll }: TodayCardProps) {
+// Arrivals, departures, guests staying and the week ahead in one card. On wide screens the list
+// scrolls inside the card, so the row height comes from the chart beside it.
+function TodayCard({ checkIns, checkOuts, inHouse, comingUp, loading, onViewAll }: TodayCardProps) {
   return (
     <Card>
       <CardHeader
         icon={CalendarDays}
         title="Today"
-        subtitle={`Check-ins, check-outs and the next ${COMING_UP_DAYS} days`}
+        subtitle={`Check-ins, check-outs, in-house and the next ${COMING_UP_DAYS} days`}
         action={<ViewAll onClick={onViewAll} />}
       />
       <div className="relative flex-1 min-h-[260px]">
@@ -454,6 +455,7 @@ function TodayCard({ checkIns, checkOuts, comingUp, loading, onViewAll }: TodayC
             <>
               <TodaySection icon={KeyRound} title="Arriving" emptyText="No check-ins today." rows={checkIns} />
               <TodaySection icon={Luggage} title="Leaving" emptyText="No check-outs today." rows={checkOuts} />
+              <TodaySection icon={BedDouble} title="In-house" emptyText="Nobody is staying over." rows={inHouse} />
               <TodaySection icon={CalendarClock} title={`Next ${COMING_UP_DAYS} days`} emptyText="No arrivals booked this week." rows={comingUp} />
             </>
           )}
@@ -949,8 +951,6 @@ function ActivitySection({ title, items, emptyText, renderRow }: ActivitySection
 }
 
 const EMPTY_MONTH = {
-  earned: 0,
-  pending: 0,
   bookings: 0,
   bookingCommission: 0,
   referrals: 0,
@@ -1057,11 +1057,7 @@ function useMyEarnings(user, refreshKey) {
         const sum = (rows, key) => rows.reduce((s, r) => s + Number(r[key] || 0), 0)
         const live = (rows) => rows.filter((r) => !r.cancelled_at)
         const done = (rows) => rows.filter((r) => r.completed_at)
-        const open = (rows) => rows.filter((r) => !r.completed_at && !r.cancelled_at)
         const doneCleanings = monthCleanings.filter((c) => c.status === 'completed')
-        const bookingCommission = sum(done(monthBookings), 'booker_commission')
-        const referralCommission = sum(done(monthReferrals), 'affiliate_commission')
-        const cleaningPay = sum(doneCleanings, 'payment_amount')
 
         setState({
           loading: false,
@@ -1070,15 +1066,13 @@ function useMyEarnings(user, refreshKey) {
           cleanings,
           referrals,
           month: {
-            earned: bookingCommission + referralCommission + cleaningPay,
-            pending: sum(open(monthBookings), 'booker_commission') + sum(open(monthReferrals), 'affiliate_commission'),
             bookings: live(monthBookings).length,
-            bookingCommission,
+            bookingCommission: sum(done(monthBookings), 'booker_commission'),
             referrals: live(monthReferrals).length,
-            referralCommission,
+            referralCommission: sum(done(monthReferrals), 'affiliate_commission'),
             cleanings: monthCleanings.filter((c) => c.status !== 'cancelled').length,
             cleaningsDone: doneCleanings.length,
-            cleaningPay,
+            cleaningPay: sum(doneCleanings, 'payment_amount'),
           },
         })
       } catch (err) {
@@ -1222,23 +1216,7 @@ function MyEarningsCard({ activity, user }: MyEarningsCardProps) {
       </div>
 
       <div className="grid grid-cols-1 xl:grid-cols-[minmax(0,1fr)_minmax(0,1.4fr)]">
-        <div className="p-5 grid grid-cols-2 gap-x-6 gap-y-5 content-start border-b xl:border-b-0 xl:border-r border-border">
-          <div className="col-span-2 min-w-0">
-            <p className="text-[12px] font-medium text-foreground">Earned in {monthName}</p>
-            {loading ? (
-              <span className="block h-9 w-40 rounded-md bg-muted animate-pulse mt-1.5" />
-            ) : (
-              <p className="text-[34px] font-semibold text-foreground tracking-tight leading-none tabular-nums mt-1.5 break-words">{formatMoney(month.earned)}</p>
-            )}
-            <p className="text-[11.5px] text-foreground mt-1.5">
-              {loading ? ' ' : month.pending > 0 ? (
-                <>
-                  <span className="font-semibold text-amber-600 dark:text-amber-400">{formatMoney(month.pending)} pending</span>
-                  {' '}until this month's stays are completed
-                </>
-              ) : 'From work completed this month'}
-            </p>
-          </div>
+        <div className="p-5 grid grid-cols-2 xl:grid-cols-1 gap-x-6 gap-y-5 content-start border-b xl:border-b-0 xl:border-r border-border">
           {stats.map((s) => <EarningStat key={s.label} label={s.label} value={s.value} sub={s.sub} loading={loading} />)}
         </div>
 
@@ -1316,7 +1294,7 @@ function MyEarningsCard({ activity, user }: MyEarningsCardProps) {
 
 const MAX_CHANGES_SHOWN = 4
 // Tables whose label is a code (shown bold with a copy button) rather than a name.
-const CODE_NOUNS = new Set(['booking', 'cleaning', 'contract', 'PM contract', 'unit'])
+const CODE_NOUNS = new Set(['booking', 'cleaning', 'contract', 'PM contract', 'unit', 'monthly expenses'])
 
 type WorkRowProps = {
   item: Described
@@ -1333,7 +1311,7 @@ function WorkRow({ item }: WorkRowProps) {
           <span className="font-semibold">{item.actor}</span> {item.verb} {item.noun}
           {item.label && (
             CODE_NOUNS.has(item.noun)
-              ? <span className="ml-1 inline-flex align-middle"><Code value={item.label} label={`${item.noun} code`} className="text-[12px]" iconSize={11} /></span>
+              ? <span className="ml-1 inline-flex align-middle"><Code value={item.label} label={item.noun === 'monthly expenses' ? 'Contract code' : `${item.noun} code`} className="text-[12px]" iconSize={11} /></span>
               : <span className="font-semibold"> {item.label}</span>
           )}
         </p>
@@ -1345,8 +1323,8 @@ function WorkRow({ item }: WorkRowProps) {
             {item.changes.slice(0, MAX_CHANGES_SHOWN).map((c) => (
               <li key={c.key} className="text-[11.5px] text-foreground flex items-baseline gap-1.5 min-w-0">
                 <span className="font-medium flex-shrink-0">{c.label}</span>
-                {c.list ? (
-                  <span className="text-foreground/75">updated</span>
+                {c.note || c.list ? (
+                  <span className="text-foreground/75">{c.note || 'updated'}</span>
                 ) : (
                   <span className="truncate">
                     <span className="text-foreground/75">{c.from}</span>
@@ -1497,7 +1475,7 @@ export default function DashboardPage() {
     doneTodayPay: 0,
   })
 
-  const [todayLists, setTodayLists] = useState({ checkIns: [], checkOuts: [], comingUp: [] })
+  const [todayLists, setTodayLists] = useState({ checkIns: [], checkOuts: [], inHouse: [], comingUp: [] })
   const [contractsNearingEnd, setContractsNearingEnd] = useState([])
   const [analytics, setAnalytics] = useState({ current: [], previous: [] })
   const [analyticsLoading, setAnalyticsLoading] = useState(true)
@@ -1554,9 +1532,11 @@ export default function DashboardPage() {
         createdTodayRes,
         cleaningsTodayRes,
         doneTodayRes,
+        inHouseListRes,
       ] = await Promise.all([
         supabase.from('bookings').select('id', { count: 'exact', head: true }).is('deleted_at', null),
-        supabase.from('bookings').select('id', { count: 'exact', head: true }).is('deleted_at', null).is('completed_at', null).lte('check_in', today).gte('check_out', today),
+        // In-house as the Bookings page counts it: in the unit until the check-out is confirmed.
+        supabase.from('bookings').select('id', { count: 'exact', head: true }).is('deleted_at', null).is('completed_at', null).is('checked_out_at', null).lte('check_in', today).gte('check_out', today),
         supabase.from('bookings').select('id', { count: 'exact', head: true }).is('deleted_at', null).is('completed_at', null).gt('check_in', today),
         supabase.from('bookings').select('id, balance').is('deleted_at', null).is('completed_at', null).gt('balance', 0),
         supabase.from('cleanings').select('id', { count: 'exact', head: true }).eq('status', 'submitted'),
@@ -1567,11 +1547,13 @@ export default function DashboardPage() {
         supabase.from('bookings').select('id, total_amount').is('deleted_at', null).gte('created_at', dayStart),
         supabase.from('cleanings').select('id, status').eq('scheduled_date', today).neq('status', 'cancelled'),
         supabase.from('cleanings').select('id, payment_amount').eq('status', 'completed').gte('completed_at', dayStart),
+        // Guests staying now who arrived before today (today's arrivals are listed as Arriving).
+        supabase.from('bookings').select(`id, booking_code, guest_name, guest_email, check_in, check_out, balance, units:unit_id ( id, unit_code, building )`).is('deleted_at', null).is('completed_at', null).is('cancelled_at', null).is('checked_out_at', null).lt('check_in', today).gte('check_out', today).order('check_out', { ascending: true }).limit(LIST_LIMIT),
       ])
 
       if (signal?.aborted) return
 
-      const firstErr = [totalRes, inHouseRes, upcomingRes, unpaidListRes, cleaningsToEvaluateRes, checkInsRes, checkOutsRes, nearingEndRes, comingUpRes, createdTodayRes, cleaningsTodayRes, doneTodayRes].find((r) => r.error)
+      const firstErr = [totalRes, inHouseRes, upcomingRes, unpaidListRes, cleaningsToEvaluateRes, checkInsRes, checkOutsRes, nearingEndRes, comingUpRes, createdTodayRes, cleaningsTodayRes, doneTodayRes, inHouseListRes].find((r) => r.error)
       if (firstErr?.error) throw firstErr.error
 
       const unpaidList = unpaidListRes.data || []
@@ -1598,6 +1580,7 @@ export default function DashboardPage() {
       setTodayLists({
         checkIns: checkInsRes.data || [],
         checkOuts: checkOutsRes.data || [],
+        inHouse: inHouseListRes.data || [],
         comingUp: comingUpRes.data || [],
       })
 
@@ -1909,6 +1892,7 @@ export default function DashboardPage() {
           <TodayCard
             checkIns={todayLists.checkIns}
             checkOuts={todayLists.checkOuts}
+            inHouse={todayLists.inHouse}
             comingUp={todayLists.comingUp}
             loading={loading}
             onViewAll={() => goto('bookings')}

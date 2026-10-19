@@ -728,7 +728,7 @@ const clockOf = (d: Date) => formatClock(d.getHours(), d.getMinutes())
 
 type TodayRowProps = {
   booking: any
-  kind: 'in' | 'out'
+  kind: 'in' | 'out' | 'stay'
   now: number
   onClick: () => void
   onConfirmCheckout?: (booking: any) => void
@@ -750,6 +750,16 @@ function TodayRow({ booking, kind, now, onClick, onConfirmCheckout, onLateChecko
     lead = until > 0
       ? { lead: formatSpan(until), caption: 'to check-in', tone: BOOKING_STATUS_TEXT.upcoming.className }
       : { lead: formatClock(STAY_TIMES.checkIn.hour, STAY_TIMES.checkIn.minute), caption: 'check-in', tone: BOOKING_STATUS_TEXT['in-house'].className }
+  } else if (kind === 'stay') {
+    // Time left in the stay; check-outs are confirmed from the Check-outs column.
+    const state = guestState(booking, now)
+    if (state.kind === 'staying') {
+      lead = { lead: formatSpan(state.due.getTime() - now), caption: 'to check-out', tone: BOOKING_STATUS_TEXT['in-house'].className }
+    } else if (state.kind === 'unconfirmed') {
+      lead = { lead: clockOf(state.due), caption: 'not confirmed', tone: BOOKING_STATUS_TEXT['needs-attention'].className }
+    } else {
+      lead = { lead: formatDateShort(booking.check_out), caption: 'check-out', tone: '' }
+    }
   } else {
     const state = guestState(booking, now)
     stillIn = state.kind === 'staying' || state.kind === 'unconfirmed'
@@ -807,6 +817,7 @@ function TodayRow({ booking, kind, now, onClick, onConfirmCheckout, onLateChecko
 type TodayCardProps = {
   checkIns: any[]
   checkOuts: any[]
+  inHouse: any[]
   loading: boolean
   onRowClick: (booking: any) => void
   onConfirmCheckout: (booking: any) => void
@@ -816,9 +827,10 @@ type TodayCardProps = {
 // Where each of today's departures stands: still in first, then checked out.
 const CHECKOUT_ORDER = { unconfirmed: 0, staying: 1, none: 2, left: 3 }
 
-// Today's arrivals and departures, each with a live countdown to its hour.
-// Departures are confirmed here ("Guest checked out"), which starts the cleaning.
-function TodayCard({ checkIns, checkOuts, loading, onRowClick, onConfirmCheckout, onLateCheckout }: TodayCardProps) {
+// Today's arrivals and departures, each with a live countdown to its hour, and
+// the guests staying in. Departures are confirmed here ("Guest checked out"),
+// which starts the cleaning.
+function TodayCard({ checkIns, checkOuts, inHouse, loading, onRowClick, onConfirmCheckout, onLateCheckout }: TodayCardProps) {
   const now = useNow()
   const outs = useMemo(
     () => checkOuts
@@ -830,7 +842,7 @@ function TodayCard({ checkIns, checkOuts, loading, onRowClick, onConfirmCheckout
   const unconfirmed = outs.filter((o) => o.state.kind === 'unconfirmed').length
   const inAt = formatClock(STAY_TIMES.checkIn.hour, STAY_TIMES.checkIn.minute)
   const outBy = formatClock(STAY_TIMES.checkOut.hour, STAY_TIMES.checkOut.minute)
-  const summary = loading ? 'Loading…' : `${checkIns.length} arriving · ${checkOuts.length} leaving`
+  const summary = loading ? 'Loading…' : `${checkIns.length} arriving · ${checkOuts.length} leaving · ${inHouse.length} in-house`
   const outHint = [
     `Guests leave by ${outBy}`,
     unconfirmed > 0 && `${unconfirmed} not confirmed`,
@@ -840,7 +852,7 @@ function TodayCard({ checkIns, checkOuts, loading, onRowClick, onConfirmCheckout
   return (
     <Panel>
       <PanelHeader icon={CalendarIcon} title="Today" subtitle={summary} />
-      <div className="grid grid-cols-1 md:grid-cols-2 divide-y md:divide-y-0 md:divide-x divide-border">
+      <div className="grid grid-cols-1 lg:grid-cols-3 divide-y lg:divide-y-0 lg:divide-x divide-border">
         <QueueColumn
           icon={KeyRound}
           title="Check-ins"
@@ -873,6 +885,17 @@ function TodayCard({ checkIns, checkOuts, loading, onRowClick, onConfirmCheckout
               onLateCheckout={onLateCheckout}
             />
           ))}
+        </QueueColumn>
+        <QueueColumn
+          icon={BedDouble}
+          title="In-house"
+          hint="Staying now, soonest check-out first"
+          count={loading ? null : inHouse.length}
+          loading={loading}
+          emptyTitle="Nobody in-house"
+          emptyText="No guests are staying over."
+        >
+          {inHouse.map((b) => <TodayRow key={b.id} booking={b} kind="stay" now={now} onClick={() => onRowClick(b)} />)}
         </QueueColumn>
       </div>
     </Panel>
@@ -3106,6 +3129,10 @@ export default function BookingsPage({ initialSelectedId }: BookingsPageProps) {
   const todayISOStr = useMemo(() => todayISO(), [])
   const checkInsToday = useMemo(() => bookings.filter((b) => b.check_in === todayISOStr && !b.deleted_at), [bookings, todayISOStr])
   const checkOutsToday = useMemo(() => bookings.filter((b) => b.check_out === todayISOStr && !b.deleted_at), [bookings, todayISOStr])
+  // Guests in the unit who arrived before today (today's arrivals are under Check-ins).
+  const inHouseNow = useMemo(() => bookings
+    .filter((b) => !b.deleted_at && !b.cancelled_at && b.check_in !== todayISOStr && deriveBookingStatus(b) === 'in-house')
+    .sort((a, b) => (a.check_out || '').localeCompare(b.check_out || '')), [bookings, todayISOStr])
 
   const needsAttention = useMemo(() => bookings.filter((b) => deriveBookingStatus(b) === 'needs-attention'), [bookings])
   const endingSoon = useMemo(() => bookings.filter((b) => {
@@ -3259,6 +3286,7 @@ export default function BookingsPage({ initialSelectedId }: BookingsPageProps) {
           <TodayCard
             checkIns={checkInsToday}
             checkOuts={checkOutsToday}
+            inHouse={inHouseNow}
             loading={isFirstLoad}
             onRowClick={handleTodayPanelRowClick}
             onConfirmCheckout={(b) => confirmCheckoutFor(b)}

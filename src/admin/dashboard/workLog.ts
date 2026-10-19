@@ -232,7 +232,12 @@ function formatValue(table: string, key: string, v: unknown): string {
   return s
 }
 
-export type DescribedChange = { key: string; label: string; from: string; to: string; list: boolean }
+// Columns that hold an uploaded file's link (expense photos, contract PDFs,
+// staff photos): shown as added / replaced / removed, not as the link.
+const FILE_FIELD = /(image|photo|pdf|voucher|avatar)/
+
+/** `note` replaces from → to: "Electricity image added". */
+export type DescribedChange = { key: string; label: string; from: string; to: string; list: boolean; note?: string }
 
 export type Described = {
   id: string
@@ -281,22 +286,32 @@ export function describeEntry(entry: WorkEntry, people: Record<string, Person>):
     verb = 'renewed'
   }
 
-  const changes: DescribedChange[] = [...shown].map((key) => {
+  const changes: DescribedChange[] = []
+  for (const key of shown) {
     const c = ch[key] || {}
     const list = !('from' in c) && !('to' in c)
-    return {
+    const label = fieldLabel(key)
+    // A PDF's link and storage path change together; list it once.
+    if (changes.some((x) => x.label === label)) continue
+    if (!list && FILE_FIELD.test(key)) {
+      changes.push({ key, label, from: '', to: '', list: false, note: c.from == null ? 'added' : c.to == null ? 'removed' : 'replaced' })
+      continue
+    }
+    changes.push({
       key,
-      label: fieldLabel(key),
+      label,
       from: list ? '' : formatValue(entry.table_name, key, c.from),
       to: list ? '' : formatValue(entry.table_name, key, c.to),
       list,
-    }
-  })
+    })
+  }
 
+  // Rows without a code of their own (monthly expenses) go by their contract's.
+  const label = fromWebsite ? '' : details.label || details.contract || ''
   const context = [
     details.guest,
-    details.unit && details.unit !== details.label ? details.unit : null,
-    details.contract && details.contract !== details.label ? details.contract : null,
+    details.unit && details.unit !== label ? details.unit : null,
+    details.contract && details.contract !== label ? details.contract : null,
     details.month,
     fromWebsite ? 'Website' : null,
   ].filter(Boolean) as string[]
@@ -318,7 +333,7 @@ export function describeEntry(entry: WorkEntry, people: Record<string, Person>):
     avatar: person?.avatar || null,
     verb,
     noun: table.noun,
-    label: fromWebsite ? '' : details.label || '',
+    label,
     context,
     changes,
     area: table.area,

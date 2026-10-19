@@ -35,6 +35,7 @@ import {
 import type { ReactNode } from 'react'
 import type { LucideIcon } from 'lucide-react'
 import { Code } from '@/components/common/Code'
+import { WelcomeModal } from '@/components/common/WelcomeModal'
 
 const PHOTO_LIMITS = { before: 15, after: 15, report: 10 }
 const PANEL_WIDTH = 520
@@ -1266,7 +1267,7 @@ const STATUS_TABS = [
 
 export default function HousekeeperTasksPage() {
   const navigate = useNavigate()
-  const { signOut } = useAuth()
+  const { signOut, user } = useAuth()
   const { isDark, toggleTheme } = useTheme()
   const { housekeeper } = useUserRole()
   const listCap = useListCap()
@@ -1417,6 +1418,7 @@ export default function HousekeeperTasksPage() {
 
   return (
     <div className="fixed inset-0 flex flex-col bg-white dark:bg-[#070a12] text-foreground">
+      <WelcomeModal workspace="housekeeping" userId={user?.id} name={housekeeper?.name} ready={!!housekeeper} />
       <header className="flex-shrink-0 h-14 flex items-center justify-between gap-3 px-4 md:px-5 border-b border-[#e1e7ef] dark:border-white/[0.07] bg-white dark:bg-[#0f131c]">
         <div className="flex items-center gap-2.5 min-w-0">
           <Sparkles size={18} strokeWidth={1.75} className="text-foreground flex-shrink-0" />

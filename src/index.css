@@ -231,3 +231,16 @@ html.crm {
 .row-line {
   --line-inset: 1rem;
 }
+
+/* Rows with a long-press menu (ContextMenu): on touch screens, holding a row
+   opens the menu instead of selecting its text or showing the phone's own
+   link menu. */
+.long-press {
+  -webkit-touch-callout: none;
+}
+@media (hover: none) {
+  .long-press {
+    -webkit-user-select: none;
+    user-select: none;
+  }
+}
