@@ -1,11 +1,16 @@
 // supabase/functions/submit-property-inquiry/index.ts
-// Public endpoint. Validates input server-side, rate-limits by IP,
-// then writes to property_inquiries via service role.
+// Website endpoint for the List Property form. Needs a Google sign-in: the
+// reply email is the account's verified one, not whatever the browser sends.
+// Validates input server-side, rate-limits by IP and by account, then writes
+// to property_inquiries via service role.
 // Turnstile has been removed. Honeypot + rate-limiting remain.
+//
+// Deploy with --no-verify-jwt; the sign-in is checked here.
 
 import { serve } from 'https://deno.land/std@0.168.0/http/server.ts'
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2'
 import { corsHeaders } from '../_shared/cors.ts'
+import { signedInGoogleUser } from '../_shared/visitor.ts'
 
 const SUPABASE_URL          = Deno.env.get('SUPABASE_URL')
 const SUPABASE_SERVICE_ROLE = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')
@@ -88,6 +93,8 @@ async function hashIp(ip: string): Promise<string> {
 // Handler
 // ------------------------------------------------------------
 const MAX_BODY_BYTES = 1_500_000  // 1.5 MB — plenty for a JSON form + image refs
+// One Google account can send this many inquiries a day.
+const MAX_PER_ACCOUNT_PER_DAY = 5
 
 serve(async (req) => {
   if (req.method === 'OPTIONS') return new Response('ok', { headers: corsHeaders })
@@ -105,6 +112,12 @@ serve(async (req) => {
     auth: { persistSession: false },
   })
   try {
+    // ─── 0. Signed in with Google ─────────────────────────────
+    const user = await signedInGoogleUser(req, supabase)
+    if (!user) {
+      return json({ error: 'Please sign in with Google to send your inquiry.' }, 401)
+    }
+
     const p = await req.json().catch(() => ({}))
 
     // ─── 1. Honeypot check ────────────────────────────────────
@@ -137,9 +150,30 @@ serve(async (req) => {
       }
     }
 
+    // ─── 2b. Account rate limiting ────────────────────────────
+    // Counted in the same table as the IPs, under a hash of the account id.
+    const accountHash = await hashIp('account:' + user.id)
+    {
+      const { data: allowed, error: limitError } = await supabase.rpc('check_inquiry_rate_limit', {
+        p_ip_hash: accountHash,
+        p_max: MAX_PER_ACCOUNT_PER_DAY,
+        p_window_minutes: 24 * 60,
+      })
+      if (limitError) {
+        console.error('account rate limit check failed:', limitError)
+        return json({ error: 'Please try again in a moment.' }, 503)
+      }
+      if (allowed === false) {
+        return json({
+          error: `You've sent ${MAX_PER_ACCOUNT_PER_DAY} inquiries today. Please try again tomorrow.`,
+        }, 429)
+      }
+    }
+
     // ─── 3. Validate and sanitize every field ─────────────────
     const ownerName  = sanitizeText(p.owner_name, 120)
-    const ownerEmail = sanitizeText(p.owner_email, 254).toLowerCase()
+    // The reply goes to the signed-in Google account, never a typed address.
+    const ownerEmail = sanitizeText(user.email, 254).toLowerCase()
     const ownerPhone = sanitizeText(p.owner_phone, 40)
     const message    = sanitizeText(p.message, 2000, true)
 
@@ -204,6 +238,7 @@ serve(async (req) => {
         message,
         images:          validImages,
         user_agent:      sanitizeText(req.headers.get('user-agent'), 300) || null,
+        submitted_by:    user.id,
       })
       .select('id')
       .single()
@@ -213,14 +248,14 @@ serve(async (req) => {
       return json({ error: 'Failed to save your inquiry' }, 500)
     }
 
-    // ─── 6. Log the IP hash for rate limiting ─────────────────
+    // ─── 6. Log the IP and account hashes for rate limiting ───
+    await supabase.from('inquiry_rate_limit').insert({ ip_hash: accountHash })
     if (remoteIp) {
       const ipHash = await hashIp(remoteIp)
       await supabase.from('inquiry_rate_limit').insert({ ip_hash: ipHash })
-
-      if (Math.random() < 0.01) {
-        supabase.rpc('cleanup_inquiry_rate_limit').catch(() => {})
-      }
+    }
+    if (Math.random() < 0.01) {
+      supabase.rpc('cleanup_inquiry_rate_limit').catch(() => {})
     }
 
     return json({ ok: true, id: inserted.id })

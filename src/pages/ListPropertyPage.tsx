@@ -8,6 +8,8 @@ import {
 import toast from 'react-hot-toast'
 import { cn } from '@/lib/utils'
 import { uploadInquiryImage, submitPropertyInquiry } from '@/lib/api/inquiries'
+import { useAuth } from '@/context/AuthContext'
+import SignInToSend from '@/components/common/SignInToSend'
 import type { ReactNode } from 'react'
 
 const BRAND = '#2d568e'
@@ -30,9 +32,14 @@ const INQUIRY_TYPES = [
   { id: 'both',   label: "Not sure — let's talk", desc: 'Discuss both options with our team' },
 ]
 
-const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
-
 export default function ListPropertyPage() {
+  // Sending needs a Google sign-in. The reply goes to the account's email,
+  // and the name starts as the account's until the visitor types their own.
+  const { user, loading: authLoading, signOut } = useAuth()
+  const accountEmail = user?.email || ''
+  const accountName = user?.user_metadata?.full_name || user?.user_metadata?.name || ''
+  const [nameTyped, setNameTyped] = useState(false)
+
   const [form, setForm] = useState({
     owner_name: '',
     owner_email: '',
@@ -57,6 +64,7 @@ export default function ListPropertyPage() {
   const [honeypot, setHoneypot] = useState('')
 
   const setField = (k, v) => setForm((p) => ({ ...p, [k]: v }))
+  const ownerName = nameTyped ? form.owner_name : accountName
 
   const handleImagePick = async (e) => {
     const files: File[] = Array.from(e.target.files || [])
@@ -95,9 +103,7 @@ export default function ListPropertyPage() {
   }
 
   const validate = () => {
-    if (!form.owner_name.trim())  { toast.error('Your name is required'); return false }
-    if (!form.owner_email.trim()) { toast.error('Email is required'); return false }
-    if (!EMAIL_RE.test(form.owner_email.trim())) { toast.error('Please enter a valid email'); return false }
+    if (!ownerName.trim())        { toast.error('Your name is required'); return false }
     if (!form.inquiry_type)       { toast.error('Please pick an option'); return false }
     if (form.message.trim().length < 10) { toast.error('Please add a short message (at least 10 characters)'); return false }
     return true
@@ -111,7 +117,9 @@ export default function ListPropertyPage() {
     try {
       await submitPropertyInquiry({
         ...form,
-        bedrooms:       form.bedrooms ? Number(form.bedrooms) : null,
+        owner_name:     ownerName,
+        owner_email:    accountEmail,
+        bedrooms:      form.bedrooms ? Number(form.bedrooms) : null,
         bathrooms:      form.bathrooms ? Number(form.bathrooms) : null,
         square_meters:  form.square_meters ? Number(form.square_meters) : null,
         price_per_night: form.price_per_night ? Number(form.price_per_night) : null,
@@ -136,6 +144,7 @@ export default function ListPropertyPage() {
       bedrooms: '', bathrooms: '', square_meters: '', price_per_night: '',
       inquiry_type: 'manage', message: '',
     })
+    setNameTyped(false)
     setImages([])
     setSubmitted(false)
   }
@@ -178,6 +187,8 @@ export default function ListPropertyPage() {
         <AnimatePresence mode="wait">
           {submitted ? (
             <SuccessState key="success" onReset={resetForm} />
+          ) : !user ? (
+            <SignInToSend key="sign-in" returnTo="/list-property" checking={authLoading} />
           ) : (
             <motion.form
               key="form"
@@ -194,23 +205,27 @@ export default function ListPropertyPage() {
                     <label className={labelClass}>Full name *</label>
                     <input
                       type="text"
-                      value={form.owner_name}
-                      onChange={(e) => setField('owner_name', e.target.value)}
+                      value={ownerName}
+                      onChange={(e) => { setNameTyped(true); setField('owner_name', e.target.value) }}
                       placeholder="Juan Dela Cruz"
                       maxLength={120}
                       className={inputClass}
                     />
                   </div>
                   <div>
-                    <label className={labelClass}>Email *</label>
+                    <label className={labelClass}>Email</label>
                     <input
                       type="email"
-                      value={form.owner_email}
-                      onChange={(e) => setField('owner_email', e.target.value)}
-                      placeholder="you@example.com"
-                      maxLength={254}
-                      className={inputClass}
+                      value={accountEmail}
+                      readOnly
+                      className={cn(inputClass, 'bg-gray-50 text-gray-600 cursor-default focus:ring-0 focus:border-gray-200')}
                     />
+                    <p className="text-[11px] text-gray-500 mt-1.5">
+                      From your Google account, so we reply here.{' '}
+                      <button type="button" onClick={signOut} className="font-semibold text-[#2d568e] hover:underline">
+                        Use another account
+                      </button>
+                    </p>
                   </div>
                   <div className="md:col-span-2">
                     <label className={labelClass}>Phone (optional)</label>
@@ -521,7 +536,7 @@ function SuccessState({ onReset }: SuccessStateProps) {
 
       <p className="text-gray-500 text-sm md:text-base leading-relaxed max-w-md mx-auto mb-8">
         Your inquiry has been sent to our team. We'll review it and get back to you{' '}
-        <strong className="text-gray-700">within 24 hours</strong> at the email you provided.
+        <strong className="text-gray-700">within 24 hours</strong> at your Google account's email.
       </p>
 
       <div className="flex flex-col sm:flex-row items-center justify-center gap-3">

@@ -1,6 +1,6 @@
 // src/lib/api/interiorDesign.ts
 import { supabase } from '@/lib/supabase'
-import { uploadPublicFormPhoto } from './publicUploads'
+import { uploadPublicFormPhoto, signedInFormHeaders } from './publicUploads'
 import { cleanFields } from '@/lib/domain/clean'
 
 const IMG_BUCKET = 'interior-design-images'
@@ -66,7 +66,8 @@ export async function submitInteriorInquiry(payload) {
     `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/submit-interior-inquiry`,
     {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      // Needs a Google sign-in; the server uses the account's email.
+      headers: await signedInFormHeaders(),
       body: JSON.stringify({
         client_name:       payload.client_name,
         client_email:      payload.client_email,

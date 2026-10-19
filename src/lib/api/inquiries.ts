@@ -1,6 +1,6 @@
 // src/lib/api/inquiries.ts
 import { supabase } from '@/lib/supabase'
-import { uploadPublicFormPhoto } from './publicUploads'
+import { uploadPublicFormPhoto, signedInFormHeaders } from './publicUploads'
 import { cleanFields } from '@/lib/domain/clean'
 
 const IMG_BUCKET = 'property-inquiry-images'
@@ -62,14 +62,14 @@ async function resizeImage(file, maxW, quality) {
 }
 
 // ------------------------------------------------------------
-// Public submit
+// Website submit (needs a Google sign-in; the server uses the account's email)
 // ------------------------------------------------------------
 export async function submitPropertyInquiry(payload) {
   const res = await fetch(
     `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/submit-property-inquiry`,
     {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: await signedInFormHeaders(),
       body: JSON.stringify({
         owner_name:      payload.owner_name,
         owner_email:     payload.owner_email,

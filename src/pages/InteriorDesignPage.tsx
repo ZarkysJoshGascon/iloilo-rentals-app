@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
-import { Link } from 'react-router'
+import { Link, useLocation } from 'react-router'
 import {
   Send, Loader2, Check, Plus, X, Image as ImageIcon,
   ArrowLeft, MapPin, Home, Palette,
@@ -8,6 +8,8 @@ import {
 import toast from 'react-hot-toast'
 import { cn } from '@/lib/utils'
 import { uploadInteriorImage, submitInteriorInquiry } from '@/lib/api/interiorDesign'
+import { useAuth } from '@/context/AuthContext'
+import SignInToSend from '@/components/common/SignInToSend'
 import InteriorImageStory from '@/pages/interior-design/InteriorImageStory'
 import InteriorDesignCredits from '@/pages/interior-design/InteriorDesignCredits'
 import UnitWalkthrough from '@/pages/interior-design/UnitWalkthrough'
@@ -53,9 +55,18 @@ const TIMELINES = [
   { id: 'exploring',   label: 'Just exploring' },
 ]
 
-const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
+// After signing in, the visitor comes back here.
+const FORM_RETURN = '/interior-design#inquiry-form'
 
 export default function InteriorDesignPage() {
+  // Sending needs a Google sign-in. The reply goes to the account's email,
+  // and the name starts as the account's until the visitor types their own.
+  const { user, loading: authLoading, signOut } = useAuth()
+  const accountEmail = user?.email || ''
+  const accountName = user?.user_metadata?.full_name || user?.user_metadata?.name || ''
+  const [nameTyped, setNameTyped] = useState(false)
+  const location = useLocation()
+
   const [form, setForm] = useState({
     client_name: '',
     client_email: '',
@@ -80,6 +91,26 @@ export default function InteriorDesignPage() {
   const widgetIdRef = useRef(null)
 
   const setField = (k, v) => setForm((p) => ({ ...p, [k]: v }))
+  const clientName = nameTyped ? form.client_name : accountName
+
+  // Back from signing in: the walkthrough above the form is still loading and
+  // growing, so keep the form in view while the page settles, unless the
+  // visitor starts scrolling themselves.
+  useEffect(() => {
+    if (`${location.pathname}${location.hash}` !== FORM_RETURN) return
+    let stopped = false
+    const stop = () => { stopped = true }
+    const jump = () => {
+      if (!stopped) document.getElementById('inquiry-form')?.scrollIntoView({ block: 'start', behavior: 'instant' })
+    }
+    const timers = [0, 300, 900, 2000].map((ms) => setTimeout(jump, ms))
+    const events = ['wheel', 'touchstart', 'keydown'] as const
+    events.forEach((ev) => window.addEventListener(ev, stop, { passive: true }))
+    return () => {
+      timers.forEach(clearTimeout)
+      events.forEach((ev) => window.removeEventListener(ev, stop))
+    }
+  }, [location.pathname, location.hash])
 
   useEffect(() => {
     const SITE_KEY = import.meta.env.VITE_TURNSTILE_SITE_KEY
@@ -143,10 +174,8 @@ export default function InteriorDesignPage() {
   }
 
   const validate = () => {
-    if (!form.client_name.trim())  { toast.error('Your name is required'); return false }
-    if (!form.client_email.trim()) { toast.error('Email is required'); return false }
-    if (!EMAIL_RE.test(form.client_email.trim())) { toast.error('Please enter a valid email'); return false }
-    if (!form.service_type) { toast.error('Please pick a service'); return false }
+    if (!clientName.trim())  { toast.error('Your name is required'); return false }
+    if (!form.service_type){ toast.error('Please pick a service'); return false }
     if (form.message.trim().length < 10) { toast.error('Please tell us a bit about your project'); return false }
     return true
   }
@@ -158,6 +187,8 @@ export default function InteriorDesignPage() {
     try {
       await submitInteriorInquiry({
         ...form,
+        client_name: clientName,
+        client_email: accountEmail,
         images: images.map((i) => ({ path: i.path, url: i.uploadedUrl })),
         website_url: honeypot,
         cf_turnstile_token: turnstileToken,
@@ -183,6 +214,7 @@ export default function InteriorDesignPage() {
       service_type: '', room_scope: '', budget_range: '', timeline: '',
       message: '',
     })
+    setNameTyped(false)
     setImages([])
     if (typeof window.turnstile !== 'undefined' && widgetIdRef.current != null) {
       window.turnstile.reset(widgetIdRef.current)
@@ -235,6 +267,8 @@ export default function InteriorDesignPage() {
           <AnimatePresence mode="wait">
             {submitted ? (
               <SuccessState key="success" onReset={resetForm} />
+            ) : !user ? (
+              <SignInToSend key="sign-in" returnTo={FORM_RETURN} checking={authLoading} />
             ) : (
               <motion.form
                 key="form"
@@ -251,23 +285,27 @@ export default function InteriorDesignPage() {
                       <label className={labelClass}>Full name *</label>
                       <input
                         type="text"
-                        value={form.client_name}
-                        onChange={(e) => setField('client_name', e.target.value)}
+                        value={clientName}
+                        onChange={(e) => { setNameTyped(true); setField('client_name', e.target.value) }}
                         placeholder="Juan Dela Cruz"
                         maxLength={120}
                         className={inputClass}
                       />
                     </div>
                     <div>
-                      <label className={labelClass}>Email *</label>
+                      <label className={labelClass}>Email</label>
                       <input
                         type="email"
-                        value={form.client_email}
-                        onChange={(e) => setField('client_email', e.target.value)}
-                        placeholder="you@example.com"
-                        maxLength={254}
-                        className={inputClass}
+                        value={accountEmail}
+                        readOnly
+                        className={cn(inputClass, 'bg-gray-50 text-gray-600 cursor-default focus:ring-0 focus:border-gray-200')}
                       />
+                      <p className="text-[11px] text-gray-500 mt-1.5">
+                        From your Google account, so we reply here.{' '}
+                        <button type="button" onClick={signOut} className="font-semibold text-[#2d568e] hover:underline">
+                          Use another account
+                        </button>
+                      </p>
                     </div>
                     <div className="md:col-span-2">
                       <label className={labelClass}>Phone (optional)</label>
@@ -552,7 +590,7 @@ function SuccessState({ onReset }: SuccessStateProps) {
 
       <p className="text-gray-500 text-sm md:text-base leading-relaxed max-w-md mx-auto mb-8">
         Your design inquiry has been sent to our team. We'll review it and get back to you{' '}
-        <strong className="text-gray-700">within 24 hours</strong> at the email you provided.
+        <strong className="text-gray-700">within 24 hours</strong> at your Google account's email.
       </p>
 
       <div className="flex flex-col sm:flex-row items-center justify-center gap-3">
