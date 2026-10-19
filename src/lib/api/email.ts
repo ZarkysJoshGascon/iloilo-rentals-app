@@ -241,7 +241,7 @@ export async function uploadCampaignImage(file) {
 }
 
 // ✅ FIX #34 — maxH is optional and caps both dimensions.
-async function resizeImage(file, maxW, quality, maxH = null) {
+async function resizeImage(file, maxW, quality, maxH = null): Promise<Blob> {
   const img = await new Promise<HTMLImageElement>((res, rej) => {
     const i = new Image()
     i.onload = () => res(i)

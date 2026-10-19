@@ -32,3 +32,8 @@ dist-ssr
 
 # Raw source images for interior tours (processed copies go to storage)
 /tour-source/
+
+# Test output
+playwright-report/
+test-results/
+tests/e2e/.auth/

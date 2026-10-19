@@ -9,9 +9,9 @@ export function cn(...inputs) {
 // ------------------------------------------------------------
 // Cryptographically-strong booking code
 // Alphabet omits 0/O/1/I/L to reduce human transcription errors.
-// 8 chars from a 32-char alphabet = 32^8 ≈ 1.1e12 combinations.
+// 8 chars from a 31-char alphabet = 31^8 ≈ 8.5e11 combinations.
 // ------------------------------------------------------------
-const BOOKING_ALPHABET = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789'
+const BOOKING_ALPHABET = 'ABCDEFGHJKMNPQRSTUVWXYZ23456789'
 
 export function generateBookingCode(prefix = 'BK') {
   const bytes = new Uint8Array(8)
@@ -44,6 +44,10 @@ export function sanitizeText(input, { max = 200, allowNewlines = false } = {}) {
     // ignore — some environments don't support normalize
   }
 
+  // On one line, tabs and line breaks are spaces between words, not characters
+  // to drop: "dela\tCruz" is "dela Cruz", not "delaCruz".
+  if (!allowNewlines) s = s.replace(/[\t\n\r]/g, ' ')
+
   // Strip control chars except tab/newline if allowed
   // eslint-disable-next-line no-control-regex
   s = s.replace(allowNewlines ? /[\u0000-\u0008\u000B\u000C\u000E-\u001F\u007F]/g : /[\u0000-\u001F\u007F]/g, '')
@@ -70,7 +74,7 @@ export function sanitizePhone(input) {
   const s = sanitizeText(input, { max: 40 })
   if (!s) return null
 
-  const cleaned = s.replace(/[^\d+() -]/g, '')
+  const cleaned = s.replace(/[^\d+() -]/g, '').trim()
 
   // ✅ FIX: reject garbage. Must have 7–15 digits (E.164-ish range), at most
   // one "+" and only at the start.

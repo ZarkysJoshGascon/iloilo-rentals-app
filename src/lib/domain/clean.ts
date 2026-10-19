@@ -79,7 +79,7 @@ const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
 function cleanPhone(raw: string, field: string): string | null {
   const s = sanitizeText(raw, { max: 40 })
   if (!s) return null
-  const kept = s.replace(/[^\d+() -]/g, '')
+  const kept = s.replace(/[^\d+() -]/g, '').trim()
   const digits = (kept.match(/\d/g) || []).length
   const plus = (kept.match(/\+/g) || []).length
   if (digits < 7 || digits > 15 || plus > 1 || (plus === 1 && !kept.startsWith('+'))) {
