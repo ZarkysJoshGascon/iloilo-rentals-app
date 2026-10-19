@@ -24,6 +24,7 @@ const InteriorDesignPage = lazy(() => import('@/pages/InteriorDesignPage'))
 const PrivacyPolicyPage = lazy(() => import('@/pages/PrivacyPolicyPage'))
 const TermsPage = lazy(() => import('@/pages/TermsPage'))
 const UnsubscribePage = lazy(() => import('@/pages/UnsubscribePage'))
+const NotFoundPage = lazy(() => import('@/pages/NotFoundPage'))
 const AdminDashboardPage = lazy(() => import('@/admin/AdminDashboardPage'))
 const OwnerPortalPage = lazy(() => import('@/owner/OwnerPortalPage'))
 const HousekeeperTasksPage = lazy(() => import('@/housekeeper/HousekeeperTasksPage'))
@@ -32,7 +33,22 @@ const HousekeeperTasksPage = lazy(() => import('@/housekeeper/HousekeeperTasksPa
 // image on it have loaded, so no photo is seen half-loaded. It gives up after
 // this long and shows the page anyway; anything left keeps loading behind it.
 const PRELOAD_MAX_MS = 8000
-const LOGO = '/Iloilo_rentals_img.png'
+const LOGO = '/logo-448.webp'
+
+// Browser tab titles. Pages not listed set their own (owner portal, 404).
+const PAGE_TITLES: Record<string, string> = {
+  '/': 'Iloilo Rentals · Condo stays and property management in Iloilo City',
+  '/about': 'About · Iloilo Rentals',
+  '/contact': 'Contact · Iloilo Rentals',
+  '/list-property': 'List your property · Iloilo Rentals',
+  '/interior-design': 'Interior design · Iloilo Rentals',
+  '/privacy': 'Privacy policy · Iloilo Rentals',
+  '/terms': 'Terms & conditions · Iloilo Rentals',
+  '/login': 'Sign in · Iloilo Rentals',
+  '/unsubscribe': 'Unsubscribe · Iloilo Rentals',
+  '/admin': 'CRM · Iloilo Rentals',
+  '/housekeeping': 'Housekeeping · Iloilo Rentals',
+}
 
 type PageLoaderProps = {
   walkthrough?: boolean
@@ -75,6 +91,8 @@ function App() {
 
   useEffect(() => {
     window.scrollTo(0, 0)
+    const title = PAGE_TITLES[location.pathname.replace(/(.)\/+$/, '$1')]
+    if (title) document.title = title
   }, [location.pathname])
 
   return (
@@ -115,6 +133,7 @@ function App() {
                 }
               />
               <Route path="/hk" element={<Navigate to="/housekeeping" replace />} />
+              <Route path="*" element={<NotFoundPage />} />
             </Routes>
             {showPreloader && <PageImagesProbe onProgress={setPreloadProgress} onDone={finishPreload} />}
           </Suspense>

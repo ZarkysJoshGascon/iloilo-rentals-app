@@ -392,7 +392,7 @@ export default function HomePage() {
                   <div className="relative">
                     <div className="absolute inset-0 bg-blue-400/30 rounded-full blur-3xl scale-150" />
                     <img
-                      src="/Iloilo_rentals_img.png"
+                      src="/logo-448.webp"
                       alt="Iloilo Rentals Logo"
                       className="w-24 h-24 sm:w-32 sm:h-32 md:w-40 md:h-40 lg:w-52 lg:h-52 object-contain drop-shadow-2xl relative z-10"
                     />

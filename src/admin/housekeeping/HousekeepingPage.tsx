@@ -41,25 +41,10 @@ import type { LucideIcon } from 'lucide-react'
 import { Code } from '@/components/common/Code'
 import { crmLink, findContractForCleaning } from '@/lib/domain/crmLinks'
 import { DatePicker } from '@/components/crm/DatePicker'
+import { canCleaningTransition, getEffectiveStatus, isPendingEvaluation } from '@/lib/domain/cleaningStatus'
 
 const BRAND = 'var(--brand-solid)'
 const SOFT_SHADOW = '0 20px 40px -16px rgba(15,23,42,0.24), 0 6px 16px -6px rgba(15,23,42,0.10)'
-
-// Cleaning status is a state machine. Prevents moving backward
-// from "completed" or skipping the submit → approve flow.
-const VALID_CLEANING_TRANSITIONS = {
-  scheduled: ['ready', 'cancelled'],
-  ready:     ['submitted', 'cancelled'],
-  submitted: ['completed', 'ready'],
-  completed: [],
-  cancelled: [],
-}
-
-function canCleaningTransition(from, to) {
-  if (from === to) return true
-  const allowed = VALID_CLEANING_TRANSITIONS[from] || []
-  return allowed.includes(to)
-}
 
 async function defensivePhotoCleanup(cleanings) {
   const candidates = (cleanings || []).filter((c) => {
@@ -90,18 +75,13 @@ async function defensivePhotoCleanup(cleanings) {
   }
 }
 
-function getEffectiveStatus(cleaning) {
-  if (cleaning.status === 'completed') return 'completed'
-  if (cleaning.status === 'cancelled') return 'cancelled'
-  if (cleaning.status === 'submitted') return 'to-be-evaluated'
-  if (!cleaning.bookings?.check_out) return 'ready'
-  // Ready once the guest has left: confirmed in Bookings, or their check-out day is over.
-  return hasGuestLeft(cleaning.bookings) ? 'ready' : 'scheduled'
+// The first day of the "last 3 months" the list shows by default (local date).
+function recentSince() {
+  const d = new Date()
+  d.setMonth(d.getMonth() - 3)
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
 }
 
-function isPendingEvaluation(cleaning) {
-  return cleaning.status === 'submitted'
-}
 
 const TYPE_TEXT = {
   basic: { label: 'Basic', className: 'text-blue-600 dark:text-blue-400' },
@@ -2382,12 +2362,16 @@ export default function HousekeepingPage({ initialSelectedId, fromBookingId }: H
     if (initialSelectedId && initialSelectedId !== selectedId) focusCleaning(initialSelectedId)
   }, [initialSelectedId])
 
+  // Day to day the list holds what's still open plus the last 3 months; the
+  // full history loads on request (it grows by hundreds of cleanings a year).
+  const [fullHistory, setFullHistory] = useState(false)
+
   const fetchData = useCallback(async (signal?) => {
     if (!hasLoadedOnce.current) setIsFirstLoad(true)
     else setIsRefreshing(true)
     try {
       const [cRes, uRes, bRes, hRes, ctRes] = await Promise.all([
-        listCleanings({}),
+        listCleanings({ since: fullHistory ? null : recentSince() }),
         supabase.from('units').select('id, unit_code, building, status').order('unit_code'),
         supabase.from('bookings').select('id, booking_code, guest_name, unit_id, check_in, check_out, completed_at').is('deleted_at', null).order('check_in', { ascending: false }).limit(200),
         supabase.from('housekeepers').select('id, code, name, photo_url').eq('status', 'active').order('name'),
@@ -2416,7 +2400,7 @@ export default function HousekeepingPage({ initialSelectedId, fromBookingId }: H
         setIsFirstLoad(false); setIsRefreshing(false); hasLoadedOnce.current = true
       }
     }
-  }, [])
+  }, [fullHistory])
 
   useEffect(() => {
     const ac = new AbortController()
@@ -2653,6 +2637,19 @@ export default function HousekeepingPage({ initialSelectedId, fromBookingId }: H
             onClearAll={clearFilters}
             hint="Click a column to sort · Right-click a cleaning for quick actions · Press / to search"
           />
+        )}
+        {!isFirstLoad && (
+          <p className="text-[12px] text-foreground px-0.5 -mt-1">
+            {fullHistory ? 'Showing every cleaning on record.' : 'Showing open cleanings and the last 3 months.'}{' '}
+            <button
+              type="button"
+              onClick={() => setFullHistory((v) => !v)}
+              disabled={isRefreshing}
+              className="font-semibold underline underline-offset-2 hover:text-foreground/70 disabled:opacity-50"
+            >
+              {fullHistory ? 'Show recent only' : 'Load full history'}
+            </button>
+          </p>
         )}
 
         <div className="rounded-md border border-border shadow-sm overflow-hidden bg-card flex flex-col">

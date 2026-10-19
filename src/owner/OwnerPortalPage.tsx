@@ -121,7 +121,7 @@ function TopBar({ user, ownerName, onSignOut, onBack, unitCode }: TopBarProps) {
           </button>
         )}
         <Link to="/owner" className="flex items-center gap-2.5 min-w-0">
-          <img src="/Iloilo_rentals_img.png" alt="Iloilo Rentals" className="w-8 h-8 object-contain flex-shrink-0" />
+          <img src="/logo-96.webp" alt="Iloilo Rentals" className="w-8 h-8 object-contain flex-shrink-0" />
           <span className="min-w-0 leading-tight">
             <span className="block text-[14px] font-semibold text-foreground tracking-tight truncate">Iloilo Rentals</span>
             <span className="block text-[11px] text-foreground truncate">

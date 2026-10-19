@@ -19,8 +19,8 @@ export default function Footer() {
         </div>
         
         <div className="border-t border-gray-700 pt-6 text-center">
-          <p className="text-gray-400 text-sm">© 2025 Iloilo Rentals. All rights reserved.</p>
-          <p className="text-gray-500 text-xs mt-2">Connecting You to the Best Rentals in Iloilo</p>
+          <p className="text-gray-300 text-sm">© {new Date().getFullYear()} Iloilo Rentals. All rights reserved.</p>
+          <p className="text-gray-400 text-xs mt-2">Connecting You to the Best Rentals in Iloilo</p>
         </div>
       </div>
     </footer>

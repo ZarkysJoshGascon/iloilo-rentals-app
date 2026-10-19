@@ -192,7 +192,7 @@ export default function Navbar() {
           <div ref={rowRef} className="relative flex items-center justify-between gap-1 px-2 py-1.5">
             <Link to="/" className="flex-shrink-0 pl-1.5 pr-3">
               <div className="w-9 h-9 rounded-full flex items-center justify-center hover:scale-105 transition-transform">
-                <img src="/Iloilo_rentals_img.png" alt="IR" className="w-7 h-7 object-contain" />
+                <img src="/logo-96.webp" alt="IR" className="w-7 h-7 object-contain" />
               </div>
             </Link>
 
@@ -274,7 +274,7 @@ export default function Navbar() {
           <div className="flex items-center gap-0.5 px-1.5 py-1.5">
             <Link to="/" aria-label="Home" className="flex-shrink-0 pl-0.5 pr-0.5">
               <div className={`w-9 h-9 rounded-full flex items-center justify-center transition-all ${isActive('/') ? 'bg-[#2d568e]/10' : ''}`}>
-                <img src="/Iloilo_rentals_img.png" alt="" className="w-6 h-6 object-contain" />
+                <img src="/logo-96.webp" alt="" className="w-6 h-6 object-contain" />
               </div>
             </Link>
 

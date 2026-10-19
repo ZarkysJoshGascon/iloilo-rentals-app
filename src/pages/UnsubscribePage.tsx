@@ -101,7 +101,7 @@ export default function UnsubscribePage() {
         >
           <Link to="/" className="inline-block">
             <img
-              src="/Iloilo_rentals_img.png"
+              src="/logo-448.webp"
               alt="Iloilo Rentals"
               className="w-16 h-16 object-contain mx-auto drop-shadow-lg"
               onError={(e) => { (e.target as HTMLImageElement).style.display = 'none' }}

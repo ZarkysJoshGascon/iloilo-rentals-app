@@ -33,6 +33,7 @@ import { Code } from '@/components/common/Code'
 import { cleanFields } from '@/lib/domain/clean'
 import { DatePicker } from '@/components/crm/DatePicker'
 import { revealOnMount } from '@/components/crm/useRevealOnOpen'
+import { readAll } from '@/lib/api/readAll'
 
 const BRAND = 'var(--brand-solid)'
 const SOFT_SHADOW = '0 20px 40px -16px rgba(15,23,42,0.24), 0 6px 16px -6px rgba(15,23,42,0.10)'
@@ -659,6 +660,9 @@ function DateFilterBar({ preset, setPreset, customFrom, setCustomFrom, customTo,
   )
 }
 
+// Rows listed in a person's history; the earnings total counts every row.
+const WORKER_LIST_LIMIT = 300
+
 type WorkerActivitySectionProps = {
   worker: any
   role: any
@@ -688,33 +692,29 @@ function WorkerActivitySection({ worker, role }: WorkerActivitySectionProps) {
       setLoading(true)
       setError(null)
       try {
+        // The whole history in range, read in pages: earnings are a sum, so
+        // stopping at a row limit would understate them.
         if (isHousekeeper) {
           let q = supabase
             .from('cleanings')
             .select('id, cleaning_code, unit_id, type, scheduled_date, status, payment_amount, units:unit_id ( unit_code, building )')
             .eq('housekeeper_id', worker.id)
-            .order('scheduled_date', { ascending: false })
-            .limit(500)
           if (range.from) q = q.gte('scheduled_date', range.from)
           if (range.to) q = q.lte('scheduled_date', range.to)
-          const { data, error: err } = await q
-          if (err) throw err
-          if (!cancelled) setItems(data || [])
+          const rows = await readAll(q.order('scheduled_date', { ascending: false }).order('id'))
+          if (!cancelled) setItems(rows)
         } else {
           let q = supabase
             .from('bookings')
             .select('id, booking_code, guest_name, check_in, check_out, completed_at, payment_status, unit_id, booker_commission, affiliate_commission, units:unit_id ( unit_code, building )')
             .is('deleted_at', null)
             .not('completed_at', 'is', null)
-            .order('check_in', { ascending: false })
-            .limit(500)
           if (role === 'specialists') q = q.eq('booker_code', worker.code)
           else if (role === 'affiliates') q = q.eq('affiliate_code', worker.code)
           if (range.from) q = q.gte('check_in', range.from)
           if (range.to) q = q.lte('check_in', range.to)
-          const { data, error: err } = await q
-          if (err) throw err
-          if (!cancelled) setItems(data || [])
+          const rows = await readAll(q.order('check_in', { ascending: false }).order('id'))
+          if (!cancelled) setItems(rows)
         }
       } catch (err) {
         console.error('WorkerActivitySection load failed:', err)
@@ -802,7 +802,7 @@ function WorkerActivitySection({ worker, role }: WorkerActivitySectionProps) {
           </div>
         ) : (
           <div className="divide-y divide-border">
-            {items.map((item) => {
+            {items.slice(0, WORKER_LIST_LIMIT).map((item) => {
               if (isHousekeeper) {
                 const status = item.status || 'scheduled'
                 const config = CLEANING_STATUS_TEXT[status] || CLEANING_STATUS_TEXT.scheduled
@@ -861,6 +861,11 @@ function WorkerActivitySection({ worker, role }: WorkerActivitySectionProps) {
                 </div>
               )
             })}
+            {items.length > WORKER_LIST_LIMIT && (
+              <p className="px-3.5 py-2.5 text-[11.5px] text-foreground">
+                Showing the newest {WORKER_LIST_LIMIT} of {items.length}. The total above counts all of them; pick dates to see older ones.
+              </p>
+            )}
           </div>
         )}
       </div>

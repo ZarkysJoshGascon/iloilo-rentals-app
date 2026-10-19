@@ -358,7 +358,7 @@ export default function LoginPage() {
             whileTap={{ scale: 0.95 }}
           >
             <motion.img
-              src="/Iloilo_rentals_img.png"
+              src="/logo-448.webp"
               alt="Iloilo Rentals Logo"
               className="w-16 h-16 md:w-20 md:h-20 object-contain"
               animate={{ rotate: [0, 5, -5, 0] }}
@@ -393,7 +393,7 @@ export default function LoginPage() {
 
         <motion.p
           variants={subtitleVariants}
-          className="text-center text-xs md:text-sm text-gray-400 mb-6 md:mb-8"
+          className="text-center text-xs md:text-sm text-gray-600 mb-6 md:mb-8"
         >
           in Iloilo City
         </motion.p>
@@ -408,7 +408,7 @@ export default function LoginPage() {
               initial={{ opacity: 0, scale: 0.8 }}
               animate={{ opacity: 1, scale: 1 }}
               transition={{ delay: 0.45 }}
-              className="px-4 bg-white text-gray-400"
+              className="px-4 bg-white text-gray-600"
             >
               Continue with
             </motion.span>
@@ -499,7 +499,7 @@ export default function LoginPage() {
           animate="visible"
           className="mt-6 md:mt-8 pt-6 border-t border-gray-100"
         >
-          <div className="flex flex-col gap-2 text-center text-xs text-gray-400">
+          <div className="flex flex-col gap-2 text-center text-xs text-gray-600">
             <div className="flex justify-center gap-4">
               {['✓ Secure login', '✓ No password needed', '✓ Instant access'].map((feature, idx) => (
                 <motion.span
@@ -520,7 +520,7 @@ export default function LoginPage() {
           variants={footerVariants}
           initial="hidden"
           animate="visible"
-          className="text-center text-xs text-gray-400 mt-6"
+          className="text-center text-xs text-gray-600 mt-6"
         >
           By signing in, you agree to our{' '}
           <motion.a

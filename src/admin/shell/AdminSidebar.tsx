@@ -221,7 +221,7 @@ export default function AdminSidebar({
           style={{ height: SIDEBAR_BRAND_HEIGHT, paddingLeft: 13 }}
         >
           <img
-            src="/Iloilo_rentals_img.png"
+            src="/logo-96.webp"
             alt="Iloilo Rentals"
             className="w-[30px] h-[30px] flex-shrink-0 object-contain drop-shadow-[0_1px_2px_rgba(0,0,0,0.25)]"
           />

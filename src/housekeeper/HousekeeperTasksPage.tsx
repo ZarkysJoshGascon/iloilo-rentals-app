@@ -36,6 +36,7 @@ import type { ReactNode } from 'react'
 import type { LucideIcon } from 'lucide-react'
 import { Code } from '@/components/common/Code'
 import { WelcomeModal } from '@/components/common/WelcomeModal'
+import { readAll } from '@/lib/api/readAll'
 
 const PHOTO_LIMITS = { before: 15, after: 15, report: 10 }
 const PANEL_WIDTH = 520
@@ -1292,18 +1293,18 @@ export default function HousekeeperTasksPage() {
     else setLoading(true)
     setFetchError(null)
     try {
-      const [cRes, dRes] = await Promise.all([
-        supabase
+      // Paged, so a long-serving housekeeper's list isn't cut at 1,000.
+      const [rows, detailRows] = await Promise.all([
+        readAll(supabase
           .from('cleanings')
           .select('*')
           .eq('housekeeper_id', id)
-          .order('scheduled_date', { ascending: true, nullsFirst: false }),
-        supabase.rpc('housekeeper_cleaning_details'),
+          .order('scheduled_date', { ascending: true, nullsFirst: false })
+          .order('id')),
+        readAll(supabase.rpc('housekeeper_cleaning_details').order('cleaning_id')),
       ])
-      if (cRes.error) throw cRes.error
-      if (dRes.error) throw dRes.error
-      const details = new Map((dRes.data || []).map((d) => [d.cleaning_id, d]))
-      setCleanings((cRes.data || []).map((c) => withStay(c, details.get(c.id))))
+      const details = new Map(detailRows.map((d) => [d.cleaning_id, d]))
+      setCleanings(rows.map((c) => withStay(c, details.get(c.id))))
       hasLoaded.current = true
     } catch (err) {
       console.error('Fetch cleanings failed:', err)

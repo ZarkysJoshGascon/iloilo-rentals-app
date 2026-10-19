@@ -3,10 +3,14 @@
 // phone, and the private workspaces stay closed when signed out.
 import { test, expect, type Page } from '@playwright/test'
 
+// Firefox reports the sign-in library's skipped token-refresh round as
+// uncaught, though the library catches it; nothing breaks.
+const KNOWN_NOISE = /Navigator LockManager lock .* immediately failed/
+
 // Errors the page itself logs (third-party noise is ignored).
 function watchErrors(page: Page) {
   const errors: string[] = []
-  page.on('pageerror', (e) => errors.push(e.message))
+  page.on('pageerror', (e) => { if (!KNOWN_NOISE.test(e.message)) errors.push(e.message) })
   page.on('console', (m) => {
     if (m.type() === 'error' && !/favicon|google|gsi|accounts\.google|ERR_BLOCKED|Failed to load resource/i.test(m.text())) errors.push(m.text())
   })

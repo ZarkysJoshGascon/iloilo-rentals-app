@@ -51,12 +51,12 @@ export default function Contactpage() {
                 ].map((item, idx) => (
                   <motion.div key={idx} whileHover={{ x: 5 }} className="flex items-start gap-3">
                     <div className="w-9 h-9 bg-[#2d568e]/10 rounded-lg flex items-center justify-center flex-shrink-0"><item.icon size={16} className="text-[#2d568e]" /></div>
-                    <div><h3 className="font-semibold text-gray-800 text-sm">{item.title}</h3><p className="text-gray-600 text-xs">{item.detail}</p>{item.sub && <p className="text-gray-400 text-xs mt-0.5">{item.sub}</p>}</div>
+                    <div><h3 className="font-semibold text-gray-800 text-sm">{item.title}</h3><p className="text-gray-600 text-xs">{item.detail}</p>{item.sub && <p className="text-gray-600 text-xs mt-0.5">{item.sub}</p>}</div>
                   </motion.div>
                 ))}
               </div>
             </div>
-            <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-6"><h2 className="text-lg font-bold text-[#2d568e] mb-3">Location</h2><div className="bg-gray-100 rounded-xl h-40 flex items-center justify-center"><MapPin size={24} className="text-gray-400" /><span className="ml-2 text-gray-500 text-sm">Iloilo City Map</span></div></div>
+            <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-6"><h2 className="text-lg font-bold text-[#2d568e] mb-3">Location</h2><div className="bg-gray-100 rounded-xl h-40 flex items-center justify-center"><MapPin size={24} className="text-gray-400" /><span className="ml-2 text-gray-600 text-sm">Iloilo City Map</span></div></div>
           </motion.div>
           <motion.div initial={{ opacity: 0, x: 20 }} animate={{ opacity: 1, x: 0 }} className="bg-white rounded-2xl shadow-sm border border-gray-100 p-6">
             <h2 className="text-lg font-bold text-[#2d568e] mb-4">Send a Message</h2>
@@ -65,9 +65,9 @@ export default function Contactpage() {
               <div aria-hidden="true" className="absolute -left-[9999px] w-px h-px overflow-hidden">
                 <label>Website<input type="text" name="website_url" tabIndex={-1} autoComplete="off" value={websiteUrl} onChange={(e) => setWebsiteUrl(e.target.value)} /></label>
               </div>
-              <div><label className="block text-sm font-medium text-gray-700 mb-1">Your Name</label><input type="text" required maxLength={120} autoComplete="name" className="w-full border border-gray-200 rounded-xl px-4 py-2.5 text-sm focus:ring-2 focus:ring-[#2d568e] focus:border-transparent" value={formData.name} onChange={(e) => setFormData({...formData, name: e.target.value})} /></div>
-              <div><label className="block text-sm font-medium text-gray-700 mb-1">Email Address</label><input type="email" required maxLength={254} autoComplete="email" className="w-full border border-gray-200 rounded-xl px-4 py-2.5 text-sm focus:ring-2 focus:ring-[#2d568e] focus:border-transparent" value={formData.email} onChange={(e) => setFormData({...formData, email: e.target.value})} /></div>
-              <div><label className="block text-sm font-medium text-gray-700 mb-1">Message</label><textarea rows={4} required maxLength={5000} className="w-full border border-gray-200 rounded-xl px-4 py-2.5 text-sm focus:ring-2 focus:ring-[#2d568e] focus:border-transparent resize-none" value={formData.message} onChange={(e) => setFormData({...formData, message: e.target.value})} /></div>
+              <div><label htmlFor="contact-name" className="block text-sm font-medium text-gray-700 mb-1">Your Name</label><input id="contact-name" type="text" required maxLength={120} autoComplete="name" className="w-full border border-gray-200 rounded-xl px-4 py-2.5 text-sm focus:ring-2 focus:ring-[#2d568e] focus:border-transparent" value={formData.name} onChange={(e) => setFormData({...formData, name: e.target.value})} /></div>
+              <div><label htmlFor="contact-email" className="block text-sm font-medium text-gray-700 mb-1">Email Address</label><input id="contact-email" type="email" required maxLength={254} autoComplete="email" className="w-full border border-gray-200 rounded-xl px-4 py-2.5 text-sm focus:ring-2 focus:ring-[#2d568e] focus:border-transparent" value={formData.email} onChange={(e) => setFormData({...formData, email: e.target.value})} /></div>
+              <div><label htmlFor="contact-message" className="block text-sm font-medium text-gray-700 mb-1">Message</label><textarea id="contact-message" rows={4} required maxLength={5000} className="w-full border border-gray-200 rounded-xl px-4 py-2.5 text-sm focus:ring-2 focus:ring-[#2d568e] focus:border-transparent resize-none" value={formData.message} onChange={(e) => setFormData({...formData, message: e.target.value})} /></div>
               <motion.button type="submit" disabled={loading} whileHover={{ scale: 1.01 }} whileTap={{ scale: 0.98 }} className="w-full bg-[#2d568e] text-white py-3 rounded-xl font-semibold hover:bg-[#1e3a5f] transition flex items-center justify-center gap-2 disabled:opacity-50 text-sm"><Send size={16} />{loading ? <motion.div animate={{ rotate: 360 }} transition={{ duration: 1, repeat: Infinity }} className="w-4 h-4 border-2 border-white border-t-transparent rounded-full" /> : 'Send Message'}</motion.button>
             </form>
           </motion.div>

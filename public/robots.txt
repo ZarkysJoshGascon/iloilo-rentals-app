@@ -1,0 +1,10 @@
+User-agent: *
+Allow: /
+Disallow: /admin
+Disallow: /owner
+Disallow: /housekeeping
+Disallow: /hk
+Disallow: /post-login
+Disallow: /unsubscribe
+
+Sitemap: https://www.iloilorental.com/sitemap.xml

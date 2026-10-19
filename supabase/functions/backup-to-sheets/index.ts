@@ -139,6 +139,22 @@ function toCell(v: unknown): string | number {
   return FORMULA_START.test(s) ? `'${s}` : s
 }
 
+// The API returns at most 1,000 rows per request (the project's "Max rows"),
+// and a bigger table is cut off without an error. So a table is read a page
+// at a time until a short page comes back. The query must end in a unique
+// order (`id`), or a row could be skipped or repeated between pages.
+const PAGE_SIZE = 1000
+
+async function readAll(query: any): Promise<{ data: any[] | null; error: any }> {
+  const rows: any[] = []
+  for (let from = 0; ; from += PAGE_SIZE) {
+    const { data, error } = await query.range(from, from + PAGE_SIZE - 1)
+    if (error) return { data: null, error }
+    rows.push(...(data || []))
+    if (!data || data.length < PAGE_SIZE) return { data: rows, error: null }
+  }
+}
+
 function pick(row: any, key: string): unknown {
   const parts = key.split('.')
   let cur = row
@@ -728,7 +744,7 @@ function manilaTime(iso: string, withDate: boolean): string {
 
 async function buildBookingsView(supabase: any) {
   const [bRes, cRes] = await Promise.all([
-    supabase.from('bookings').select(`
+    readAll(supabase.from('bookings').select(`
       id, booking_code, guest_name, guest_email, guest_contact, guests,
       unit_id, check_in, check_out, total_amount, amount_paid, balance, payment_status,
       booker_name, booker_code, booker_commission, booker_rate,
@@ -736,8 +752,8 @@ async function buildBookingsView(supabase: any) {
       notes, created_at, updated_at, completed_at, cancelled_at, cancelled_reason,
       checked_out_at, checked_out_by_name, late_checkout_at,
       units:unit_id ( unit_code, building )
-    `).is('deleted_at', null).order('check_in', { ascending: false }),
-    supabase.from('contracts').select('id, unit_id, contract_code, effective_date, expiry_date'),
+    `).is('deleted_at', null).order('check_in', { ascending: false }).order('id')),
+    readAll(supabase.from('contracts').select('id, unit_id, contract_code, effective_date, expiry_date').order('id')),
   ])
 
   const bookings = bRes.data || []
@@ -835,7 +851,7 @@ async function buildBookingsView(supabase: any) {
 
 async function buildCleaningsView(supabase: any) {
   const [clRes, bRes, cRes] = await Promise.all([
-    supabase.from('cleanings').select(`
+    readAll(supabase.from('cleanings').select(`
       id, cleaning_code, type, status, scheduled_date, submitted_at, completed_at,
       unit_id, booking_id,
       payment_amount, payment_method, payment_reference, paid_at,
@@ -844,9 +860,9 @@ async function buildCleaningsView(supabase: any) {
       units:unit_id ( unit_code, building ),
       bookings:booking_id ( booking_code, guest_name ),
       housekeepers:housekeeper_id ( code, name )
-    `).order('scheduled_date', { ascending: false }),
-    supabase.from('bookings').select('id, unit_id, check_in, check_out, booking_code'),
-    supabase.from('contracts').select('id, unit_id, contract_code, effective_date, expiry_date'),
+    `).order('scheduled_date', { ascending: false }).order('id')),
+    readAll(supabase.from('bookings').select('id, unit_id, check_in, check_out, booking_code').order('id')),
+    readAll(supabase.from('contracts').select('id, unit_id, contract_code, effective_date, expiry_date').order('id')),
   ])
 
   const cleanings = clRes.data || []
@@ -915,7 +931,7 @@ async function buildCleaningsView(supabase: any) {
 // CONTRACTS — now includes a signed PDF URL column
 // ────────────────────────────────────────────────────────────────
 async function buildContractsView(supabase: any) {
-  const { data } = await supabase
+  const { data } = await readAll(supabase
     .from('contracts')
     .select(`
       id, contract_code, effective_date, expiry_date, notes, contract_pdf_path,
@@ -923,6 +939,7 @@ async function buildContractsView(supabase: any) {
       owners:owner_id ( name, email, phone )
     `)
     .order('effective_date', { ascending: false })
+    .order('id'))
 
   const contracts = data || []
 
@@ -983,18 +1000,20 @@ async function buildContractsView(supabase: any) {
 
 async function buildAccountingView(supabase: any) {
   const [contractsRes, bookingsRes, cleaningsRes, manualRes, pmRes] = await Promise.all([
-    supabase.from('contracts').select(`
+    readAll(supabase.from('contracts').select(`
       id, unit_id, contract_code, effective_date, expiry_date,
       units:unit_id ( unit_code, building ),
       owners:owner_id ( name )
-    `),
-    supabase.from('bookings')
+    `).order('id')),
+    readAll(supabase.from('bookings')
       .select('unit_id, check_in, total_amount, booker_commission, affiliate_commission')
-      .is('deleted_at', null),
-    supabase.from('cleanings')
-      .select('unit_id, scheduled_date, payment_amount, laundry_payment_amount'),
-    supabase.from('contract_monthly_expenses').select('*'),
-    supabase.from('pm_contracts').select('unit_id, effective_date, expiry_date, termination_effective_date'),
+      .is('deleted_at', null)
+      .order('id')),
+    readAll(supabase.from('cleanings')
+      .select('unit_id, scheduled_date, payment_amount, laundry_payment_amount')
+      .order('id')),
+    readAll(supabase.from('contract_monthly_expenses').select('*').order('id')),
+    readAll(supabase.from('pm_contracts').select('unit_id, effective_date, expiry_date, termination_effective_date').order('id')),
   ])
 
   const contracts = contractsRes.data || []
@@ -1154,7 +1173,7 @@ async function buildRegistryView(supabase: any) {
       marketing_title, inventory_list, ota_listings,
       owners:owner_id ( name, email, phone )
     `).order('unit_code'),
-    supabase.from('contracts').select('unit_id, contract_code, effective_date, expiry_date'),
+    readAll(supabase.from('contracts').select('unit_id, contract_code, effective_date, expiry_date').order('id')),
   ])
 
   const units = unitsRes.data || []
@@ -1218,8 +1237,8 @@ async function buildTeamView(supabase: any) {
     supabase.from('affiliates').select('code, name, email, phone, created_at'),
     supabase.from('housekeepers').select('code, id, name, email, phone, created_at'),
     supabase.from('property_managers').select('code, id, name, email, phone, status, created_at'),
-    supabase.from('bookings').select('booker_code, affiliate_code, booker_commission, affiliate_commission, completed_at, cancelled_at').is('deleted_at', null),
-    supabase.from('cleanings').select('housekeeper_id, payment_amount, status'),
+    readAll(supabase.from('bookings').select('booker_code, affiliate_code, booker_commission, affiliate_commission, completed_at, cancelled_at').is('deleted_at', null).order('id')),
+    readAll(supabase.from('cleanings').select('housekeeper_id, payment_amount, status').order('id')),
     supabase.from('pm_contracts').select('pm_id, unit_id, effective_date, expiry_date, termination_effective_date, pm_share_of_company_pct'),
   ])
 
@@ -1253,10 +1272,10 @@ async function buildTeamView(supabase: any) {
 
   const pmEarnings: Record<string, number> = {}
   const [cRes2, bRes2, clRes2, manualRes2] = await Promise.all([
-    supabase.from('contracts').select('id, unit_id, effective_date, expiry_date'),
-    supabase.from('bookings').select('unit_id, check_in, total_amount, booker_commission, affiliate_commission').is('deleted_at', null),
-    supabase.from('cleanings').select('unit_id, scheduled_date, payment_amount, laundry_payment_amount'),
-    supabase.from('contract_monthly_expenses').select('*'),
+    readAll(supabase.from('contracts').select('id, unit_id, effective_date, expiry_date').order('id')),
+    readAll(supabase.from('bookings').select('unit_id, check_in, total_amount, booker_commission, affiliate_commission').is('deleted_at', null).order('id')),
+    readAll(supabase.from('cleanings').select('unit_id, scheduled_date, payment_amount, laundry_payment_amount').order('id')),
+    readAll(supabase.from('contract_monthly_expenses').select('*').order('id')),
   ])
   const contracts2 = cRes2.data || []
   const bookings2 = bRes2.data || []
@@ -1373,13 +1392,14 @@ async function buildTeamView(supabase: any) {
 
 async function buildInquiriesView(supabase: any) {
   const [prop, int, acts] = await Promise.all([
-    supabase.from('property_inquiries').select('*').order('created_at', { ascending: false }),
-    supabase.from('interior_design_inquiries').select('*').order('created_at', { ascending: false }),
-    supabase
+    readAll(supabase.from('property_inquiries').select('*').order('created_at', { ascending: false }).order('id')),
+    readAll(supabase.from('interior_design_inquiries').select('*').order('created_at', { ascending: false }).order('id')),
+    readAll(supabase
       .from('inquiry_activities')
       .select('property_inquiry_id, interior_inquiry_id, body, created_at')
       .not('body', 'is', null)
-      .order('created_at', { ascending: false }),
+      .order('created_at', { ascending: false })
+      .order('id')),
   ])
 
   // Each inquiry's newest note from the CRM timeline.

@@ -30,7 +30,7 @@ export default function PrivacyPolicyPage() {
           <div className="border-t pt-6 bg-gray-50 -mx-6 -mb-6 p-6 rounded-b-2xl">
             <h2 className="text-xl font-bold text-[#2d568e] mb-3">Contact Us</h2>
             <p className="text-gray-600 text-sm">If you have any questions about this Privacy Policy, please contact us.</p>
-            <p className="text-gray-400 text-xs mt-4">Iloilo Rentals – Connecting You to the Best Rentals in Iloilo.</p>
+            <p className="text-gray-600 text-xs mt-4">Iloilo Rentals – Connecting You to the Best Rentals in Iloilo.</p>
           </div>
         </div>
       </div>

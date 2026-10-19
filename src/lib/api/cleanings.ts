@@ -2,6 +2,7 @@
 import { supabase } from '@/lib/supabase'
 import { cleanFields } from '@/lib/domain/clean'
 import { generateCleaningCode } from '@/lib/utils'
+import { readAll } from '@/lib/api/readAll'
 
 const BUCKET = 'cleaning-photos'
 const MAX_FILE_BYTES = 15 * 1024 * 1024  // 15 MB
@@ -53,7 +54,13 @@ async function validateImageFile(file) {
 // ============================================================
 // QUERIES
 // ============================================================
-export async function listCleanings({ status, type, housekeeperId, search }: { status?: string; type?: string; housekeeperId?: string; search?: string } = {}) {
+/**
+ * Cleanings, newest first, read in pages so none are cut off.
+ * `since` (YYYY-MM-DD) keeps the list to what matters day to day: everything
+ * still open (scheduled, ready, to be evaluated, or not yet dated) plus
+ * anything scheduled from that day on. Without it, the whole history.
+ */
+export async function listCleanings({ status, type, housekeeperId, search, since }: { status?: string; type?: string; housekeeperId?: string; search?: string; since?: string | null } = {}) {
   let query = supabase
     .from('cleanings')
     .select(`
@@ -63,7 +70,11 @@ export async function listCleanings({ status, type, housekeeperId, search }: { s
       housekeepers:housekeeper_id ( id, code, name, photo_url )
     `)
     .order('scheduled_date', { ascending: false, nullsFirst: false })
+    .order('id')
 
+  if (since && /^\d{4}-\d{2}-\d{2}$/.test(since)) {
+    query = query.or(`status.in.(scheduled,ready,submitted),scheduled_date.is.null,scheduled_date.gte.${since}`)
+  }
   if (status && status !== 'all') query = query.eq('status', status)
   if (type && type !== 'all') query = query.eq('type', type)
   if (housekeeperId && housekeeperId !== 'all') query = query.eq('housekeeper_id', housekeeperId)
@@ -75,9 +86,7 @@ export async function listCleanings({ status, type, housekeeperId, search }: { s
     query = query.ilike('notes', `%${s}%`)
   }
 
-  const { data, error } = await query
-  if (error) throw error
-  return data || []
+  return readAll(query)
 }
 
 export async function getCleaning(id) {

@@ -153,7 +153,7 @@ export function WelcomeModal({ workspace, userId, name, ready = true }: WelcomeM
             animate="show"
             exit="exit"
           >
-            <motion.img variants={item} src="/Iloilo_rentals_img.png" alt="Iloilo Rentals" className="w-16 h-16 mx-auto object-contain" />
+            <motion.img variants={item} src="/logo-448.webp" alt="Iloilo Rentals" className="w-16 h-16 mx-auto object-contain" />
             <motion.p variants={item} className="mt-4 text-[11px] font-semibold uppercase tracking-wider text-foreground">
               {new Date().toLocaleDateString('en-PH', { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric', timeZone: TZ })}
             </motion.p>

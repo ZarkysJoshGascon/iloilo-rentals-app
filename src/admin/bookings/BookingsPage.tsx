@@ -53,6 +53,8 @@ import type { ReactNode } from 'react'
 import type { LucideIcon } from 'lucide-react'
 import { Code } from '@/components/common/Code'
 import { crmLink } from '@/lib/domain/crmLinks'
+import { readAll } from '@/lib/api/readAll'
+import { deriveBookingStatus } from '@/lib/domain/bookingStatus'
 
 const BRAND = 'var(--brand-solid)'
 const SOFT_SHADOW = '0 20px 40px -16px rgba(15,23,42,0.24), 0 6px 16px -6px rgba(15,23,42,0.10)'
@@ -189,17 +191,15 @@ function findContractForBooking(booking, contracts) {
   return candidates.sort((a, b) => (b.effective_date || '').localeCompare(a.effective_date || ''))[0]
 }
 
-function deriveBookingStatus(b) {
-  if (b.completed_at) return 'completed'
-  const t = today()
-  const ci = parseDateOnly(b.check_in)
-  const co = parseDateOnly(b.check_out)
-  if (!ci || !co) return 'upcoming'
-  if (t < ci) return 'upcoming'
-  // In the unit until someone confirms they've left, or the check-out day is over.
-  if (t <= co && !b.checked_out_at) return 'in-house'
-  return b.payment_status === 'paid' ? 'checked-out' : 'needs-attention'
+// The first day of the "last 6 months" the list loads by default (local date).
+function bookingsSince() {
+  const d = new Date()
+  d.setMonth(d.getMonth() - 6)
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
 }
+
+// How many older bookings a search adds from the full history.
+const SEARCH_HISTORY_LIMIT = 200
 
 // Commissions for a new total, at the rates snapshotted when the booking was
 // made. Without a snapshot the stored commission stays as it is.
@@ -580,12 +580,14 @@ function ModalShell({ open, onClose, title, titleId, maxWidth = 'max-w-md', chil
 
 type SummaryCardsProps = {
   bookings: any
+  totalCount?: number | null
   active: any
   onSelect: (...args: any[]) => any
 }
 
-// KPI strip as on the Dashboard; each tile filters the list below.
-function SummaryCards({ bookings, active, onSelect }: SummaryCardsProps) {
+// KPI strip as on the Dashboard; each tile filters the list below. The list
+// holds recent and open bookings, so the total comes from the database.
+function SummaryCards({ bookings, totalCount, active, onSelect }: SummaryCardsProps) {
   const stats = useMemo(() => {
     let upcoming = 0, inHouse = 0, needsAttention = 0
     for (const b of bookings) {
@@ -594,8 +596,8 @@ function SummaryCards({ bookings, active, onSelect }: SummaryCardsProps) {
       else if (s === 'in-house') inHouse++
       else if (s === 'needs-attention') needsAttention++
     }
-    return { total: bookings.length, upcoming, inHouse, needsAttention }
-  }, [bookings])
+    return { total: totalCount ?? bookings.length, upcoming, inHouse, needsAttention }
+  }, [bookings, totalCount])
 
   const pick = (id) => onSelect(active === id ? 'all' : id)
 
@@ -3039,25 +3041,36 @@ export default function BookingsPage({ initialSelectedId }: BookingsPageProps) {
     }
   }, [initialSelectedId])
 
+  // Day to day the list holds every booking not yet completed plus the last 6
+  // months, read in pages. The full history loads on request, or by itself
+  // when the date filter reaches further back.
+  const [fullHistory, setFullHistory] = useState(false)
+  const [totalCount, setTotalCount] = useState(null)
+  const [since] = useState(bookingsSince)
+  const loadAll = fullHistory || (!!dateFrom && dateFrom < since)
+
   const fetchData = useCallback(async (signal?) => {
     if (!hasLoadedOnce.current) setIsFirstLoad(true)
     else setIsRefreshing(true)
     try {
+      let bookingsQuery = supabase.from('bookings').select('*, units:unit_id ( id, unit_code, building )').is('deleted_at', null)
+      if (!loadAll) bookingsQuery = bookingsQuery.or(`completed_at.is.null,check_in.gte.${since}`)
       // NOTE: adds photo_url to specialists / affiliates so the combobox can show avatars
-      const [bRes, uRes, sRes, aRes, cRes] = await Promise.all([
-        supabase.from('bookings').select('*, units:unit_id ( id, unit_code, building )').is('deleted_at', null).order('check_in', { ascending: false }).limit(500),
+      const [bRows, countRes, uRes, sRes, aRes, cRes] = await Promise.all([
+        readAll(bookingsQuery.order('check_in', { ascending: false }).order('id')),
+        supabase.from('bookings').select('id', { count: 'exact', head: true }).is('deleted_at', null),
         supabase.from('units').select('id, unit_code, building, status, current_contract_id').order('unit_code'),
         supabase.from('specialists').select('id, code, name, photo_url').order('name'),
         supabase.from('affiliates').select('id, code, name, photo_url').order('name'),
         supabase.from('contracts').select('id, unit_id, contract_code, effective_date, expiry_date'),
       ])
       if (signal?.aborted) return
-      if (bRes.error) throw bRes.error
       if (uRes.error) throw uRes.error
       if (sRes.error) throw sRes.error
       if (aRes.error) throw aRes.error
       if (cRes.error) throw cRes.error
-      setBookings(bRes.data || [])
+      setBookings(bRows)
+      setTotalCount(countRes.error ? null : countRes.count)
       setUnits(uRes.data || [])
       setSpecialists(sRes.data || [])
       setAffiliates(aRes.data || [])
@@ -3075,13 +3088,47 @@ export default function BookingsPage({ initialSelectedId }: BookingsPageProps) {
         setIsFirstLoad(false); setIsRefreshing(false); hasLoadedOnce.current = true
       }
     }
-  }, [])
+  }, [loadAll, since])
 
   useEffect(() => {
     const ac = new AbortController()
     fetchData(ac.signal)
     return () => ac.abort()
   }, [fetchData])
+
+  // Search reaches past the loaded window: older bookings that match are
+  // looked up in the database and added to the list.
+  const [searchExtra, setSearchExtra] = useState([])
+  useEffect(() => {
+    const term = debouncedSearch.trim().replace(/[,()"\\%_*]/g, ' ').replace(/\s+/g, ' ').trim()
+    if (loadAll || term.length < 2) { setSearchExtra([]); return }
+    let cancelled = false
+    const lower = term.toLowerCase()
+    const unitIds = units.filter((u) => `${u.unit_code || ''} ${u.building || ''}`.toLowerCase().includes(lower)).map((u) => u.id)
+    const conditions = [
+      ...['booking_code', 'guest_name', 'guest_email', 'guest_contact', 'booker_code', 'booker_name', 'affiliate_code', 'affiliate_name', 'notes']
+        .map((c) => `${c}.ilike.%${term}%`),
+      ...(unitIds.length ? [`unit_id.in.(${unitIds.join(',')})`] : []),
+    ]
+    supabase.from('bookings')
+      .select('*, units:unit_id ( id, unit_code, building )')
+      .is('deleted_at', null)
+      .or(conditions.join(','))
+      .order('check_in', { ascending: false })
+      .limit(SEARCH_HISTORY_LIMIT)
+      .then(({ data, error }) => {
+        if (cancelled) return
+        if (error) console.error('Booking history search failed:', error)
+        setSearchExtra(error ? [] : data || [])
+      })
+    return () => { cancelled = true }
+  }, [debouncedSearch, loadAll, units])
+
+  const allBookings = useMemo(() => {
+    if (searchExtra.length === 0) return bookings
+    const seen = new Set(bookings.map((b) => b.id))
+    return [...bookings, ...searchExtra.filter((b) => !seen.has(b.id))]
+  }, [bookings, searchExtra])
 
   useEffect(() => {
     const ch = supabase.channel(`bookings-realtime-${Math.random().toString(36).slice(2, 10)}`)
@@ -3146,7 +3193,7 @@ export default function BookingsPage({ initialSelectedId }: BookingsPageProps) {
 
   const filtered = useMemo(() => {
     const q = debouncedSearch.trim().toLowerCase()
-    return bookings.filter((b) => {
+    return allBookings.filter((b) => {
       const derived = deriveBookingStatus(b)
       if (statusFilter !== 'all') {
         if (statusFilter === 'unpaid') {
@@ -3168,7 +3215,7 @@ export default function BookingsPage({ initialSelectedId }: BookingsPageProps) {
       }
       return true
     })
-  }, [bookings, statusFilter, debouncedSearch, dateFrom, dateTo])
+  }, [allBookings, statusFilter, debouncedSearch, dateFrom, dateTo])
 
   useEffect(() => {
     if (typeof window === 'undefined') return
@@ -3279,7 +3326,7 @@ export default function BookingsPage({ initialSelectedId }: BookingsPageProps) {
       <div data-page-scroll className="flex-1 min-h-0 flex flex-col px-4 py-4 md:px-8 md:py-6 gap-4 overflow-y-auto [&>*]:flex-shrink-0">
 
         <div className="flex-shrink-0 pt-1 pb-2">
-          <SummaryCards bookings={bookings} active={statusFilter} onSelect={setStatusFilter} />
+          <SummaryCards bookings={bookings} totalCount={totalCount} active={statusFilter} onSelect={setStatusFilter} />
         </div>
 
         <div className="flex-shrink-0">
@@ -3318,12 +3365,29 @@ export default function BookingsPage({ initialSelectedId }: BookingsPageProps) {
         {!isFirstLoad && (
           <ResultsBar
             shown={sorted.length}
-            total={bookings.length}
-            noun={bookings.length === 1 ? 'booking' : 'bookings'}
+            total={allBookings.length}
+            noun={allBookings.length === 1 ? 'booking' : 'bookings'}
             chips={filterChips}
             onClearAll={clearFilters}
             hint="Click a column to sort · Right-click a booking for quick actions · Press / to search"
           />
+        )}
+        {!isFirstLoad && (
+          <p className="flex-shrink-0 text-[12px] text-foreground px-0.5 -mt-1">
+            {loadAll
+              ? 'Showing every booking on record.'
+              : `Showing bookings not yet completed and the last 6 months${searchExtra.length ? `, plus ${searchExtra.length} older match${searchExtra.length === 1 ? '' : 'es'} for your search` : ''}.`}{' '}
+            {(fullHistory || !loadAll) && (
+              <button
+                type="button"
+                onClick={() => setFullHistory((v) => !v)}
+                disabled={isRefreshing}
+                className="font-semibold underline underline-offset-2 hover:text-foreground/70 disabled:opacity-50"
+              >
+                {fullHistory ? 'Show recent only' : 'Load full history'}
+              </button>
+            )}
+          </p>
         )}
 
         <div className="rounded-md border border-border shadow-sm overflow-hidden bg-card flex flex-col">
