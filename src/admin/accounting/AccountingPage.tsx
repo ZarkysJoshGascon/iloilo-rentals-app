@@ -45,7 +45,8 @@ import { crmLink } from '@/lib/domain/crmLinks'
 // (a lighter tint in dark mode so it reads on dark cards).
 const BRAND = 'var(--brand-solid)'
 const CHART = 'var(--brand)'
-const CLEAN_COLOR = '#10b981'
+// Dark enough for white chip text (WCAG AA, 5.5:1).
+const CLEAN_COLOR = '#047857'
 const CANCELLED_COLOR = '#dc2626'
 // Profit and loss marks in charts.
 const PROFIT_COLOR = '#059669'
@@ -1738,7 +1739,7 @@ function CalendarBookingBar({ booking, selected, dimmed = false, onSelect, isChe
         onMouseMove={onMove}
         onMouseLeave={onLeave}
         initial={{ opacity: 0, x: -4 }}
-        animate={{ opacity: dimmed ? CAL_DIMMED_OPACITY : isCancelled ? 0.75 : 1, x: 0 }}
+        animate={{ opacity: dimmed ? CAL_DIMMED_OPACITY : 1, x: 0 }}
         transition={{ duration: 0.2 }}
         className={cn(
           'w-full text-left px-1.5 py-0.5 rounded text-[10px] font-semibold truncate cursor-pointer transition-all',
@@ -1748,8 +1749,9 @@ function CalendarBookingBar({ booking, selected, dimmed = false, onSelect, isChe
         )}
         style={{
           backgroundColor: isCancelled ? CANCELLED_COLOR : isDepartureOnly ? 'color-mix(in srgb, var(--brand-solid) 50%, transparent)' : BRAND,
-          color: 'white',
-          borderLeft: isDepartureOnly ? '2px dashed rgba(255,255,255,0.85)' : undefined,
+          // The checkout-day chip is a pale tint: dark text reads on it, white doesn't.
+          color: isDepartureOnly ? 'var(--foreground)' : 'white',
+          borderLeft: isDepartureOnly ? '2px dashed currentColor' : undefined,
         }}
         title={
           isCancelled

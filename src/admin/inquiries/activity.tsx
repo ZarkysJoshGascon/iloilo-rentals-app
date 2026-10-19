@@ -376,7 +376,6 @@ function StageNoteDialog({ board, name, from, to, followUp: startFollowUp, onSav
   // Type straight away on a computer; on a phone the keyboard would hide the quick picks.
   useEffect(() => {
     if (!phone) bodyRef.current?.focus()
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
   useEffect(() => {
@@ -509,7 +508,7 @@ type PendingMove = {
 export function useStageMove({ board, setItems, save, addActivity, nameOf }: StageMoveOptions) {
   const [pending, setPending] = useState<PendingMove | null>(null)
   const nameRef = useRef(nameOf)
-  nameRef.current = nameOf
+  useEffect(() => { nameRef.current = nameOf })
 
   const apply = useCallback((id, fields) => {
     setItems((prev) => prev.map((i) => (i.id === id ? { ...i, ...fields } : i)))

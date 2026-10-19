@@ -8,6 +8,10 @@ import { defineConfig, devices } from '@playwright/test'
 const baseURL = process.env.E2E_BASE_URL || 'http://localhost:5173'
 const local = baseURL.startsWith('http://localhost')
 
+// What also runs in Firefox and in Safari's engine: the public site and the
+// pages staff and owners open on their phones, most of them iPhones.
+const OTHER_ENGINES = /(public-site|smoke|photos|owner-portal|housekeeper).spec.ts$/
+
 export default defineConfig({
   testDir: 'tests/e2e',
   timeout: 45_000,
@@ -17,16 +21,19 @@ export default defineConfig({
   reporter: [['list'], ['html', { open: 'never', outputFolder: 'playwright-report' }]],
   use: {
     baseURL,
+    // The browsers' clock is in Manila, as for the business, on any computer
+    // (GitHub's run on UTC). A test can choose another zone.
+    timezoneId: 'Asia/Manila',
     trace: 'retain-on-failure',
     screenshot: 'only-on-failure',
   },
   projects: [
     { name: 'desktop', use: { ...devices['Desktop Chrome'], channel: 'chrome' } },
     { name: 'phone', use: { ...devices['Pixel 7'], channel: 'chrome' } },
-    // Other engines for the public site (installed with: npx playwright install firefox webkit).
+    // Other engines (installed with: npx playwright install firefox webkit).
     // WebKit is what Safari runs on iPhones and Macs.
-    { name: 'firefox', use: { ...devices['Desktop Firefox'] }, testMatch: /public-site|smoke|photos/ },
-    { name: 'iphone-safari', use: { ...devices['iPhone 14'] }, testMatch: /public-site|smoke|photos/ },
+    { name: 'firefox', use: { ...devices['Desktop Firefox'] }, testMatch: OTHER_ENGINES },
+    { name: 'iphone-safari', use: { ...devices['iPhone 14'] }, testMatch: OTHER_ENGINES },
   ],
   webServer: local
     ? { command: 'npx vite --port 5173 --strictPort', url: baseURL, reuseExistingServer: true, timeout: 60_000 }

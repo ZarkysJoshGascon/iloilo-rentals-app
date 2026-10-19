@@ -8,8 +8,8 @@ import {
   ResponsiveContainer, BarChart, Bar, Cell, XAxis, YAxis, CartesianGrid, Tooltip,
 } from 'recharts'
 import {
-  ArrowLeft, BarChart3, CalendarRange, Download, FileText, Home, Landmark,
-  Loader2, RefreshCw, Table2, TrendingUp, UserRound, Wallet, AlertTriangle,
+  ArrowLeft, BarChart3, CalendarRange, ChevronDown, ChevronUp, Download, FileText, Home,
+  Loader2, RefreshCw, Table2, TrendingUp, AlertTriangle,
 } from 'lucide-react'
 import toast from 'react-hot-toast'
 import { cn } from '@/lib/utils'
@@ -17,18 +17,16 @@ import { contractTerms } from '@/lib/domain/contracts'
 import { fetchOwnerContract } from '@/lib/api/ownerPortal'
 import { downloadContractStatement } from '@/lib/api/email'
 import { Panel, PanelHeader } from '@/components/crm/Panel'
-import { StatStrip, StatTile } from '@/components/crm/StatStrip'
 import { StatusTabs, PeriodStepper } from '@/components/crm/StatusTabs'
-import { Sparkline } from '@/components/crm/Sparkline'
 import OwnerMonthSection from './OwnerMonthSection'
 import {
   OWNER_PCT, MONTHS_SHORT, todayISO, formatMoney, formatPeso, formatDate, monthLabel,
-  moneyTone, ContractStatus, BookingRow, EmptyLine, bookingStatus,
+  moneyTone, ContractStatus, BookingRow, EmptyLine, bookingStatus, ShareHero, formatManilaDate,
 } from './ownerUi'
 import { Code } from '@/components/common/Code'
 
 const PAGE = 'px-4 py-5 sm:px-6 md:px-8 md:py-6 max-w-[1500px] mx-auto space-y-4 pb-12'
-const MONEY_TILE = 'text-[21px] sm:text-[24px]'
+const PHONE_STAYS = 3 // stays listed on a phone before "Show all"
 const AXIS_TICK = { fontSize: 11, fill: 'var(--foreground)' }
 const LOSS_COLOR = '#dc2626'
 
@@ -193,14 +191,30 @@ type StaysCardProps = {
 
 // In-house now and upcoming stays.
 function StaysCard({ bookings }: StaysCardProps) {
+  const [showAll, setShowAll] = useState(false)
   const today = todayISO()
-  const live = bookings.filter((b) => ['inhouse', 'upcoming'].includes(bookingStatus(b, today)))
+  const live = bookings
+    .filter((b) => ['inhouse', 'upcoming'].includes(bookingStatus(b, today)))
+    .sort((a, b) => String(a.check_in).localeCompare(String(b.check_in)))
   return (
     <Panel>
       <PanelHeader icon={CalendarRange} title="Now and next" subtitle="Guests staying now and upcoming stays" count={live.length} />
-      <div className="relative flex-1 min-h-[200px]">
-        <div className="xl:absolute xl:inset-0 overflow-y-auto">
-          {live.length === 0 ? <EmptyLine>No guests now and no upcoming stays.</EmptyLine> : live.map((b) => <BookingRow key={b.id} booking={b} />)}
+      {/* Beside the chart the list scrolls on its own; on phones it shows the
+          next few with a button for the rest. */}
+      <div className="relative flex-1 xl:min-h-[200px]">
+        <div className="xl:absolute xl:inset-0 xl:overflow-y-auto">
+          {live.length === 0 ? <EmptyLine>No guests now and no upcoming stays.</EmptyLine> : live.map((b, i) => (
+            <div key={b.id} className={cn(!showAll && i >= PHONE_STAYS && 'max-xl:hidden')}><BookingRow booking={b} /></div>
+          ))}
+          {live.length > PHONE_STAYS && (
+            <button
+              type="button"
+              onClick={() => setShowAll((v) => !v)}
+              className="xl:hidden w-full flex items-center justify-center gap-1.5 h-11 border-t border-border text-[12.5px] font-semibold text-foreground active:bg-muted/50"
+            >
+              {showAll ? <><ChevronUp size={15} /> Show fewer</> : <><ChevronDown size={15} /> Show all {live.length}</>}
+            </button>
+          )}
         </div>
       </div>
     </Panel>
@@ -313,8 +327,6 @@ export default function OwnerContractView({ contractId, contracts, onOpen, onBac
     )
   }
 
-  const trend = (key) => months.map((m) => m[key])
-
   return (
     <div className={PAGE}>
       {/* Header */}
@@ -398,24 +410,23 @@ export default function OwnerContractView({ contractId, contracts, onOpen, onBac
 
       {contract.records_cleared_at && (
         <p role="status" className="text-[12px] text-foreground border border-border rounded-md px-3 py-2">
-          This term's bookings and cleanings were archived on {formatDate(String(contract.records_cleared_at).slice(0, 10))}, so the figures
+          This term's bookings and cleanings were archived on {formatManilaDate(contract.records_cleared_at)}, so the figures
           below no longer show them. The statement has the full record.
         </p>
       )}
 
       {/* Term to date */}
-      <StatStrip cols={5}>
-        <StatTile icon={TrendingUp} label="Gross income" value={formatPeso(totals.gross)} valueClassName={MONEY_TILE}
-          trend={<Sparkline values={trend('gross')} label="Gross by month" />} sub="This contract so far" />
-        <StatTile icon={Wallet} label="Expenses" value={formatPeso(totals.totalExpenses)} valueClassName={MONEY_TILE}
-          trend={<Sparkline values={trend('totalExpenses')} label="Expenses by month" />} sub="Commissions, cleaning, bills" />
-        <StatTile icon={Landmark} label="Net income" value={formatPeso(totals.net)} valueClassName={cn(MONEY_TILE, moneyTone(totals.net))}
-          trend={<Sparkline values={trend('net')} tone={totals.net < 0 ? 'bad' : 'good'} label="Net by month" />} sub="Gross minus expenses" />
-        <StatTile icon={UserRound} label={`Your share (${OWNER_PCT}%)`} value={formatPeso(totals.ownerShare)} valueClassName={cn(MONEY_TILE, moneyTone(totals.ownerShare))}
-          trend={<Sparkline values={trend('ownerShare')} tone={totals.ownerShare < 0 ? 'bad' : 'good'} label="Your share by month" />} sub={`${OWNER_PCT}% of net income`} />
-        <StatTile icon={Home} label="Occupancy" value={`${Math.round(occupancy.pct * 100)}%`} valueClassName={MONEY_TILE}
-          sub={`${occupancy.nights} of ${occupancy.days} nights booked`} className="col-span-2 sm:col-span-1" />
-      </StatStrip>
+      <ShareHero
+        label={<>Your share · this contract so far</>}
+        value={totals.ownerShare}
+        note={<>{OWNER_PCT}% of the net income since {formatDate(contract.effective_date)}</>}
+        stats={[
+          { label: 'Gross income', value: formatPeso(totals.gross), sub: 'All bookings' },
+          { label: 'Expenses', value: formatPeso(totals.totalExpenses), sub: 'Commissions, cleaning, bills' },
+          { label: 'Net income', value: formatPeso(totals.net), tone: moneyTone(totals.net), sub: 'Gross minus expenses' },
+          { label: 'Occupancy', value: `${Math.round(occupancy.pct * 100)}%`, sub: `${occupancy.nights} of ${occupancy.days} nights` },
+        ]}
+      />
 
       <div className="grid grid-cols-1 xl:grid-cols-[minmax(0,2fr)_minmax(0,1fr)] gap-4">
         <PerformanceCard months={months} selectedMonth={selectedMonth} onSelectMonth={setSelectedMonth} />

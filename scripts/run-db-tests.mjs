@@ -1,11 +1,11 @@
-// npm run test:db — runs every database test in supabase/tests against the
+// npm run test:db — runs every database test in tests/database against the
 // linked Supabase project (each file rolls itself back, so no data changes)
 // and prints PASS/FAIL per check. Needs the Supabase CLI, logged in and linked.
 import { execFileSync } from 'node:child_process'
 import { readdirSync } from 'node:fs'
 import { join } from 'node:path'
 
-const dir = 'supabase/tests'
+const dir = 'tests/database'
 let passed = 0
 let failed = 0
 

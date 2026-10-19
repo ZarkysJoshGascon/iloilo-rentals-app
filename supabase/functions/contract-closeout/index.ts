@@ -24,16 +24,12 @@ import { corsHeaders } from '../_shared/cors.ts'
 import {
   CONTRACT_SELECT, EMAIL_RE, buildStatementFile, emailStatement, keepStatementCopy, manilaToday,
 } from '../send-contract-statement/statement.ts'
+import { CLOSEOUT_FROM, PHOTO_COLUMNS, holdReason, nextStep, photoPaths, unfinishedNote } from './rules.js'
 
 const SUPABASE_URL          = Deno.env.get('SUPABASE_URL')
 const SUPABASE_SERVICE_ROLE = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')
 if (!SUPABASE_URL)          throw new Error('SUPABASE_URL is required')
 if (!SUPABASE_SERVICE_ROLE) throw new Error('SUPABASE_SERVICE_ROLE_KEY is required')
-
-// Contracts that ended before this are left as they were.
-const CLOSEOUT_FROM = '2026-10-19'
-const CLEAR_AFTER_DAYS = 30
-const DAY_MS = 86_400_000
 
 function json(body: unknown, status = 200) {
   return new Response(JSON.stringify(body), { status, headers: { ...corsHeaders, 'Content-Type': 'application/json' } })
@@ -49,10 +45,6 @@ function tokenRole(token: string): string | null {
     return null
   }
 }
-
-// When a term is over: midnight in Manila after its last day.
-const termOver = (expiry: string) => Date.parse(`${expiry}T16:00:00Z`)
-const plural = (n: number, word: string) => `${n} ${word}${n === 1 ? '' : 's'}`
 
 type Report = {
   dry: boolean
@@ -100,11 +92,9 @@ serve(async (req) => {
         .eq('contract_id', contract.id)
         .order('created_at', { ascending: false })
       if (rowsErr) throw rowsErr
-      // A statement emailed after the term was over covers all of it.
-      const sent = (rows || []).find((r) => r.status === 'sent' && r.sent_at && Date.parse(r.sent_at) >= termOver(contract.expiry_date))
-
-      if (!sent) await sendStatement(admin, contract, rows || [], report)
-      else if (Date.now() - Date.parse(sent.sent_at) >= CLEAR_AFTER_DAYS * DAY_MS) await clearRecords(admin, contract, report)
+      const step = nextStep(contract, rows || [], Date.now())
+      if (step === 'send') await sendStatement(admin, contract, rows || [], report)
+      else if (step === 'clear') await clearRecords(admin, contract, report)
     } catch (err) {
       console.error(`contract-closeout ${code}:`, err)
       report.errors.push({ contract: code, error: (err as Error)?.message || String(err) })
@@ -133,15 +123,10 @@ async function sendStatement(admin: any, contract: any, rows: any[], report: Rep
     }
   }
 
-  if (!EMAIL_RE.test(to)) {
-    return hold('The owner has no email address. Add one in Registry, then email the statement from the contract.')
-  }
+  if (!EMAIL_RE.test(to)) return hold(holdReason({ hasEmail: false, warnings: [] })!)
   const built = await buildStatementFile(admin, contract, admin.storage)
-  const warnings = built.data.warnings || []
-  if (warnings.length > 0) {
-    const months = new Set(warnings.map((w: any) => w.month)).size
-    return hold(`Its figures differ from the Accounting page for ${plural(months, 'month')}. Download it to check, then email it from the contract.`, built.data.totals)
-  }
+  const reason = holdReason({ hasEmail: true, warnings: built.data.warnings })
+  if (reason) return hold(reason, built.data.totals)
 
   if (report.dry) {
     report.sent.push({ contract: code, to })
@@ -182,13 +167,8 @@ async function clearRecords(admin: any, contract: any, report: Report) {
   const { data: scope, error } = await admin.rpc('closeout_scope', { p_contract_id: contract.id })
   if (error) throw error
 
-  const unfinished = [
-    scope.unpaid_bookings > 0 && `${plural(scope.unpaid_bookings, 'booking')} with a balance still owed`,
-    scope.open_cleanings > 0 && `${plural(scope.open_cleanings, 'cleaning')} not yet approved`,
-    scope.unpaid_cleanings > 0 && `${plural(scope.unpaid_cleanings, 'cleaning')} with housekeeping or laundry pay not yet paid`,
-  ].filter(Boolean)
-  if (unfinished.length > 0) {
-    const note = `Bookings and cleanings are kept until these are settled: ${unfinished.join('; ')}.`
+  const note = unfinishedNote(scope)
+  if (note) {
     report.waiting.push({ contract: code, note })
     if (!report.dry) await admin.rpc('closeout_set_note', { p_contract_id: contract.id, p_note: note })
     return
@@ -211,22 +191,13 @@ async function clearRecords(admin: any, contract: any, report: Report) {
   report.cleared.push({ contract: code, ...counts, photos })
 }
 
-// Every photo the cleanings point to: their photo lists and single photos.
-const PHOTO_COLUMNS = ['photos_before', 'photos_after', 'photos_report', 'amenities_used_photo', 'amenities_replaced_photo', 'laundry_used_photo', 'laundry_replaced_photo']
-
+// Deletes every photo the cleanings point to, 100 at a time.
 async function deleteCleaningPhotos(admin: any, cleaningIds: string[]) {
   let removed = 0
   for (let i = 0; i < cleaningIds.length; i += 100) {
     const { data: rows, error } = await admin.from('cleanings').select(PHOTO_COLUMNS.join(', ')).in('id', cleaningIds.slice(i, i + 100))
     if (error) throw error
-    const paths: string[] = []
-    for (const row of rows || []) {
-      for (const column of PHOTO_COLUMNS) {
-        for (const photo of [row[column]].flat()) {
-          if (photo && typeof photo.path === 'string' && photo.path) paths.push(photo.path)
-        }
-      }
-    }
+    const paths: string[] = photoPaths(rows)
     for (let j = 0; j < paths.length; j += 100) {
       const { error: rmErr } = await admin.storage.from('cleaning-photos').remove(paths.slice(j, j + 100))
       if (rmErr) throw new Error(`Deleting cleaning photos failed: ${rmErr.message}`)

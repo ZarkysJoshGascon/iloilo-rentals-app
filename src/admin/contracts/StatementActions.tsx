@@ -14,10 +14,6 @@ import { manilaToday } from '@/admin/dashboard/workLog'
 
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
 
-function todayISO() {
-  return new Date().toISOString().slice(0, 10)
-}
-
 function formatWhen(iso) {
   if (!iso) return '—'
   const d = new Date(iso)
@@ -79,7 +75,7 @@ export function StatementActions({ contract, compact = false, className }: State
   const [busy, setBusy] = useState(null) // 'download' | 'send'
   const [history, setHistory] = useState([])
 
-  const ended = !!contract?.expiry_date && contract.expiry_date < todayISO()
+  const ended = !!contract?.expiry_date && contract.expiry_date < manilaToday()
   const cleared = !!contract?.records_cleared_at
   const ownerEmail = String(contract?.owners?.email || '').trim()
   const hasEmail = EMAIL_RE.test(ownerEmail)

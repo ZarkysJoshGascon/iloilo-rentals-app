@@ -7,14 +7,15 @@
     "dev": "vite --open",
     "build": "vite build",
     "lint": "eslint .",
-    "typecheck": "tsc -p .",
+    "typecheck": "tsc -p . && tsc -p tests",
     "preview": "vite preview",
     "test": "vitest run --project unit",
     "test:watch": "vitest --project unit",
     "test:integration": "vitest run --project integration",
     "test:e2e": "playwright test",
     "test:db": "node scripts/run-db-tests.mjs",
-    "test:all": "npm run test && npm run test:integration && npm run test:e2e"
+    "test:all": "npm run test && npm run test:integration && npm run test:e2e",
+    "test:coverage": "vitest run --project unit --coverage"
   },
   "dependencies": {
     "@base-ui/react": "^1.7.0",
@@ -52,6 +53,7 @@
     "@types/react-dom": "^19.2.3",
     "@types/three": "^0.186.0",
     "@vitejs/plugin-react": "^6.0.1",
+    "@vitest/coverage-v8": "5.0.5",
     "autoprefixer": "^10.5.0",
     "eslint": "^10.3.0",
     "eslint-plugin-react-hooks": "^7.1.1",

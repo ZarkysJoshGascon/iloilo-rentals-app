@@ -9,12 +9,13 @@ test.skip(!!process.env.E2E_BASE_URL && !process.env.E2E_BASE_URL.startsWith('ht
 
 async function openModule(page: Page) {
   await page.goto('/terms')
-  await page.waitForFunction(async () => {
+  // A path on the dev server, so it's only resolved in the browser.
+  await page.waitForFunction(async (url) => {
     try {
-      (window as any).images = await import('/src/lib/images.ts')
+      (window as any).images = await import(/* @vite-ignore */ url)
       return true
     } catch { return false }
-  })
+  }, '/src/lib/images.ts')
 }
 
 test('a 12 MP phone photo becomes a 1600 px JPEG of a few hundred KB', async ({ page }) => {

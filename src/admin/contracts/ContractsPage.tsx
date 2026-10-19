@@ -48,6 +48,7 @@ import { cleanFields } from '@/lib/domain/clean'
 import { DatePicker } from '@/components/crm/DatePicker'
 import { useRevealOnOpen } from '@/components/crm/useRevealOnOpen'
 import { preparePhoto, DOCUMENT_PHOTO } from '@/lib/images'
+import { manilaToday } from '@/admin/dashboard/workLog'
 
 const BRAND = 'var(--brand-solid)'
 
@@ -65,8 +66,7 @@ const DOW = ['Su','Mo','Tu','We','Th','Fr','Sa']
 
 // ── date helpers ────────────────────────────────────────────
 function todayISO() {
-  const d = new Date(); d.setUTCHours(0, 0, 0, 0)
-  return d.toISOString().slice(0, 10)
+  return manilaToday()
 }
 function addDaysISO(iso, n) {
   const d = new Date(`${iso}T00:00:00Z`)

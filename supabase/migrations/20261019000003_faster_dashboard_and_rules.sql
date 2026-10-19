@@ -12,7 +12,7 @@
 --    ran the call for every row a query touched. Wrapped as (select …) the
 --    database runs it once per query (Supabase's own advice; the "Auth RLS
 --    initialization plan" warnings). Who can see or change what is unchanged
---    (supabase/tests/role_access.sql and storage_access.sql check it).
+--    (tests/database/role_access.sql and storage_access.sql check it).
 --
 -- Safe to run more than once.
 -- ============================================================

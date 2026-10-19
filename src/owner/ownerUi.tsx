@@ -14,8 +14,9 @@ export const COMPANY_PCT = 25
 export const MONTHS_SHORT = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']
 const MONTHS_LONG = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December']
 
+/** Today's date in Manila, YYYY-MM-DD, wherever the owner is. */
 export function todayISO() {
-  return new Date().toISOString().slice(0, 10)
+  return new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Manila' })
 }
 
 export function formatMoney(n) {
@@ -36,6 +37,13 @@ export function formatDate(iso, withYear = true) {
   return d.toLocaleDateString('en-PH', { month: 'short', day: 'numeric', ...(withYear ? { year: 'numeric' } : {}), timeZone: 'UTC' })
 }
 
+/** The Manila date of a moment (a timestamp), e.g. "Oct 20, 2026". */
+export function formatManilaDate(ts) {
+  const d = ts ? new Date(ts) : null
+  if (!d || Number.isNaN(d.getTime())) return '—'
+  return d.toLocaleDateString('en-PH', { month: 'short', day: 'numeric', year: 'numeric', timeZone: 'Asia/Manila' })
+}
+
 export function monthLabel(key, long = false) {
   const [y, m] = String(key).split('-').map(Number)
   return `${(long ? MONTHS_LONG : MONTHS_SHORT)[m - 1]} ${y}`
@@ -50,7 +58,7 @@ export function nightsBetween(a, b) {
 // Profit in green, loss in red (as on the Accounting page).
 export function moneyTone(n) {
   const v = Number(n)
-  if (v > 0) return 'text-emerald-600 dark:text-emerald-400'
+  if (v > 0) return 'text-emerald-700 dark:text-emerald-400'
   if (v < 0) return 'text-red-600 dark:text-red-400'
   return 'text-foreground'
 }
@@ -68,7 +76,7 @@ export function ContractStatus({ contract, className }: ContractStatusProps) {
 // ── Bookings ────────────────────────────────────────────────
 const BOOKING_STATUS = {
   upcoming:  { label: 'Upcoming',  className: 'text-blue-600 dark:text-blue-400' },
-  inhouse:   { label: 'In-house',  className: 'text-emerald-600 dark:text-emerald-400' },
+  inhouse:   { label: 'In-house',  className: 'text-emerald-700 dark:text-emerald-400' },
   completed: { label: 'Completed', className: 'text-foreground' },
   cancelled: { label: 'Cancelled', className: 'text-red-600 dark:text-red-400' },
 }
@@ -81,9 +89,9 @@ export function bookingStatus(b, today = todayISO()) {
 }
 
 const PAYMENT = {
-  paid:    { label: 'Paid',    className: 'text-emerald-600 dark:text-emerald-400' },
-  partial: { label: 'Partly paid', className: 'text-amber-600 dark:text-amber-400' },
-  unpaid:  { label: 'Unpaid',  className: 'text-amber-600 dark:text-amber-400' },
+  paid:    { label: 'Paid',    className: 'text-emerald-700 dark:text-emerald-400' },
+  partial: { label: 'Partly paid', className: 'text-amber-700 dark:text-amber-400' },
+  unpaid:  { label: 'Unpaid',  className: 'text-amber-700 dark:text-amber-400' },
 }
 
 type BookingRowProps = {
@@ -130,10 +138,10 @@ export function BookingRow({ booking }: BookingRowProps) {
 
 // ── Cleanings ───────────────────────────────────────────────
 const CLEANING_STATUS = {
-  scheduled: { label: 'Scheduled', className: 'text-amber-600 dark:text-amber-400' },
+  scheduled: { label: 'Scheduled', className: 'text-amber-700 dark:text-amber-400' },
   ready:     { label: 'Ready',     className: 'text-blue-600 dark:text-blue-400' },
   submitted: { label: 'In review', className: 'text-blue-600 dark:text-blue-400' },
-  completed: { label: 'Completed', className: 'text-emerald-600 dark:text-emerald-400' },
+  completed: { label: 'Completed', className: 'text-emerald-700 dark:text-emerald-400' },
   cancelled: { label: 'Cancelled', className: 'text-red-600 dark:text-red-400' },
 }
 
@@ -169,6 +177,98 @@ export function CleaningRow({ cleaning }: CleaningRowProps) {
         <span>Laundry <span className="font-semibold">{formatMoney(cleaning.laundry_payment_amount)}</span></span>
       </div>
     </div>
+  )
+}
+
+// ── Your share, first ───────────────────────────────────────
+// What an owner comes for: their share, large, with the figures behind it
+// smaller underneath. Optionally a bar per month (tap one to open it).
+
+type HeroStat = { label: string; value: ReactNode; tone?: string; sub?: ReactNode }
+type HeroBar = { key: string; label: string; value: number }
+
+type ShareHeroProps = {
+  label: ReactNode
+  value: number
+  note?: ReactNode
+  stats: HeroStat[]
+  bars?: HeroBar[]
+  barsLabel?: string
+  selectedBar?: string | null
+  onBarClick?: (key: string) => void
+}
+
+function ShareBars({ bars, label, selected, onClick }: { bars: HeroBar[]; label: string; selected?: string | null; onClick?: (key: string) => void }) {
+  const max = Math.max(1, ...bars.map((b) => Math.abs(b.value)))
+  return (
+    <div className="w-full lg:w-[360px] flex-shrink-0" role="group" aria-label={label}>
+      <div className="flex items-end gap-1 h-[72px]">
+        {bars.map((b) => {
+          const h = Math.max(3, Math.round((Math.abs(b.value) / max) * 72))
+          const dim = selected && b.key !== selected
+          const bar = (
+            <span
+              className={cn('block w-full rounded-t-[3px] transition-opacity', b.value < 0 ? 'bg-red-600' : 'bg-brand-solid', dim && 'opacity-35')}
+              style={{ height: h }}
+            />
+          )
+          return onClick ? (
+            <button key={b.key} type="button" onClick={() => onClick(b.key)} title={`${b.label}: ${formatMoney(b.value)}`}
+              aria-label={`${b.label}: ${formatMoney(b.value)}`} aria-pressed={b.key === selected}
+              className="flex-1 min-w-0 h-full flex items-end rounded-sm focus:outline-none focus-visible:ring-2 focus-visible:ring-brand/40">
+              {bar}
+            </button>
+          ) : (
+            <span key={b.key} className="flex-1 min-w-0 h-full flex items-end" title={`${b.label}: ${formatMoney(b.value)}`}>{bar}</span>
+          )
+        })}
+      </div>
+      <div className="flex gap-1 mt-1.5" aria-hidden>
+        {bars.map((b) => (
+          <span key={b.key} className={cn('flex-1 min-w-0 text-center text-[10px] text-foreground truncate', b.key === selected && 'font-bold')}>{b.label.slice(0, 1)}</span>
+        ))}
+      </div>
+    </div>
+  )
+}
+
+export function ShareHero({ label, value, note, stats, bars, barsLabel = 'Your share by month', selectedBar, onBarClick }: ShareHeroProps) {
+  const four = stats.length === 4
+  return (
+    <section className="rounded-md bg-card border border-border shadow-sm overflow-hidden">
+      <div className="px-4 sm:px-6 pt-5 pb-4 flex flex-col lg:flex-row lg:items-end lg:justify-between gap-4">
+        <div className="min-w-0">
+          <p className="text-[12.5px] font-medium text-foreground">{label}</p>
+          <p className={cn('text-[34px] sm:text-[40px] font-semibold tracking-tight leading-none tabular-nums mt-2', moneyTone(value))}>{formatPeso(value)}</p>
+          {note && <p className="text-[12px] text-foreground mt-2">{note}</p>}
+        </div>
+        {bars && bars.length > 1 && <ShareBars bars={bars} label={barsLabel} selected={selectedBar} onClick={onBarClick} />}
+      </div>
+      <dl className={cn('grid border-t border-border divide-x divide-border', four ? 'grid-cols-2 sm:grid-cols-4 max-sm:[&>*:nth-child(3)]:border-l-0 max-sm:[&>*:nth-child(n+3)]:border-t' : 'grid-cols-3')}>
+        {stats.map((s) => (
+          <div key={s.label} className="min-w-0 px-4 sm:px-6 py-3 border-border">
+            <dt className="text-[11.5px] font-medium text-foreground truncate">{s.label}</dt>
+            <dd className={cn('text-[16px] sm:text-[18px] font-semibold tabular-nums tracking-tight mt-1 truncate', s.tone || 'text-foreground')}>{s.value}</dd>
+            {s.sub && <dd className={cn('text-[11px] text-foreground mt-0.5 leading-snug', !four && 'max-sm:hidden')}>{s.sub}</dd>}
+          </div>
+        ))}
+      </dl>
+    </section>
+  )
+}
+
+/** "↗ 12% vs Sep", for the change from one period to the next. */
+export function changeNote(now: number, before: number | null | undefined, beforeLabel: string) {
+  if (before == null || before === 0) return null
+  const pct = Math.round(((now - before) / Math.abs(before)) * 100)
+  if (pct === 0) return <>Same as {beforeLabel}</>
+  return (
+    <>
+      <span className={cn('font-semibold', pct > 0 ? 'text-emerald-700 dark:text-emerald-400' : 'text-red-600 dark:text-red-400')}>
+        {pct > 0 ? '↗' : '↘'} {Math.abs(pct)}%
+      </span>
+      {' '}vs {beforeLabel}
+    </>
   )
 }
 

@@ -78,9 +78,10 @@ test.describe('phone layout', () => {
     test.skip(!isMobile, 'phone only')
     for (const path of ['/', '/about', '/contact', '/list-property', '/privacy']) {
       await page.goto(path)
-      await page.waitForTimeout(800)
-      const overflow = await page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth)
-      expect(overflow, `${path} is ${overflow}px wider than the screen`).toBeLessThanOrEqual(1)
+      // Sections slide in from the side; once they've arrived nothing may stick out.
+      await expect.poll(() => page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth), {
+        message: `${path} is wider than the screen`, timeout: 10_000,
+      }).toBeLessThanOrEqual(1)
     }
   })
 })

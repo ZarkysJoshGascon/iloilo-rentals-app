@@ -37,3 +37,6 @@ dist-ssr
 playwright-report/
 test-results/
 tests/e2e/.auth/
+
+# Test coverage reports
+coverage/

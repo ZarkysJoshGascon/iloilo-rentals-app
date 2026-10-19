@@ -6,6 +6,8 @@ import { test, expect, type Page } from '@playwright/test'
 import { existsSync } from 'node:fs'
 
 const SESSION = 'tests/e2e/.auth/admin.json'
+// How long a finger must stay down to open a row's menu (ContextMenu).
+const LONG_PRESS_MS = 500
 test.skip(!existsSync(SESSION), `No signed-in session at ${SESSION}; see tests/e2e/README.md`)
 test.use({ storageState: existsSync(SESSION) ? SESSION : undefined })
 
@@ -87,7 +89,7 @@ test.describe('CRM', () => {
     if (isMobile) {
       const box = (await row.boundingBox())!
       await row.dispatchEvent('pointerdown', { pointerType: 'touch', clientX: box.x + 20, clientY: box.y + 10, bubbles: true })
-      await page.waitForTimeout(650)
+      await page.waitForTimeout(LONG_PRESS_MS + 150) // holding is the gesture itself
       await row.dispatchEvent('pointerup', { pointerType: 'touch', bubbles: true })
     } else {
       await row.click({ button: 'right' })

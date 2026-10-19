@@ -9,7 +9,8 @@ const post = (name: string, body: unknown, headers: Record<string, string> = ano
   fetch(url(name), { method: 'POST', headers, body: typeof body === 'string' ? body : JSON.stringify(body) })
 const json = async (res: Response) => res.json().catch(() => ({}))
 
-const ADMIN_ONLY = ['send-booking-confirmation', 'send-contract-statement', 'send-promo-campaign', 'backup-to-sheets']
+// contract-closeout: the nightly job's key or an admin (who only gets a dry run).
+const ADMIN_ONLY = ['send-booking-confirmation', 'send-contract-statement', 'send-promo-campaign', 'backup-to-sheets', 'contract-closeout']
 const SIGNED_IN_FORMS = ['submit-property-inquiry', 'submit-interior-inquiry', 'inquiry-upload-url']
 const ALL = [...ADMIN_ONLY, ...SIGNED_IN_FORMS, 'submit-contact-message', 'unsubscribe']
 

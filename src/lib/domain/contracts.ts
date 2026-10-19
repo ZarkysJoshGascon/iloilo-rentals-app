@@ -15,8 +15,8 @@
 export const EXPIRING_SOON_DAYS = 60
 
 export const CONTRACT_STATUS_TEXT = {
-  active:     { label: 'Active',      className: 'text-emerald-600 dark:text-emerald-400' },
-  expiring:   { label: 'Expiring',    className: 'text-amber-600 dark:text-amber-400' },
+  active:     { label: 'Active',      className: 'text-emerald-700 dark:text-emerald-400' },
+  expiring:   { label: 'Expiring',    className: 'text-amber-700 dark:text-amber-400' },
   expired:    { label: 'For renewal', className: 'text-red-600 dark:text-red-400' },
   renewed:    { label: 'Renewed',     className: 'text-foreground' },
   incomplete: { label: 'Incomplete',  className: 'text-foreground' },

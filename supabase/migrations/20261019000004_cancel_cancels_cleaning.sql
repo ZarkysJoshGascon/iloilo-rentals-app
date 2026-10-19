@@ -4,7 +4,7 @@
 -- trg_booking_cancels_cleaning only ran when a booking was deleted. A
 -- booking marked cancelled (cancelled_at) kept its cleaning scheduled, so a
 -- housekeeper could be sent to clean after a stay that never happened.
--- Found by supabase/tests/business_rules.sql. Completed cleanings are left
+-- Found by tests/database/business_rules.sql. Completed cleanings are left
 -- alone, as before. Safe to run more than once.
 -- ============================================================
 

@@ -16,6 +16,17 @@ in a desktop window and a phone-sized one, against the dev server
   `npx playwright install firefox webkit`.
 - `accessibility.spec.ts`: every public page scanned for serious WCAG 2.1
   problems (contrast, labels, names for buttons and links).
+- `owner-portal.spec.ts`: the owner portal as an owner sees it: the share
+  for the year and each unit, a unit's months and how each was worked out,
+  receipts, upcoming stays, the Excel download, the archived notice, loading
+  errors, and accessibility. Runs in an American time zone, so dates must
+  come out as Manila dates for owners abroad.
+- `housekeeper.spec.ts`: the housekeeping page: the task list, adding photos
+  from the gallery (turned into JPEGs before upload), submitting a cleaning,
+  refusing a file that isn't a photo, approved cleanings locked, accessibility.
+- `photos.spec.ts`: photo preparation in each browser engine: large phone
+  photos shrunk, sideways iPhone photos upright, see-through PNGs on white,
+  a clear message for HEIC files the browser can't open.
 - `smoke.spec.ts`: the quick check to run after every deploy: every page opens
   directly with a title, no broken files, the database answers, robots.txt and
   the sitemap. On the live site it also checks the www redirect, security
@@ -31,6 +42,24 @@ in a desktop window and a phone-sized one, against the dev server
       E2E_BASE_URL=http://localhost:4173 npx playwright test performance --project=phone
 
 - `crm.spec.ts`: the CRM, read-only. Needs a saved sign-in (below).
+
+## Signed-in pages without touching the live data
+
+The owner portal and housekeeping tests sign in as made-up people and answer
+every request to Supabase from `support/` instead of the real backend:
+
+- `support/fakeSupabase.ts`: `signInAs(page, user)` puts a session in the
+  browser; `fakeBackend(page, user, handlers)` answers database calls,
+  storage and Edge Functions, and records every request, so a test can check
+  exactly what the page sent (a cleaning really is submitted, to nowhere).
+- `support/ownerFixture.ts`, `support/housekeeperFixture.ts`: the made-up
+  owner and housekeeper. The owner's figures add up by hand (see the comments
+  there), so a test that expects ₱67,802 is checking the page's maths.
+- `support/a11y.ts`: the accessibility check every spec uses.
+
+The clock is fixed in these tests (`page.clock.setFixedTime`), so "this
+month" and "upcoming" never drift. Every browser runs in Manila time
+(`playwright.config.ts`) unless a test says otherwise, here and on GitHub.
 
 ## Signing in for the CRM tests
 

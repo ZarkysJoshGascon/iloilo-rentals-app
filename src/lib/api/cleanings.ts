@@ -302,9 +302,10 @@ export async function submitCleaning({
   newAmenitiesReplacedPhoto = null,
   newLaundryUsedPhoto = null,
   newLaundryReplacedPhoto = null,
-  keepPhotosBefore,
-  keepPhotosAfter,
-  keepPhotosReport,
+  // Left out: every photo already saved is kept.
+  keepPhotosBefore = undefined,
+  keepPhotosAfter = undefined,
+  keepPhotosReport = undefined,
   amenitiesUsedItems = [],
   amenitiesReplacedItems = [],
   laundryUsedItems = [],

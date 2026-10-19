@@ -1,26 +1,26 @@
 // src/owner/OwnerMonthSection.tsx
-// One month of a contract in the owner portal, laid out like the Accounting
-// page's month view and built from its parts: the month's figures with trend
-// lines, occupancy and weekly charts, the calendar of stays and cleanings,
-// every booking and cleaning of the term (tap one to find it), how the month
-// was worked out, and the month's expenses with photos of the receipts.
+// One month of a contract in the owner portal, built from the Accounting
+// page's parts, money first: the owner's share with the figures behind it,
+// how the month was worked out next to its expenses (with photos of the
+// receipts), then the calendar of stays and cleanings beside every booking
+// and cleaning of the term (tap one to find it), then the weekly charts.
 import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { createPortal } from 'react-dom'
 import {
-  CalendarRange, ChevronDown, ChevronUp, Droplets, ExternalLink, Home, Landmark, Loader2, Lock, Megaphone,
+  CalendarRange, ChevronDown, ChevronUp, Droplets, ExternalLink, Landmark, Loader2, Megaphone,
   Receipt, Sparkles, Wallet, Wifi, X, Zap,
 } from 'lucide-react'
 import { supabase } from '@/lib/supabase'
 import { cn } from '@/lib/utils'
 import {
-  BookingCalendar, WeeklyOccupancyChart, WeeklyCumulativeChart, HalfGauge, SummaryStat,
-  MoneyStrip, buildTrend, nightsInMonthFromBookings, SectionBar, ExpenseRow, SubtotalRow, ExpenseBreakdown,
+  BookingCalendar, WeeklyOccupancyChart, WeeklyCumulativeChart,
+  nightsInMonthFromBookings, SectionBar, ExpenseRow, SubtotalRow, ExpenseBreakdown,
 } from '@/admin/accounting/AccountingPage'
 import { Panel, PanelHeader } from '@/components/crm/Panel'
 import { StatusTabs, PeriodStepper } from '@/components/crm/StatusTabs'
 import {
-  OWNER_PCT, COMPANY_PCT, MONTHS_SHORT, formatMoney, monthLabel, moneyTone,
-  BookingRow, CleaningRow, EmptyLine,
+  OWNER_PCT, COMPANY_PCT, MONTHS_SHORT, formatMoney, formatPeso, monthLabel, moneyTone,
+  BookingRow, CleaningRow, EmptyLine, ShareHero, changeNote,
 } from './ownerUi'
 
 const RECEIPTS_BUCKET = 'expense-proofs'
@@ -110,28 +110,31 @@ function ReceiptThumb({ path }: ReceiptThumbProps) {
 
 type ComputationCardProps = {
   month: any
+  // What each auto-computed line came from: "7 bookings", "6 cleanings"...
+  counts: { bookings: number; viaAffiliates: number; cleanings: number }
 }
 
 // ── How the month was worked out ────────────────────────────
-function ComputationCard({ month }: ComputationCardProps) {
+function ComputationCard({ month, counts }: ComputationCardProps) {
   const companyFull = month.companyKeeps + month.pmShare
   const pmPct = companyFull !== 0 && month.pmShare ? Math.round((month.pmShare / companyFull) * 100) : null
-  const expenseLines = [
-    ['Booking commission', month.bookingComm],
-    ['Affiliate commission', month.affiliateComm],
-    ['Housekeeping', month.housekeeping],
-    ['Laundry', month.laundry],
+  const plural = (n, word) => `${n} ${word}${n === 1 ? '' : 's'}`
+  const expenseLines = ([
+    ['Booking commission', month.bookingComm, plural(counts.bookings, 'booking')],
+    ['Affiliate commission', month.affiliateComm, `${plural(counts.viaAffiliates, 'booking')} via affiliates`],
+    ['Housekeeping', month.housekeeping, plural(counts.cleanings, 'cleaning')],
+    ['Laundry', month.laundry, plural(counts.cleanings, 'cleaning')],
     ['Electricity', month.electricity],
     ['Internet', month.internet],
     ['Water', month.water],
     ['Marketing', month.marketing],
     ['Other expenses', month.other],
-  ].filter(([, v]) => Number(v) !== 0)
+  ] as [string, number, string?][]).filter(([, v]) => Number(v) !== 0)
   // Expenses read as deductions ("−₱500.00").
   const row = (label: ReactNode, value: number, opts: { border?: boolean; indent?: boolean; bold?: boolean; tone?: string; minus?: boolean } = {}) => (
     <div className={cn('flex items-baseline justify-between gap-3 px-4 sm:px-5 py-2', opts.border && 'border-t border-border', opts.indent && 'pl-7 sm:pl-8')}>
-      <span className={cn('text-[12.5px] text-foreground', opts.bold && 'font-semibold')}>{label}</span>
-      <span className={cn('text-[13px] tabular-nums', opts.bold ? 'font-semibold' : 'font-medium', opts.tone || 'text-foreground')}>
+      <span className={cn('min-w-0 text-[12.5px] text-foreground', opts.bold && 'font-semibold')}>{label}</span>
+      <span className={cn('text-[13px] tabular-nums whitespace-nowrap flex-shrink-0', opts.bold ? 'font-semibold' : 'font-medium', opts.tone || 'text-foreground')}>
         {opts.minus ? `−${formatMoney(Math.abs(value))}` : formatMoney(value)}
       </span>
     </div>
@@ -142,7 +145,9 @@ function ComputationCard({ month }: ComputationCardProps) {
       <div className="py-1">
         {row('Gross income', month.gross, { bold: true })}
         {expenseLines.length === 0 && <p className="pl-7 sm:pl-8 pr-4 py-2 text-[12px] text-foreground">No expenses this month</p>}
-        {expenseLines.map(([label, value]) => <div key={label}>{row(label, value, { indent: true, minus: true })}</div>)}
+        {expenseLines.map(([label, value, hint]) => (
+          <div key={label}>{row(<>{label}{hint && <span className="text-[11.5px]"> · {hint}</span>}</>, value, { indent: true, minus: true })}</div>
+        ))}
         {row('Total expenses', month.totalExpenses, { bold: true, border: true })}
         {row('Net income', month.net, { bold: true, tone: moneyTone(month.net) })}
         {row(`Your share (${OWNER_PCT}% of net)`, month.ownerShare, { bold: true, border: true, tone: moneyTone(month.ownerShare) })}
@@ -161,19 +166,14 @@ function ComputationCard({ month }: ComputationCardProps) {
 type ExpensesCardProps = {
   month: any
   expense: any
-  bookings: any
-  cleanings: any
 }
 
-// ── Expenses (Accounting's layout, read-only, with receipts) ─
-function ExpensesCard({ month, expense, bookings, cleanings }: ExpensesCardProps) {
-  const live = bookings.filter((b) => !b.cancelled_at)
-  const withAffiliate = live.filter((b) => Number(b.affiliate_commission) > 0).length
-  const cleaningsCount = cleanings.filter((c) => c.status !== 'cancelled').length
-  const autoComputed = month.bookingComm + month.affiliateComm + month.housekeeping + month.laundry
+// ── Expenses: where the money went, and the bills with their receipts ─
+// Commissions, housekeeping and laundry are itemised in "How this month was
+// worked out" beside this card.
+function ExpensesCard({ month, expense }: ExpensesCardProps) {
   const manualTotal = month.electricity + month.internet + month.water + month.marketing + month.other
   const total = month.totalExpenses
-  const plural = (n, one, many) => `${n} ${n === 1 ? one : many}`
 
   const bills = [
     { key: 'electricity', label: 'Electricity', icon: Zap },
@@ -195,33 +195,18 @@ function ExpensesCard({ month, expense, bookings, cleanings }: ExpensesCardProps
     <Panel>
       <PanelHeader icon={Wallet} title="Expenses" subtitle={`${monthLabel(month.month)} · tap a receipt to see it`} />
 
-      <div className="px-4 sm:px-5 py-4 border-b border-border space-y-4">
-        <div className="grid grid-cols-2 lg:grid-cols-4 gap-x-6 gap-y-4">
-          <SummaryStat label="Total expenses" value={formatMoney(total)}>
-            {month.gross > 0 ? `${Math.round((total / month.gross) * 100)}% of gross income` : 'No income this month'}
-          </SummaryStat>
-          <SummaryStat label="Auto-computed" value={formatMoney(autoComputed)}>Commissions, cleaning, laundry</SummaryStat>
-          <SummaryStat label="Bills and other" value={formatMoney(manualTotal)}>Entered with receipts</SummaryStat>
-          <div className="min-w-0">
-            <p className="text-[12px] font-medium text-foreground">Net income</p>
-            <p className={cn('text-[24px] font-semibold tracking-tight leading-none tabular-nums mt-1.5', moneyTone(month.net))}>{formatMoney(month.net)}</p>
-            <p className="text-[11px] text-foreground mt-1.5">
-              {month.gross > 0 ? <><span className={cn('font-semibold', moneyTone(month.net))}>{Math.round((month.net / month.gross) * 100)}%</span> margin</> : 'Gross minus expenses'}
-            </p>
-          </div>
+      <div className="px-4 sm:px-5 py-4 border-b border-border space-y-3">
+        <div className="flex items-baseline justify-between gap-3">
+          <span className="text-[12.5px] font-semibold text-foreground">Total expenses</span>
+          <span className="text-right">
+            <span className="block text-[18px] font-semibold tabular-nums text-foreground">{formatMoney(total)}</span>
+            <span className="block text-[11px] text-foreground">{month.gross > 0 ? `${Math.round((total / month.gross) * 100)}% of gross income` : 'No income this month'}</span>
+          </span>
         </div>
         <ExpenseBreakdown parts={breakdown} total={total} />
       </div>
 
-      <div className="grid grid-cols-1 lg:grid-cols-2 divide-y lg:divide-y-0 lg:divide-x divide-border">
-        <div className="min-w-0">
-          <SectionBar icon={Lock} title="Auto-computed" />
-          <ExpenseRow icon={Wallet} label="Booking commission" hint={plural(live.length, 'booking', 'bookings')} amount={month.bookingComm} />
-          <ExpenseRow icon={Wallet} label="Affiliate commission" hint={withAffiliate ? `${plural(withAffiliate, 'booking', 'bookings')} via affiliates` : 'No affiliate bookings'} amount={month.affiliateComm} />
-          <ExpenseRow icon={Sparkles} label="Housekeeping" hint={plural(cleaningsCount, 'cleaning', 'cleanings')} amount={month.housekeeping} />
-          <ExpenseRow icon={Sparkles} label="Laundry" hint={plural(cleaningsCount, 'cleaning', 'cleanings')} amount={month.laundry} />
-          <SubtotalRow label="Auto-computed" value={autoComputed} />
-        </div>
+      <div>
         <div className="min-w-0">
           <SectionBar icon={Zap} title="Bills" />
           {bills.map((b) => (
@@ -242,12 +227,34 @@ function ExpensesCard({ month, expense, bookings, cleanings }: ExpensesCardProps
           <SubtotalRow label="Bills and other" value={manualTotal} />
         </div>
       </div>
-
-      <div className="flex items-center justify-between gap-3 px-5 py-3 border-t border-border">
-        <span className="text-[12px] font-semibold text-foreground">Total expenses</span>
-        <span className="text-[15px] font-bold tabular-nums text-foreground">{formatMoney(total)}</span>
-      </div>
     </Panel>
+  )
+}
+
+type FindableRowProps = {
+  label: string
+  selected: boolean
+  hidden: boolean
+  onFind: () => void
+  children: ReactNode
+}
+
+// A booking or cleaning in the list: tapping it finds it on the calendar.
+// The tap target is one button laid underneath the row (the row's code has
+// its own copy button, and buttons can't be nested); clicks pass through the
+// row to it, and the copy button sits on top.
+function FindableRow({ label, selected, hidden, onFind, children }: FindableRowProps) {
+  return (
+    <div className={cn('relative transition-colors', selected ? 'bg-brand-solid/10' : 'hover:bg-muted/40', hidden && 'max-lg:hidden')}>
+      <button
+        type="button"
+        onClick={onFind}
+        aria-pressed={selected}
+        aria-label={label}
+        className="absolute inset-0 focus:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-brand/40"
+      />
+      <div className="relative pointer-events-none [&_button]:pointer-events-auto">{children}</div>
+    </div>
   )
 }
 
@@ -295,18 +302,9 @@ export default function OwnerMonthSection({ contract, months, selectedMonth, onS
   const liveCount = monthBookings.length - cancelled
   const cleaningCount = monthCleanings.length
   const listCount = listTab === 'bookings' ? allBookings.length : allCleanings.length
-  // The PM tile only matters on a unit that has had a property manager.
-  const hadPm = months.some((r) => r.pmShare !== 0 || r.pmName)
-
-  // Trend lines over the six months up to this one; growth against the month before.
-  const pick = (r) => ({ gross: r.gross, expenses: r.totalExpenses, net: r.net, owner: r.ownerShare })
+  const occPct = occ.daysInMonth ? Math.round((occ.nights / occ.daysInMonth) * 100) : 0
   const prev = idx > 0 ? months[idx - 1] : null
-  const trend = buildTrend(
-    months.slice(Math.max(0, idx - 5), idx + 1).map(pick),
-    pick(month),
-    prev ? pick(prev) : null,
-    prev ? MONTHS_SHORT[Number(prev.month.slice(5, 7)) - 1] : '',
-  )
+  const change = prev ? changeNote(month.ownerShare, prev.ownerShare, MONTHS_SHORT[Number(prev.month.slice(5, 7)) - 1]) : null
 
   const changeMonth = (key) => { setSelected(null); onSelectMonth(key) }
   const jumpTo = (type, item) => {
@@ -342,39 +340,32 @@ export default function OwnerMonthSection({ contract, months, selectedMonth, onS
       </div>
       <p className="text-[12.5px] text-foreground -mt-1">
         {liveCount} booking{liveCount === 1 ? '' : 's'} · {cleaningCount} cleaning{cleaningCount === 1 ? '' : 's'}
-        {' · '}{occ.daysInMonth ? Math.round((occ.nights / occ.daysInMonth) * 100) : 0}% occupied
+        {' · '}{occPct}% occupied
         {cancelled > 0 && <> · <span className="font-semibold text-red-600 dark:text-red-400">{cancelled} cancelled</span></>}
       </p>
 
-      <MoneyStrip
-        ownerLabel="Your share"
-        showPm={hadPm}
-        totals={{
-          gross: month.gross,
-          expenses: month.totalExpenses,
-          net: month.net,
-          owner: month.ownerShare,
-          company: month.companyKeeps + month.pmShare,
-          pm: month.pmShare,
-        }}
-        grossSub={`${liveCount} booking${liveCount === 1 ? '' : 's'} this month`}
-        pmSub={month.pmName ? `${month.pmName} was active` : 'No PM this month'}
-        trend={trend}
+      <ShareHero
+        label={<>Your share · {monthLabel(selectedMonth, true)}</>}
+        value={month.ownerShare}
+        note={<>{change && <>{change} · </>}{OWNER_PCT}% of the month's net income</>}
+        stats={[
+          { label: 'Gross income', value: formatPeso(month.gross), sub: `${liveCount} booking${liveCount === 1 ? '' : 's'}` },
+          { label: 'Expenses', value: formatPeso(month.totalExpenses), sub: month.gross > 0 ? `${Math.round((month.totalExpenses / month.gross) * 100)}% of gross income` : 'Commissions, cleaning, bills' },
+          { label: 'Net income', value: formatPeso(month.net), tone: moneyTone(month.net), sub: 'Gross minus expenses' },
+          { label: 'Occupancy', value: `${occPct}%`, sub: `${occ.nights} of ${occ.daysInMonth} nights` },
+        ]}
       />
 
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
-        <Panel>
-          <PanelHeader icon={Home} title="Month occupancy" subtitle={`${monthLabel(selectedMonth)} · nights booked`} />
-          <div className="flex-1 p-5 flex flex-col items-center justify-center gap-5">
-            <HalfGauge pct={occ.daysInMonth ? occ.nights / occ.daysInMonth : 0} sublabel={`${occ.nights} of ${occ.daysInMonth} nights`} />
-            <div className="w-full grid grid-cols-2 gap-4 pt-4 border-t border-border">
-              <SummaryStat label="Bookings" value={liveCount}>{formatMoney(month.gross)} gross</SummaryStat>
-              <SummaryStat label="Cleanings" value={cleaningCount}>{formatMoney(month.housekeeping + month.laundry)} paid</SummaryStat>
-            </div>
-          </div>
-        </Panel>
-        <WeeklyOccupancyChart statement={statement} contract={contractDates} />
-        <WeeklyCumulativeChart statement={statement} monthlyExpenses={expenses} contract={contractDates} />
+      <div className="grid grid-cols-1 xl:grid-cols-[minmax(0,1fr)_minmax(0,1.6fr)] gap-4 items-start">
+        <ComputationCard
+          month={month}
+          counts={{
+            bookings: liveCount,
+            viaAffiliates: monthBookings.filter((b) => !b.cancelled_at && Number(b.affiliate_commission) > 0).length,
+            cleanings: monthCleanings.filter((c) => c.status !== 'cancelled').length,
+          }}
+        />
+        <ExpensesCard month={month} expense={expense} />
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-[minmax(0,2fr)_minmax(0,1fr)] gap-4">
@@ -409,34 +400,26 @@ export default function OwnerMonthSection({ contract, months, selectedMonth, onS
             <div className="lg:absolute lg:inset-0 lg:overflow-y-auto lg:overscroll-contain">
               {listTab === 'bookings'
                 ? (allBookings.length === 0 ? <EmptyLine>No bookings yet.</EmptyLine> : allBookings.map((b, i) => (
-                    <button
+                    <FindableRow
                       key={b.id}
-                      type="button"
-                      onClick={() => jumpTo('booking', b)}
-                      aria-pressed={selected?.type === 'booking' && selected.id === b.id}
-                      className={cn(
-                        'block w-full text-left transition-colors',
-                        selected?.type === 'booking' && selected.id === b.id ? 'bg-brand-solid/10' : 'hover:bg-muted/40',
-                        !showAll && i >= PHONE_LIST && 'max-lg:hidden',
-                      )}
+                      label={`Find ${b.booking_code} on the calendar`}
+                      selected={selected?.type === 'booking' && selected.id === b.id}
+                      hidden={!showAll && i >= PHONE_LIST}
+                      onFind={() => jumpTo('booking', b)}
                     >
                       <BookingRow booking={b} />
-                    </button>
+                    </FindableRow>
                   )))
                 : (allCleanings.length === 0 ? <EmptyLine>No cleanings yet.</EmptyLine> : allCleanings.map((c, i) => (
-                    <button
+                    <FindableRow
                       key={c.id}
-                      type="button"
-                      onClick={() => jumpTo('cleaning', c)}
-                      aria-pressed={selected?.type === 'cleaning' && selected.id === c.id}
-                      className={cn(
-                        'block w-full text-left transition-colors',
-                        selected?.type === 'cleaning' && selected.id === c.id ? 'bg-brand-solid/10' : 'hover:bg-muted/40',
-                        !showAll && i >= PHONE_LIST && 'max-lg:hidden',
-                      )}
+                      label={`Find ${c.cleaning_code} on the calendar`}
+                      selected={selected?.type === 'cleaning' && selected.id === c.id}
+                      hidden={!showAll && i >= PHONE_LIST}
+                      onFind={() => jumpTo('cleaning', c)}
                     >
                       <CleaningRow cleaning={c} />
-                    </button>
+                    </FindableRow>
                   )))}
               {listCount > PHONE_LIST && (
                 <button
@@ -467,9 +450,10 @@ export default function OwnerMonthSection({ contract, months, selectedMonth, onS
         </Panel>
       )}
 
-      <div className="grid grid-cols-1 xl:grid-cols-[minmax(0,1fr)_minmax(0,1.6fr)] gap-4 items-start">
-        <ComputationCard month={month} />
-        <ExpensesCard month={month} expense={expense} bookings={monthBookings} cleanings={monthCleanings} />
+      {/* The month week by week. */}
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+        <WeeklyOccupancyChart statement={statement} contract={contractDates} />
+        <WeeklyCumulativeChart statement={statement} monthlyExpenses={expenses} contract={contractDates} />
       </div>
     </div>
   )

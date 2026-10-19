@@ -1224,30 +1224,40 @@ type TaskRowProps = {
   onClick: () => void
 }
 
+// The row opens the cleaning through one button laid underneath it (its codes
+// have copy buttons, and buttons can't be nested): taps pass through the
+// content to it, while the copy buttons stay on top.
+const ABOVE_ROW_BUTTON = 'relative pointer-events-none [&_button]:pointer-events-auto'
+
 function TaskRow({ cleaning, selected, onClick }: TaskRowProps) {
   const unit = cleaning.units
   const booking = cleaning.bookings
   const photos = photoCount(cleaning)
   const rel = relativeDay(cleaning.scheduled_date)
   return (
-    <motion.button
-      type="button"
-      onClick={onClick}
+    <motion.div
       data-row
       initial={false}
       animate={{ backgroundColor: selected ? 'rgba(34, 81, 147, 0.10)' : 'rgba(34, 81, 147, 0)' }}
       transition={{ duration: 0.22 }}
       whileHover={{ backgroundColor: selected ? 'rgba(34, 81, 147, 0.14)' : 'rgba(34, 81, 147, 0.05)' }}
-      className={cn('row-line w-full text-left px-4 py-3 cursor-pointer select-none', ROW_GRID)}
+      className={cn('row-line relative w-full text-left px-4 py-3 cursor-pointer select-none', ROW_GRID)}
     >
-      <div className="min-w-0">
+      <button
+        type="button"
+        onClick={onClick}
+        aria-pressed={selected}
+        aria-label={`Open ${cleaning.cleaning_code}`}
+        className="absolute inset-0 cursor-pointer focus:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-brand/40"
+      />
+      <div className={cn('min-w-0', ABOVE_ROW_BUTTON)}>
         <Code value={cleaning.cleaning_code} label="Cleaning code" className="text-[12.5px]" block />
         <span className="text-[11.5px] text-foreground flex items-center gap-1 min-w-0">
           <Code value={unit?.unit_code} label="Unit code" className="text-[11.5px]" />
           {unit?.building && <span className="truncate">· {unit.building}</span>}
         </span>
       </div>
-      <div className="min-w-0 max-md:col-span-2">
+      <div className={cn('min-w-0 max-md:col-span-2', ABOVE_ROW_BUTTON)}>
         {booking ? (
           <>
             <Code value={booking.booking_code} label="Booking code" className="text-[12px]" block />
@@ -1259,17 +1269,17 @@ function TaskRow({ cleaning, selected, onClick }: TaskRowProps) {
           <span className="text-[11.5px] italic text-foreground">Standalone</span>
         )}
       </div>
-      <div className="min-w-0"><TypeText type={cleaning.type} /></div>
-      <div className="min-w-0 tabular-nums">
+      <div className={cn('min-w-0', ABOVE_ROW_BUTTON)}><TypeText type={cleaning.type} /></div>
+      <div className={cn('min-w-0 tabular-nums', ABOVE_ROW_BUTTON)}>
         <span className="text-[12.5px] font-medium text-foreground truncate block">{formatDate(cleaning.scheduled_date)}</span>
         <span className="text-[11.5px] text-foreground truncate block">
           {[rel, photos > 0 ? `${photos} photo${photos === 1 ? '' : 's'}` : ''].filter(Boolean).join(' · ')}
         </span>
       </div>
-      <div className="flex items-center justify-end min-w-0">
+      <div className={cn('flex items-center justify-end min-w-0', ABOVE_ROW_BUTTON)}>
         <StatusText cleaning={cleaning} />
       </div>
-    </motion.button>
+    </motion.div>
   )
 }
 

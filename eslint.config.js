@@ -6,8 +6,9 @@ import tseslint from 'typescript-eslint'
 import { defineConfig, globalIgnores } from 'eslint/config'
 
 export default defineConfig([
-  // supabase/functions run on Deno and are checked there, not here.
-  globalIgnores(['dist', 'supabase']),
+  // supabase/functions run on Deno and are checked there, not here. The rest
+  // is build and test output.
+  globalIgnores(['dist', 'supabase', 'coverage', 'playwright-report', 'test-results']),
   {
     files: ['**/*.{js,jsx,ts,tsx}'],
     extends: [

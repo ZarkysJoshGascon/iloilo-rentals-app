@@ -17,6 +17,8 @@ function normalizeContract(c) {
     superseded_by: c.superseded_by,
     // Every end date before an extension, oldest first (only in the contract detail).
     previous_expiry_dates: Array.isArray(c.previous_expiry_dates) ? c.previous_expiry_dates : [],
+    // When the nightly close-out cleared the term's bookings and cleanings.
+    records_cleared_at: c.records_cleared_at || null,
     units: {
       unit_code: c.unit_code,
       building: c.building,

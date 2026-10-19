@@ -6,28 +6,26 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Link, useNavigate, useSearchParams } from 'react-router'
 import {
-  ArrowLeft, Building2, CalendarClock, Globe, Home, Landmark, Loader2, LogOut, Moon, RefreshCw,
-  Sun, TrendingUp, UserRound, Wallet, AlertTriangle, ChevronRight,
+  ArrowLeft, CalendarClock, Globe, Home, Loader2, LogOut, Moon, RefreshCw,
+  Sun, AlertTriangle, ChevronRight,
 } from 'lucide-react'
 import { useAuth } from '@/context/AuthContext'
 import { useUserRole } from '@/hooks/useUserRole'
 import { useTheme } from '@/context/ThemeContext'
 import { cn } from '@/lib/utils'
 import { fetchOwnerOverview } from '@/lib/api/ownerPortal'
-import { StatStrip, StatTile } from '@/components/crm/StatStrip'
-import { Panel, PanelHeader, InitialsAvatar } from '@/components/crm/Panel'
+import { InitialsAvatar } from '@/components/crm/Panel'
 import { PeriodStepper } from '@/components/crm/StatusTabs'
 import { Sparkline } from '@/components/crm/Sparkline'
 import OwnerContractView, { currentByUnit } from './OwnerContractView'
 import {
-  OWNER_PCT, MONTHS_SHORT, todayISO, formatPeso, formatDate, moneyTone, ContractStatus,
+  OWNER_PCT, MONTHS_SHORT, todayISO, formatPeso, formatDate, moneyTone, ContractStatus, ShareHero,
 } from './ownerUi'
 import type { ReactNode } from 'react'
 import { Code } from '@/components/common/Code'
 import { WelcomeModal } from '@/components/common/WelcomeModal'
 
 const PAGE = 'px-4 py-5 sm:px-6 md:px-8 md:py-6 max-w-[1500px] mx-auto space-y-4 pb-12'
-const MONEY_TILE = 'text-[21px] sm:text-[24px]'
 
 function greeting() {
   const h = Number(new Date().toLocaleString('en-US', { hour: 'numeric', hour12: false, timeZone: 'Asia/Manila' }))
@@ -69,12 +67,15 @@ function AccountMenu({ name, email, avatar, onSignOut }: AccountMenuProps) {
         onClick={() => setOpen((v) => !v)}
         aria-haspopup="menu"
         aria-expanded={open}
-        aria-label="Account menu"
         title={email}
         className="flex items-center gap-2 rounded-full focus:outline-none focus-visible:ring-2 focus-visible:ring-brand/30"
       >
-        <span className="hidden md:inline text-[12px] font-medium text-foreground max-w-[180px] truncate">{name}</span>
-        <InitialsAvatar name={name} photoUrl={avatar} size="sm" />
+        {/* Named by its own text ("Maria Santos, account menu"), so what's
+            read out matches what's shown: the name is visible on wider
+            screens and read out on phones; the initials are decoration. */}
+        <span className="sr-only md:not-sr-only md:inline text-[12px] font-medium text-foreground md:max-w-[180px] md:truncate">{name}</span>
+        <span className="sr-only">, account menu</span>
+        <span aria-hidden="true"><InitialsAvatar name={name} photoUrl={avatar} size="sm" /></span>
       </button>
       {open && (
         <div role="menu" className="absolute right-0 top-full mt-2 w-64 rounded-md border border-border bg-popover shadow-lg p-1.5 z-40">
@@ -134,9 +135,10 @@ function TopBar({ user, ownerName, onSignOut, onBack, unitCode }: TopBarProps) {
         <Link
           to="/"
           title="Go to the Iloilo Rentals website"
-          className="inline-flex items-center gap-1.5 h-9 sm:h-8 px-2.5 sm:px-3 rounded-md border border-border text-[12px] font-medium text-foreground hover:bg-muted/50"
+          aria-label="Iloilo Rentals website"
+          className="inline-flex items-center justify-center gap-1.5 h-9 sm:h-8 w-9 sm:w-auto sm:px-3 rounded-md border border-border text-[12px] font-medium text-foreground hover:bg-muted/50"
         >
-          <Globe size={14} /> Website
+          <Globe size={14} /> <span className="hidden sm:inline">Website</span>
         </Link>
         {/* On phones these two live in the account menu. */}
         <button type="button" onClick={toggleTheme} className={cn(iconButton, 'hidden sm:inline-flex')} aria-label="Toggle theme" title={isDark ? 'Light mode' : 'Dark mode'}>
@@ -161,14 +163,24 @@ type UnitCardProps = {
 }
 
 // ── Overview ────────────────────────────────────────────────
+// The whole card opens the unit through one button laid underneath its
+// content (a button can't hold the unit code's copy button: buttons can't
+// be nested). Clicks pass through the content to it; the copy button sits on top.
 function UnitCard({ contract, termCount, yearShare, monthlyShare, year, onOpen }: UnitCardProps) {
   const occupancy = contract.daysElapsed > 0 ? Math.min(1, contract.nightsBooked / contract.daysElapsed) : 0
+  const code = contract.units.unit_code
   return (
-    <button
-      type="button"
-      onClick={() => onOpen(contract.id)}
-      className="group w-full text-left rounded-md border border-border bg-card shadow-sm hover:border-brand/40 hover:shadow-md transition-all overflow-hidden flex flex-col"
+    <article
+      aria-label={`Unit ${code}`}
+      className="group relative w-full text-left rounded-md border border-border bg-card shadow-sm hover:border-brand/40 hover:shadow-md transition-all overflow-hidden flex flex-col"
     >
+      <button
+        type="button"
+        onClick={() => onOpen(contract.id)}
+        aria-label={`Open unit ${code}`}
+        className="absolute inset-0 rounded-md focus:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-brand/40"
+      />
+      <div className="relative pointer-events-none [&_button]:pointer-events-auto flex flex-col flex-1">
       <div className="px-4 sm:px-5 py-4 border-b border-border flex items-start gap-3">
         <Home size={20} strokeWidth={1.75} className="text-foreground flex-shrink-0 mt-1" />
         <div className="min-w-0 flex-1">
@@ -208,7 +220,8 @@ function UnitCard({ contract, termCount, yearShare, monthlyShare, year, onOpen }
           ? <span>Next check-in <span className="font-semibold">{formatDate(contract.nextCheckIn)}</span>{contract.upcomingBookings > 1 ? ` · ${contract.upcomingBookings} upcoming` : ''}</span>
           : <span>No upcoming bookings</span>}
       </div>
-    </button>
+      </div>
+    </article>
   )
 }
 
@@ -262,44 +275,55 @@ function OwnerOverview({ overview, firstName, onOpen }: OwnerOverviewProps) {
     next && `next check-in ${formatDate(next.nextCheckIn, false)} at ${next.units.unit_code}`,
   ].filter(Boolean).join(' · ')
   const period = year === thisYear ? `Jan–${MONTHS_SHORT[new Date().getMonth()]} ${year}` : String(year)
+  // This month and last, for the current year.
+  const thisMonth = year === thisYear ? yearMonths[yearMonths.length - 1] : null
+  const lastMonth = year === thisYear && yearMonths.length > 1 ? yearMonths[yearMonths.length - 2] : null
 
   return (
     <div className={PAGE}>
-      <div className="flex flex-wrap items-end justify-between gap-3">
-        <div className="min-w-0">
-          <h1 className="text-[20px] sm:text-[22px] font-semibold text-foreground tracking-tight leading-tight">
+      <div>
+        <div className="flex items-center justify-between gap-3">
+          <h1 className="min-w-0 text-[20px] sm:text-[22px] font-semibold text-foreground tracking-tight leading-tight">
             {greeting()}{firstName ? `, ${firstName}` : ''}
           </h1>
-          <p className="text-[12.5px] text-foreground mt-1">{summary}</p>
-        </div>
-        <PeriodStepper
+          <PeriodStepper
           label={year}
           canPrev={yearIdx > 0}
           canNext={yearIdx >= 0 && yearIdx < years.length - 1}
           onPrev={() => yearIdx > 0 && setYear(years[yearIdx - 1])}
           onNext={() => yearIdx < years.length - 1 && setYear(years[yearIdx + 1])}
-          prevLabel="Previous year"
-          nextLabel="Next year"
-        />
+            prevLabel="Previous year"
+            nextLabel="Next year"
+          />
+        </div>
+        <p className="text-[12.5px] text-foreground mt-1">{summary}</p>
       </div>
 
-      <StatStrip cols={4}>
-        <StatTile icon={TrendingUp} label="Gross income" value={formatPeso(totals.gross)} valueClassName={MONEY_TILE}
-          trend={<Sparkline values={yearMonths.map((m) => m.gross)} label="Gross by month" />} sub={`All units · ${period}`} />
-        <StatTile icon={Wallet} label="Expenses" value={formatPeso(totals.expenses)} valueClassName={MONEY_TILE}
-          trend={<Sparkline values={yearMonths.map((m) => m.expenses)} label="Expenses by month" />} sub="Commissions, cleaning, bills" />
-        <StatTile icon={Landmark} label="Net income" value={formatPeso(totals.net)} valueClassName={cn(MONEY_TILE, moneyTone(totals.net))}
-          trend={<Sparkline values={yearMonths.map((m) => m.net)} tone={totals.net < 0 ? 'bad' : 'good'} label="Net by month" />} sub="Gross minus expenses" />
-        <StatTile icon={UserRound} label={`Your share (${OWNER_PCT}%)`} value={formatPeso(totals.ownerShare)} valueClassName={cn(MONEY_TILE, moneyTone(totals.ownerShare))}
-          trend={<Sparkline values={yearMonths.map((m) => m.ownerShare)} tone={totals.ownerShare < 0 ? 'bad' : 'good'} label="Your share by month" />} sub={`${OWNER_PCT}% of net income`} />
-      </StatStrip>
+      <ShareHero
+        label={<>Your share · {period}</>}
+        value={totals.ownerShare}
+        note={thisMonth
+          ? <>This month so far <span className={cn('font-semibold', moneyTone(thisMonth.ownerShare))}>{formatPeso(thisMonth.ownerShare)}</span>{lastMonth && <> · last month <span className="font-semibold">{formatPeso(lastMonth.ownerShare)}</span></>}</>
+          : <>{OWNER_PCT}% of the net income of all your units</>}
+        stats={[
+          { label: 'Gross income', value: formatPeso(totals.gross), sub: 'All bookings' },
+          { label: 'Expenses', value: formatPeso(totals.expenses), sub: 'Commissions, cleaning, bills' },
+          { label: 'Net income', value: formatPeso(totals.net), tone: moneyTone(totals.net), sub: 'Gross minus expenses' },
+        ]}
+        bars={yearMonths.map((m, i) => ({ key: m.key, label: `${MONTHS_SHORT[i]} ${year}`, value: m.ownerShare }))}
+      />
 
-      <Panel>
-        <PanelHeader icon={Building2} title="Your units" subtitle="Open a unit to see every booking, cleaning and expense" count={units.length} />
+      <section aria-labelledby="units-heading" className="pt-2">
+        <div className="mb-3">
+          <h2 id="units-heading" className="text-[16px] font-semibold text-foreground tracking-tight">
+            Your units <span className="ml-1 text-[12px] font-semibold tabular-nums">{units.length}</span>
+          </h2>
+          <p className="text-[12px] text-foreground mt-0.5">Open a unit to see every booking, cleaning and expense, with receipts</p>
+        </div>
         {units.length === 0 ? (
-          <p className="px-5 py-10 text-center text-[12.5px] text-foreground">No contracts yet. We'll show your unit here as soon as its contract is set up.</p>
+          <p className="rounded-md border border-border bg-card px-5 py-10 text-center text-[12.5px] text-foreground">No contracts yet. We'll show your unit here as soon as its contract is set up.</p>
         ) : (
-          <div className="p-3 sm:p-5 grid grid-cols-1 md:grid-cols-2 2xl:grid-cols-3 gap-3 sm:gap-4">
+          <div className="grid grid-cols-1 md:grid-cols-2 2xl:grid-cols-3 gap-3 sm:gap-4">
             {units.map((c) => {
               const share = shareFor(c.unit_id)
               return (
@@ -316,7 +340,7 @@ function OwnerOverview({ overview, firstName, onOpen }: OwnerOverviewProps) {
             })}
           </div>
         )}
-      </Panel>
+      </section>
     </div>
   )
 }

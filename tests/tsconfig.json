@@ -1,7 +1,9 @@
+// Type-checks the tests and their helpers (npm run typecheck). Tests also run
+// in Node (Playwright, the integration suite), so Node's types are included.
 {
   "extends": "../tsconfig.json",
   "compilerOptions": {
-    "types": ["vite/client", "node"],
+    "types": ["vite/client", "node", "@testing-library/jest-dom"],
     "paths": { "@/*": ["../src/*"] }
   },
   "include": [".", "../src", "../vitest.config.ts", "../playwright.config.ts"]
