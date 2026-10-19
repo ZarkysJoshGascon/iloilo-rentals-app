@@ -5,8 +5,8 @@ import {
   RefreshCw, ArrowRight, Inbox,
   Copy, Calendar, TrendingUp, FileText, Mail, Sparkles, Loader2,
   CheckCircle2, AlertTriangle, CalendarRange, CalendarClock,
-  Wallet, ClipboardCheck, KeyRound, Luggage, BedDouble, Clock, ArrowUpRight, ArrowDownRight,
-  Table2, BarChart3, ExternalLink, CalendarDays, UserRound,
+  Wallet, ClipboardCheck, KeyRound, Luggage, BedDouble, ArrowUpRight, ArrowDownRight,
+  Table2, BarChart3, ExternalLink, CalendarDays, CalendarPlus, PencilLine, SprayCan, CheckCheck, History, X,
 } from 'lucide-react'
 import {
   BarChart, Bar, AreaChart, Area,
@@ -25,6 +25,10 @@ import { ScrollChart, niceTicks } from '@/components/crm/ScrollChart'
 import type { ReactNode } from 'react'
 import type { LucideIcon } from 'lucide-react'
 import { Code } from '@/components/common/Code'
+import {
+  useWorkLog, describeEntry, manilaToday, manilaDayStart, manilaMonthRange, AREA_TABS,
+  type Described,
+} from './workLog'
 
 const NEARING_END_DAYS = 60
 const COMING_UP_DAYS = 7
@@ -45,19 +49,18 @@ function toISODate(d) {
   const day = String(d.getUTCDate()).padStart(2, '0')
   return `${y}-${m}-${day}`
 }
+// "Today" is the Manila date, so the lists don't show yesterday before 8 AM.
 function todayISO() {
-  return new Date().toISOString().slice(0, 10)
+  return manilaToday()
 }
 function isoDatePlusDays(days) {
-  const d = new Date()
-  d.setUTCHours(0, 0, 0, 0)
+  const d = new Date(`${manilaToday()}T00:00:00Z`)
   d.setUTCDate(d.getUTCDate() + days)
   return toISODate(d)
 }
 function daysUntil(dateStr) {
   if (!dateStr) return null
-  const today = new Date()
-  today.setUTCHours(0, 0, 0, 0)
+  const today = new Date(`${manilaToday()}T00:00:00Z`)
   const target = new Date(dateStr + 'T00:00:00Z')
   if (Number.isNaN(target.getTime())) return null
   return Math.round((target.getTime() - today.getTime()) / 86400000)
@@ -322,6 +325,7 @@ const STATUS_TONES = {
   warning: 'text-amber-600 dark:text-amber-400',
   critical: 'text-red-600 dark:text-red-400',
   info: 'text-blue-600 dark:text-blue-400',
+  review: 'text-fuchsia-600 dark:text-fuchsia-400',
   muted: 'text-foreground',
 }
 
@@ -852,7 +856,7 @@ type ContractsCardProps = {
   contracts: any
   loading: boolean
   onViewAll: () => void
-  className: string
+  className?: string
 }
 
 function ContractsCard({ contracts, loading, onViewAll, className }: ContractsCardProps) {
@@ -890,6 +894,7 @@ function ContractsCard({ contracts, loading, onViewAll, className }: ContractsCa
 type ActivityRowProps = {
   title: any
   amount: string
+  status?: ReactNode
   meta: string | ReactNode
   dates: string
   onOpen: () => void | Promise<void>
@@ -897,10 +902,10 @@ type ActivityRowProps = {
 }
 
 // ─────────────────────────────────────────────────────────────
-// Personal activity — only for admins linked to a staff role
+// My earnings — only for admins linked to a staff role
 // ─────────────────────────────────────────────────────────────
 
-function ActivityRow({ title, amount, meta, dates, onOpen, contextItems }: ActivityRowProps) {
+function ActivityRow({ title, amount, status, meta, dates, onOpen, contextItems }: ActivityRowProps) {
   return (
     <ContextMenu items={contextItems}>
       <button
@@ -911,7 +916,8 @@ function ActivityRow({ title, amount, meta, dates, onOpen, contextItems }: Activ
         <span aria-hidden className="absolute top-2 bottom-2 left-0 w-[3px] rounded-r bg-foreground" />
         <div className="flex items-center gap-2 min-w-0">
           <span className="text-[12px] font-semibold text-foreground truncate flex-1">{title}</span>
-          <span className="text-[11px] text-foreground tabular-nums flex-shrink-0">{amount}</span>
+          {status}
+          <span className="text-[12px] font-semibold text-foreground tabular-nums flex-shrink-0">{amount}</span>
         </div>
         <div className="mt-0.5 flex items-center justify-between gap-2 text-[11px] text-foreground">
           <span className="truncate">{meta}</span>
@@ -942,15 +948,30 @@ function ActivitySection({ title, items, emptyText, renderRow }: ActivitySection
   )
 }
 
+const EMPTY_MONTH = {
+  earned: 0,
+  pending: 0,
+  bookings: 0,
+  bookingCommission: 0,
+  referrals: 0,
+  referralCommission: 0,
+  cleanings: 0,
+  cleaningsDone: 0,
+  cleaningPay: 0,
+}
+
 // Looks the signed-in email up in the staff tables, then loads that person's
-// own bookings, cleanings and referrals.
-function useMyActivity(user) {
+// latest bookings, cleanings and referrals, plus this month's totals. Earnings
+// are counted as the Team page counts them: commission on completed bookings by
+// check-in month, pay on completed cleanings by scheduled date.
+function useMyEarnings(user, refreshKey) {
   const [state, setState] = useState({
     loading: true,
     matched: { specialist: null, affiliate: null, housekeeper: null },
     bookings: [],
     cleanings: [],
     referrals: [],
+    month: EMPTY_MONTH,
   })
 
   useEffect(() => {
@@ -975,11 +996,12 @@ function useMyActivity(user) {
           affiliate: affRes.data || null,
           housekeeper: hkRes.data || null,
         }
+        const { start, next } = manilaMonthRange()
 
-        const [bookings, cleanings, referrals] = await Promise.all([
+        const [bookings, cleanings, referrals, monthBookings, monthCleanings, monthReferrals] = await Promise.all([
           matched.specialist?.code
             ? supabase.from('bookings')
-                .select(`id, booking_code, guest_name, guest_email, check_in, check_out, total_amount, booker_commission, payment_status, completed_at, units:unit_id ( id, unit_code, building )`)
+                .select(`id, booking_code, guest_name, guest_email, check_in, check_out, total_amount, booker_commission, payment_status, completed_at, cancelled_at, units:unit_id ( id, unit_code, building )`)
                 .eq('booker_code', matched.specialist.code)
                 .is('deleted_at', null)
                 .order('check_in', { ascending: false })
@@ -996,42 +1018,177 @@ function useMyActivity(user) {
             : [],
           matched.affiliate?.code
             ? supabase.from('bookings')
-                .select(`id, booking_code, guest_name, guest_email, check_in, check_out, total_amount, affiliate_commission, payment_status, completed_at, units:unit_id ( id, unit_code, building )`)
+                .select(`id, booking_code, guest_name, guest_email, check_in, check_out, total_amount, affiliate_commission, payment_status, completed_at, cancelled_at, units:unit_id ( id, unit_code, building )`)
                 .eq('affiliate_code', matched.affiliate.code)
                 .is('deleted_at', null)
                 .order('check_in', { ascending: false })
                 .limit(MY_LIST_LIMIT)
                 .then((r) => r.data || [])
             : [],
+          matched.specialist?.code
+            ? supabase.from('bookings')
+                .select('booker_commission, completed_at, cancelled_at')
+                .eq('booker_code', matched.specialist.code)
+                .is('deleted_at', null)
+                .gte('check_in', start)
+                .lt('check_in', next)
+                .then((r) => r.data || [])
+            : [],
+          matched.housekeeper?.id
+            ? supabase.from('cleanings')
+                .select('status, payment_amount')
+                .eq('housekeeper_id', matched.housekeeper.id)
+                .gte('scheduled_date', start)
+                .lt('scheduled_date', next)
+                .then((r) => r.data || [])
+            : [],
+          matched.affiliate?.code
+            ? supabase.from('bookings')
+                .select('affiliate_commission, completed_at, cancelled_at')
+                .eq('affiliate_code', matched.affiliate.code)
+                .is('deleted_at', null)
+                .gte('check_in', start)
+                .lt('check_in', next)
+                .then((r) => r.data || [])
+            : [],
         ])
         if (cancelled) return
-        setState({ loading: false, matched, bookings, cleanings, referrals })
+
+        const sum = (rows, key) => rows.reduce((s, r) => s + Number(r[key] || 0), 0)
+        const live = (rows) => rows.filter((r) => !r.cancelled_at)
+        const done = (rows) => rows.filter((r) => r.completed_at)
+        const open = (rows) => rows.filter((r) => !r.completed_at && !r.cancelled_at)
+        const doneCleanings = monthCleanings.filter((c) => c.status === 'completed')
+        const bookingCommission = sum(done(monthBookings), 'booker_commission')
+        const referralCommission = sum(done(monthReferrals), 'affiliate_commission')
+        const cleaningPay = sum(doneCleanings, 'payment_amount')
+
+        setState({
+          loading: false,
+          matched,
+          bookings,
+          cleanings,
+          referrals,
+          month: {
+            earned: bookingCommission + referralCommission + cleaningPay,
+            pending: sum(open(monthBookings), 'booker_commission') + sum(open(monthReferrals), 'affiliate_commission'),
+            bookings: live(monthBookings).length,
+            bookingCommission,
+            referrals: live(monthReferrals).length,
+            referralCommission,
+            cleanings: monthCleanings.filter((c) => c.status !== 'cancelled').length,
+            cleaningsDone: doneCleanings.length,
+            cleaningPay,
+          },
+        })
       } catch (err) {
-        console.error('My activity load failed:', err)
+        console.error('My earnings load failed:', err)
         if (!cancelled) setState((s) => ({ ...s, loading: false }))
       }
     }
 
     load()
     return () => { cancelled = true }
-  }, [user?.id, user?.email])
+  }, [user?.id, user?.email, refreshKey])
 
   const { specialist, affiliate, housekeeper } = state.matched
   return { ...state, linked: !!(specialist || affiliate || housekeeper) }
 }
 
-type MyActivityCardProps = {
-  activity: any
+type PersonAvatarProps = {
+  name: string
+  src?: string | null
+  size?: 'sm' | 'md' | 'lg'
 }
 
-function MyActivityCard({ activity }: MyActivityCardProps) {
+// A profile photo when there is one, else initials in a ring.
+function PersonAvatar({ name, src, size = 'md' }: PersonAvatarProps) {
+  const [broken, setBroken] = useState(false)
+  const dim = size === 'lg' ? 'w-11 h-11 text-[14px]' : size === 'sm' ? 'w-7 h-7 text-[10.5px]' : 'w-8 h-8 text-[11px]'
+  if (src && !broken) {
+    return (
+      <img
+        src={src}
+        alt=""
+        referrerPolicy="no-referrer"
+        onError={() => setBroken(true)}
+        className={cn(dim, 'rounded-full object-cover ring-1 ring-border flex-shrink-0')}
+      />
+    )
+  }
+  return (
+    <div className={cn(dim, 'rounded-full bg-card ring-1 ring-border text-foreground flex items-center justify-center font-semibold flex-shrink-0')}>
+      {initialsOf(name)}
+    </div>
+  )
+}
+
+// Commission on a booking: earned once the stay is completed.
+function commissionStatus(b) {
+  if (b.cancelled_at) return <StatusLabel tone="critical">Cancelled</StatusLabel>
+  if (b.completed_at) return <StatusLabel tone="good">Earned</StatusLabel>
+  return <StatusLabel tone="warning">Pending</StatusLabel>
+}
+
+const CLEANING_TONES = {
+  completed: ['good', 'Completed'],
+  submitted: ['review', 'To be evaluated'],
+  ready: ['info', 'Ready'],
+  scheduled: ['warning', 'Scheduled'],
+  cancelled: ['critical', 'Cancelled'],
+}
+
+function cleaningStatus(c) {
+  const [tone, label] = CLEANING_TONES[c.status] || ['muted', c.status || '—']
+  return <StatusLabel tone={tone}>{label}</StatusLabel>
+}
+
+type EarningStatProps = {
+  label: string
+  value: any
+  sub: string
+  loading: boolean
+}
+
+function EarningStat({ label, value, sub, loading }: EarningStatProps) {
+  return (
+    <div className="min-w-0">
+      <p className="text-[12px] font-medium text-foreground">{label}</p>
+      {loading ? (
+        <span className="block h-6 w-12 rounded-md bg-muted animate-pulse mt-1.5" />
+      ) : (
+        <p className="text-[24px] font-semibold text-foreground tracking-tight leading-none tabular-nums mt-1.5">{value}</p>
+      )}
+      <p className="text-[11.5px] text-foreground mt-1.5 truncate">{loading ? ' ' : sub}</p>
+    </div>
+  )
+}
+
+type MyEarningsCardProps = {
+  activity: any
+  user: any
+}
+
+// The signed-in person's own numbers, first on the page: this month's earnings
+// on the left, their latest bookings, cleanings and referrals on the right.
+function MyEarningsCard({ activity, user }: MyEarningsCardProps) {
   const navigate = useNavigate()
-  const { matched, bookings, cleanings, referrals } = activity
+  const { matched, bookings, cleanings, referrals, month, loading } = activity
 
   const roles = [
     matched.specialist && 'Specialist',
     matched.affiliate && 'Affiliate',
     matched.housekeeper && 'Housekeeper',
+  ].filter(Boolean)
+  const me = matched.specialist || matched.affiliate || matched.housekeeper
+  const name = me?.name || user?.user_metadata?.full_name || ''
+  const photo = me?.photo_url || user?.user_metadata?.avatar_url || null
+  const monthName = new Date(`${manilaToday()}T00:00:00Z`).toLocaleDateString('en-PH', { month: 'long', timeZone: 'UTC' })
+
+  const stats = [
+    matched.specialist && { label: 'My bookings', value: month.bookings, sub: `${formatMoney(month.bookingCommission)} commission earned` },
+    matched.affiliate && { label: 'My referrals', value: month.referrals, sub: `${formatMoney(month.referralCommission)} commission earned` },
+    matched.housekeeper && { label: 'My cleanings', value: month.cleanings, sub: `${month.cleaningsDone} completed · ${formatMoney(month.cleaningPay)} pay` },
   ].filter(Boolean)
 
   const goBooking = (id) => navigate(`/admin?tab=bookings&booking=${id}`)
@@ -1051,10 +1208,42 @@ function MyActivityCard({ activity }: MyActivityCardProps) {
   ]
 
   return (
-    <Card>
-      <CardHeader icon={UserRound} title="My activity" subtitle={`Linked as ${roles.join(' · ')}`} />
-      <div className="relative flex-1 min-h-[260px]">
-        <div className="xl:absolute xl:inset-0 overflow-y-auto">
+    <Card className="relative">
+      <span aria-hidden className="absolute inset-x-0 top-0 h-[3px] bg-brand-solid" />
+      <div className="flex flex-wrap items-center justify-between gap-3 px-5 pt-5 pb-4 border-b border-border">
+        <div className="flex items-center gap-3 min-w-0">
+          <PersonAvatar name={name} src={photo} size="lg" />
+          <div className="min-w-0">
+            <h2 className="text-[17px] font-semibold text-foreground tracking-tight leading-tight">My earnings</h2>
+            <p className="text-[12px] text-foreground mt-0.5 truncate">{[name, ...roles].filter(Boolean).join(' · ')}</p>
+          </div>
+        </div>
+        <span className="text-[12px] font-medium text-foreground">{monthName} so far</span>
+      </div>
+
+      <div className="grid grid-cols-1 xl:grid-cols-[minmax(0,1fr)_minmax(0,1.4fr)]">
+        <div className="p-5 grid grid-cols-2 gap-x-6 gap-y-5 content-start border-b xl:border-b-0 xl:border-r border-border">
+          <div className="col-span-2 min-w-0">
+            <p className="text-[12px] font-medium text-foreground">Earned in {monthName}</p>
+            {loading ? (
+              <span className="block h-9 w-40 rounded-md bg-muted animate-pulse mt-1.5" />
+            ) : (
+              <p className="text-[34px] font-semibold text-foreground tracking-tight leading-none tabular-nums mt-1.5 break-words">{formatMoney(month.earned)}</p>
+            )}
+            <p className="text-[11.5px] text-foreground mt-1.5">
+              {loading ? ' ' : month.pending > 0 ? (
+                <>
+                  <span className="font-semibold text-amber-600 dark:text-amber-400">{formatMoney(month.pending)} pending</span>
+                  {' '}until this month's stays are completed
+                </>
+              ) : 'From work completed this month'}
+            </p>
+          </div>
+          {stats.map((s) => <EarningStat key={s.label} label={s.label} value={s.value} sub={s.sub} loading={loading} />)}
+        </div>
+
+        <div className="relative min-h-[240px]">
+          <div className="xl:absolute xl:inset-0 max-xl:max-h-[360px] overflow-y-auto">
           {matched.specialist && (
             <ActivitySection
               title="My bookings"
@@ -1064,7 +1253,8 @@ function MyActivityCard({ activity }: MyActivityCardProps) {
                 <ActivityRow
                   key={b.id}
                   title={b.guest_name || '—'}
-                  amount={formatMoney(b.total_amount)}
+                  amount={formatMoney(b.booker_commission || 0)}
+                  status={commissionStatus(b)}
                   meta={<span className="inline-flex items-center gap-1 min-w-0"><Code value={b.booking_code} label="Booking code" className="text-[11px]" iconSize={11} /> · <Code value={b.units?.unit_code} label="Unit code" className="text-[11px]" iconSize={11} /></span>}
                   dates={`${formatDateShort(b.check_in)} → ${formatDateShort(b.check_out)}`}
                   onOpen={() => goBooking(b.id)}
@@ -1084,7 +1274,8 @@ function MyActivityCard({ activity }: MyActivityCardProps) {
                   key={c.id}
                   title={<Code value={c.cleaning_code} label="Cleaning code" className="text-[12px]" />}
                   amount={formatMoney(c.payment_amount || 0)}
-                  meta={<span className="inline-flex items-center gap-1 min-w-0"><Code value={c.units?.unit_code} label="Unit code" className="text-[11px]" iconSize={11} /><span className="capitalize truncate">· {c.type || '—'} · {c.status || '—'}</span></span>}
+                  status={cleaningStatus(c)}
+                  meta={<span className="inline-flex items-center gap-1 min-w-0"><Code value={c.units?.unit_code} label="Unit code" className="text-[11px]" iconSize={11} /><span className="capitalize truncate">· {c.type || '—'}</span></span>}
                   dates={formatDateShort(c.scheduled_date)}
                   onOpen={() => goCleaning(c.id)}
                   contextItems={cleaningContextItems(c)}
@@ -1103,6 +1294,7 @@ function MyActivityCard({ activity }: MyActivityCardProps) {
                   key={b.id}
                   title={b.guest_name || '—'}
                   amount={formatMoney(b.affiliate_commission || 0)}
+                  status={commissionStatus(b)}
                   meta={<span className="inline-flex items-center gap-1 min-w-0"><Code value={b.booking_code} label="Booking code" className="text-[11px]" iconSize={11} /> · <Code value={b.units?.unit_code} label="Unit code" className="text-[11px]" iconSize={11} /></span>}
                   dates={`${formatDateShort(b.check_in)} → ${formatDateShort(b.check_out)}`}
                   onOpen={() => goBooking(b.id)}
@@ -1111,8 +1303,164 @@ function MyActivityCard({ activity }: MyActivityCardProps) {
               )}
             />
           )}
+          </div>
         </div>
       </div>
+    </Card>
+  )
+}
+
+// ─────────────────────────────────────────────────────────────
+// Work done today — every add, edit and submission, as it happens
+// ─────────────────────────────────────────────────────────────
+
+const MAX_CHANGES_SHOWN = 4
+// Tables whose label is a code (shown bold with a copy button) rather than a name.
+const CODE_NOUNS = new Set(['booking', 'cleaning', 'contract', 'PM contract', 'unit'])
+
+type WorkRowProps = {
+  item: Described
+}
+
+function WorkRow({ item }: WorkRowProps) {
+  const navigate = useNavigate()
+  const extra = item.changes.length - MAX_CHANGES_SHOWN
+  const body = (
+    <>
+      <PersonAvatar name={item.actor} src={item.avatar} />
+      <div className="min-w-0 flex-1">
+        <p className="text-[12.5px] text-foreground leading-snug">
+          <span className="font-semibold">{item.actor}</span> {item.verb} {item.noun}
+          {item.label && (
+            CODE_NOUNS.has(item.noun)
+              ? <span className="ml-1 inline-flex align-middle"><Code value={item.label} label={`${item.noun} code`} className="text-[12px]" iconSize={11} /></span>
+              : <span className="font-semibold"> {item.label}</span>
+          )}
+        </p>
+        {item.context.length > 0 && (
+          <p className="text-[11.5px] text-foreground/75 mt-0.5 truncate">{item.context.join(' · ')}</p>
+        )}
+        {item.changes.length > 0 && (
+          <ul className="mt-1.5 space-y-0.5">
+            {item.changes.slice(0, MAX_CHANGES_SHOWN).map((c) => (
+              <li key={c.key} className="text-[11.5px] text-foreground flex items-baseline gap-1.5 min-w-0">
+                <span className="font-medium flex-shrink-0">{c.label}</span>
+                {c.list ? (
+                  <span className="text-foreground/75">updated</span>
+                ) : (
+                  <span className="truncate">
+                    <span className="text-foreground/75">{c.from}</span>
+                    <span className="mx-1">→</span>
+                    <span className="font-semibold">{c.to}</span>
+                  </span>
+                )}
+              </li>
+            ))}
+            {extra > 0 && <li className="text-[11.5px] text-foreground/75">+{extra} more {extra === 1 ? 'change' : 'changes'}</li>}
+          </ul>
+        )}
+      </div>
+      <span className="text-[11px] tabular-nums text-foreground flex-shrink-0 pt-0.5">{item.time}</span>
+    </>
+  )
+  const rowClass = 'w-full text-left px-5 py-3 flex items-start gap-3 border-b border-border last:border-0'
+  return item.href ? (
+    <button type="button" onClick={() => navigate(item.href)} className={cn(rowClass, 'hover:bg-muted/40 transition-colors cursor-pointer')}>
+      {body}
+    </button>
+  ) : (
+    <div className={rowClass}>{body}</div>
+  )
+}
+
+type WorkDoneCardProps = {
+  items: Described[]
+  loading: boolean
+  area: string
+  onArea: (area: string) => void
+  person: string | null
+  onPerson: (key: string | null) => void
+}
+
+function WorkDoneCard({ items, loading, area, onArea, person, onPerson }: WorkDoneCardProps) {
+  const counts = useMemo(() => {
+    const c = { all: items.length }
+    for (const i of items) c[i.area] = (c[i.area] || 0) + 1
+    return c
+  }, [items])
+
+  // Who did how much today, busiest first.
+  const people = useMemo(() => {
+    const map = new Map()
+    for (const i of items) {
+      const p = map.get(i.actorKey) || { key: i.actorKey, name: i.groupName, avatar: i.avatar, count: 0, last: i.time }
+      p.count++
+      map.set(i.actorKey, p)
+    }
+    return [...map.values()].sort((a, b) => b.count - a.count)
+  }, [items])
+
+  const shown = items.filter((i) => (area === 'all' || i.area === area) && (!person || i.actorKey === person))
+  const personName = person ? people.find((p) => p.key === person)?.name : null
+
+  return (
+    <Card>
+      <CardHeader
+        icon={History}
+        title="Work done today"
+        subtitle="Everything added, changed or submitted since midnight, as it happens"
+        count={loading ? null : items.length}
+        action={personName && (
+          <button
+            type="button"
+            onClick={() => onPerson(null)}
+            className="inline-flex items-center gap-1 h-7 px-2 rounded-md border border-border text-[11.5px] font-medium text-foreground hover:bg-muted/50 flex-shrink-0"
+          >
+            {personName} <X size={12} />
+          </button>
+        )}
+      />
+      <div className="px-5 py-3 border-b border-border overflow-x-auto">
+        <StatusTabs tabs={AREA_TABS} value={area} onChange={onArea} counts={counts} label="Filter today's work" />
+      </div>
+      {loading ? (
+        <RowsSkeleton rows={4} />
+      ) : items.length === 0 ? (
+        <EmptyState icon={History} title="Nothing yet today" hint="Bookings, cleanings, dropdown changes and form submissions show up here as they happen." />
+      ) : (
+        <div className="grid grid-cols-1 xl:grid-cols-[minmax(0,1fr)_260px]">
+          <div className="max-h-[520px] overflow-y-auto">
+            {shown.length === 0 ? (
+              <p className="px-5 py-6 text-[12px] text-foreground">Nothing here for this filter.</p>
+            ) : (
+              shown.map((i) => <WorkRow key={i.id} item={i} />)
+            )}
+          </div>
+          <div className="border-t xl:border-t-0 xl:border-l border-border max-h-[520px] overflow-y-auto">
+            <SectionLabel title="By person" count={people.length} />
+            {people.map((p) => (
+              <button
+                key={p.key}
+                type="button"
+                onClick={() => onPerson(person === p.key ? null : p.key)}
+                aria-pressed={person === p.key}
+                className={cn(
+                  'relative w-full text-left px-5 py-2.5 flex items-center gap-3 border-b border-border last:border-0 transition-colors',
+                  person === p.key ? 'bg-muted/50' : 'hover:bg-muted/40',
+                )}
+              >
+                {person === p.key && <span aria-hidden className="absolute top-2 bottom-2 left-0 w-[3px] rounded-r bg-brand-solid" />}
+                <PersonAvatar name={p.name} src={p.avatar} size="sm" />
+                <span className="min-w-0 flex-1">
+                  <span className="block text-[12.5px] font-semibold text-foreground truncate">{p.name}</span>
+                  <span className="block text-[11px] text-foreground/75">Last at {p.last}</span>
+                </span>
+                <span className="text-[13px] font-semibold tabular-nums text-foreground">{p.count}</span>
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
     </Card>
   )
 }
@@ -1124,7 +1472,12 @@ function MyActivityCard({ activity }: MyActivityCardProps) {
 export default function DashboardPage() {
   const navigate = useNavigate()
   const { user } = useAuth()
-  const activity = useMyActivity(user)
+  const [earningsKey, setEarningsKey] = useState(0)
+  const activity = useMyEarnings(user, earningsKey)
+  const workLog = useWorkLog()
+  const [workArea, setWorkArea] = useState('all')
+  const [workPerson, setWorkPerson] = useState(null)
+  const workRef = useRef(null)
   const [loading, setLoading] = useState(true)
   const [refreshing, setRefreshing] = useState(false)
   const [error, setError] = useState(null)
@@ -1136,6 +1489,12 @@ export default function DashboardPage() {
     unpaidBookingsCount: 0,
     unpaidBookingsTotal: 0,
     cleaningsToEvaluate: 0,
+    createdToday: 0,
+    createdTodayTotal: 0,
+    cleaningsToday: 0,
+    cleaningsTodayReady: 0,
+    doneToday: 0,
+    doneTodayPay: 0,
   })
 
   const [todayLists, setTodayLists] = useState({ checkIns: [], checkOuts: [], comingUp: [] })
@@ -1177,6 +1536,7 @@ export default function DashboardPage() {
     setError(null)
 
     const today = todayISO()
+    const dayStart = manilaDayStart(today)
     const soon = isoDatePlusDays(NEARING_END_DAYS)
     const weekAhead = isoDatePlusDays(COMING_UP_DAYS)
 
@@ -1191,6 +1551,9 @@ export default function DashboardPage() {
         checkOutsRes,
         nearingEndRes,
         comingUpRes,
+        createdTodayRes,
+        cleaningsTodayRes,
+        doneTodayRes,
       ] = await Promise.all([
         supabase.from('bookings').select('id', { count: 'exact', head: true }).is('deleted_at', null),
         supabase.from('bookings').select('id', { count: 'exact', head: true }).is('deleted_at', null).is('completed_at', null).lte('check_in', today).gte('check_out', today),
@@ -1201,15 +1564,21 @@ export default function DashboardPage() {
         supabase.from('bookings').select(`id, booking_code, guest_name, guest_email, check_in, check_out, balance, units:unit_id ( id, unit_code, building )`).is('deleted_at', null).eq('check_out', today).order('check_out', { ascending: true }).limit(LIST_LIMIT),
         supabase.from('contracts').select(`id, contract_code, effective_date, expiry_date, units:unit_id ( id, unit_code, building ), owners:owner_id ( id, name )`).gte('expiry_date', today).lte('expiry_date', soon).order('expiry_date', { ascending: true }).limit(LIST_LIMIT),
         supabase.from('bookings').select(`id, booking_code, guest_name, guest_email, check_in, check_out, balance, units:unit_id ( id, unit_code, building )`).is('deleted_at', null).is('completed_at', null).gt('check_in', today).lte('check_in', weekAhead).order('check_in', { ascending: true }).limit(LIST_LIMIT),
+        supabase.from('bookings').select('id, total_amount').is('deleted_at', null).gte('created_at', dayStart),
+        supabase.from('cleanings').select('id, status').eq('scheduled_date', today).neq('status', 'cancelled'),
+        supabase.from('cleanings').select('id, payment_amount').eq('status', 'completed').gte('completed_at', dayStart),
       ])
 
       if (signal?.aborted) return
 
-      const firstErr = [totalRes, inHouseRes, upcomingRes, unpaidListRes, cleaningsToEvaluateRes, checkInsRes, checkOutsRes, nearingEndRes, comingUpRes].find((r) => r.error)
+      const firstErr = [totalRes, inHouseRes, upcomingRes, unpaidListRes, cleaningsToEvaluateRes, checkInsRes, checkOutsRes, nearingEndRes, comingUpRes, createdTodayRes, cleaningsTodayRes, doneTodayRes].find((r) => r.error)
       if (firstErr?.error) throw firstErr.error
 
       const unpaidList = unpaidListRes.data || []
       const unpaidTotal = unpaidList.reduce((s, b) => s + Number(b.balance || 0), 0)
+      const createdToday = createdTodayRes.data || []
+      const cleaningsToday = cleaningsTodayRes.data || []
+      const doneToday = doneTodayRes.data || []
 
       setStats({
         totalBookings: totalRes.count || 0,
@@ -1218,6 +1587,12 @@ export default function DashboardPage() {
         unpaidBookingsCount: unpaidList.length,
         unpaidBookingsTotal: unpaidTotal,
         cleaningsToEvaluate: cleaningsToEvaluateRes.count || 0,
+        createdToday: createdToday.length,
+        createdTodayTotal: createdToday.reduce((s, b) => s + Number(b.total_amount || 0), 0),
+        cleaningsToday: cleaningsToday.length,
+        cleaningsTodayReady: cleaningsToday.filter((c) => c.status === 'ready').length,
+        doneToday: doneToday.length,
+        doneTodayPay: doneToday.reduce((s, c) => s + Number(c.payment_amount || 0), 0),
       })
 
       setTodayLists({
@@ -1274,6 +1649,7 @@ export default function DashboardPage() {
     if (!hasLoadedOnce.current) return
     fetchAll(true)
     fetchAnalytics(analyticsYear)
+    setEarningsKey((k) => k + 1)
   }, [fetchAll, fetchAnalytics, analyticsYear])
 
   useDebouncedRealtime({ table: 'contracts', onChange: handleRealtime, debounceMs: 2000 })
@@ -1284,6 +1660,20 @@ export default function DashboardPage() {
     const url = filter ? `/admin?tab=${tab}&filter=${filter}` : `/admin?tab=${tab}`
     navigate(url)
   }, [navigate])
+
+  const workItems = useMemo(
+    () => workLog.entries.map((e) => describeEntry(e, workLog.people)),
+    [workLog.entries, workLog.people],
+  )
+  const bookingEdits = workLog.entries.filter((e) => e.table_name === 'bookings' && e.action === 'UPDATE')
+  const bookingsEdited = new Set(bookingEdits.map((e) => e.record_id)).size
+
+  // The booking tiles open today's work, filtered to bookings.
+  const showWork = useCallback((area) => {
+    setWorkArea(area)
+    setWorkPerson(null)
+    workRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+  }, [])
 
   const now = useMemo(() => new Date(), [])
   const firstName = (user?.user_metadata?.full_name || user?.email?.split('@')[0] || '').split(' ')[0]
@@ -1416,7 +1806,7 @@ export default function DashboardPage() {
 
             <button
               type="button"
-              onClick={() => { fetchAll(true); fetchAnalytics(analyticsYear) }}
+              onClick={() => { fetchAll(true); fetchAnalytics(analyticsYear); workLog.reload(); setEarningsKey((k) => k + 1) }}
               disabled={refreshing}
               className="inline-flex items-center gap-1.5 h-8 px-3 rounded-md border border-border bg-card text-[12px] font-medium text-foreground hover:bg-muted/50 transition-colors disabled:opacity-50 shadow-sm"
             >
@@ -1426,8 +1816,11 @@ export default function DashboardPage() {
           </div>
         </div>
 
+        {/* The signed-in person's own numbers, when they're also on the team */}
+        {activity.linked && <MyEarningsCard activity={activity} user={user} />}
+
         {/* KPIs */}
-        <StatStrip>
+        <StatStrip cols={4}>
           <StatTile icon={CalendarRange} label="Total bookings" value={stats.totalBookings.toLocaleString('en-PH')} sub="All active records" loading={loading} onClick={() => goto('bookings')} />
           <StatTile icon={BedDouble} label="In-house now" value={stats.inHouseBookings} sub="Guests staying now" loading={loading} onClick={() => goto('bookings', 'in-house')} />
           <StatTile icon={CalendarClock} label="Upcoming" value={stats.upcomingBookings} sub="Future check-ins" loading={loading} onClick={() => goto('bookings', 'upcoming')} />
@@ -1440,17 +1833,70 @@ export default function DashboardPage() {
             loading={loading}
             onClick={() => goto('bookings', 'unpaid')}
           />
-          <StatTile
-            icon={ClipboardCheck}
-            label="Cleaning reviews"
-            value={stats.cleaningsToEvaluate}
-            sub={cleaningsAttention ? 'Waiting for review' : 'All reviewed'}
-            attention={!loading && cleaningsAttention}
-            loading={loading}
-            onClick={() => goto('housekeeping', 'evaluate')}
-            className="col-span-2 sm:col-span-1"
-          />
         </StatStrip>
+
+        {/* Today */}
+        <div>
+          <h2 className="text-[13px] font-semibold text-foreground mb-2">
+            Today <span className="font-normal">· {now.toLocaleDateString('en-PH', { weekday: 'long', month: 'long', day: 'numeric', timeZone: 'Asia/Manila' })}</span>
+          </h2>
+          <StatStrip>
+            <StatTile
+              icon={CalendarPlus}
+              label="Bookings created"
+              value={stats.createdToday}
+              sub={stats.createdToday > 0 ? `${formatMoneyCompact(stats.createdTodayTotal)} booked` : 'None yet today'}
+              loading={loading}
+              onClick={() => showWork('bookings')}
+            />
+            <StatTile
+              icon={PencilLine}
+              label="Bookings edited"
+              value={bookingsEdited}
+              sub={bookingEdits.length > 0 ? plural(bookingEdits.length, 'change', 'changes') : 'No edits yet today'}
+              loading={workLog.loading}
+              onClick={() => showWork('bookings')}
+            />
+            <StatTile
+              icon={SprayCan}
+              label="Cleanings today"
+              value={stats.cleaningsToday}
+              sub={stats.cleaningsToday > 0 ? `${stats.cleaningsTodayReady} ready to clean` : 'Nothing scheduled'}
+              loading={loading}
+              onClick={() => goto('housekeeping')}
+            />
+            <StatTile
+              icon={ClipboardCheck}
+              label="To be evaluated"
+              value={stats.cleaningsToEvaluate}
+              sub={cleaningsAttention ? 'Waiting for your review' : 'All reviewed'}
+              attention={!loading && cleaningsAttention}
+              loading={loading}
+              onClick={() => goto('housekeeping', 'to-be-evaluated')}
+            />
+            <StatTile
+              icon={CheckCheck}
+              label="Cleanings done"
+              value={stats.doneToday}
+              sub={stats.doneToday > 0 ? `${formatMoney(stats.doneTodayPay)} paid out` : 'None approved yet today'}
+              loading={loading}
+              onClick={() => goto('housekeeping', 'completed')}
+              className="col-span-2 sm:col-span-1"
+            />
+          </StatStrip>
+        </div>
+
+        {/* Everything the team did today */}
+        <div ref={workRef} className="scroll-mt-4">
+          <WorkDoneCard
+            items={workItems}
+            loading={workLog.loading}
+            area={workArea}
+            onArea={setWorkArea}
+            person={workPerson}
+            onPerson={setWorkPerson}
+          />
+        </div>
 
         {/* Performance beside today's movements */}
         <div className={DASH_ROW}>
@@ -1469,16 +1915,11 @@ export default function DashboardPage() {
           />
         </div>
 
-        {/* Contracts, plus personal activity when this admin is also staff */}
-        <div className={DASH_ROW}>
-          <ContractsCard
-            className={activity.linked ? undefined : 'xl:col-span-2'}
-            contracts={contractsNearingEnd}
-            loading={loading}
-            onViewAll={() => goto('contracts')}
-          />
-          {activity.linked && <MyActivityCard activity={activity} />}
-        </div>
+        <ContractsCard
+          contracts={contractsNearingEnd}
+          loading={loading}
+          onViewAll={() => goto('contracts')}
+        />
       </div>
     </div>
   )

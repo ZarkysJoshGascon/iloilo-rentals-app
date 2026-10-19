@@ -2338,7 +2338,13 @@ export default function HousekeepingPage({ initialSelectedId, fromBookingId }: H
   const [isRefreshing, setIsRefreshing] = useState(false)
   const [search, setSearch] = useState('')
   const [debouncedSearch, setDebouncedSearch] = useState('')
-  const [statusFilter, setStatusFilter] = useState('all')
+  // The dashboard's tiles link here with ?filter= (e.g. to-be-evaluated).
+  const [statusFilter, setStatusFilter] = useState(() => {
+    if (typeof window === 'undefined') return 'all'
+    const f = new URLSearchParams(window.location.search).get('filter')
+    const normalized = f === 'evaluate' ? 'to-be-evaluated' : f
+    return STATUS_PILLS.some((p) => p.id === normalized) ? normalized : 'all'
+  })
 
   const [selectedId, setSelectedId] = useState(initialSelectedId || null)
   const [highlightedId, setHighlightedId] = useState(null)
