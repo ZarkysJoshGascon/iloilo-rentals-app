@@ -3,53 +3,10 @@ import { supabase } from '@/lib/supabase'
 import { cleanFields } from '@/lib/domain/clean'
 import { generateCleaningCode } from '@/lib/utils'
 import { readAll } from '@/lib/api/readAll'
+import { preparePhoto, PHOTO } from '@/lib/images'
 
 const BUCKET = 'cleaning-photos'
-const MAX_FILE_BYTES = 15 * 1024 * 1024  // 15 MB
 const SIGNED_URL_TTL = 60 * 60           // 1 hour
-
-// ============================================================
-// FILE VALIDATION — magic bytes, not mime-type string
-// ============================================================
-const ALLOWED_IMAGE_MIMES = new Set(['image/jpeg', 'image/png', 'image/webp'])
-
-function hexFromBytes(bytes: Uint8Array, start = 0, length = 12) {
-  return Array.from(bytes.slice(start, start + length))
-    .map((b) => b.toString(16).padStart(2, '0'))
-    .join('')
-}
-
-/**
- * Read the first 12 bytes of the file and sniff the actual format.
- * Returns one of: 'image/jpeg' | 'image/png' | 'image/webp' | null
- */
-async function sniffImageMime(file) {
-  const head = new Uint8Array(await file.slice(0, 12).arrayBuffer())
-  const hex = hexFromBytes(head)
-
-  // JPEG: FF D8 FF
-  if (hex.startsWith('ffd8ff')) return 'image/jpeg'
-  // PNG: 89 50 4E 47 0D 0A 1A 0A
-  if (hex.startsWith('89504e470d0a1a0a')) return 'image/png'
-  // WebP: "RIFF" .... "WEBP"
-  if (hex.startsWith('52494646') && hex.slice(16, 24) === '57454250') return 'image/webp'
-
-  return null
-}
-
-async function validateImageFile(file) {
-  if (!(file instanceof File) && !(file instanceof Blob)) {
-    throw new Error('Invalid file')
-  }
-  if (typeof file.size === 'number' && file.size > MAX_FILE_BYTES) {
-    throw new Error('File is too large (max 15 MB)')
-  }
-  const mime = await sniffImageMime(file)
-  if (!mime || !ALLOWED_IMAGE_MIMES.has(mime)) {
-    throw new Error('Unsupported image format. Use JPEG, PNG, or WebP.')
-  }
-  return mime
-}
 
 // ============================================================
 // QUERIES
@@ -159,42 +116,6 @@ export async function deleteCleaning(id) {
   if (error) throw error
 }
 
-// ============================================================
-// IMAGE COMPRESSION — validates first, then re-encodes to JPEG
-// ============================================================
-export async function compressImage(file, { maxDimension = 1600, quality = 0.72 } = {}) {
-  await validateImageFile(file)
-
-  return new Promise<Blob>((resolve, reject) => {
-    const img = new Image()
-    const reader = new FileReader()
-    reader.onload = (e) => { img.src = e.target.result as string }
-    reader.onerror = () => reject(new Error('Failed to read file'))
-    img.onload = () => {
-      let { width, height } = img
-      const maxSide = Math.max(width, height)
-      if (maxSide > maxDimension) {
-        const scale = maxDimension / maxSide
-        width = Math.round(width * scale)
-        height = Math.round(height * scale)
-      }
-      const canvas = document.createElement('canvas')
-      canvas.width = width
-      canvas.height = height
-      const ctx = canvas.getContext('2d')
-      if (!ctx) return reject(new Error('Canvas not supported'))
-      ctx.drawImage(img, 0, 0, width, height)
-      canvas.toBlob((blob) => {
-        if (!blob) return reject(new Error('Compression failed'))
-        try { (blob as Blob & { name?: string }).name = file.name || 'photo.jpg' } catch { /* read-only on some browsers */ }
-        resolve(blob)
-      }, 'image/jpeg', quality)
-    }
-    img.onerror = () => reject(new Error('Failed to load image'))
-    reader.readAsDataURL(file)
-  })
-}
-
 function randomId() {
   const bytes = new Uint8Array(10)
   crypto.getRandomValues(bytes)
@@ -214,7 +135,8 @@ export async function uploadCleaningPhoto({ cleaningId, file, category }) {
     throw new Error('Invalid photo category')
   }
 
-  const compressed = await compressImage(file)
+  // Already prepared when the photo was picked; otherwise shrunk here.
+  const compressed = await preparePhoto(file, PHOTO)
   const filename = `${randomId()}.jpg`
   const path = `${cleaningId}/${category}/${filename}`
 

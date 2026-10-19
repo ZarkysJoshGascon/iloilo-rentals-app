@@ -8,7 +8,7 @@ import { AnimatePresence, motion } from 'framer-motion'
 import {
   ArrowLeft, Camera, X, Trash2, AlertTriangle, Image as ImageIcon, Plus, Clock, Sparkles,
   Coffee, Shirt, Wallet, Send, Lock, Search, RefreshCw, Moon, Sun, LogOut, DoorOpen,
-  CheckCircle2, Hourglass, Home, Bell, BellRing,
+  CheckCircle2, Hourglass, Home, Bell, BellRing, Loader2,
 } from 'lucide-react'
 import toast from 'react-hot-toast'
 import { supabase } from '@/lib/supabase'
@@ -37,6 +37,7 @@ import type { LucideIcon } from 'lucide-react'
 import { Code } from '@/components/common/Code'
 import { WelcomeModal } from '@/components/common/WelcomeModal'
 import { readAll } from '@/lib/api/readAll'
+import { usePhotoPreparer } from '@/hooks/usePhotoPreparer'
 
 const PHOTO_LIMITS = { before: 15, after: 15, report: 10 }
 const PANEL_WIDTH = 520
@@ -469,10 +470,17 @@ function LockedSummary({ cleaning }: { cleaning: any }) {
 // Editable pieces (until the admin approves the cleaning)
 // ─────────────────────────────────────────────────────────────
 
-function PickPhotoButtons({ onFiles, multiple = false }: { onFiles: (e: any) => void; multiple?: boolean }) {
+function PickPhotoButtons({ onFiles, multiple = false, busyText }: { onFiles: (e: any) => void; multiple?: boolean; busyText?: string }) {
   const cameraRef = useRef(null)
   const galleryRef = useRef(null)
   const button = 'flex items-center justify-center gap-2 h-10 rounded-md border border-dashed border-border text-foreground text-xs font-medium hover:bg-muted/60 active:bg-muted transition-colors'
+  if (busyText) {
+    return (
+      <p role="status" className="flex items-center justify-center gap-2 h-10 rounded-md border border-dashed border-border text-foreground text-xs font-medium">
+        <Loader2 size={14} className="animate-spin" /> {busyText}
+      </p>
+    )
+  }
   return (
     <>
       <input ref={cameraRef} type="file" accept="image/jpeg,image/png,image/webp" capture="environment" multiple={multiple} className="hidden" onChange={onFiles} />
@@ -495,9 +503,10 @@ type PhotoGridLocalProps = {
   onAdd: (files: any) => void
   onRemoveExisting: (photo: any) => void
   onRemoveNew: (i: any) => void
+  busyText?: string
 }
 
-function PhotoGridLocal({ existing = [], newFiles = [], limit = 15, onAdd, onRemoveExisting, onRemoveNew }: PhotoGridLocalProps) {
+function PhotoGridLocal({ existing = [], newFiles = [], limit = 15, onAdd, onRemoveExisting, onRemoveNew, busyText }: PhotoGridLocalProps) {
   const total = existing.length + newFiles.length
   const { map: signedMap } = useSignedUrls(existing)
 
@@ -533,7 +542,7 @@ function PhotoGridLocal({ existing = [], newFiles = [], limit = 15, onAdd, onRem
           ))}
         </div>
       )}
-      {total < limit && <PickPhotoButtons onFiles={handleFiles} multiple />}
+      {total < limit && <PickPhotoButtons onFiles={handleFiles} multiple busyText={busyText} />}
     </div>
   )
 }
@@ -543,9 +552,10 @@ type SinglePhotoLocalProps = {
   newFile: any
   onPick: (f: any) => void
   onClear: () => void
+  busyText?: string
 }
 
-function SinglePhotoLocal({ existing, newFile, onPick, onClear }: SinglePhotoLocalProps) {
+function SinglePhotoLocal({ existing, newFile, onPick, onClear, busyText }: SinglePhotoLocalProps) {
   const { url: signedUrl, loading: signedLoading } = useSignedUrl(existing)
   const preview = newFile?.preview || signedUrl || null
 
@@ -566,7 +576,7 @@ function SinglePhotoLocal({ existing, newFile, onPick, onClear }: SinglePhotoLoc
     )
   }
   if (existing && signedLoading) return <Skeleton className="aspect-video w-full" />
-  return <PickPhotoButtons onFiles={handleFiles} />
+  return <PickPhotoButtons onFiles={handleFiles} busyText={busyText} />
 }
 
 type ListEditorProps = {
@@ -633,20 +643,21 @@ type UsedReplacedEditorProps = {
   onUsedItemsChange: (items: any) => void
   onReplacedItemsChange: (items: any) => void
   placeholder: string
+  busyText?: string
 }
 
 function UsedReplacedEditor({ used, replaced, onPickUsed, onPickReplaced, onClearUsed, onClearReplaced,
-  usedItems, replacedItems, onUsedItemsChange, onReplacedItemsChange, placeholder }: UsedReplacedEditorProps) {
+  usedItems, replacedItems, onUsedItemsChange, onReplacedItemsChange, placeholder, busyText }: UsedReplacedEditorProps) {
   return (
     <div className="divide-y divide-border">
       <div className="p-3">
         <SubLabel>Used</SubLabel>
-        <SinglePhotoLocal existing={used.existing} newFile={used.newFile} onPick={onPickUsed} onClear={onClearUsed} />
+        <SinglePhotoLocal existing={used.existing} newFile={used.newFile} onPick={onPickUsed} onClear={onClearUsed} busyText={busyText} />
         <div className="mt-3"><ListEditor items={usedItems} onChange={onUsedItemsChange} placeholder={placeholder} /></div>
       </div>
       <div className="p-3">
         <SubLabel>Replaced</SubLabel>
-        <SinglePhotoLocal existing={replaced.existing} newFile={replaced.newFile} onPick={onPickReplaced} onClear={onClearReplaced} />
+        <SinglePhotoLocal existing={replaced.existing} newFile={replaced.newFile} onPick={onPickReplaced} onClear={onClearReplaced} busyText={busyText} />
         <div className="mt-3"><ListEditor items={replacedItems} onChange={onReplacedItemsChange} placeholder={placeholder} /></div>
       </div>
     </div>
@@ -667,6 +678,7 @@ function CleaningPanel({ cleaning, onClose, onChanged }: CleaningPanelProps) {
   const panelMotion = useSidePanelMotion(PANEL_WIDTH)
   const [photoTab, setPhotoTab] = useState('before')
   const [submitting, setSubmitting] = useState(false)
+  const { prepare, busyText } = usePhotoPreparer(cleaning.id)
 
   const [keepBefore, setKeepBefore] = useState(() => Array.isArray(cleaning.photos_before) ? cleaning.photos_before : [])
   const [keepAfter, setKeepAfter] = useState(() => Array.isArray(cleaning.photos_after) ? cleaning.photos_after : [])
@@ -743,9 +755,10 @@ function CleaningPanel({ cleaning, onClose, onChanged }: CleaningPanelProps) {
   const isLocked = isApproved || isCancelled
 
   const toPreview = (file) => ({ file, preview: URL.createObjectURL(file) })
-  const handleAddBefore = (files) => setNewBefore((p) => [...p, ...files.map(toPreview)])
-  const handleAddAfter = (files) => setNewAfter((p) => [...p, ...files.map(toPreview)])
-  const handleAddReport = (files) => setNewReport((p) => [...p, ...files.map(toPreview)])
+  const handleAddBefore = (files) => prepare(files, (photos) => setNewBefore((p) => [...p, ...photos.map(toPreview)]))
+  const handleAddAfter = (files) => prepare(files, (photos) => setNewAfter((p) => [...p, ...photos.map(toPreview)]))
+  const handleAddReport = (files) => prepare(files, (photos) => setNewReport((p) => [...p, ...photos.map(toPreview)]))
+  const pickOne = (setter) => (file) => prepare([file], ([photo]) => setter(toPreview(photo)))
 
   const removeNew = (setter) => (i) => {
     setter((p) => {
@@ -892,9 +905,9 @@ function CleaningPanel({ cleaning, onClose, onChanged }: CleaningPanelProps) {
                   <StatusTabs tabs={photoTabs} value={photoTab} onChange={setPhotoTab} counts={photoCounts} label="Photo set" fill />
                 </div>
                 <div className="p-3">
-                  {photoTab === 'before' && <PhotoGridLocal existing={keepBefore} newFiles={newBefore} limit={PHOTO_LIMITS.before} onAdd={handleAddBefore} onRemoveExisting={handleRemoveExisting(setKeepBefore, keepBefore)} onRemoveNew={removeNew(setNewBefore)} />}
-                  {photoTab === 'after' && <PhotoGridLocal existing={keepAfter} newFiles={newAfter} limit={PHOTO_LIMITS.after} onAdd={handleAddAfter} onRemoveExisting={handleRemoveExisting(setKeepAfter, keepAfter)} onRemoveNew={removeNew(setNewAfter)} />}
-                  {photoTab === 'report' && <PhotoGridLocal existing={keepReport} newFiles={newReport} limit={PHOTO_LIMITS.report} onAdd={handleAddReport} onRemoveExisting={handleRemoveExisting(setKeepReport, keepReport)} onRemoveNew={removeNew(setNewReport)} />}
+                  {photoTab === 'before' && <PhotoGridLocal existing={keepBefore} newFiles={newBefore} limit={PHOTO_LIMITS.before} onAdd={handleAddBefore} onRemoveExisting={handleRemoveExisting(setKeepBefore, keepBefore)} onRemoveNew={removeNew(setNewBefore)} busyText={busyText} />}
+                  {photoTab === 'after' && <PhotoGridLocal existing={keepAfter} newFiles={newAfter} limit={PHOTO_LIMITS.after} onAdd={handleAddAfter} onRemoveExisting={handleRemoveExisting(setKeepAfter, keepAfter)} onRemoveNew={removeNew(setNewAfter)} busyText={busyText} />}
+                  {photoTab === 'report' && <PhotoGridLocal existing={keepReport} newFiles={newReport} limit={PHOTO_LIMITS.report} onAdd={handleAddReport} onRemoveExisting={handleRemoveExisting(setKeepReport, keepReport)} onRemoveNew={removeNew(setNewReport)} busyText={busyText} />}
                 </div>
               </DetailSection>
 
@@ -902,8 +915,8 @@ function CleaningPanel({ cleaning, onClose, onChanged }: CleaningPanelProps) {
                 <UsedReplacedEditor
                   used={{ existing: amenitiesUsedExisting, newFile: amenitiesUsedFile }}
                   replaced={{ existing: amenitiesReplacedExisting, newFile: amenitiesReplacedFile }}
-                  onPickUsed={(f) => setAmenitiesUsedFile({ file: f, preview: URL.createObjectURL(f) })}
-                  onPickReplaced={(f) => setAmenitiesReplacedFile({ file: f, preview: URL.createObjectURL(f) })}
+                  onPickUsed={pickOne(setAmenitiesUsedFile)}
+                  onPickReplaced={pickOne(setAmenitiesReplacedFile)}
                   onClearUsed={() => { setAmenitiesUsedFile(null); setAmenitiesUsedExisting(null) }}
                   onClearReplaced={() => { setAmenitiesReplacedFile(null); setAmenitiesReplacedExisting(null) }}
                   usedItems={amenitiesUsedItems}
@@ -911,6 +924,7 @@ function CleaningPanel({ cleaning, onClose, onChanged }: CleaningPanelProps) {
                   onUsedItemsChange={setAmenitiesUsedItems}
                   onReplacedItemsChange={setAmenitiesReplacedItems}
                   placeholder="e.g. Coffee, Water"
+                  busyText={busyText}
                 />
               </DetailSection>
 
@@ -918,8 +932,8 @@ function CleaningPanel({ cleaning, onClose, onChanged }: CleaningPanelProps) {
                 <UsedReplacedEditor
                   used={{ existing: laundryUsedExisting, newFile: laundryUsedFile }}
                   replaced={{ existing: laundryReplacedExisting, newFile: laundryReplacedFile }}
-                  onPickUsed={(f) => setLaundryUsedFile({ file: f, preview: URL.createObjectURL(f) })}
-                  onPickReplaced={(f) => setLaundryReplacedFile({ file: f, preview: URL.createObjectURL(f) })}
+                  onPickUsed={pickOne(setLaundryUsedFile)}
+                  onPickReplaced={pickOne(setLaundryReplacedFile)}
                   onClearUsed={() => { setLaundryUsedFile(null); setLaundryUsedExisting(null) }}
                   onClearReplaced={() => { setLaundryReplacedFile(null); setLaundryReplacedExisting(null) }}
                   usedItems={laundryUsedItems}
@@ -927,6 +941,7 @@ function CleaningPanel({ cleaning, onClose, onChanged }: CleaningPanelProps) {
                   onUsedItemsChange={setLaundryUsedItems}
                   onReplacedItemsChange={setLaundryReplacedItems}
                   placeholder="e.g. Bath towel, Bedsheet"
+                  busyText={busyText}
                 />
               </DetailSection>
 
@@ -968,10 +983,10 @@ function CleaningPanel({ cleaning, onClose, onChanged }: CleaningPanelProps) {
 
         {!isLocked && (
           <div className="flex-shrink-0 border-t border-border p-3">
-            <button type="button" onClick={handleSubmit} disabled={submitting}
+            <button type="button" onClick={handleSubmit} disabled={submitting || !!busyText}
               className="w-full h-10 rounded-md bg-brand-solid text-white font-semibold text-[13px] flex items-center justify-center gap-2 hover:opacity-90 active:scale-[0.99] transition disabled:opacity-50">
               <Send size={15} />
-              {submitting ? 'Submitting…' : effective === 'submitted' ? 'Resubmit' : 'Submit cleaning'}
+              {submitting ? 'Submitting…' : busyText ? 'Preparing photos…' : effective === 'submitted' ? 'Resubmit' : 'Submit cleaning'}
             </button>
           </div>
         )}

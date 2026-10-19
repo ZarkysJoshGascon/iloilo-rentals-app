@@ -25,8 +25,8 @@ export default defineConfig({
     { name: 'phone', use: { ...devices['Pixel 7'], channel: 'chrome' } },
     // Other engines for the public site (installed with: npx playwright install firefox webkit).
     // WebKit is what Safari runs on iPhones and Macs.
-    { name: 'firefox', use: { ...devices['Desktop Firefox'] }, testMatch: /public-site|smoke/ },
-    { name: 'iphone-safari', use: { ...devices['iPhone 14'] }, testMatch: /public-site|smoke/ },
+    { name: 'firefox', use: { ...devices['Desktop Firefox'] }, testMatch: /public-site|smoke|photos/ },
+    { name: 'iphone-safari', use: { ...devices['iPhone 14'] }, testMatch: /public-site|smoke|photos/ },
   ],
   webServer: local
     ? { command: 'npx vite --port 5173 --strictPort', url: baseURL, reuseExistingServer: true, timeout: 60_000 }

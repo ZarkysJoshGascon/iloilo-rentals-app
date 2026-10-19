@@ -426,7 +426,7 @@ export default function ListPropertyPage() {
                       {uploading ? 'Uploading…' : 'Add photos'}
                     </span>
                     <span className="text-[10px] text-gray-400">
-                      {images.length}/{MAX_IMAGES} · JPEG, PNG, WebP · max 5 MB each
+                      {images.length}/{MAX_IMAGES} · JPEG, PNG or WebP
                     </span>
                   </label>
                 )}

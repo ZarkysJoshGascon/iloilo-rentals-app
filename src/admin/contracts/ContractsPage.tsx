@@ -47,6 +47,7 @@ import { crmLink } from '@/lib/domain/crmLinks'
 import { cleanFields } from '@/lib/domain/clean'
 import { DatePicker } from '@/components/crm/DatePicker'
 import { useRevealOnOpen } from '@/components/crm/useRevealOnOpen'
+import { preparePhoto, DOCUMENT_PHOTO } from '@/lib/images'
 
 const BRAND = 'var(--brand-solid)'
 
@@ -96,6 +97,19 @@ function pdfRandomId() {
   const bytes = new Uint8Array(8)
   crypto.getRandomValues(bytes)
   return Array.from(bytes).map((b) => b.toString(36).padStart(2, '0')).join('').slice(0, 12)
+}
+
+// What to store for a contract document: a PDF as it is (up to the size
+// limit), a photo of the paper as a sharp JPEG (phone photos are often over
+// the limit before they're shrunk).
+async function contractFileBody(file) {
+  const mime = await pdfSniffMime(file)
+  if (!mime || !PDF_ALLOWED_MIMES.has(mime)) throw new Error('Unsupported file. Use PDF, JPEG, PNG, or WebP.')
+  if (mime !== 'application/pdf') {
+    return { body: await preparePhoto(file, DOCUMENT_PHOTO), contentType: 'image/jpeg', ext: 'jpg' }
+  }
+  if (file.size > PDF_MAX_BYTES) throw new Error(`File too large (max ${pdfBytesLabel(PDF_MAX_BYTES)})`)
+  return { body: file, contentType: mime, ext: 'pdf' }
 }
 
 async function pdfSniffMime(file) {
@@ -868,35 +882,18 @@ function ContractPdfUploader({ contract, onSaved }: ContractPdfUploaderProps) {
     const file = e.target.files?.[0]
     if (!file) return
 
-    if (file.size > PDF_MAX_BYTES) {
-      toast.error(`File too large (max ${pdfBytesLabel(PDF_MAX_BYTES)})`)
-      if (inputRef.current) inputRef.current.value = ''
-      return
-    }
-
-    const mime = await pdfSniffMime(file)
-    if (!mime || !PDF_ALLOWED_MIMES.has(mime)) {
-      toast.error('Unsupported file. Use PDF, JPEG, PNG, or WebP.')
-      if (inputRef.current) inputRef.current.value = ''
-      return
-    }
-
     setUploading(true)
     try {
-      const ext = mime === 'application/pdf' ? 'pdf'
-        : mime === 'image/png' ? 'png'
-        : mime === 'image/webp' ? 'webp'
-        : 'jpg'
-
+      const { body, contentType, ext } = await contractFileBody(file)
       const newPath = `${contract.id}/${pdfRandomId()}.${ext}`
 
       const { error: upErr } = await supabase
         .storage
         .from(PDF_BUCKET)
-        .upload(newPath, file, {
+        .upload(newPath, body, {
           cacheControl: '31536000',
           upsert: false,
-          contentType: mime,
+          contentType,
         })
       if (upErr) throw upErr
 
@@ -922,7 +919,7 @@ function ContractPdfUploader({ contract, onSaved }: ContractPdfUploaderProps) {
       }
 
       logAudit('UPLOAD_CONTRACT_PDF', 'contracts', contract.id, {
-        filename: file.name, size: file.size, mime,
+        filename: file.name, size: body.size, mime: contentType,
       }).catch(() => {})
 
       toast.success('Contract uploaded')
@@ -1059,7 +1056,7 @@ function ContractPdfUploader({ contract, onSaved }: ContractPdfUploaderProps) {
             {uploading ? 'Uploading…' : 'Upload contract document'}
           </span>
           <span className="text-[10px]">
-            PDF, JPEG, PNG, WebP · max {pdfBytesLabel(PDF_MAX_BYTES)}
+            PDF up to {pdfBytesLabel(PDF_MAX_BYTES)}, or a photo
           </span>
         </button>
       )}
@@ -1118,15 +1115,12 @@ function ContractPdfUploader({ contract, onSaved }: ContractPdfUploaderProps) {
 // Checks and uploads a signed contract or addendum to the contract-pdfs
 // bucket, under the contract's folder. Returns the storage path.
 async function uploadContractFile(file, contractId, prefix = '') {
-  if (file.size > PDF_MAX_BYTES) throw new Error(`File too large (max ${pdfBytesLabel(PDF_MAX_BYTES)})`)
-  const mime = await pdfSniffMime(file)
-  if (!mime || !PDF_ALLOWED_MIMES.has(mime)) throw new Error('Unsupported file. Use PDF, JPEG, PNG, or WebP.')
-  const ext = mime === 'application/pdf' ? 'pdf' : mime === 'image/png' ? 'png' : mime === 'image/webp' ? 'webp' : 'jpg'
+  const { body, contentType, ext } = await contractFileBody(file)
   const path = `${contractId}/${prefix}${pdfRandomId()}.${ext}`
-  const { error } = await supabase.storage.from(PDF_BUCKET).upload(path, file, {
+  const { error } = await supabase.storage.from(PDF_BUCKET).upload(path, body, {
     cacheControl: '31536000',
     upsert: false,
-    contentType: mime,
+    contentType,
   })
   if (error) throw error
   return path
@@ -1255,7 +1249,7 @@ function FilePick({ file, onFile, label }: FilePickProps) {
           <Upload size={13} /> {label}
         </button>
       )}
-      <p className="text-[11px] text-foreground mt-1">PDF, JPEG, PNG or WebP · up to {pdfBytesLabel(PDF_MAX_BYTES)}</p>
+      <p className="text-[11px] text-foreground mt-1">PDF up to {pdfBytesLabel(PDF_MAX_BYTES)}, or a photo</p>
     </div>
   )
 }

@@ -4,6 +4,7 @@
 // ============================================================
 
 import { supabase } from '@/lib/supabase'
+import { preparePhoto } from '@/lib/images'
 
 // ------------------------------------------------------------
 // Constants — keep in sync with the Edge Function
@@ -214,13 +215,9 @@ export async function getCampaignDetails(campaignId) {
 
 export async function uploadCampaignImage(file) {
   if (!file) throw new Error('No file')
-  if (file.size > 5 * 1024 * 1024) throw new Error('Image must be under 5 MB')
-  if (!['image/jpeg', 'image/png', 'image/webp'].includes(file.type)) {
-    throw new Error('Only JPEG, PNG, or WebP images are allowed')
-  }
-
-  // ✅ FIX #34 — Pass maxH so tall images don't blow up the email layout.
-  const resized = await resizeImage(file, 1200, 0.85, 1800)
+  // Shrunk in the browser first (large phone photos are fine); at most 1800 px
+  // tall so tall images don't blow up the email layout.
+  const resized = await preparePhoto(file, { maxWidth: 1200, maxHeight: 1800, quality: 0.85 })
 
   const rand = crypto.getRandomValues(new Uint8Array(8))
     .reduce((s, b) => s + b.toString(36).padStart(2, '0'), '')
@@ -240,36 +237,6 @@ export async function uploadCampaignImage(file) {
   return { path, url: data.publicUrl }
 }
 
-// ✅ FIX #34 — maxH is optional and caps both dimensions.
-async function resizeImage(file, maxW, quality, maxH = null): Promise<Blob> {
-  const img = await new Promise<HTMLImageElement>((res, rej) => {
-    const i = new Image()
-    i.onload = () => res(i)
-    i.onerror = () => rej(new Error('Failed to load image'))
-    i.src = URL.createObjectURL(file)
-  })
-
-  let scale = Math.min(1, maxW / img.width)
-  if (maxH) scale = Math.min(scale, maxH / img.height)
-
-  const w = Math.round(img.width * scale)
-  const h = Math.round(img.height * scale)
-
-  const canvas = document.createElement('canvas')
-  canvas.width = w
-  canvas.height = h
-  const ctx = canvas.getContext('2d')
-  ctx.drawImage(img, 0, 0, w, h)
-  URL.revokeObjectURL(img.src)
-
-  return new Promise((res, rej) => {
-    canvas.toBlob(
-      (blob) => (blob ? res(blob) : rej(new Error('Resize failed'))),
-      'image/jpeg',
-      quality,
-    )
-  })
-}
 // ------------------------------------------------------------
 // Owner statements (send-contract-statement Edge Function)
 // ------------------------------------------------------------

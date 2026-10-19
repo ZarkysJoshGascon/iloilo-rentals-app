@@ -19,7 +19,7 @@ import { Input } from '@/components/ui/input'
 import { Skeleton } from '@/components/ui/skeleton'
 import { supabase } from '@/lib/supabase'
 import { logAudit } from '@/lib/api/auditLog'
-import { compressImage } from '@/lib/api/cleanings'
+import { preparePhoto, PHOTO } from '@/lib/images'
 import { cn, sanitizeMoney, sanitizeText, CLEANING_WINDOW, STAY_TIMES } from '@/lib/utils'
 import {
   computeLifetime,
@@ -327,7 +327,7 @@ function recomputeStatement(statement, patch) {
 // Receipts are stored as JPEGs of at most 1600 px, so the owner's Excel
 // statement can show them and stays small enough to email.
 async function uploadExpenseImage(file, contractId) {
-  const photo = await compressImage(file, { maxDimension: 1600, quality: 0.75 })
+  const photo = await preparePhoto(file, PHOTO)
   const random = Math.random().toString(36).slice(2, 10)
   const path = `${contractId}/${Date.now()}_${random}.jpg`
   const { error } = await supabase.storage.from(EXPENSE_BUCKET).upload(path, photo, {

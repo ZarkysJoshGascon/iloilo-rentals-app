@@ -770,7 +770,7 @@ function ComposeView({
                 className="w-full flex flex-col items-center justify-center gap-1.5 py-5 rounded-md border-2 border-dashed border-border text-foreground hover:bg-muted/40 transition-colors disabled:opacity-50">
                 {uploadingImage ? <Loader2 size={16} className="animate-spin" /> : <ImageIcon size={16} />}
                 <span className="text-[12px] font-semibold">{uploadingImage ? 'Uploading…' : 'Add a hero image'}</span>
-                <span className="text-[11px]">JPEG, PNG or WebP · up to 5 MB</span>
+                <span className="text-[11px]">JPEG, PNG or WebP</span>
               </button>
             )}
           </div>

@@ -2,63 +2,22 @@
 import { supabase } from '@/lib/supabase'
 import { uploadPublicFormPhoto, signedInFormHeaders } from './publicUploads'
 import { cleanFields } from '@/lib/domain/clean'
+import { preparePhoto } from '@/lib/images'
 
 const IMG_BUCKET = 'property-inquiry-images'
-const MAX_FILE_BYTES = 5 * 1024 * 1024
-const ALLOWED_MIMES = ['image/jpeg', 'image/png', 'image/webp']
+// Shrunk in the browser first, so large phone photos (iPhones' are often
+// over 5 MB) are fine.
+const FORM_PHOTO = { maxWidth: 1400, maxHeight: 2400, quality: 0.85 }
 
 // ------------------------------------------------------------
 // Image upload (public — anyone can submit an inquiry)
 // ------------------------------------------------------------
 export async function uploadInquiryImage(file) {
   if (!file) throw new Error('No file')
-  if (file.size > MAX_FILE_BYTES) throw new Error('Image must be under 5 MB')
-  if (!ALLOWED_MIMES.includes(file.type)) {
-    throw new Error('Only JPEG, PNG, or WebP images are allowed')
-  }
-
-  // Magic byte check — verify the file's actual contents
-  const head = new Uint8Array(await file.slice(0, 12).arrayBuffer())
-  const hex = Array.from(head).map((b) => b.toString(16).padStart(2, '0')).join('')
-  const isJpeg = hex.startsWith('ffd8ff')
-  const isPng  = hex.startsWith('89504e470d0a1a0a')
-  const isWebp = hex.startsWith('52494646') && hex.slice(16, 24) === '57454250'
-
-  if (!isJpeg && !isPng && !isWebp) {
-    throw new Error('File is not a valid image')
-  }
-
-  const resized = await resizeImage(file, 1400, 0.85)
+  const resized = await preparePhoto(file, FORM_PHOTO)
 
   // Through a one-time upload link: visitors can't write to the bucket directly.
-  return uploadPublicFormPhoto('property', resized as Blob)
-}
-
-async function resizeImage(file, maxW, quality) {
-  const img = await new Promise<HTMLImageElement>((res, rej) => {
-    const i = new Image()
-    i.onload = () => res(i)
-    i.onerror = () => rej(new Error('Failed to load image'))
-    i.src = URL.createObjectURL(file)
-  })
-  const scale = Math.min(1, maxW / img.width)
-  const w = Math.round(img.width * scale)
-  const h = Math.round(img.height * scale)
-
-  const canvas = document.createElement('canvas')
-  canvas.width = w
-  canvas.height = h
-  const ctx = canvas.getContext('2d')
-  ctx.drawImage(img, 0, 0, w, h)
-  URL.revokeObjectURL(img.src)
-
-  return new Promise((res, rej) => {
-    canvas.toBlob(
-      (blob) => (blob ? res(blob) : rej(new Error('Resize failed'))),
-      'image/jpeg',
-      quality,
-    )
-  })
+  return uploadPublicFormPhoto('property', resized)
 }
 
 // ------------------------------------------------------------

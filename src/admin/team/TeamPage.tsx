@@ -34,6 +34,7 @@ import { cleanFields } from '@/lib/domain/clean'
 import { DatePicker } from '@/components/crm/DatePicker'
 import { revealOnMount } from '@/components/crm/useRevealOnOpen'
 import { readAll } from '@/lib/api/readAll'
+import { preparePhoto, DOCUMENT_PHOTO } from '@/lib/images'
 
 const BRAND = 'var(--brand-solid)'
 const SOFT_SHADOW = '0 20px 40px -16px rgba(15,23,42,0.24), 0 6px 16px -6px rgba(15,23,42,0.10)'
@@ -1645,15 +1646,9 @@ function PMPdfUploader({ pmContract, onSaved }: PMPdfUploaderProps) {
     const file = e.target.files?.[0]
     if (!file) return
 
-    if (file.size > PM_PDF_MAX_BYTES) {
-      toast.error(`File too large (max ${pmPdfBytesLabel(PM_PDF_MAX_BYTES)})`)
-      if (inputRef.current) inputRef.current.value = ''
-      return
-    }
-
-    let buffer
+    let head: Uint8Array
     try {
-      buffer = await file.arrayBuffer()
+      head = new Uint8Array(await file.slice(0, 12).arrayBuffer())
     } catch (err) {
       console.error('File read failed:', err)
       toast.error('Could not read file. Try again.')
@@ -1661,7 +1656,6 @@ function PMPdfUploader({ pmContract, onSaved }: PMPdfUploaderProps) {
       return
     }
 
-    const head = new Uint8Array(buffer.slice(0, 12))
     const hex = Array.from(head).map((b) => b.toString(16).padStart(2, '0')).join('')
     let mime = null
     if (hex.startsWith('25504446')) mime = 'application/pdf'
@@ -1674,23 +1668,28 @@ function PMPdfUploader({ pmContract, onSaved }: PMPdfUploaderProps) {
       if (inputRef.current) inputRef.current.value = ''
       return
     }
+    // A PDF is stored as it is; a photo of the paper is shrunk to a sharp JPEG
+    // first (phone photos are often over the limit before they're shrunk).
+    const isPdf = mime === 'application/pdf'
+    if (isPdf && file.size > PM_PDF_MAX_BYTES) {
+      toast.error(`File too large (max ${pmPdfBytesLabel(PM_PDF_MAX_BYTES)})`)
+      if (inputRef.current) inputRef.current.value = ''
+      return
+    }
 
     setUploading(true)
     try {
-      const ext = mime === 'application/pdf' ? 'pdf'
-        : mime === 'image/png' ? 'png'
-        : mime === 'image/webp' ? 'webp'
-        : 'jpg'
-
-      const newPath = `pm_contracts/${pmContract.id}/${pmPdfRandomId()}.${ext}`
+      const body = isPdf ? file : await preparePhoto(file, DOCUMENT_PHOTO)
+      const contentType = isPdf ? mime : 'image/jpeg'
+      const newPath = `pm_contracts/${pmContract.id}/${pmPdfRandomId()}.${isPdf ? 'pdf' : 'jpg'}`
 
       const { error: upErr } = await supabase
         .storage
         .from(PM_PDF_BUCKET)
-        .upload(newPath, buffer, {
+        .upload(newPath, body, {
           cacheControl: '31536000',
           upsert: false,
-          contentType: mime,
+          contentType,
         })
       if (upErr) throw upErr
 
@@ -1712,7 +1711,7 @@ function PMPdfUploader({ pmContract, onSaved }: PMPdfUploaderProps) {
       }
 
       logAudit('UPLOAD_PM_PDF', 'pm_contracts', pmContract.id, {
-        filename: file.name, size: file.size, mime,
+        filename: file.name, size: body.size, mime: contentType,
       }).catch(() => {})
 
       toast.success('PDF uploaded')
