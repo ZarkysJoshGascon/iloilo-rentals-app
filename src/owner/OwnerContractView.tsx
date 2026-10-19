@@ -396,6 +396,13 @@ export default function OwnerContractView({ contractId, contracts, onOpen, onBac
         </div>
       </div>
 
+      {contract.records_cleared_at && (
+        <p role="status" className="text-[12px] text-foreground border border-border rounded-md px-3 py-2">
+          This term's bookings and cleanings were archived on {formatDate(String(contract.records_cleared_at).slice(0, 10))}, so the figures
+          below no longer show them. The statement has the full record.
+        </p>
+      )}
+
       {/* Term to date */}
       <StatStrip cols={5}>
         <StatTile icon={TrendingUp} label="Gross income" value={formatPeso(totals.gross)} valueClassName={MONEY_TILE}

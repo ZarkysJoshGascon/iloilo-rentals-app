@@ -267,9 +267,13 @@ async function callStatementFunction(contractId, mode, extra = {}) {
   return data
 }
 
-/** Builds the Excel statement and saves it in the browser, to check before sending. */
+/**
+ * Builds the Excel statement and saves it in the browser, to check before
+ * sending. Once a contract's records are cleared it's the copy kept then
+ * (`archived`).
+ */
 export async function downloadContractStatement(contractId) {
-  const { filename, file, warnings } = await callStatementFunction(contractId, 'download')
+  const { filename, file, warnings, archived } = await callStatementFunction(contractId, 'download')
   const bytes = Uint8Array.from(atob(file), (c) => c.charCodeAt(0))
   const blob = new Blob([bytes], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' })
   const url = URL.createObjectURL(blob)
@@ -280,7 +284,7 @@ export async function downloadContractStatement(contractId) {
   a.click()
   a.remove()
   setTimeout(() => URL.revokeObjectURL(url), 1000)
-  return { filename, warnings: warnings || [] }
+  return { filename, warnings: warnings || [], archived: !!archived }
 }
 
 /** Emails the Excel statement to the contract's owner (ended contracts only). */
@@ -293,7 +297,7 @@ export async function listContractStatements(contractId) {
   if (!contractId) return []
   const { data, error } = await supabase
     .from('contract_statements')
-    .select('id, sent_to, status, sent_at, created_at, error_message, sent_by_email')
+    .select('id, sent_to, status, sent_at, created_at, error_message, sent_by_email, automatic, drive_url')
     .eq('contract_id', contractId)
     .order('created_at', { ascending: false })
     .limit(10)

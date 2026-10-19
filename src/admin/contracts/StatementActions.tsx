@@ -1,12 +1,16 @@
 // src/admin/contracts/StatementActions.tsx
 // The owner's Excel statement for a contract: download it to check, and
 // once the contract has ended, email it to the owner. Shows when it was
-// last sent. Used on the Contracts panel and the Accounting contract page.
+// last sent, and the nightly close-out (src/lib/domain/closeout.ts): the
+// automatic email, and when the term's bookings and cleanings are cleared.
+// Used on the Contracts panel and the Accounting contract page.
 import { useCallback, useEffect, useState } from 'react'
 import { Download, Loader2, Send } from 'lucide-react'
 import toast from 'react-hot-toast'
 import { cn } from '@/lib/utils'
 import { downloadContractStatement, sendContractStatement, listContractStatements } from '@/lib/api/email'
+import { closeoutState, CLEAR_AFTER_DAYS } from '@/lib/domain/closeout'
+import { manilaToday } from '@/admin/dashboard/workLog'
 
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
 
@@ -32,6 +36,36 @@ function describeWarnings(warnings, max = 6) {
   return lines.join('\n')
 }
 
+const LINK = 'underline underline-offset-2 hover:text-brand-solid'
+
+// The close-out line under the send status.
+function CloseoutLine({ contract, history }: { contract: any; history: any[] }) {
+  const state = closeoutState(contract, history, manilaToday())
+  const line = 'text-[11px] text-foreground'
+  switch (state.kind) {
+    case 'running':
+      return <p className={line}>Emailed automatically the night after it ends. Its bookings and cleanings are cleared {CLEAR_AFTER_DAYS} days after that, and a copy of the statement is kept.</p>
+    case 'to-send':
+      return <p className={line}>Will be emailed automatically tonight.</p>
+    case 'held':
+      return <p className={line}><span className="font-semibold text-red-600 dark:text-red-400">Not emailed automatically</span> · {state.reason}</p>
+    case 'clears-on':
+      return <p className={line}>Bookings and cleanings will be cleared on {formatWhen(state.date)}. A copy of the statement is kept.</p>
+    case 'waiting':
+      return <p className={line}><span className="font-semibold text-amber-600 dark:text-amber-400">Not cleared yet</span> · {state.note}</p>
+    case 'cleared':
+      return (
+        <p className={line}>
+          <span className="font-semibold">Records cleared</span> on {formatWhen(state.at)}: {state.bookings} bookings, {state.cleanings} cleanings, {state.photos} photos.
+          {' '}Download Excel gives the copy kept then.
+          {contract.records_archive_drive_url && <> · <a href={contract.records_archive_drive_url} target="_blank" rel="noreferrer" className={LINK}>Copy in Google Drive</a></>}
+        </p>
+      )
+    default:
+      return null
+  }
+}
+
 type StatementActionsProps = {
   contract: any
   compact?: boolean
@@ -46,6 +80,7 @@ export function StatementActions({ contract, compact = false, className }: State
   const [history, setHistory] = useState([])
 
   const ended = !!contract?.expiry_date && contract.expiry_date < todayISO()
+  const cleared = !!contract?.records_cleared_at
   const ownerEmail = String(contract?.owners?.email || '').trim()
   const hasEmail = EMAIL_RE.test(ownerEmail)
   const lastSent = history.find((h) => h.status === 'sent') || null
@@ -62,8 +97,10 @@ export function StatementActions({ contract, compact = false, className }: State
   const download = async () => {
     setBusy('download')
     try {
-      const { warnings } = await downloadContractStatement(contract.id)
-      if (warnings.length > 0) {
+      const { warnings, archived } = await downloadContractStatement(contract.id)
+      if (archived) {
+        toast.success('Downloaded the copy kept when the records were cleared')
+      } else if (warnings.length > 0) {
         toast(
           `Downloaded, but some months differ from the Accounting page:\n${describeWarnings(warnings, 3)}`,
           { icon: '⚠️', duration: 10000, style: { whiteSpace: 'pre-line', maxWidth: 460 } },
@@ -108,7 +145,9 @@ export function StatementActions({ contract, compact = false, className }: State
     }
   }
 
-  const sendBlockedReason = !ended
+  const sendBlockedReason = cleared
+    ? "This contract's records were cleared. Download the kept copy and forward it."
+    : !ended
     ? 'The statement can be emailed once the contract has ended'
     : !hasEmail
       ? 'The owner has no email address. Add one in Registry.'
@@ -147,8 +186,9 @@ export function StatementActions({ contract, compact = false, className }: State
       <p className="text-[11px] text-foreground">
         {lastSent ? (
           <>
-            <span className="font-semibold text-emerald-600 dark:text-emerald-400">Sent</span>
+            <span className="font-semibold text-emerald-600 dark:text-emerald-400">Sent{lastSent.automatic ? ' automatically' : ''}</span>
             {' '}to {lastSent.sent_to} on {formatWhen(lastSent.sent_at)}
+            {lastSent.drive_url && <> · <a href={lastSent.drive_url} target="_blank" rel="noreferrer" className={LINK}>Copy in Google Drive</a></>}
           </>
         ) : lastFailed ? (
           <>
@@ -165,6 +205,7 @@ export function StatementActions({ contract, compact = false, className }: State
           `Can be emailed once the contract ends${hasEmail ? ` · goes to ${ownerEmail}` : ''}`
         )}
       </p>
+      <CloseoutLine contract={contract} history={history} />
     </div>
   )
 }
