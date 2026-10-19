@@ -4,7 +4,7 @@ import { motion, AnimatePresence } from 'framer-motion'
 import {
   Megaphone, Search, RefreshCw, X, Send, Image as ImageIcon,
   Loader2, Check, AlertTriangle, Users, History,
-  Mail, ChevronLeft, ChevronRight, Info, Trash2, MailCheck,
+  Mail, ChevronLeft, ChevronRight, Info, Trash2, MailCheck, FlaskConical,
 } from 'lucide-react'
 import toast from 'react-hot-toast'
 import { Button } from '@/components/ui/button'
@@ -17,11 +17,14 @@ import {
   listPastGuests,
   listCampaigns,
   sendPromoCampaign,
+  sendPromoTest,
+  previewPromo,
+  getCampaignDetails,
   uploadCampaignImage,
 } from '@/lib/api/email'
 import { StatusTabs } from '@/components/crm/StatusTabs'
 import { StatStrip, StatTile } from '@/components/crm/StatStrip'
-import { Panel, PanelHeader, InitialsAvatar } from '@/components/crm/Panel'
+import { Panel, PanelHeader, InitialsAvatar, SectionLabel } from '@/components/crm/Panel'
 import { SearchKeyHint, useListShortcuts, useListCap } from '@/components/crm/listTools'
 import { DateRangeFilter } from '@/components/crm/DateRangeFilter'
 import { Code } from '@/components/common/Code'
@@ -30,6 +33,54 @@ const BRAND = 'var(--brand-solid)'
 const SOFT_SHADOW = '0 20px 40px -16px rgba(15,23,42,0.24), 0 6px 16px -6px rgba(15,23,42,0.10)'
 const PAGE_SIZE = 25
 const MAX_RECIPIENTS = 500
+
+// The email being written is kept on this device, so a refresh or a closed tab
+// doesn't lose it. Cleared once the campaign is sent.
+const DRAFT_KEY = 'crm.campaignDraft.v1'
+
+function readDraft() {
+  try {
+    const d = JSON.parse(localStorage.getItem(DRAFT_KEY) || 'null')
+    return d && typeof d === 'object' ? d : {}
+  } catch {
+    return {}
+  }
+}
+
+function saveDraft(draft) {
+  try {
+    const empty = !draft.campaignName && !draft.subject && !draft.body && !draft.heroImage
+    if (empty) localStorage.removeItem(DRAFT_KEY)
+    else localStorage.setItem(DRAFT_KEY, JSON.stringify(draft))
+  } catch {
+    // Storage blocked (private window): the draft just isn't kept.
+  }
+}
+
+// Emails shown in the CRM are pictures only: links are switched off, so
+// clicking "Unsubscribe" in a preview can't unsubscribe a real guest.
+function inertEmailHtml(html) {
+  return String(html || '')
+    .replace(/href="[^"]*"/gi, 'href="#"')
+    .replace(/<\/head>/i, '<style>a{pointer-events:none;cursor:default}</style></head>')
+}
+
+type EmailFrameProps = {
+  html: string
+  title: string
+  className?: string
+}
+
+function EmailFrame({ html, title, className }: EmailFrameProps) {
+  return (
+    <iframe
+      title={title}
+      sandbox=""
+      srcDoc={inertEmailHtml(html)}
+      className={cn('w-full block bg-card', className)}
+    />
+  )
+}
 
 // ─────────────────────────────────────────────────────────────
 // Helpers
@@ -183,18 +234,26 @@ export default function CampaignsPage() {
   const [selected, setSelected] = useState(new Set())
   const [page, setPage] = useState(1)
 
-  const [campaignName, setCampaignName] = useState('')
-  const [subject, setSubject] = useState('')
-  const [greeting, setGreeting] = useState('Hi {{guest_name}},')
-  const [body, setBody] = useState('')
-  const [signoff1, setSignoff1] = useState('Warm regards,')
-  const [signoff2, setSignoff2] = useState('Iloilo Rentals')
-  const [replyTo, setReplyTo] = useState('')
-  const [heroImage, setHeroImage] = useState(null)
+  const [draft] = useState(readDraft)
+  const [campaignName, setCampaignName] = useState(draft.campaignName ?? '')
+  const [subject, setSubject] = useState(draft.subject ?? '')
+  const [greeting, setGreeting] = useState(draft.greeting ?? 'Hi {{guest_name}},')
+  const [body, setBody] = useState(draft.body ?? '')
+  const [signoff1, setSignoff1] = useState(draft.signoff1 ?? 'Warm regards,')
+  const [signoff2, setSignoff2] = useState(draft.signoff2 ?? 'Iloilo Rentals')
+  const [replyTo, setReplyTo] = useState(draft.replyTo ?? '')
+  const [heroImage, setHeroImage] = useState(draft.heroImage ?? null)
   const [uploadingImage, setUploadingImage] = useState(false)
 
   const [sending, setSending] = useState(false)
   const [sendProgress, setSendProgress] = useState(null)
+  const [testing, setTesting] = useState(false)
+
+  useEffect(() => {
+    const t = setTimeout(() => saveDraft({ campaignName, subject, greeting, body, signoff1, signoff2, replyTo, heroImage }), 400)
+    return () => clearTimeout(t)
+  }, [campaignName, subject, greeting, body, signoff1, signoff2, replyTo, heroImage])
+  const hasDraft = !!(campaignName || subject || body || heroImage)
 
   const [view, setView] = useState('compose')
   const [showConfirm, setShowConfirm] = useState(false)
@@ -367,6 +426,28 @@ export default function CampaignsPage() {
     setShowConfirm(true)
   }
 
+  // One copy to the signed-in admin's own inbox; no campaign is recorded.
+  const handleSendTest = async () => {
+    if (!subject.trim())  { toast.error('Subject is required');      return }
+    if (!greeting.trim()) { toast.error('Greeting is required');     return }
+    if (!body.trim())     { toast.error('Message body is required'); return }
+    setTesting(true)
+    try {
+      const res = await sendPromoTest(buildPayload())
+      toast.success(`Test sent to ${res?.sent_to || 'your inbox'}`)
+    } catch (err) {
+      console.error(err)
+      toast.error(err?.message || 'Test send failed')
+    } finally {
+      setTesting(false)
+    }
+  }
+
+  const handleDiscardDraft = () => {
+    if (!window.confirm('Discard this draft? The subject, message and image are cleared.')) return
+    resetForm()
+  }
+
   const handleSendReal = async () => {
     setShowConfirm(false)
     setSending(true)
@@ -471,6 +552,12 @@ export default function CampaignsPage() {
             sending={sending}
             sendProgress={sendProgress}
             onSend={handleOpenConfirm}
+            testing={testing}
+            onSendTest={handleSendTest}
+            hasDraft={hasDraft}
+            onDiscardDraft={handleDiscardDraft}
+            previewPayload={buildPayload()}
+            previewName={selectedGuests[0]?.name || 'Guest'}
           />
         ) : (
           <HistoryView campaigns={filteredCampaigns} totalCampaigns={campaigns.length} loading={loading} onDeleted={fetchData} />
@@ -531,7 +618,18 @@ type ComposeViewProps = {
   sending: boolean
   sendProgress: any
   onSend: () => void
+  testing: boolean
+  onSendTest: () => void
+  hasDraft: boolean
+  onDiscardDraft: () => void
+  previewPayload: any
+  previewName: string
 }
+
+const COMPOSE_TABS = [
+  { id: 'write', label: 'Write' },
+  { id: 'preview', label: 'Preview' },
+]
 
 function ComposeView({
   loading, filteredGuests, pageItems, page, setPage, totalPages, timeFilter, setTimeFilter,
@@ -539,9 +637,10 @@ function ComposeView({
   campaignName, setCampaignName, subject, setSubject, greeting, setGreeting,
   body, setBody, signoff1, setSignoff1, signoff2, setSignoff2, replyTo, setReplyTo,
   heroImage, setHeroImage, imageInputRef, uploadingImage, handleImagePick,
-  sending, sendProgress, onSend,
+  sending, sendProgress, onSend, testing, onSendTest, hasDraft, onDiscardDraft, previewPayload, previewName,
 }: ComposeViewProps) {
   const listCap = useListCap()
+  const [composeTab, setComposeTab] = useState('write')
   const labelClass = 'text-[11px] font-semibold text-foreground mb-1.5 block'
   const helpClass = 'text-[11px] text-foreground mt-1'
   const pagerButton = (disabled) => cn(
@@ -611,11 +710,16 @@ function ComposeView({
         <PanelHeader
           icon={Mail}
           title="Compose email"
-          subtitle={selectedCount > 0
-            ? `Going to ${selectedCount} guest${selectedCount === 1 ? '' : 's'}`
-            : 'Pick recipients on the left first'}
+          subtitle={[
+            selectedCount > 0 ? `Going to ${selectedCount} guest${selectedCount === 1 ? '' : 's'}` : 'Pick recipients on the left first',
+            hasDraft && 'Draft saved on this device',
+          ].filter(Boolean).join(' · ')}
+          action={<StatusTabs tabs={COMPOSE_TABS} value={composeTab} onChange={setComposeTab} label="Write or preview the email" />}
         />
 
+        {composeTab === 'preview' ? (
+          <EmailPreview payload={previewPayload} previewName={previewName} />
+        ) : (
         <div className="p-5 space-y-4">
           <div>
             <label className={labelClass}>Campaign name *</label>
@@ -694,7 +798,15 @@ function ComposeView({
               Each guest gets their own email with <Placeholder /> filled in, plus an unsubscribe link. Guests who unsubscribe won't get future campaigns.
             </p>
           </div>
+
+          {hasDraft && (
+            <button type="button" onClick={onDiscardDraft} disabled={sending}
+              className="text-[11px] font-semibold text-foreground hover:text-red-600 hover:underline underline-offset-2 transition-colors disabled:opacity-50">
+              Discard draft
+            </button>
+          )}
         </div>
+        )}
 
         <div className="flex-shrink-0 border-t border-border px-5 py-3 flex items-center justify-between gap-2">
           <p className="text-[12px] text-foreground hidden sm:block truncate">
@@ -703,6 +815,11 @@ function ComposeView({
               : 'Select recipients on the left to continue'}
           </p>
           <div className="flex items-center gap-2 ml-auto flex-shrink-0">
+            <Button variant="outline" size="sm" className="h-9 rounded-md text-xs gap-1.5"
+              onClick={onSendTest} disabled={testing || sending} title="Send one copy to your own inbox">
+              {testing ? <Loader2 size={12} className="animate-spin" /> : <FlaskConical size={12} />}
+              {testing ? 'Sending test…' : 'Send me a test'}
+            </Button>
             <Button size="sm" className="h-9 rounded-md text-xs gap-1.5 text-white" style={{ backgroundColor: BRAND }}
               onClick={onSend} disabled={sending || selectedCount === 0}>
               {sending ? <Loader2 size={12} className="animate-spin" /> : <Send size={12} />}
@@ -769,8 +886,11 @@ function HistoryView({ campaigns, totalCampaigns, loading, onDeleted }: HistoryV
   }
 
   const busy = clearingAll || deletingId !== null
+  const [openId, setOpenId] = useState(null)
+  const open = campaigns.find((c) => c.id === openId) || null
 
   return (
+    <div className={cn('grid grid-cols-1 gap-4 items-start', open && 'lg:grid-cols-[minmax(0,1fr)_minmax(0,1.2fr)]')}>
     <Panel>
       <PanelHeader
         icon={History}
@@ -800,11 +920,14 @@ function HistoryView({ campaigns, totalCampaigns, loading, onDeleted }: HistoryV
           campaigns.map((c) => {
             const isDeleting = deletingId === c.id
             const hasFailures = (c.failed_count || 0) > 0
+            const isOpen = c.id === openId
             return (
               <div key={c.id} data-row
-                className={cn('group/history px-5 py-3 border-b border-border last:border-0 transition-colors flex items-start gap-3',
-                  isDeleting ? 'opacity-50' : 'hover:bg-muted/40')}>
-                <div className="min-w-0 flex-1">
+                className={cn('relative group/history px-5 py-3 border-b border-border last:border-0 transition-colors flex items-start gap-3',
+                  isDeleting ? 'opacity-50' : isOpen ? 'bg-muted/50' : 'hover:bg-muted/40')}>
+                {isOpen && <span aria-hidden className="absolute top-2 bottom-2 left-0 w-[3px] rounded-r bg-brand-solid" />}
+                <button type="button" onClick={() => setOpenId(isOpen ? null : c.id)} aria-expanded={isOpen}
+                  className="min-w-0 flex-1 text-left cursor-pointer" title="See the email and who got it">
                   <div className="flex items-start justify-between gap-3 mb-1.5">
                     <div className="min-w-0 flex-1">
                       <p className="text-[13px] font-semibold text-foreground truncate">{c.name}</p>
@@ -818,7 +941,7 @@ function HistoryView({ campaigns, totalCampaigns, loading, onDeleted }: HistoryV
                     {hasFailures && <span className="inline-flex items-center gap-1 font-semibold text-red-600 dark:text-red-400"><AlertTriangle size={11} /> {c.failed_count} failed</span>}
                     <span className="ml-auto">{fmtDateTime(c.sent_at || c.created_at)}</span>
                   </div>
-                </div>
+                </button>
                 <button type="button" onClick={() => handleDeleteOne(c)} disabled={isDeleting || clearingAll}
                   className={cn('flex-shrink-0 p-1.5 rounded-md transition-all opacity-0 group-hover/history:opacity-100 focus-visible:opacity-100',
                     'text-foreground hover:text-red-600 hover:bg-muted',
@@ -832,6 +955,164 @@ function HistoryView({ campaigns, totalCampaigns, loading, onDeleted }: HistoryV
         )}
       </div>
     </Panel>
+    {open && <CampaignDetail key={open.id} campaign={open} onClose={() => setOpenId(null)} />}
+    </div>
+  )
+}
+
+const DELIVERY_TEXT = {
+  sent:   { label: 'Sent',    className: 'text-emerald-600 dark:text-emerald-400' },
+  failed: { label: 'Failed',  className: 'text-red-600 dark:text-red-400' },
+  queued: { label: 'Queued',  className: 'text-amber-600 dark:text-amber-400' },
+}
+
+const DELIVERY_TABS = [
+  { id: 'all', label: 'All' },
+  { id: 'sent', label: 'Sent' },
+  { id: 'failed', label: 'Failed' },
+]
+
+type CampaignDetailProps = {
+  campaign: any
+  onClose: () => void
+}
+
+// A sent campaign: the email as it went out, and how each recipient's copy went.
+function CampaignDetail({ campaign, onClose }: CampaignDetailProps) {
+  const [state, setState] = useState({ loading: true, html: '', replyTo: null, recipients: [], error: null })
+  const [filter, setFilter] = useState('all')
+
+  useEffect(() => {
+    let cancelled = false
+    getCampaignDetails(campaign.id)
+      .then((d) => { if (!cancelled) setState({ loading: false, error: null, ...d }) })
+      .catch((err) => {
+        console.error('Campaign details failed:', err)
+        if (!cancelled) setState((s) => ({ ...s, loading: false, error: err?.message || 'Could not load this campaign' }))
+      })
+    return () => { cancelled = true }
+  }, [campaign.id])
+
+  const counts = useMemo(() => {
+    const c = { all: state.recipients.length, sent: 0, failed: 0 }
+    for (const r of state.recipients) if (c[r.status] != null) c[r.status]++
+    return c
+  }, [state.recipients])
+  const shown = filter === 'all' ? state.recipients : state.recipients.filter((r) => r.status === filter)
+
+  return (
+    <Panel className="lg:sticky lg:top-0">
+      <PanelHeader
+        icon={Mail}
+        title={campaign.name}
+        subtitle={[fmtDateTime(campaign.sent_at || campaign.created_at), campaign.created_by_email && `by ${campaign.created_by_email}`].filter(Boolean).join(' · ')}
+        action={
+          <button type="button" onClick={onClose} aria-label="Close" className="p-1.5 rounded-md text-foreground hover:bg-muted/60 flex-shrink-0">
+            <X size={14} />
+          </button>
+        }
+      />
+
+      <div className="px-5 py-3 border-b border-border space-y-1 text-[12px] text-foreground">
+        <p className="break-words"><span className="font-semibold">Subject:</span> {campaign.subject}</p>
+        {state.replyTo && <p className="break-words"><span className="font-semibold">Replies go to:</span> {state.replyTo}</p>}
+      </div>
+
+      {state.loading ? (
+        <div className="p-5 space-y-3">
+          <Skeleton className="h-[360px] w-full" />
+          <Skeleton className="h-10 w-full" />
+        </div>
+      ) : state.error ? (
+        <p className="px-5 py-6 text-[12px] font-semibold text-red-600 dark:text-red-400">{state.error}</p>
+      ) : (
+        <>
+          {state.html ? (
+            <div className="border-b border-border">
+              <p className="px-5 pt-3 text-[11px] font-semibold text-foreground">The email as sent (the first recipient's copy)</p>
+              <div className="p-3 pt-2">
+                <EmailFrame html={state.html} title={`Email for ${campaign.name}`} className="h-[420px] rounded-md border border-border" />
+              </div>
+            </div>
+          ) : (
+            <p className="px-5 py-4 text-[12px] text-foreground border-b border-border">No copy of the email was kept for this campaign.</p>
+          )}
+
+          <div className="px-5 py-3 border-b border-border">
+            <StatusTabs tabs={DELIVERY_TABS} value={filter} onChange={setFilter} counts={counts} label="Filter recipients" />
+          </div>
+          <div className="max-h-[360px] overflow-y-auto">
+            <SectionLabel title="Recipients" count={shown.length} />
+            {shown.length === 0 ? (
+              <p className="px-5 py-4 text-[12px] text-foreground">Nobody here.</p>
+            ) : (
+              shown.map((r) => {
+                const d = DELIVERY_TEXT[r.status] || { label: r.status || '—', className: 'text-foreground' }
+                return (
+                  <div key={r.id} className="px-5 py-2.5 border-b border-border last:border-0">
+                    <div className="flex items-center gap-3 min-w-0">
+                      <InitialsAvatar name={r.guest_name || r.guest_email} size="sm" />
+                      <div className="min-w-0 flex-1">
+                        <p className="text-[12.5px] font-semibold text-foreground truncate">{r.guest_name || 'Guest'}</p>
+                        <p className="text-[11px] text-foreground truncate">{r.guest_email}</p>
+                      </div>
+                      <span className={cn('text-[11.5px] font-semibold whitespace-nowrap', d.className)}>{d.label}</span>
+                    </div>
+                    {r.status === 'failed' && r.error_message && (
+                      <p className="mt-1 pl-10 text-[11px] text-red-600 dark:text-red-400 break-words">{r.error_message}</p>
+                    )}
+                  </div>
+                )
+              })
+            )}
+          </div>
+        </>
+      )}
+    </Panel>
+  )
+}
+
+type EmailPreviewProps = {
+  payload: any
+  previewName: string
+}
+
+// The email exactly as the send function builds it, refreshed as you type.
+function EmailPreview({ payload, previewName }: EmailPreviewProps) {
+  const [state, setState] = useState({ loading: true, html: '', subject: '', error: null })
+  const key = JSON.stringify({ ...payload, preview_name: previewName })
+
+  useEffect(() => {
+    let cancelled = false
+    setState((s) => ({ ...s, loading: true }))
+    const t = setTimeout(() => {
+      previewPromo(JSON.parse(key))
+        .then((res) => { if (!cancelled) setState({ loading: false, error: null, html: res?.html || '', subject: res?.subject || '' }) })
+        .catch((err) => { if (!cancelled) setState((s) => ({ ...s, loading: false, error: err?.message || 'Preview failed' })) })
+    }, 500)
+    return () => { cancelled = true; clearTimeout(t) }
+  }, [key])
+
+  return (
+    <div className="p-5 space-y-3">
+      <div className="space-y-1 text-[12px] text-foreground">
+        <p className="break-words">
+          <span className="font-semibold">Subject:</span>{' '}
+          {state.subject || <span className="text-foreground/75">No subject yet</span>}
+        </p>
+        <p className="text-[11px]">As {previewName} will see it. Links are switched off here.</p>
+      </div>
+      <div className="relative rounded-md border border-border overflow-hidden">
+        {state.html ? (
+          <EmailFrame html={state.html} title="Email preview" className={cn('h-[640px] transition-opacity', state.loading && 'opacity-60')} />
+        ) : (
+          <div className="h-[640px] flex items-center justify-center">
+            {state.loading && <Loader2 size={18} className="animate-spin text-foreground" />}
+          </div>
+        )}
+      </div>
+      {state.error && <p className="text-[12px] font-semibold text-red-600 dark:text-red-400">{state.error}</p>}
+    </div>
   )
 }
 

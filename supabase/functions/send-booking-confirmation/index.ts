@@ -7,8 +7,9 @@
 import { serve } from 'https://deno.land/std@0.168.0/http/server.ts'
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2'
 import { corsHeaders } from '../_shared/cors.ts'
+import { EMAIL_LOGO_URL } from '../_shared/brand.ts'
 
-const RESEND_API_KEY        = Deno.env.get('RESEND_API_KEY')
+const RESEND_API_KEY       = Deno.env.get('RESEND_API_KEY')
 const SUPABASE_URL          = Deno.env.get('SUPABASE_URL')
 const SUPABASE_SERVICE_ROLE = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')
 const FROM_EMAIL            = Deno.env.get('FROM_EMAIL')     || 'onboarding@resend.dev'
@@ -19,7 +20,7 @@ const BRAND_COLOR           = Deno.env.get('BRAND_COLOR')    || '#2d568e'
 // ════════════════════════════════════════════════════════════════════
 // LOGO URL — public Supabase Storage URL. Must load in a browser.
 // ════════════════════════════════════════════════════════════════════
-const LOGO_URL = 'https://mlksustamjaxfpolazgw.supabase.co/storage/v1/object/public/hero-images/Iloilo_Rentals_img.png'
+const LOGO_URL = EMAIL_LOGO_URL
 
 const CHECKIN_TIME  = '3:00 PM'
 const CHECKOUT_TIME = '11:00 AM'

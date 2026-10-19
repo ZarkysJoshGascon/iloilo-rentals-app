@@ -5,6 +5,7 @@
 import { serve } from 'https://deno.land/std@0.168.0/http/server.ts'
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2'
 import { corsHeaders } from '../_shared/cors.ts'
+import { EMAIL_LOGO_URL } from '../_shared/brand.ts'
 
 const RESEND_API_KEY        = Deno.env.get('RESEND_API_KEY')
 const SUPABASE_URL          = Deno.env.get('SUPABASE_URL')
@@ -14,7 +15,7 @@ const FROM_NAME             = Deno.env.get('FROM_NAME')       || 'Iloilo Rentals
 const DEFAULT_REPLY_TO      = Deno.env.get('REPLY_TO_EMAIL')  || null
 const BRAND_COLOR           = Deno.env.get('BRAND_COLOR')     || '#2d568e'
 const PUBLIC_SITE_URL       = Deno.env.get('PUBLIC_SITE_URL') || 'https://iloilorental.com'
-const LOGO_URL              = Deno.env.get('EMAIL_LOGO_URL')  || ''
+const LOGO_URL              = Deno.env.get('EMAIL_LOGO_URL')  || EMAIL_LOGO_URL
 
 if (!RESEND_API_KEY)        throw new Error('RESEND_API_KEY is required')
 if (!SUPABASE_URL)          throw new Error('SUPABASE_URL is required')
@@ -407,9 +408,82 @@ serve(async (req) => {
       imageUrl = imageUrlRaw
     }
 
+    // 'preview' returns the email as a guest would see it, without sending.
+    // 'test' sends one copy to the signed-in admin, outside any campaign.
+    const mode = p.mode === 'preview' || p.mode === 'test' ? p.mode : 'send'
+
+    if (mode === 'preview') {
+      const tokens = { guest_name: sanitizeText(p.preview_name, 120) || 'Guest', guest_email: '' }
+      const html = renderPromoHtml({
+        greeting: applyTokens(greeting || 'Hi {{guest_name}},', tokens),
+        bodyHtml: bodyToHtml(applyTokens(bodyRaw, tokens)),
+        signoff1, signoff2,
+        imageUrl, imageAlt,
+        unsubscribeUrl: `${PUBLIC_SITE_URL}/unsubscribe`,
+      })
+      return json({ ok: true, subject: applyTokens(subject, tokens), html })
+    }
+
     if (!subject)  return json({ error: 'Subject is required' }, 400)
     if (!greeting) return json({ error: 'Greeting is required' }, 400)
     if (!bodyRaw)  return json({ error: 'Message body is required' }, 400)
+
+    if (mode === 'test') {
+      const to = (user.email || '').toLowerCase()
+      if (!EMAIL_RE.test(to)) return json({ error: 'Your account has no email address to send a test to' }, 400)
+      const { data: profile } = await supabase.from('profiles').select('full_name').eq('id', user.id).maybeSingle()
+      const tokens = { guest_name: profile?.full_name || to.split('@')[0], guest_email: to }
+      const testSubject = `[Test] ${applyTokens(subject, tokens)}`
+      const html = renderPromoHtml({
+        greeting: applyTokens(greeting, tokens),
+        bodyHtml: bodyToHtml(applyTokens(bodyRaw, tokens)),
+        signoff1, signoff2,
+        imageUrl, imageAlt,
+        unsubscribeUrl: null,
+      })
+      const text = renderPromoText({
+        greeting: applyTokens(greeting, tokens),
+        body: applyTokens(bodyRaw, tokens),
+        signoff1, signoff2,
+        unsubscribeUrl: null,
+      })
+
+      const { data: logRow } = await supabase
+        .from('email_logs')
+        .insert({
+          booking_id: null,
+          guest_email: to,
+          guest_name: tokens.guest_name,
+          subject: testSubject,
+          body_html: html,
+          body_text: text,
+          reply_to: replyTo,
+          template_key: 'promo_test',
+          status: 'queued',
+          sent_by: user.id,
+          sent_by_email: user.email,
+        })
+        .select('id')
+        .single()
+
+      try {
+        const res = await sendOneEmail({ to, subject: testSubject, html, text, replyTo })
+        if (logRow) {
+          await supabase.from('email_logs').update({
+            status: 'sent', resend_id: res?.id || null, sent_at: new Date().toISOString(),
+          }).eq('id', logRow.id)
+        }
+        return json({ ok: true, sent_to: to })
+      } catch (err: any) {
+        console.error('test send failed:', err)
+        if (logRow) {
+          await supabase.from('email_logs').update({
+            status: 'failed', error_message: String(err?.message || err).slice(0, 500),
+          }).eq('id', logRow.id)
+        }
+        return json({ error: 'The test email could not be sent' }, 502)
+      }
+    }
 
     const recipients = Array.isArray(p.recipients) ? p.recipients : []
     if (recipients.length === 0) return json({ error: 'No recipients selected' }, 400)

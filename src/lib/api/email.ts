@@ -158,7 +158,9 @@ export async function listCampaigns(limit = 50) {
   return data || []
 }
 
-export async function sendPromoTest(payload) {
+// One endpoint, three modes: 'preview' returns the email's HTML, 'test' sends
+// one copy to the signed-in admin, 'send' sends the campaign.
+async function callPromoFunction(payload, mode, failLabel) {
   const { data: { session } } = await supabase.auth.getSession()
   if (!session) throw new Error('Not signed in')
 
@@ -170,32 +172,44 @@ export async function sendPromoTest(payload) {
         'Content-Type': 'application/json',
         Authorization: `Bearer ${session.access_token}`,
       },
-      body: JSON.stringify({ ...payload, mode: 'test' }),
+      body: JSON.stringify({ ...payload, mode }),
     },
   )
   const data = await res.json().catch(() => ({}))
-  if (!res.ok) throw new Error(data?.error || `Test send failed (${res.status})`)
+  if (!res.ok) throw new Error(data?.error || `${failLabel} (${res.status})`)
   return data
 }
 
-export async function sendPromoCampaign(payload) {
-  const { data: { session } } = await supabase.auth.getSession()
-  if (!session) throw new Error('Not signed in')
+export function previewPromo(payload) {
+  return callPromoFunction(payload, 'preview', 'Preview failed')
+}
 
-  const res = await fetch(
-    `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/send-promo-campaign`,
-    {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        Authorization: `Bearer ${session.access_token}`,
-      },
-      body: JSON.stringify({ ...payload, mode: 'send' }),
-    },
-  )
-  const data = await res.json().catch(() => ({}))
-  if (!res.ok) throw new Error(data?.error || `Send failed (${res.status})`)
-  return data
+export function sendPromoTest(payload) {
+  return callPromoFunction(payload, 'test', 'Test send failed')
+}
+
+export function sendPromoCampaign(payload) {
+  return callPromoFunction(payload, 'send', 'Send failed')
+}
+
+// A sent campaign: the email as the first recipient got it, and every
+// recipient with how their copy went.
+export async function getCampaignDetails(campaignId) {
+  const [campaign, logs] = await Promise.all([
+    supabase.from('email_campaigns').select('id, body_html, reply_to').eq('id', campaignId).maybeSingle(),
+    supabase.from('email_logs')
+      .select('id, guest_name, guest_email, status, error_message, sent_at')
+      .eq('campaign_id', campaignId)
+      .order('guest_name', { ascending: true })
+      .limit(600),
+  ])
+  if (campaign.error) throw campaign.error
+  if (logs.error) throw logs.error
+  return {
+    html: campaign.data?.body_html || '',
+    replyTo: campaign.data?.reply_to || null,
+    recipients: logs.data || [],
+  }
 }
 
 export async function uploadCampaignImage(file) {
