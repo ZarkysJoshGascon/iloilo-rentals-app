@@ -7,7 +7,7 @@ import {
   UserPlus, Users, Award, Mail, Phone, Edit2, User,
   Calendar, Building2,
   AlertTriangle, Pencil, Wallet, FileText, Eye, Upload, ExternalLink,
-  Lock, ShieldCheck, MessageCircle,
+  Lock, ShieldCheck,
 } from 'lucide-react'
 import toast from 'react-hot-toast'
 import { Button } from '@/components/ui/button'
@@ -27,7 +27,6 @@ import {
 } from '@/lib/api/staff'
 import { StatusTabs } from '@/components/crm/StatusTabs'
 import CrmAccessPanel from './CrmAccessPanel'
-import MessengerUpdatesPanel from './MessengerUpdatesPanel'
 import { StatStrip, StatTile } from '@/components/crm/StatStrip'
 import { ResultsBar, SearchKeyHint, useListShortcuts } from '@/components/crm/listTools'
 import { Code } from '@/components/common/Code'
@@ -49,8 +48,6 @@ const TABS = [
   { id: 'property_managers', label: 'Property managers',   icon: Building2 },
   // Not staff: who can open the CRM (and its backup sheet).
   { id: 'crm_access',        label: 'CRM access',          icon: ShieldCheck },
-  // Not staff: who gets the 8am Messenger update.
-  { id: 'messenger',         label: 'Daily updates',       icon: MessageCircle },
 ]
 
 // ============================================================
@@ -2555,13 +2552,6 @@ export default function TeamPage() {
   useEffect(() => {
     supabase.rpc('crm_access_list').then(({ data }) => { if (Array.isArray(data)) setAccessCount(data.length) })
   }, [])
-  // How many people are connected to the 8am Messenger update.
-  const [messengerCount, setMessengerCount] = useState(0)
-  useEffect(() => {
-    supabase.functions.invoke('messenger-team', { body: { mode: 'list' } }).then(({ data }) => {
-      if (Array.isArray(data?.people)) setMessengerCount(data.people.filter((p) => p.connected).length)
-    })
-  }, [])
   const [data, setData] = useState({ specialists: [], affiliates: [], housekeepers: [] })
   const [counts, setCounts] = useState({ specialists: {}, affiliates: {} })
   const [teamTotals, setTeamTotals] = useState({
@@ -2768,7 +2758,7 @@ export default function TeamPage() {
   const showSkeleton = loading
   const isPMTab = activeTab === 'property_managers'
   // Tabs that show a panel instead of people cards.
-  const isPanelTab = activeTab === 'crm_access' || activeTab === 'messenger'
+  const isPanelTab = activeTab === 'crm_access'
 
   const groupLabel = TABS.find((t) => t.id === activeTab)?.label || 'people'
   const totalInGroup = isPMTab ? pms.length : activeList.length
@@ -2803,7 +2793,6 @@ export default function TeamPage() {
               housekeepers: data.housekeepers.length,
               property_managers: pms.length,
               crm_access: accessCount,
-              messenger: messengerCount,
             }}
           />
           {!isPanelTab && (<>
@@ -2833,12 +2822,6 @@ export default function TeamPage() {
         {activeTab === 'crm_access' && (
           <div className="-mx-1 px-1 pb-2">
             <CrmAccessPanel onCount={setAccessCount} />
-          </div>
-        )}
-
-        {activeTab === 'messenger' && (
-          <div className="-mx-1 px-1 pb-2">
-            <MessengerUpdatesPanel onCount={setMessengerCount} />
           </div>
         )}
 
