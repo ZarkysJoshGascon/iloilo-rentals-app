@@ -16,7 +16,7 @@ import { createClient } from 'https://esm.sh/@supabase/supabase-js@2'
 import ExcelJS from 'npm:exceljs@4.4.0'
 import { corsHeaders } from '../_shared/cors.ts'
 import {
-  buildStatementWorkbook, computeMonth, computeTotals, enumerateMonths, formatDateText, monthLabel, round2,
+  BILLS, buildStatementWorkbook, computeMonth, computeTotals, enumerateMonths, formatDateText, imageInfo, monthLabel, round2,
 } from './workbook.js'
 
 const RESEND_API_KEY        = Deno.env.get('RESEND_API_KEY')
@@ -106,6 +106,42 @@ function nightsBetween(checkIn: string, checkOut: string): number {
 }
 
 // ---------------------------------------------------------------
+// Receipt photos, for the Receipts sheet. They are put in the file as they
+// were uploaded (the CRM stores new ones as JPEGs of at most 1600 px, about
+// 300 KB), with limits so the file can still be emailed: Resend takes up to
+// 40 MB, and attachments grow by a third when encoded.
+// ---------------------------------------------------------------
+const RECEIPTS_BUCKET = 'expense-proofs'
+const RECEIPT_MAX_BYTES = 5 * 1024 * 1024
+const RECEIPTS_MAX_BYTES = 20 * 1024 * 1024
+const SEE_PORTAL = 'It can be viewed in the owner portal.'
+
+async function attachReceiptPhotos(storage: any, months: any[]) {
+  const receipts = months.flatMap((m) => m.receipts)
+  let total = 0
+  for (let i = 0; i < receipts.length; i += 6) {
+    const batch = receipts.slice(i, i + 6)
+    if (total >= RECEIPTS_MAX_BYTES) {
+      for (const r of batch) r.note = `Left out to keep the file small enough to email. ${SEE_PORTAL}`
+      continue
+    }
+    const files = await Promise.all(batch.map((r: any) => storage.from(RECEIPTS_BUCKET).download(r.path).catch((error: any) => ({ error }))))
+    for (let j = 0; j < batch.length; j++) {
+      const r = batch[j]
+      const blob = files[j]?.data
+      if (!blob) { r.note = 'The photo could not be found.'; continue }
+      if (blob.size > RECEIPT_MAX_BYTES) { r.note = `The photo is too large to include. ${SEE_PORTAL}`; continue }
+      if (total + blob.size > RECEIPTS_MAX_BYTES) { r.note = `Left out to keep the file small enough to email. ${SEE_PORTAL}`; continue }
+      const bytes = new Uint8Array(await blob.arrayBuffer())
+      const info = imageInfo(bytes)
+      if (!info) { r.note = `Excel can't show this photo's format. ${SEE_PORTAL}`; continue }
+      r.image = { buffer: bytes, ...info }
+      total += bytes.length
+    }
+  }
+}
+
+// ---------------------------------------------------------------
 // Data for one contract term, read as the admin (RLS applies).
 // Every booking, cleaning and expense is grouped by month and the month's
 // figures are worked out from those rows, so the owner can trace every
@@ -114,7 +150,9 @@ function nightsBetween(checkIn: string, checkOut: string): number {
 // ---------------------------------------------------------------
 const DEFAULT_PM_PCT = 35
 
-async function loadStatement(db: any, contract: any) {
+// `storage` reads the receipt photos: the service client, since the caller's
+// right to this contract has been checked before this runs.
+async function loadStatement(db: any, contract: any, storage: any) {
   const start = contract.effective_date
   const end = contract.expiry_date || todayISO()
 
@@ -139,7 +177,7 @@ async function loadStatement(db: any, contract: any) {
       .lte('scheduled_date', end)
       .order('scheduled_date', { ascending: true }),
     db.from('contract_monthly_expenses')
-      .select('month, electricity, internet, water, marketing, custom_items')
+      .select('month, electricity, electricity_image, internet, internet_image, water, water_image, marketing, marketing_image, custom_items')
       .eq('contract_id', contract.id),
     db.from('pm_contracts')
       .select('pm_id, pm_share_of_company_pct, effective_date')
@@ -214,10 +252,16 @@ async function loadStatement(db: any, contract: any) {
       },
       other: (Array.isArray(manual.custom_items) ? manual.custom_items : [])
         .filter((x: any) => x && typeof x.name === 'string' && x.name.trim())
-        .map((x: any) => ({ name: x.name.slice(0, 80), amount: Number(x.amount) || 0 })),
+        .map((x: any) => ({ name: x.name.slice(0, 80), amount: Number(x.amount) || 0, receipt: typeof x.image === 'string' && x.image ? x.image : null })),
       pm: hasPm ? { name: crm.pm_name || null, pct: pmPctFor(crm.pm_id || null) } : null,
     }
     month.figures = computeMonth(month, split)
+    // Each bill or expense with a photo; the photos are fetched below.
+    month.receipts = [
+      ...BILLS.filter((b: any) => manual[`${b.key}_image`])
+        .map((b: any) => ({ item: b.label, amount: month.figures[b.key], ref: b.key, path: manual[`${b.key}_image`] })),
+      ...month.other.flatMap((o: any, i: number) => (o.receipt ? [{ item: o.name, amount: o.amount, ref: `other:${i}`, path: o.receipt }] : [])),
+    ]
 
     // Does the sheet agree with the Accounting page for this month?
     const f = month.figures
@@ -236,6 +280,8 @@ async function loadStatement(db: any, contract: any) {
   })
 
   const totals = computeTotals({ months, start, end })
+  await attachReceiptPhotos(storage, months)
+  const receiptPhotos = months.reduce((n: number, m: any) => n + m.receipts.filter((r: any) => r.image).length, 0)
 
   // Every booking and cleaning of the term in full, for the detail sheets.
   // Guest names are shown, as in the owner portal; guest emails and phone
@@ -313,6 +359,7 @@ async function loadStatement(db: any, contract: any) {
     },
     months,
     totals,
+    receiptPhotos,
     bookingDetails,
     cleaningDetails,
     warnings,
@@ -357,7 +404,7 @@ function renderHtml(data: any): string {
           <p style="margin:0 0 24px 0;font-size:14px;line-height:1.7;color:#3f3f46;">
             Your contract ${escapeHtml(contract.code || '')} for ${escapeHtml(unitLine || 'your unit')} has ended.
             Here is a summary of the term. The attached Excel file lists every booking, cleaning and expense
-            month by month, with how each month's net income and your share were worked out.
+            month by month, with how each month's net income and your share were worked out${data.receiptPhotos ? ', and photos of the receipts' : ''}.
           </p>
           <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0">
             ${row('Gross income', formatMoney(totals.gross))}
@@ -400,7 +447,7 @@ function renderText(data: any): string {
     `  Your share (${OWNER_SPLIT_PCT}%):  ${formatMoney(totals.ownerShare)}`,
     `  Bookings · nights:  ${totals.bookings} · ${totals.nights}`,
     '',
-    'The attached Excel file lists every booking, cleaning and expense month by month, with how each month was worked out.',
+    `The attached Excel file lists every booking, cleaning and expense month by month, with how each month was worked out${data.receiptPhotos ? ', and photos of the receipts' : ''}.`,
     'If anything looks off or you have questions, just reply to this email.',
     '',
     'Warm regards,',
@@ -487,7 +534,7 @@ serve(async (req) => {
       if (recent && recent.length > 0) return json({ error: 'A statement was just sent. Please wait a minute.' }, 429)
     }
 
-    const data = await loadStatement(db, contract)
+    const data = await loadStatement(db, contract, admin.storage)
 
     // Don't email figures that disagree with Accounting unless the admin says so.
     if (mode === 'send' && data.warnings.length > 0 && !force) {

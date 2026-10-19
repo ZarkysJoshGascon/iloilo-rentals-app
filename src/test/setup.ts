@@ -11,5 +11,6 @@ MotionGlobalConfig.skipAnimations = true
 afterEach(() => {
   cleanup()
   vi.useRealTimers()
-  localStorage.clear()
+  // Files marked `@vitest-environment node` have no browser storage.
+  if (typeof localStorage !== 'undefined') localStorage.clear()
 })

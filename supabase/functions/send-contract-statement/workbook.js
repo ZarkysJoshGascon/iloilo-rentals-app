@@ -8,6 +8,8 @@
 //   Month by month  every booking, cleaning and expense of each month, then
 //                   that month's computation as live formulas (gross → each
 //                   expense → net → owner / company / PM), each with a note
+//   Receipts        the photo of each bill and expense receipt, month by month
+//                   (each expense links to its photo)
 //   All bookings · All cleanings · All expenses   flat lists to sort and filter
 //   Booking details · Cleaning details   every booking and cleaning in full
 //                   (payments, commissions, times, cancellations, items used)
@@ -23,7 +25,7 @@ const PERCENT = '0%'
 const MONTH_NAMES = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December']
 const MONTH_SHORT = MONTH_NAMES.map((m) => m.slice(0, 3))
 
-const BILLS = [
+export const BILLS = [
   { key: 'electricity', label: 'Electricity' },
   { key: 'internet', label: 'Internet' },
   { key: 'water', label: 'Water' },
@@ -133,6 +135,64 @@ export function computeTotals({ months, start, end }) {
   totals.occupancy = days > 0 ? Math.min(1, totals.nights / days) : 0
   totals.pmMonths = months.filter((m) => m.pm).length
   return totals
+}
+
+// ── receipt photos ──────────────────────────────────────────
+/** Format and pixel size of a JPEG or PNG from its bytes; null for anything else. */
+export function imageInfo(bytes) {
+  if (!bytes || bytes.length < 24) return null
+  // PNG: the IHDR chunk right after the signature holds width and height.
+  if (bytes[0] === 0x89 && bytes[1] === 0x50 && bytes[2] === 0x4e && bytes[3] === 0x47) {
+    const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength)
+    return { extension: 'png', width: view.getUint32(16), height: view.getUint32(20) }
+  }
+  // JPEG: walk the markers to the frame header (SOF), which holds the size.
+  if (bytes[0] === 0xff && bytes[1] === 0xd8) {
+    let i = 2
+    while (i + 9 < bytes.length) {
+      if (bytes[i] !== 0xff) { i++; continue }
+      const marker = bytes[i + 1]
+      if (marker === 0xff) { i++; continue }
+      if (marker === 0x01 || (marker >= 0xd0 && marker <= 0xd8)) { i += 2; continue }
+      const sof = marker >= 0xc0 && marker <= 0xcf && marker !== 0xc4 && marker !== 0xc8 && marker !== 0xcc
+      if (sof) return { extension: 'jpeg', width: (bytes[i + 7] << 8) | bytes[i + 8], height: (bytes[i + 5] << 8) | bytes[i + 6] }
+      i += 2 + ((bytes[i + 2] << 8) | bytes[i + 3])
+    }
+  }
+  return null
+}
+
+// Largest size a photo is shown at, in pixels. Excel rows top out at 409 points
+// (545 px), and each photo sits in one row.
+const RECEIPT_BOX = { width: 420, height: 520 }
+
+function fitReceipt({ width, height }) {
+  const scale = Math.min(1, RECEIPT_BOX.width / width, RECEIPT_BOX.height / height)
+  return { width: Math.round(width * scale), height: Math.round(height * scale) }
+}
+
+/**
+ * Where each receipt goes on the Receipts sheet, worked out before any sheet
+ * is drawn so the expenses can link to it: 'YYYY-MM|ref' → row number.
+ */
+function receiptRows(months) {
+  const rows = new Map()
+  let row = 1 // the header
+  for (const m of months) {
+    if (!m.receipts?.length) continue
+    row++ // the month's banner
+    for (const r of m.receipts) rows.set(`${m.month}|${r.ref}`, ++row)
+  }
+  return rows
+}
+
+const LINK_FONT = { color: { argb: 'FF2563EB' }, underline: true }
+
+// The leading # makes it a jump within the file. Without it, Excel tries to
+// open a file called "Receipts!A3".
+function receiptLink(rows, month, ref) {
+  const row = rows.get(`${month}|${ref}`)
+  return row ? { text: 'See receipt', hyperlink: `#Receipts!A${row}` } : null
 }
 
 // ── styling ─────────────────────────────────────────────────
@@ -256,6 +316,8 @@ function addSummarySheet(wb, data, brand) {
   ws.addRow(['Nights booked', totals.nights])
   const occ = ws.addRow(['Occupancy', totals.occupancy])
   occ.getCell(2).numFmt = PERCENT
+  const photos = months.reduce((n, m) => n + (m.receipts || []).filter((r) => r.image).length, 0)
+  if (photos) ws.addRow(['Receipt photos (Receipts sheet)', photos])
   ws.addRow([])
 
   // One line per month, with a totals row of formulas.
@@ -284,9 +346,10 @@ function addSummarySheet(wb, data, brand) {
 }
 
 // ── Month by month ──────────────────────────────────────────
-function addLedgerSheet(wb, data, brand) {
+function addLedgerSheet(wb, data, brand, rows) {
   const { months, ownerSplitPct, companySplitPct } = data
-  const ws = wb.addWorksheet('Month by month', { views: [{ state: 'frozen', ySplit: 0 }] })
+  // No frozen panes: a frozen view with nothing frozen makes Excel repair the file.
+  const ws = wb.addWorksheet('Month by month')
   ws.columns = [
     { width: 34 }, { width: 14 }, { width: 14 }, { width: 9 }, { width: 12 },
     { width: 16 }, { width: 16 }, { width: 16 }, { width: 34 },
@@ -381,16 +444,24 @@ function addLedgerSheet(wb, data, brand) {
     groupHead('Bills and other expenses', ['Item', '', '', '', '', 'Amount'])
     const xFirst = ws.rowCount + 1
     const billRows = {}
+    const linkReceipt = (r, ref) => {
+      const link = receiptLink(rows, m.month, ref)
+      if (!link) return
+      r.getCell(9).value = link
+      r.getCell(9).font = LINK_FONT
+    }
     for (const b of BILLS) {
       const r = ws.addRow([b.label, '', '', '', '', f[b.key]])
       money(r.getCell(6))
+      linkReceipt(r, b.key)
       billRows[b.key] = r.number
     }
     const otherFirst = ws.rowCount + 1
-    for (const o of m.other) {
+    m.other.forEach((o, i) => {
       const r = ws.addRow([o.name, '', '', '', '', o.amount])
       money(r.getCell(6))
-    }
+      linkReceipt(r, `other:${i}`)
+    })
     const otherLast = ws.rowCount
     const xLast = ws.rowCount
     subtotal('Bills and other total', xFirst, xLast, [6], [
@@ -443,6 +514,42 @@ function addLedgerSheet(wb, data, brand) {
   }
 }
 
+// ── Receipts ────────────────────────────────────────────────
+function addReceiptsSheet(wb, data, brand, rows) {
+  const ws = wb.addWorksheet('Receipts', { views: [{ state: 'frozen', ySplit: 1 }] })
+  ws.columns = [
+    { header: 'Month', width: 12 }, { header: 'Item', width: 30 },
+    { header: 'Amount', width: 15 }, { header: 'Receipt', width: 64 },
+  ]
+  fillRow(ws.getRow(1), 1, 4, argb(brand), { bold: true, color: { argb: 'FFFFFFFF' } })
+  const noteFont = { italic: true, color: { argb: 'FF4B5563' } }
+
+  const months = data.months.filter((m) => m.receipts?.length)
+  if (months.length === 0) {
+    ws.addRow(['No receipt photos were uploaded for this term.']).getCell(1).font = noteFont
+    return
+  }
+  for (const m of months) {
+    const banner = ws.addRow([monthLabel(m.month, true)])
+    fillRow(banner, 1, 4, tint(brand), { bold: true })
+    for (const receipt of m.receipts) {
+      const r = ws.addRow([monthLabel(m.month), receipt.item, receipt.amount])
+      if (r.number !== rows.get(`${m.month}|${receipt.ref}`)) throw new Error('Receipt rows are out of step')
+      money(r.getCell(3))
+      r.alignment = { vertical: 'top' }
+      if (receipt.image) {
+        const size = fitReceipt(receipt.image)
+        const id = wb.addImage({ buffer: receipt.image.buffer, extension: receipt.image.extension })
+        ws.addImage(id, { tl: { col: 3, row: r.number - 1 }, ext: size })
+        r.height = Math.ceil(size.height * 0.75) + 6
+      } else {
+        r.getCell(4).value = receipt.note || 'The photo is not available.'
+        r.getCell(4).font = noteFont
+      }
+    }
+  }
+}
+
 // ── Flat lists ──────────────────────────────────────────────
 function addTable(wb, name, brand, columns, rows, totalsRow, { freezeFirstColumn = false } = {}) {
   const ws = wb.addWorksheet(name, { views: [{ state: 'frozen', ySplit: 1, xSplit: freezeFirstColumn ? 1 : 0 }] })
@@ -461,7 +568,9 @@ function addTable(wb, name, brand, columns, rows, totalsRow, { freezeFirstColumn
 /**
  * data: {
  *   contract: { code, unitCode, building, ownerName, start, end, previousEnds },
- *   months: [{ month, bookings, cancelled, cleanings, bills, other, pm, figures }],
+ *   months: [{ month, bookings, cancelled, cleanings, bills, other, pm, figures,
+ *     receipts: [{ item, amount, ref ('electricity' … or 'other:<index>'),
+ *       image: { buffer, extension, width, height } | null, note }] }],
  *   bookingDetails: [{ code, guest, guests, checkIn, checkOut, nights, checkoutTime, checkedOut,
  *     amount, paid, balance, paymentStatus, payments, booker, bookerRate, bookerComm,
  *     affiliate, affiliateRate, affiliateComm, afterCommissions, status, cancelledOn,
@@ -479,8 +588,10 @@ export function buildStatementWorkbook(ExcelJS, data) {
   wb.created = toDate(data.preparedOn) || new Date()
   wb.calcProperties = { fullCalcOnLoad: true }
 
+  const rows = receiptRows(data.months)
   addSummarySheet(wb, data, brand)
-  addLedgerSheet(wb, data, brand)
+  addLedgerSheet(wb, data, brand, rows)
+  addReceiptsSheet(wb, data, brand, rows)
 
   const moneyCol = (header, key, width = 15) => ({ header, key, width, style: { numFmt: MONEY } })
   const dateCol = (header, key) => ({ header, key, width: 14, style: { numFmt: DATE } })
@@ -529,8 +640,14 @@ export function buildStatementWorkbook(ExcelJS, data) {
   )
 
   const expenses = data.months.flatMap((m) => [
-    ...BILLS.filter((b) => m.figures[b.key]).map((b) => ({ month: monthLabel(m.month), category: 'Bill', name: b.label, amount: m.figures[b.key] })),
-    ...m.other.map((o) => ({ month: monthLabel(m.month), category: 'Other', name: o.name, amount: o.amount })),
+    ...BILLS.filter((b) => m.figures[b.key]).map((b) => ({
+      month: monthLabel(m.month), category: 'Bill', name: b.label, amount: m.figures[b.key],
+      receipt: receiptLink(rows, m.month, b.key),
+    })),
+    ...m.other.map((o, i) => ({
+      month: monthLabel(m.month), category: 'Other', name: o.name, amount: o.amount,
+      receipt: receiptLink(rows, m.month, `other:${i}`),
+    })),
   ])
   addTable(
     wb, 'All expenses', brand,
@@ -539,6 +656,7 @@ export function buildStatementWorkbook(ExcelJS, data) {
       { header: 'Category', key: 'category', width: 12 },
       { header: 'Item', key: 'name', width: 32 },
       moneyCol('Amount', 'amount'),
+      { header: 'Receipt', key: 'receipt', width: 14, style: { font: LINK_FONT } },
     ],
     expenses,
     {

@@ -19,6 +19,7 @@ import { Input } from '@/components/ui/input'
 import { Skeleton } from '@/components/ui/skeleton'
 import { supabase } from '@/lib/supabase'
 import { logAudit } from '@/lib/api/auditLog'
+import { compressImage } from '@/lib/api/cleanings'
 import { cn, sanitizeMoney, sanitizeText, CLEANING_WINDOW, STAY_TIMES } from '@/lib/utils'
 import {
   computeLifetime,
@@ -323,12 +324,15 @@ function recomputeStatement(statement, patch) {
 }
 
 // ─── Storage helpers ─────────────────────────────────────────
+// Receipts are stored as JPEGs of at most 1600 px, so the owner's Excel
+// statement can show them and stays small enough to email.
 async function uploadExpenseImage(file, contractId) {
-  const ext = (file.name?.split('.').pop() || 'jpg').slice(0, 6).toLowerCase()
+  const photo = await compressImage(file, { maxDimension: 1600, quality: 0.75 })
   const random = Math.random().toString(36).slice(2, 10)
-  const path = `${contractId}/${Date.now()}_${random}.${ext}`
-  const { error } = await supabase.storage.from(EXPENSE_BUCKET).upload(path, file, {
+  const path = `${contractId}/${Date.now()}_${random}.jpg`
+  const { error } = await supabase.storage.from(EXPENSE_BUCKET).upload(path, photo, {
     cacheControl: '31536000',
+    contentType: 'image/jpeg',
     upsert: false,
   })
   if (error) throw error
@@ -2166,7 +2170,7 @@ function ExpenseImageControl({ path, onUpload, onRemove, contractId, size = 'md'
       toast.success('Image uploaded')
     } catch (err) {
       console.error(err)
-      toast.error('Failed to upload')
+      toast.error(err?.message || 'Failed to upload')
     } finally {
       setUploading(false)
       if (inputRef.current) inputRef.current.value = ''
