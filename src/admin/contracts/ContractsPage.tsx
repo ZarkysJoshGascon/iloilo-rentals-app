@@ -276,7 +276,7 @@ function NewContractModal({ open, onClose, onCreated, units, owners, contracts }
   }
 
   const labelClass = 'text-[10px] uppercase tracking-wider text-foreground font-semibold mb-1.5 block'
-  const inputClass = 'h-9 text-xs rounded-md'
+  const inputClass = 'h-9 text-xs rounded-md w-full'
 
   const noEligible = eligibleUnits.length === 0
   const onlyBlockedByNoOwner = noEligible && blockedNoOwner.length > 0 && blockedHasContract.length === 0
@@ -289,16 +289,19 @@ function NewContractModal({ open, onClose, onCreated, units, owners, contracts }
         initial={{ opacity: 0, scale: 0.98 }}
         animate={{ opacity: 1, scale: 1 }}
         transition={{ duration: 0.15 }}
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="new-contract-title"
         className="relative bg-card rounded-lg shadow-2xl max-w-lg w-full max-h-[92vh] flex flex-col overflow-hidden border border-border"
       >
         <div className="flex items-center justify-between px-5 py-3 border-b border-border flex-shrink-0">
           <div>
-            <h2 className="text-sm font-bold text-foreground">New Contract</h2>
+            <h2 id="new-contract-title" className="text-sm font-bold text-foreground">New Contract</h2>
             <p className="text-[11px] text-foreground mt-0.5">
               Only units without a contract and with an owner attached are listed. To continue a unit's contract, open it and use Extend or Renew.
             </p>
           </div>
-          <button onClick={onClose} className="p-1 rounded hover:bg-muted transition-colors"><X size={16} /></button>
+          <button aria-label="Close" onClick={onClose} className="p-1 rounded hover:bg-muted transition-colors"><X size={16} /></button>
         </div>
 
         <div className="flex-1 overflow-y-auto px-5 py-4 space-y-4">
@@ -342,7 +345,7 @@ function NewContractModal({ open, onClose, onCreated, units, owners, contracts }
           <div>
             <label className={labelClass}>Unit *</label>
             <Select value={form.unit_id} onValueChange={(v) => setField('unit_id', v)} disabled={noEligible}>
-              <SelectTrigger className={inputClass}>
+              <SelectTrigger aria-label="Unit" className={inputClass}>
                 <SelectValue placeholder={noEligible ? 'No eligible units' : 'Select a unit…'}>
                   {selectedUnit
                     ? `${selectedUnit.building || '—'} — ${selectedUnit.unit_code || '—'}`
@@ -576,7 +579,7 @@ function FilterPanel({
         <div>
           <p className="text-[10px] uppercase tracking-wider text-foreground font-semibold mb-1.5">Building</p>
           <Select value={building} onValueChange={setBuilding} items={buildingItems}>
-            <SelectTrigger className="h-8 text-xs rounded"><SelectValue placeholder="All buildings" /></SelectTrigger>
+            <SelectTrigger aria-label="Building" className="h-8 text-xs rounded w-full"><SelectValue placeholder="All buildings" /></SelectTrigger>
             <SelectContent>
               <SelectItem value="all" className="text-xs">All buildings</SelectItem>
               {buildings.map((b) => <SelectItem key={b} value={b} className="text-xs">{b}</SelectItem>)}
@@ -586,7 +589,7 @@ function FilterPanel({
         <div>
           <p className="text-[10px] uppercase tracking-wider text-foreground font-semibold mb-1.5">Owner</p>
           <Select value={ownerId} onValueChange={setOwnerId} items={ownerItems}>
-            <SelectTrigger className="h-8 text-xs rounded"><SelectValue placeholder="All owners" /></SelectTrigger>
+            <SelectTrigger aria-label="Owner" className="h-8 text-xs rounded w-full"><SelectValue placeholder="All owners" /></SelectTrigger>
             <SelectContent>
               <SelectItem value="all" className="text-xs">All owners</SelectItem>
               {owners.map((o) => <SelectItem key={o.id} value={o.id} className="text-xs">{o.name}</SelectItem>)}
@@ -596,7 +599,7 @@ function FilterPanel({
         <div>
           <p className="text-[10px] uppercase tracking-wider text-foreground font-semibold mb-1.5">Unit</p>
           <Select value={unitId} onValueChange={setUnitId} items={unitItems}>
-            <SelectTrigger className="h-8 text-xs rounded"><SelectValue placeholder="All units" /></SelectTrigger>
+            <SelectTrigger aria-label="Unit" className="h-8 text-xs rounded w-full"><SelectValue placeholder="All units" /></SelectTrigger>
             <SelectContent>
               <SelectItem value="all" className="text-xs">All units</SelectItem>
               {sortedUnits.map((u) => (
@@ -801,7 +804,7 @@ function EditableField({ label, value, type = 'text', options, onSave, auditTag,
               }
             }}
           >
-            <SelectTrigger className="h-7 text-xs rounded bg-background border-border flex-1"><SelectValue /></SelectTrigger>
+            <SelectTrigger aria-label={label} className="h-7 text-xs rounded bg-background border-border flex-1"><SelectValue /></SelectTrigger>
             <SelectContent>{options.map((o) => <SelectItem key={o} value={o} className="text-xs">{o}</SelectItem>)}</SelectContent>
           </Select>
         ) : (
@@ -2176,6 +2179,7 @@ export default function ContractsPage() {
               className="h-9 rounded-md text-xs text-white transition-all duration-150 active:scale-[0.98]"
               style={{ backgroundColor: BRAND }}
               onClick={() => setNewModalOpen(true)}
+              aria-label="Add contract"
             >
               <Plus size={13} />
               <span className="hidden sm:inline ml-1">Add Contract</span>

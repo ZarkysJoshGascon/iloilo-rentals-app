@@ -11,7 +11,7 @@ import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Textarea } from '@/components/ui/textarea'
 import { Skeleton } from '@/components/ui/skeleton'
-import { cn } from '@/lib/utils'
+import { cn, manilaDateISO } from '@/lib/utils'
 import { supabase } from '@/lib/supabase'
 import {
   listPastGuests,
@@ -192,7 +192,8 @@ function RecipientRow({ guest, checked, onToggle, disabled }: RecipientRowProps)
         'w-full text-left px-5 py-3 border-b border-border last:border-0 transition-colors flex items-center gap-3',
         disabled ? 'opacity-50 cursor-not-allowed' : checked ? 'bg-brand-solid/5 hover:bg-brand-solid/10' : 'hover:bg-muted/40',
       )}>
-      <input type="checkbox" checked={checked} readOnly tabIndex={-1}
+      {/* Just a picture of the row's state: the row is the button (aria-pressed). */}
+      <input type="checkbox" checked={checked} readOnly tabIndex={-1} aria-hidden
         className="rounded border-border flex-shrink-0 pointer-events-none w-4 h-4 accent-[var(--brand-solid)]" />
       <InitialsAvatar name={guest.name} size="sm" />
       <div className="min-w-0 flex-1">
@@ -305,7 +306,7 @@ export default function CampaignsPage() {
       const months = Number(timeFilter)
       const d = new Date()
       d.setMonth(d.getMonth() - months)
-      return d.toISOString().slice(0, 10)
+      return manilaDateISO(d)
     })()
 
     return guests.filter((g) => {

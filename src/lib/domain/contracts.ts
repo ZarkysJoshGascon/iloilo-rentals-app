@@ -11,6 +11,7 @@
 //     creates the next contract (a new term) and the old one points to it
 //     through superseded_by, which makes it "renewed".
 // ============================================================
+import { manilaDateISO } from '@/lib/utils'
 
 export const EXPIRING_SOON_DAYS = 60
 
@@ -25,7 +26,7 @@ export const CONTRACT_STATUS_TEXT = {
 
 /**
  * Derive a contract's status from its renewal link and effective/expiry dates.
- * Always uses UTC midnight to avoid timezone drift.
+ * Days are compared as dates at UTC midnight, today being Manila's date.
  */
 export function deriveContractStatus(contract) {
   if (!contract) return 'inactive'
@@ -35,8 +36,7 @@ export function deriveContractStatus(contract) {
   const exp = contract.expiry_date
     ? new Date(`${contract.expiry_date}T00:00:00Z`)
     : null
-  const today = new Date()
-  today.setUTCHours(0, 0, 0, 0)
+  const today = new Date(`${manilaDateISO()}T00:00:00Z`)
 
   if (!exp) return 'active'
   if (exp < today) return 'expired'
@@ -145,7 +145,7 @@ export function findContractForBooking(booking, contracts) {
  */
 export function findGoverningContract(unit, contracts) {
   if (!unit) return null
-  const todayStr = new Date().toISOString().slice(0, 10)
+  const todayStr = manilaDateISO()
   const isActive = (c) => {
     if (!c?.effective_date) return false
     if (c.effective_date > todayStr) return false

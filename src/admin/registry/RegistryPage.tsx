@@ -583,7 +583,7 @@ function EditableField({ label, value, type = 'text', options, onSave, actionHre
               setTimeout(() => setStatus('idle'), 1200)
             } catch (err) { toast.error(friendlyError(err, v)); setStatus('idle') }
           }}>
-            <SelectTrigger style={BTN_RADIUS} className="h-8 text-xs bg-background border-border flex-1"><SelectValue /></SelectTrigger>
+            <SelectTrigger aria-label={label} style={BTN_RADIUS} className="h-8 text-xs bg-background border-border flex-1"><SelectValue /></SelectTrigger>
             <SelectContent>{options.map((o) => <SelectItem key={o} value={o} className="text-xs">{o}</SelectItem>)}</SelectContent>
           </Select>
         ) : (
@@ -595,7 +595,8 @@ function EditableField({ label, value, type = 'text', options, onSave, actionHre
             onBlur={commit}
             placeholder={`Enter ${label.toLowerCase()}…`}
             style={BTN_RADIUS}
-            className={cn('h-8 text-xs bg-background flex-1 transition-colors', !value && 'border-border', value && 'border-transparent hover:border-border')}
+            className={cn('h-8 text-xs bg-background flex-1 min-w-0 text-ellipsis transition-colors', !value && 'border-border', value && 'border-transparent hover:border-border')}
+            title={value || undefined}
           />
         )}
         {status === 'saving' && <Loader2 size={11} className="flex-shrink-0 animate-spin text-foreground" />}
@@ -692,7 +693,7 @@ function OtaEditor({ unit, onSave, channelOptions = [] }: OtaEditorProps) {
                 <Pencil size={10} className="flex-shrink-0 text-foreground group-hover/ota:text-muted-foreground/60 transition-colors" />
               </button>
             )}
-            <button type="button" onClick={() => removeAt(i)} style={BTN_RADIUS} className="p-1 hover:bg-red-500/10 text-foreground hover:text-red-500 transition-colors flex-shrink-0">
+            <button type="button" onClick={() => removeAt(i)} aria-label={`Remove ${item.channel}`} style={BTN_RADIUS} className="p-1 hover:bg-red-500/10 text-foreground hover:text-red-500 transition-colors flex-shrink-0">
               <Trash2 size={11} />
             </button>
           </div>
@@ -710,7 +711,7 @@ function OtaEditor({ unit, onSave, channelOptions = [] }: OtaEditorProps) {
             <Button size="icon" className="h-8 w-8 flex-shrink-0" style={BTN_RADIUS} onClick={handleAdd} disabled={saving}>
               {saving ? <Loader2 size={11} className="animate-spin" /> : <Check size={11} />}
             </Button>
-            <button type="button" onClick={() => { setDrafting(false); setDraftChannel(''); setDraftName(''); setDraftErrors({ channel: '', name: '' }) }} style={BTN_RADIUS} className="p-1 hover:bg-muted text-foreground">
+            <button aria-label="Close" type="button" onClick={() => { setDrafting(false); setDraftChannel(''); setDraftName(''); setDraftErrors({ channel: '', name: '' }) }} style={BTN_RADIUS} className="p-1 hover:bg-muted text-foreground">
               <X size={12} />
             </button>
           </div>
@@ -773,7 +774,7 @@ function DropdownPanel({ open, anchorRef, title, subtitle, onClose, children }: 
           <p className="text-xs font-semibold text-foreground">{title}</p>
           <p className="text-[10px] text-foreground mt-0.5">{subtitle}</p>
         </div>
-        <button type="button" onClick={onClose} style={BTN_RADIUS} className="p-1 -m-1 hover:bg-muted text-foreground"><X size={12} /></button>
+        <button aria-label="Close" type="button" onClick={onClose} style={BTN_RADIUS} className="p-1 -m-1 hover:bg-muted text-foreground"><X size={12} /></button>
       </div>
       <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain">{children}</div>
     </FloatingPanel>
@@ -886,20 +887,20 @@ function LogCallModal({ open, onClose, unit, onSaved }: LogCallModalProps) {
             <h3 id="log-call-title" className="text-sm font-bold text-foreground">Log Interaction</h3>
             <p className="text-xs text-foreground flex items-center gap-1 min-w-0"><Code value={unit.unit_code} label="Unit code" className="text-xs" /><span className="truncate">· {unit.owner_name || 'No owner'}</span></p>
           </div>
-          <button onClick={onClose} style={BTN_RADIUS} className="p-1 hover:bg-muted"><X size={14} /></button>
+          <button aria-label="Close" onClick={onClose} style={BTN_RADIUS} className="p-1 hover:bg-muted"><X size={14} /></button>
         </div>
         <div className="p-5 space-y-3">
           <div>
             <label className="text-[10px] uppercase tracking-wider text-foreground font-semibold mb-1.5 block">Type</label>
             <Select value={type} onValueChange={setType}>
-              <SelectTrigger style={BTN_RADIUS} className="h-9 text-xs"><SelectValue /></SelectTrigger>
+              <SelectTrigger aria-label="Type" style={BTN_RADIUS} className="h-9 text-xs w-full"><SelectValue /></SelectTrigger>
               <SelectContent>{INTERACTION_TYPES.map((t) => <SelectItem key={t} value={t} className="text-xs">{t}</SelectItem>)}</SelectContent>
             </Select>
           </div>
           <div>
             <label className="text-[10px] uppercase tracking-wider text-foreground font-semibold mb-1.5 block">Outcome</label>
             <Select value={outcome} onValueChange={setOutcome}>
-              <SelectTrigger style={BTN_RADIUS} className="h-9 text-xs"><SelectValue /></SelectTrigger>
+              <SelectTrigger aria-label="Outcome" style={BTN_RADIUS} className="h-9 text-xs w-full"><SelectValue /></SelectTrigger>
               <SelectContent>{OUTCOME_OPTIONS.map((o) => <SelectItem key={o} value={o} className="text-xs">{o}</SelectItem>)}</SelectContent>
             </Select>
           </div>
@@ -1002,11 +1003,11 @@ function InteractionRow({ record, onUpdated, onDeleted }: InteractionRowProps) {
       <div style={BTN_RADIUS} className="px-3 py-2.5 border border-primary/40 bg-primary/5 space-y-2">
         <div className="grid grid-cols-3 gap-2">
           <Select value={draft.type} onValueChange={(v) => setDraft((p) => ({ ...p, type: v }))}>
-            <SelectTrigger style={BTN_RADIUS} className="h-8 text-xs"><SelectValue /></SelectTrigger>
+            <SelectTrigger aria-label="Type" style={BTN_RADIUS} className="h-8 text-xs w-full min-w-0"><SelectValue /></SelectTrigger>
             <SelectContent>{INTERACTION_TYPES.map((t) => <SelectItem key={t} value={t} className="text-xs">{t}</SelectItem>)}</SelectContent>
           </Select>
           <Select value={draft.outcome} onValueChange={(v) => setDraft((p) => ({ ...p, outcome: v }))}>
-            <SelectTrigger style={BTN_RADIUS} className="h-8 text-xs"><SelectValue /></SelectTrigger>
+            <SelectTrigger aria-label="Outcome" style={BTN_RADIUS} className="h-8 text-xs w-full min-w-0"><SelectValue /></SelectTrigger>
             <SelectContent>{OUTCOME_OPTIONS.map((o) => <SelectItem key={o} value={o} className="text-xs">{o}</SelectItem>)}</SelectContent>
           </Select>
           <DatePicker value={draft.next_follow_up_date || ''} onChange={(v) => setDraft((p) => ({ ...p, next_follow_up_date: v }))} placeholder="Follow-up" size="sm" align="right" ariaLabel="Next follow-up" />
@@ -1233,7 +1234,7 @@ function RegistryDetailPanel({
                     )}
                   </div>
                 </div>
-                <button onClick={onClose} style={BTN_RADIUS} className="p-1 hover:bg-muted text-foreground flex-shrink-0"><X size={16} /></button>
+                <button aria-label="Close" onClick={onClose} style={BTN_RADIUS} className="p-1 hover:bg-muted text-foreground flex-shrink-0"><X size={16} /></button>
               </div>
             </div>
 
@@ -1411,7 +1412,7 @@ function AddUnitModal({ open, onClose, onCreated, existingBuildings = [], channe
 
   if (!open) return null
   const labelClass = 'text-[10px] uppercase tracking-wider text-foreground font-semibold mb-1.5 block'
-  const inputClass = 'h-9 text-xs'
+  const inputClass = 'h-9 text-xs w-full'
 
   return (
     <div className="fixed inset-0 z-[9999] flex items-center justify-center p-4">
@@ -1429,7 +1430,7 @@ function AddUnitModal({ open, onClose, onCreated, existingBuildings = [], channe
         className="relative bg-card max-w-2xl w-full max-h-[90vh] flex flex-col overflow-hidden border border-border">
         <div className="flex items-center justify-between px-5 py-3 border-b border-border">
           <h2 id="add-unit-title" className="text-sm font-bold text-foreground">Add New Unit</h2>
-          <button onClick={onClose} style={BTN_RADIUS} className="p-1 hover:bg-muted transition-colors"><X size={16} /></button>
+          <button aria-label="Close" onClick={onClose} style={BTN_RADIUS} className="p-1 hover:bg-muted transition-colors"><X size={16} /></button>
         </div>
         <div className="flex-1 overflow-y-auto px-5 py-4 space-y-4">
           <div>
@@ -1451,7 +1452,7 @@ function AddUnitModal({ open, onClose, onCreated, existingBuildings = [], channe
               </div>
               <div><label className={labelClass}>Unit Type</label>
                 <Select value={form.unit_type} onValueChange={(v) => setField('unit_type', v)}>
-                  <SelectTrigger style={BTN_RADIUS} className={inputClass}><SelectValue /></SelectTrigger>
+                  <SelectTrigger aria-label="Unit type" style={BTN_RADIUS} className={inputClass}><SelectValue /></SelectTrigger>
                   <SelectContent>{UNIT_TYPES.map((t) => <SelectItem key={t} value={t} className="text-xs">{t}</SelectItem>)}</SelectContent>
                 </Select></div>
             </div>
@@ -1496,7 +1497,7 @@ function AddUnitModal({ open, onClose, onCreated, existingBuildings = [], channe
                 <div key={`${item.channel}-${i}`} style={BTN_RADIUS} className="flex items-center gap-2 px-2 py-1.5 bg-card">
                   <span className="text-[10px] uppercase tracking-wider font-bold text-foreground min-w-[72px] flex-shrink-0">{item.channel}</span>
                   <span className="text-xs flex-1 min-w-0 truncate">{item.name}</span>
-                  <button type="button" onClick={() => setOtaListings(otaListings.filter((_, x) => x !== i))}
+                  <button type="button" onClick={() => setOtaListings(otaListings.filter((_, x) => x !== i))} aria-label={`Remove ${item.channel}`}
                     style={BTN_RADIUS} className="p-1 hover:bg-red-500/10 text-foreground hover:text-red-500 transition-colors"><Trash2 size={11} /></button>
                 </div>
               ))}
@@ -1508,7 +1509,7 @@ function AddUnitModal({ open, onClose, onCreated, existingBuildings = [], channe
                     onKeyDown={(e) => { if (e.key === 'Enter') addChannel(); if (e.key === 'Escape') { setDrafting(false); setDraftChannel(''); setDraftName('') } }}
                     placeholder="Listing name" style={BTN_RADIUS} className="h-8 text-xs flex-1" />
                   <Button size="icon" className="h-8 w-8 flex-shrink-0" style={BTN_RADIUS} onClick={addChannel}><Check size={11} /></Button>
-                  <button type="button" onClick={() => { setDrafting(false); setDraftChannel(''); setDraftName('') }} style={BTN_RADIUS} className="p-1 hover:bg-muted text-foreground"><X size={12} /></button>
+                  <button aria-label="Close" type="button" onClick={() => { setDrafting(false); setDraftChannel(''); setDraftName('') }} style={BTN_RADIUS} className="p-1 hover:bg-muted text-foreground"><X size={12} /></button>
                 </div>
               ) : (
                 <button type="button" onClick={() => setDrafting(true)} style={BTN_RADIUS} className="flex items-center gap-1.5 text-xs font-semibold text-foreground hover:text-primary py-1.5 px-2 transition-colors">
@@ -1772,7 +1773,7 @@ export default function RegistryPage() {
               />
               {!search && <SearchKeyHint />}
             </div>
-            <Button size="sm" className="h-9 text-xs text-white transition-all duration-150 active:scale-[0.98]" style={{ backgroundColor: BRAND, ...BTN_RADIUS }} onClick={() => setAddUnitOpen(true)}>
+            <Button size="sm" className="h-9 text-xs text-white transition-all duration-150 active:scale-[0.98]" style={{ backgroundColor: BRAND, ...BTN_RADIUS }} onClick={() => setAddUnitOpen(true)} aria-label="Add unit">
               <Plus size={13} />
               <span className="hidden sm:inline ml-1">Add Unit</span>
             </Button>

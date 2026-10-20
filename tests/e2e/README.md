@@ -29,6 +29,15 @@ in a desktop window and a phone-sized one, against the dev server
   it's in, scrolls to its last item, fits above a phone's keyboard, and Esc
   closes it and not the form; select menus inside a filter open above it and
   show names, not ids. In every browser, iPhone Safari included.
+- `crm-layout.spec.ts`: every CRM page as a person sees it, on a computer
+  and on a phone, with a whole made-up business (`support/crmFixture.ts`:
+  long names, real-length codes, enough rows to scroll). For each page, its
+  form and the panel a row opens: nothing sticks out past the screen, no code
+  is cut short, every list, menu and calendar opens fully on screen and on top
+  with its options whole, Esc closes the list and not the form, no field small
+  enough for iPhone Safari to zoom in on, and no serious accessibility
+  problems (two known ones aside, listed in the spec). How each is measured:
+  `support/layout.ts`.
 - `photos.spec.ts`: photo preparation in each browser engine: large phone
   photos shrunk, sideways iPhone photos upright, see-through PNGs on white,
   a clear message for HEIC files the browser can't open.
@@ -46,11 +55,13 @@ in a desktop window and a phone-sized one, against the dev server
       npx vite build && npx vite preview --port 4173
       E2E_BASE_URL=http://localhost:4173 npx playwright test performance --project=phone
 
-- `crm.spec.ts`: the CRM, read-only. Needs a saved sign-in (below).
+- `crm.spec.ts`: the CRM against the real backend, read-only. Needs a saved
+  sign-in (below), so it doesn't run on GitHub; `crm-layout` and
+  `crm-dropdowns` cover the CRM there, on the fake backend.
 
 ## Signed-in pages without touching the live data
 
-The owner portal, housekeeping and CRM dropdown tests sign in as made-up people and answer
+The owner portal, housekeeping and CRM layout and dropdown tests sign in as made-up people and answer
 every request to Supabase from `support/` instead of the real backend:
 
 - `support/fakeSupabase.ts`: `signInAs(page, user)` puts a session in the
@@ -60,10 +71,15 @@ every request to Supabase from `support/` instead of the real backend:
 - `support/ownerFixture.ts`, `support/housekeeperFixture.ts`: the made-up
   owner and housekeeper. The owner's figures add up by hand (see the comments
   there), so a test that expects ₱67,802 is checking the page's maths.
+- `support/crmFixture.ts`: the made-up business for the CRM tests.
+- `support/layout.ts`: what a person would see as broken, measured the way a
+  tap lands (sticking out, cut off, under something, codes cut short).
 - `support/a11y.ts`: the accessibility check every spec uses.
 
 The clock is fixed in these tests (`page.clock.setFixedTime`), so "this
-month" and "upcoming" never drift. Every browser runs in Manila time
+month" and "upcoming" never drift. Not in `crm-layout`, which opens every
+calendar: a frozen clock stalls their fade, so they never finish closing.
+Its checks hold on any day. Every browser runs in Manila time
 (`playwright.config.ts`) unless a test says otherwise, here and on GitHub.
 
 ## Signing in for the CRM tests

@@ -164,7 +164,7 @@ export default function BookingConfirmationModal({ open, onClose, booking, onSen
               <History size={11} />
               History
             </button>
-            <button
+            <button aria-label="Close"
               onClick={onClose}
               className="p-1 rounded hover:bg-muted"
               title="Close"

@@ -77,6 +77,8 @@ export function CopyButton({ value, label = 'Code', size = 12, className }: Copy
         // Above (and clickable through) rows that lay their own click target over the text.
         'relative pointer-events-auto inline-flex flex-shrink-0 items-center justify-center rounded text-foreground cursor-pointer outline-none transition-colors',
         'h-5 w-5 hover:bg-black/[0.06] dark:hover:bg-white/[0.08] focus-visible:ring-2 focus-visible:ring-brand/40',
+        // Drawn 20px, but a finger gets 32px: an invisible margin that also takes the tap.
+        'after:absolute after:-inset-1.5',
         copied && 'text-emerald-600 dark:text-emerald-400',
         className,
       )}
@@ -102,11 +104,15 @@ type CodeProps = {
   buttonClassName?: string
 }
 
-/** A code, bold and monospaced, with a copy button on its right. */
+/**
+ * A code, bold and monospaced, with a copy button on its right. Next to other
+ * text in a row, the text gives way first: a code is only cut short when its
+ * box is narrower than the code itself.
+ */
 export function Code({ value, label = 'Code', className, empty = '—', block = false, iconSize = 12, buttonClassName }: CodeProps) {
   if (!value) return <span className={className}>{empty}</span>
   return (
-    <span className={cn('items-center gap-1 min-w-0 max-w-full align-middle', block ? 'flex' : 'inline-flex')}>
+    <span className={cn('items-center gap-1 min-w-0 max-w-full align-middle', block ? 'flex' : 'inline-flex shrink-0')}>
       <span className={cn('font-mono font-bold truncate', className)}>{value}</span>
       <CopyButton value={value} label={label} size={iconSize} className={buttonClassName} />
     </span>

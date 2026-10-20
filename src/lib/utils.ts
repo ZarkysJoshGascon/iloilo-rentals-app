@@ -101,6 +101,14 @@ export function sanitizeInt(input, { min = 0, max = 1_000_000, fallback = 0 } = 
   return Math.min(Math.max(n, min), max)
 }
 
+/**
+ * The date in Manila (YYYY-MM-DD) at a moment, now by default. Not
+ * toISOString(), which gives the UTC date: yesterday until 8 AM in Manila.
+ */
+export function manilaDateISO(at: Date = new Date()) {
+  return at.toLocaleDateString('en-CA', { timeZone: 'Asia/Manila' })
+}
+
 export function sanitizeDateOnly(input) {
   if (!input) return null
   const s = String(input).slice(0, 10)

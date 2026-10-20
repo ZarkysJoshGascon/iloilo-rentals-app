@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest'
 import {
   sanitizeText, sanitizeEmail, sanitizePhone, sanitizeMoney, sanitizeInt, sanitizeDateOnly,
   generateBookingCode, generateContractCode, generateCleaningCode,
-  computeNights, cleaningTypeForStay, cn,
+  computeNights, cleaningTypeForStay, cn, manilaDateISO,
 } from '@/lib/utils'
 
 describe('sanitizeText', () => {
@@ -69,6 +69,14 @@ describe('sanitizeMoney and sanitizeInt', () => {
     expect(sanitizeInt('4 guests')).toBe(4)
     expect(sanitizeInt('x', { fallback: 1 })).toBe(1)
     expect(sanitizeInt('50', { max: 10 })).toBe(10)
+  })
+})
+
+describe('manilaDateISO', () => {
+  it('is the date in Manila, which is ahead of UTC by 8 hours', () => {
+    expect(manilaDateISO(new Date('2026-10-20T15:59:00Z'))).toBe('2026-10-20') // 11:59 PM in Manila
+    expect(manilaDateISO(new Date('2026-10-20T16:30:00Z'))).toBe('2026-10-21') // 12:30 AM, still the 20th in UTC
+    expect(manilaDateISO(new Date('2026-12-31T23:00:00Z'))).toBe('2027-01-01')
   })
 })
 

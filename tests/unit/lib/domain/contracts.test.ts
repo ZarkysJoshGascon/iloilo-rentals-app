@@ -25,6 +25,12 @@ describe('deriveContractStatus', () => {
     expect(deriveContractStatus(contract)).toBe(status)
   })
 
+  it("goes by the Manila date: just after midnight, yesterday's contract has ended", () => {
+    vi.setSystemTime(new Date('2026-10-19T16:30:00Z')) // 12:30 AM on Oct 20 in Manila, still Oct 19 in UTC
+    expect(deriveContractStatus({ effective_date: '2025-01-01', expiry_date: '2026-10-19' })).toBe('expired')
+    expect(deriveContractStatus({ effective_date: '2026-01-01', expiry_date: '2026-10-20' })).toBe('expiring')
+  })
+
   it('can extend a running contract but not an ended or renewed one', () => {
     expect(canExtendContract({ effective_date: '2026-01-01', expiry_date: '2026-12-01' })).toBe(true)
     expect(canExtendContract({ effective_date: '2026-01-01', expiry_date: null })).toBe(false)
@@ -84,5 +90,14 @@ describe('contract chains and lookups', () => {
   it('finds the contract in force today', () => {
     expect(findGoverningContract({ id: 'u1' }, contracts).id).toBe('c')
     expect(findGoverningContract({ id: 'u3' }, contracts)).toBeNull()
+  })
+
+  it('goes by the Manila date for the contract in force', () => {
+    const turnover = [
+      { id: 'old', unit_id: 'u5', effective_date: '2025-10-20', expiry_date: '2026-10-19' },
+      { id: 'new', unit_id: 'u5', effective_date: '2026-10-20', expiry_date: '2027-10-19' },
+    ]
+    vi.setSystemTime(new Date('2026-10-19T16:30:00Z')) // 12:30 AM on Oct 20 in Manila
+    expect(findGoverningContract({ id: 'u5' }, turnover).id).toBe('new')
   })
 })

@@ -6,9 +6,9 @@ import { expect, type Page } from '@playwright/test'
 
 const TAGS = ['wcag2a', 'wcag2aa', 'wcag21a', 'wcag21aa']
 
-/** The page's serious and critical problems, one line each. */
-export async function seriousProblems(page: Page): Promise<string[]> {
-  const { violations } = await new AxeBuilder({ page }).withTags(TAGS).analyze()
+/** The page's serious and critical problems, one line each, leaving out the rules in `skip`. */
+export async function seriousProblems(page: Page, { skip = [] }: { skip?: string[] } = {}): Promise<string[]> {
+  const { violations } = await new AxeBuilder({ page }).withTags(TAGS).disableRules(skip).analyze()
   return violations
     .filter((v) => v.impact === 'serious' || v.impact === 'critical')
     .map((v) => `${v.impact}: ${v.id} — ${v.help} (${v.nodes.length}×: ${v.nodes.slice(0, 2).map((n) => n.target.join(' ')).join(' | ')})`)

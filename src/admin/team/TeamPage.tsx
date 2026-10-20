@@ -16,7 +16,7 @@ import { Skeleton } from '@/components/ui/skeleton'
 import { Textarea } from '@/components/ui/textarea'
 import { supabase } from '@/lib/supabase'
 import { logAudit } from '@/lib/api/auditLog'
-import { cn } from '@/lib/utils'
+import { cn, manilaDateISO } from '@/lib/utils'
 import {
   getTierInfo, SPECIALIST_FLAT_RATE,
   fetchTeamCompletedCounts,
@@ -917,7 +917,7 @@ function WorkerDetailModal({ worker, role, counts, onClose, onChanged, onEdit, o
         style={{ boxShadow: SOFT_SHADOW }}
         onClick={(e) => e.stopPropagation()}
       >
-        <button
+        <button aria-label="Close"
           onClick={onClose}
           className="absolute top-3 right-3 z-20 p-2 rounded-full bg-card border border-border hover:bg-muted transition-colors shadow-sm"
         >
@@ -1121,7 +1121,7 @@ function WorkerFormModal({ open, onClose, onSaved, role, editing }: WorkerFormMo
         style={{ boxShadow: SOFT_SHADOW }}>
         <div className="flex items-center justify-between px-5 py-3 border-b border-border">
           <h2 id="worker-form-title" className="text-sm font-bold text-foreground">{title}</h2>
-          <button onClick={onClose} className="p-1 rounded hover:bg-muted transition-colors"><X size={16} /></button>
+          <button aria-label="Close" onClick={onClose} className="p-1 rounded hover:bg-muted transition-colors"><X size={16} /></button>
         </div>
         <div className="flex-1 overflow-y-auto px-5 py-4 space-y-4">
 
@@ -1172,6 +1172,7 @@ function WorkerFormModal({ open, onClose, onSaved, role, editing }: WorkerFormMo
             <div>
               <label className={labelClass}>Name *</label>
               <Input
+                aria-label="Name"
                 value={form.name}
                 onChange={(e) => setField('name', e.target.value)}
                 className={inputClass}
@@ -1182,6 +1183,7 @@ function WorkerFormModal({ open, onClose, onSaved, role, editing }: WorkerFormMo
               <label className={labelClass}>Phone</label>
               <Input
                 type="tel"
+                aria-label="Phone"
                 value={form.phone}
                 onChange={(e) => setField('phone', e.target.value)}
                 className={inputClass}
@@ -1193,6 +1195,7 @@ function WorkerFormModal({ open, onClose, onSaved, role, editing }: WorkerFormMo
           <div>
             <label className={labelClass}>Notes</label>
             <Textarea
+              aria-label="Notes"
               value={form.notes}
               onChange={(e) => setField('notes', e.target.value)}
               rows={2}
@@ -1286,7 +1289,7 @@ function lastDayOfMonth(iso) {
 }
 function pmContractStatus(pmc) {
   if (!pmc) return 'unknown'
-  const today = new Date().toISOString().slice(0, 10)
+  const today = manilaDateISO()
   if (pmc.terminated_at) {
     if (pmc.termination_effective_date && pmc.termination_effective_date >= today) return 'ending'
     return 'terminated'
@@ -1507,7 +1510,7 @@ function PMFormModal({ open, onClose, onSaved, editing }: PMFormModalProps) {
         style={{ boxShadow: SOFT_SHADOW }}>
         <div className="flex items-center justify-between px-5 py-3 border-b border-border">
           <h2 id="pm-form-title" className="text-sm font-bold text-foreground">{editing ? 'Edit Property Manager' : 'New Property Manager'}</h2>
-          <button onClick={onClose} className="p-1 rounded hover:bg-muted transition-colors"><X size={16} /></button>
+          <button aria-label="Close" onClick={onClose} className="p-1 rounded hover:bg-muted transition-colors"><X size={16} /></button>
         </div>
         <div className="flex-1 overflow-y-auto px-5 py-4 space-y-4">
 
@@ -1557,11 +1560,11 @@ function PMFormModal({ open, onClose, onSaved, editing }: PMFormModalProps) {
           <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
             <div>
               <label className={labelClass}>Name *</label>
-              <Input value={form.name} onChange={(e) => setField('name', e.target.value)} className={inputClass} maxLength={120} />
+              <Input aria-label="Name" value={form.name} onChange={(e) => setField('name', e.target.value)} className={inputClass} maxLength={120} />
             </div>
             <div>
               <label className={labelClass}>Phone</label>
-              <Input type="tel" value={form.phone} onChange={(e) => setField('phone', e.target.value)} className={inputClass} maxLength={40} />
+              <Input type="tel" aria-label="Phone" value={form.phone} onChange={(e) => setField('phone', e.target.value)} className={inputClass} maxLength={40} />
             </div>
           </div>
 
@@ -1579,7 +1582,7 @@ function PMFormModal({ open, onClose, onSaved, editing }: PMFormModalProps) {
 
           <div>
             <label className={labelClass}>Notes</label>
-            <Textarea value={form.notes} onChange={(e) => setField('notes', e.target.value)} rows={2} maxLength={2000} className="text-xs rounded-lg resize-none" />
+            <Textarea aria-label="Notes" value={form.notes} onChange={(e) => setField('notes', e.target.value)} rows={2} maxLength={2000} className="text-xs rounded-lg resize-none" />
           </div>
         </div>
         <div className="flex items-center justify-end gap-2 px-5 py-3 border-t border-border bg-card">
@@ -2000,7 +2003,7 @@ function AssignUnitModal({ open, onClose, onSaved, pm, editingContract, units }:
         style={{ boxShadow: SOFT_SHADOW }}>
         <div className="flex items-center justify-between px-5 py-3 border-b border-border flex-shrink-0">
           <h3 id="assign-unit-title" className="text-sm font-bold text-foreground">{editingContract ? 'Edit Assignment' : 'Assign PM to Unit'}</h3>
-          <button onClick={onClose} className="p-1 rounded hover:bg-muted"><X size={14} /></button>
+          <button aria-label="Close" onClick={onClose} className="p-1 rounded hover:bg-muted"><X size={14} /></button>
         </div>
         <div className="p-5 space-y-3 overflow-y-auto flex-1">
           <div>
@@ -2069,7 +2072,7 @@ function TerminateModal({ open, onClose, onTerminated, pmContract }: TerminateMo
 
   useEffect(() => {
     if (!open) return
-    setDecisionDate(new Date().toISOString().slice(0, 10))
+    setDecisionDate(manilaDateISO())
     setNote('')
     setConfirmed(false)
   }, [open])
@@ -2131,7 +2134,7 @@ function TerminateModal({ open, onClose, onTerminated, pmContract }: TerminateMo
         style={{ boxShadow: SOFT_SHADOW }}>
         <div className="flex items-center justify-between px-5 py-3 border-b border-border">
           <h3 id="terminate-title" className="text-sm font-bold text-foreground">Terminate Assignment</h3>
-          <button onClick={onClose} className="p-1 rounded hover:bg-muted"><X size={14} /></button>
+          <button aria-label="Close" onClick={onClose} className="p-1 rounded hover:bg-muted"><X size={14} /></button>
         </div>
         <div className="p-5 space-y-3">
           <div className="rounded-md bg-card border border-border p-3 text-xs space-y-1">
@@ -2347,7 +2350,7 @@ function PMDetailModal({ pm, onClose, onChanged, units }: PMDetailModalProps) {
         style={{ boxShadow: SOFT_SHADOW }}
         onClick={(e) => e.stopPropagation()}
       >
-        <button onClick={onClose} className="absolute top-3 right-3 z-20 p-2 rounded-full bg-card border border-border hover:bg-muted transition-colors shadow-sm">
+        <button aria-label="Close" onClick={onClose} className="absolute top-3 right-3 z-20 p-2 rounded-full bg-card border border-border hover:bg-muted transition-colors shadow-sm">
           <X size={16} />
         </button>
 
@@ -2795,7 +2798,8 @@ export default function TeamPage() {
             />
             {!search && <SearchKeyHint />}
           </div>
-          <Button size="sm" className="h-9 rounded-md text-xs text-white" style={{ backgroundColor: BRAND }} onClick={openNew}>
+          <Button size="sm" className="h-9 rounded-md text-xs text-white" style={{ backgroundColor: BRAND }} onClick={openNew}
+            aria-label={isPMTab ? 'New property manager' : `New ${(roleMeta(activeTab)?.label || 'person').toLowerCase()}`}>
             <Plus size={13} />
             <span className="hidden sm:inline ml-1">
               {isPMTab ? 'New PM' : 'New'}

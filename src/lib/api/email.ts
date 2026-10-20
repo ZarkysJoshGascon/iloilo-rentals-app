@@ -5,6 +5,7 @@
 
 import { supabase } from '@/lib/supabase'
 import { preparePhoto } from '@/lib/images'
+import { manilaDateISO } from '@/lib/utils'
 
 // ------------------------------------------------------------
 // Constants — keep in sync with the Edge Function
@@ -104,7 +105,7 @@ export async function listAllEmailsForBooking(bookingId) {
 // ============================================================
 
 export async function listPastGuests() {
-  const today = new Date().toISOString().slice(0, 10)
+  const today = manilaDateISO()
 
   const { data, error } = await supabase
     .from('bookings')
@@ -144,7 +145,7 @@ export async function listPastGuestsFiltered(windowMonths = null) {
 
   const cutoff = new Date()
   cutoff.setMonth(cutoff.getMonth() - windowMonths)
-  const cutoffISO = cutoff.toISOString().slice(0, 10)
+  const cutoffISO = manilaDateISO(cutoff)
 
   return all.filter((g) => (g.last_check_out || '') >= cutoffISO)
 }

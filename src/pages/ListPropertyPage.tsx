@@ -397,7 +397,7 @@ export default function ListPropertyPage() {
                     {images.map((img, idx) => (
                       <div key={idx} className="relative aspect-square rounded-xl overflow-hidden bg-gray-100 border border-gray-200 group">
                         <img src={img.preview} alt="" className="w-full h-full object-cover" />
-                        <button
+                        <button aria-label="Close"
                           type="button"
                           onClick={() => removeImage(idx)}
                           className="absolute top-1.5 right-1.5 w-6 h-6 rounded-full bg-black/60 text-white flex items-center justify-center hover:bg-black/80 transition-colors opacity-0 group-hover:opacity-100"

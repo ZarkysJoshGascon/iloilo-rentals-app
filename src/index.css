@@ -53,17 +53,22 @@ body.modal-open {
   overflow: hidden;
 }
 
-/* CRM on phones (html.crm is set while the CRM is open).
-   iOS zooms into any field whose text is under 16px and stays zoomed, so
-   fields use 16px on phones. Taps get no grey flash; buttons have their own
-   pressed states. */
+/* Phones, on every page: iOS zooms into any field whose text is under 16px
+   and stays zoomed, so fields use 16px. Pages that scroll (data-page-scroll)
+   leave room under their last row for the floating scroll arrows
+   (PageScrollHelper), so the arrows never sit on it. */
 @media (max-width: 767px) {
-  html.crm input:not([type="checkbox"]):not([type="radio"]):not([type="range"]):not([type="file"]):not([type="color"]),
-  html.crm select,
-  html.crm textarea {
+  input:not([type="checkbox"]):not([type="radio"]):not([type="range"]):not([type="file"]):not([type="color"]),
+  select,
+  textarea {
     font-size: 16px;
   }
+  [data-page-scroll] {
+    padding-bottom: 104px;
+  }
 }
+/* CRM (html.crm is set while it's open): taps get no grey flash; buttons
+   have their own pressed states. */
 html.crm {
   -webkit-tap-highlight-color: transparent;
 }

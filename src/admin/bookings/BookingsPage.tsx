@@ -81,7 +81,10 @@ const SORT_VALUE = {
 }
 const SORT_DEFAULT_DIR = { checkin: 'desc', payment: 'desc' }
 
-const ROW_GRID = `grid grid-cols-[minmax(0,1.6fr)_minmax(0,0.8fr)_minmax(0,1.1fr)_minmax(0,1fr)_minmax(0,1.1fr)_130px] gap-4 items-center ${CARD_ON_PHONE}`
+// The code, unit and dates columns keep room for a whole booking code (BK- and
+// 8 characters), unit code and both dates, even with a booking open beside the
+// list; names give way.
+const ROW_GRID = `grid grid-cols-[minmax(0,1.6fr)_minmax(7.5rem,0.8fr)_minmax(6rem,1.1fr)_minmax(6.75rem,1fr)_minmax(0,1.1fr)_7.5rem] gap-4 items-center ${CARD_ON_PHONE}`
 const PANEL_WIDTH = 448
 
 const MONTHS = ['January','February','March','April','May','June','July','August','September','October','November','December']
@@ -987,7 +990,7 @@ function WarningsStrip({ needsAttention, endingSoon, onSelect }: WarningsStripPr
                   {naCount} booking{naCount === 1 ? '' : 's'} past check-out with balance still owed
                 </p>
               </div>
-              <button type="button" onClick={() => setOpen(null)} className="p-1 -m-1 rounded hover:bg-muted text-foreground"><X size={12} /></button>
+              <button aria-label="Close" type="button" onClick={() => setOpen(null)} className="p-1 -m-1 rounded hover:bg-muted text-foreground"><X size={12} /></button>
             </div>
             <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain">
               {needsAttention.map((b) => (
@@ -1008,7 +1011,7 @@ function WarningsStrip({ needsAttention, endingSoon, onSelect }: WarningsStripPr
                   {esCount} booking{esCount === 1 ? '' : 's'} ending in the next 2 days with balance due
                 </p>
               </div>
-              <button type="button" onClick={() => setOpen(null)} className="p-1 -m-1 rounded hover:bg-muted text-foreground"><X size={12} /></button>
+              <button aria-label="Close" type="button" onClick={() => setOpen(null)} className="p-1 -m-1 rounded hover:bg-muted text-foreground"><X size={12} /></button>
             </div>
             <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain">
               {endingSoon.map((b) => (
@@ -1185,14 +1188,14 @@ function BookingDetailPanel({
               <div className="flex items-start gap-3">
                 <GuestAvatar name={booking.guest_name} size="lg" />
                 <div className="min-w-0 flex-1">
-                  <p className="text-base font-bold text-foreground truncate">{booking.guest_name}</p>
+                  <p className="text-base font-bold text-foreground line-clamp-2 break-words">{booking.guest_name}</p>
                   <Code value={booking.booking_code} label="Booking code" className="text-[11px]" block />
                   <div className="flex items-center gap-3 mt-2 flex-wrap">
                     <BookingStatusBadge status={status} />
                     <PaymentStatusBadge status={booking.payment_status} />
                   </div>
                 </div>
-                <button onClick={onClose} className="p-1 rounded hover:bg-muted text-foreground flex-shrink-0"><X size={16} /></button>
+                <button aria-label="Close" onClick={onClose} className="p-1 rounded hover:bg-muted text-foreground flex-shrink-0"><X size={16} /></button>
               </div>
 
               <div className="flex items-center gap-2 mt-3 flex-wrap">
@@ -1516,7 +1519,8 @@ function BookingListRow({ booking, contracts, selected, highlighted, onClick, on
         className={cn('group/row w-full text-left px-4 py-3 cursor-pointer select-none', ROW_GRID)}
       >
         <div className="flex items-center gap-3 min-w-0">
-          <GuestAvatar name={booking.guest_name} size="sm" />
+          {/* Left out when the list is narrow (a booking open beside it), so the name has the room. */}
+          <div className="flex-shrink-0 md:@max-3xl:hidden"><GuestAvatar name={booking.guest_name} size="sm" /></div>
           <div className="min-w-0 flex-1">
             <p className="text-[13.5px] font-semibold text-foreground truncate leading-tight">{booking.guest_name}</p>
             <p className="text-[11.5px] text-foreground truncate mt-0.5">
@@ -1986,7 +1990,7 @@ function BookingFormModal({ open, onClose, onSaved, units, editing, specialists,
               {!editing && <p className="text-[11px] text-foreground mt-0.5">Create a new reservation</p>}
             </div>
           </div>
-          <button onClick={onClose} className="p-1.5 rounded-lg hover:bg-muted transition-colors flex-shrink-0">
+          <button aria-label="Close" onClick={onClose} className="p-1.5 rounded-lg hover:bg-muted transition-colors flex-shrink-0">
             <X size={18} />
           </button>
         </div>
@@ -2002,7 +2006,7 @@ function BookingFormModal({ open, onClose, onSaved, units, editing, specialists,
                 <div>
                   <label className={labelClass}>Unit *</label>
                   <Select value={form.unit_id} onValueChange={(v) => setField('unit_id', v)}>
-                    <SelectTrigger className={cn('h-10 text-sm rounded-lg w-full', errors.unit_id && 'border-red-400')}>
+                    <SelectTrigger aria-label="Unit" className={cn('h-10 text-sm rounded-lg w-full', errors.unit_id && 'border-red-400')}>
                       <SelectValue placeholder="Select a unit...">
                         {selectedUnit ? unitLabel(selectedUnit) : null}
                       </SelectValue>
@@ -2076,23 +2080,23 @@ function BookingFormModal({ open, onClose, onSaved, units, editing, specialists,
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
                   <div>
                     <label className={labelClass}>Guest Name *</label>
-                    <Input value={form.guest_name} onChange={(e) => setField('guest_name', e.target.value)}
+                    <Input value={form.guest_name} onChange={(e) => setField('guest_name', e.target.value)} aria-label="Guest name"
                       className={cn('h-10 text-sm rounded-lg', errors.guest_name && 'border-red-400')} maxLength={120} autoFocus={!editing} />
                     {fieldError('guest_name')}
                   </div>
                   <div>
                     <label className={labelClass}>Guests</label>
-                    <Input type="number" min={1} max={50} value={form.guests} onChange={(e) => setField('guests', e.target.value)} className="h-10 text-sm rounded-lg" />
+                    <Input type="number" min={1} max={50} aria-label="Guests" value={form.guests} onChange={(e) => setField('guests', e.target.value)} className="h-10 text-sm rounded-lg" />
                   </div>
                   <div>
                     <label className={labelClass}>Email</label>
-                    <Input type="email" value={form.guest_email} onChange={(e) => setField('guest_email', e.target.value)}
+                    <Input type="email" aria-label="Email" value={form.guest_email} onChange={(e) => setField('guest_email', e.target.value)}
                       className={cn('h-10 text-sm rounded-lg', errors.guest_email && 'border-red-400')} maxLength={254} />
                     {fieldError('guest_email')}
                   </div>
                   <div>
                     <label className={labelClass}>Contact</label>
-                    <Input type="tel" value={form.guest_contact} onChange={(e) => setField('guest_contact', e.target.value)} className="h-10 text-sm rounded-lg" maxLength={40} />
+                    <Input type="tel" aria-label="Contact" value={form.guest_contact} onChange={(e) => setField('guest_contact', e.target.value)} className="h-10 text-sm rounded-lg" maxLength={40} />
                   </div>
                 </div>
               </FormSection>
@@ -2125,14 +2129,14 @@ function BookingFormModal({ open, onClose, onSaved, units, editing, specialists,
                 </div>
                 <div>
                   <label className={labelClass}>Affiliate Notes</label>
-                  <Input value={form.affiliate_notes} onChange={(e) => setField('affiliate_notes', e.target.value)} className="h-10 text-sm rounded-lg" maxLength={2000} />
+                  <Input aria-label="Affiliate notes" value={form.affiliate_notes} onChange={(e) => setField('affiliate_notes', e.target.value)} className="h-10 text-sm rounded-lg" maxLength={2000} />
                 </div>
               </FormSection>
 
               <FormSection icon={Wallet} title="Amounts" subtitle="What's the total and any initial payment?">
                 <div>
                   <label className={labelClass}>Total Amount (₱) *</label>
-                  <Input type="number" min={0} value={form.total_amount} onChange={(e) => setField('total_amount', e.target.value)}
+                  <Input type="number" min={0} aria-label="Total amount" value={form.total_amount} onChange={(e) => setField('total_amount', e.target.value)}
                     className={cn('h-10 text-sm rounded-lg tabular-nums', errors.total_amount && 'border-red-400')} />
                   {fieldError('total_amount')}
                 </div>
@@ -2143,17 +2147,17 @@ function BookingFormModal({ open, onClose, onSaved, units, editing, specialists,
                     <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
                       <div>
                         <label className={labelClass}>Amount</label>
-                        <Input type="number" min={0} value={form.initial_amount} onChange={(e) => setField('initial_amount', e.target.value)}
+                        <Input type="number" min={0} aria-label="Initial payment amount" value={form.initial_amount} onChange={(e) => setField('initial_amount', e.target.value)}
                           className={cn('h-10 text-sm rounded-lg tabular-nums', errors.initial_amount && 'border-red-400')} />
                         {fieldError('initial_amount')}
                       </div>
                       <div>
                         <label className={labelClass}>Method</label>
-                        <Input value={form.initial_method} onChange={(e) => setField('initial_method', e.target.value)} placeholder="GCash…" className="h-10 text-sm rounded-lg" maxLength={60} />
+                        <Input aria-label="Payment method" value={form.initial_method} onChange={(e) => setField('initial_method', e.target.value)} placeholder="GCash…" className="h-10 text-sm rounded-lg" maxLength={60} />
                       </div>
                       <div>
                         <label className={labelClass}>Reference</label>
-                        <Input value={form.initial_reference} onChange={(e) => setField('initial_reference', e.target.value)} className="h-10 text-sm rounded-lg" maxLength={100} />
+                        <Input aria-label="Payment reference" value={form.initial_reference} onChange={(e) => setField('initial_reference', e.target.value)} className="h-10 text-sm rounded-lg" maxLength={100} />
                       </div>
                       <div>
                         <label className={labelClass}>Date</label>
@@ -2165,7 +2169,7 @@ function BookingFormModal({ open, onClose, onSaved, units, editing, specialists,
 
                 <div>
                   <label className={labelClass}>Notes</label>
-                  <Input value={form.notes} onChange={(e) => setField('notes', e.target.value)} className="h-10 text-sm rounded-lg" maxLength={2000} />
+                  <Input aria-label="Notes" value={form.notes} onChange={(e) => setField('notes', e.target.value)} className="h-10 text-sm rounded-lg" maxLength={2000} />
                 </div>
               </FormSection>
 
@@ -2298,7 +2302,7 @@ function AddPaymentModal({ open, onClose, booking, onSaved }: AddPaymentModalPro
   const [saving, setSaving] = useState(false)
 
   useEffect(() => {
-    if (open) { setAmount(''); setMethod(''); setReference(''); setDate(new Date().toISOString().slice(0, 10)) }
+    if (open) { setAmount(''); setMethod(''); setReference(''); setDate(todayISO()) }
   }, [open])
 
   if (!open || !booking) return null
@@ -2310,7 +2314,7 @@ function AddPaymentModal({ open, onClose, booking, onSaved }: AddPaymentModalPro
 
     const cleanMethod = sanitizeText(method, { max: 60 })
     const cleanReference = sanitizeText(reference, { max: 100 })
-    const cleanDate = sanitizeDateOnly(date) || new Date().toISOString().slice(0, 10)
+    const cleanDate = sanitizeDateOnly(date) || todayISO()
 
     setSaving(true)
     try {
@@ -3297,7 +3301,7 @@ export default function BookingsPage({ initialSelectedId }: BookingsPageProps) {
             <Plus size={13} />
             <span className="hidden sm:inline ml-1">New Booking</span>
           </Button>
-          <Button variant="outline" size="sm" onClick={fetchData} disabled={isRefreshing} className="h-8 rounded transition-all duration-150">
+          <Button variant="outline" size="sm" onClick={fetchData} disabled={isRefreshing} className="h-8 rounded transition-all duration-150" aria-label="Refresh" title="Refresh">
             <RefreshCw size={13} className={cn(isRefreshing && 'animate-spin')} />
           </Button>
         </div>
@@ -3335,7 +3339,8 @@ export default function BookingsPage({ initialSelectedId }: BookingsPageProps) {
           </p>
         )}
 
-        <div className="rounded-md border border-border shadow-sm overflow-hidden bg-card flex flex-col">
+        {/* A container, so rows can tell when a booking open beside the list leaves them little room. */}
+        <div className="@container rounded-md border border-border shadow-sm overflow-hidden bg-card flex flex-col">
           <MobileSort
             options={[{ key: 'guest', label: 'Guest' }, { key: 'code', label: 'Code' }, { key: 'unit', label: 'Unit' }, { key: 'checkin', label: 'Check-in → Check-out' }, { key: 'payment', label: 'Payment' }, { key: 'status', label: 'Status' }]}
             sort={sort}

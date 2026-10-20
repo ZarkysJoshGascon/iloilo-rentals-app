@@ -189,7 +189,9 @@ export function DatePicker({
         id={id}
         type="button"
         disabled={disabled}
-        aria-label={ariaLabel}
+        // The field's name with what it shows ("Check-in date: Oct 20, 2026"),
+        // so a screen reader says both and voice control finds it by either.
+        aria-label={ariaLabel ? `${ariaLabel}: ${display || placeholder}` : undefined}
         aria-haspopup="dialog"
         aria-expanded={open}
         onClick={() => setOpen((o) => !o)}

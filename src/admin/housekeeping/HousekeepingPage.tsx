@@ -125,7 +125,8 @@ const CLEANING_SORT_VALUE = {
 }
 const CLEANING_SORT_DEFAULT_DIR = { scheduled: 'desc' }
 
-const ROW_GRID = `grid grid-cols-[minmax(0,1.3fr)_minmax(0,1.1fr)_minmax(0,0.7fr)_minmax(0,1.2fr)_minmax(0,0.9fr)_150px] gap-4 items-center ${CARD_ON_PHONE}`
+// The first two columns keep room for a whole code (CL- / BK- and 8 characters).
+const ROW_GRID = `grid grid-cols-[minmax(7.5rem,1.3fr)_minmax(7.5rem,1.1fr)_minmax(0,0.7fr)_minmax(0,1.2fr)_minmax(0,0.9fr)_150px] gap-4 items-center ${CARD_ON_PHONE}`
 const PANEL_WIDTH = 480
 
 function formatDate(d) {
@@ -1012,7 +1013,7 @@ function PhotoGrid({ cleaning, category, onChanged, onOpenPhoto }: PhotoGridProp
                 ) : (
                   <Skeleton className="w-full h-full rounded-none" />
                 )}
-                <button
+                <button aria-label="Close"
                   type="button"
                   onClick={(e) => handleRemove(e, p)}
                   className="absolute top-1 right-1 w-6 h-6 rounded-full bg-red-600 text-white flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity z-10"
@@ -1231,6 +1232,7 @@ function ListEditorCRM({ items, onChange, placeholder = 'Item name' }: ListEdito
         parsed.map((it, i) => (
           <div key={i} className="flex items-center gap-1.5 px-2 py-1 rounded bg-background border border-border">
             <Input
+              aria-label="Item"
               defaultValue={it.name}
               onBlur={(e) => handleNameCommit(i, e.target.value)}
               onKeyDown={(e) => { if (e.key === 'Enter') (e.target as HTMLElement).blur() }}
@@ -1241,12 +1243,13 @@ function ListEditorCRM({ items, onChange, placeholder = 'Item name' }: ListEdito
               type="number"
               min={0}
               max={9999}
+              aria-label={`How many ${it.name || 'of this item'}`}
               defaultValue={it.quantity}
               onBlur={(e) => handleQtyCommit(i, e.target.value)}
               onKeyDown={(e) => { if (e.key === 'Enter') (e.target as HTMLElement).blur() }}
               className="h-6 text-xs rounded bg-background w-14 tabular-nums border-transparent hover:border-border"
             />
-            <button type="button" onClick={() => handleRemove(i)} disabled={saving}
+            <button type="button" onClick={() => handleRemove(i)} disabled={saving} aria-label={`Remove ${it.name || 'item'}`}
               className="p-1 rounded hover:bg-red-500/10 text-foreground hover:text-red-500 disabled:opacity-50">
               <Trash2 size={11} />
             </button>
@@ -1256,6 +1259,7 @@ function ListEditorCRM({ items, onChange, placeholder = 'Item name' }: ListEdito
 
       <div className="flex items-center gap-1.5 pt-1.5 border-t border-border">
         <Input
+          aria-label="New item"
           value={name}
           onChange={(e) => setName(e.target.value)}
           onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); handleAdd() } }}
@@ -1267,12 +1271,13 @@ function ListEditorCRM({ items, onChange, placeholder = 'Item name' }: ListEdito
           type="number"
           min={1}
           max={9999}
+          aria-label="How many"
           value={qty}
           onChange={(e) => setQty(e.target.value)}
           onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); handleAdd() } }}
           className="h-6 text-xs rounded bg-background w-14 tabular-nums"
         />
-        <Button size="sm" className="h-6 px-2 rounded text-[10px]" onClick={handleAdd} disabled={saving}>
+        <Button size="sm" className="h-6 px-2 rounded text-[10px]" onClick={handleAdd} disabled={saving} aria-label="Add item">
           {saving ? <Loader2 size={10} className="animate-spin" /> : <Plus size={10} />}
         </Button>
       </div>
@@ -1459,22 +1464,22 @@ function HousekeeperPaymentSection({ cleaning, onChanged }: HousekeeperPaymentSe
         <div className="grid grid-cols-2 gap-3">
           <div>
             <label className={labelClass}>Amount (₱) *</label>
-            <Input type="number" min={0} value={amount} onChange={(e) => setAmount(e.target.value)} disabled={isCompleted} placeholder="0" className={inputClass} />
+            <Input aria-label="Cleaning payment amount" type="number" min={0} value={amount} onChange={(e) => setAmount(e.target.value)} disabled={isCompleted} placeholder="0" className={inputClass} />
           </div>
           <div>
             <label className={labelClass}>Method *</label>
-            <Input value={method} onChange={(e) => setMethod(e.target.value)} disabled={isCompleted} placeholder="GCash, BPI, Cash…" maxLength={MAX_METHOD_LEN} className={inputClass} />
+            <Input aria-label="Cleaning payment method" value={method} onChange={(e) => setMethod(e.target.value)} disabled={isCompleted} placeholder="GCash, BPI, Cash…" maxLength={MAX_METHOD_LEN} className={inputClass} />
           </div>
         </div>
 
         <div>
           <label className={labelClass}>Reference</label>
-          <Input value={reference} onChange={(e) => setReference(e.target.value)} disabled={isCompleted} maxLength={MAX_REFERENCE_LEN} className={inputClass} />
+          <Input aria-label="Cleaning payment reference" value={reference} onChange={(e) => setReference(e.target.value)} disabled={isCompleted} maxLength={MAX_REFERENCE_LEN} className={inputClass} />
         </div>
 
         <div>
           <label className={labelClass}>Note</label>
-          <Textarea value={note} onChange={(e) => setNote(e.target.value)} disabled={isCompleted} maxLength={MAX_NOTE_LEN} rows={2} className="text-xs rounded resize-none w-full" />
+          <Textarea aria-label="Cleaning payment note" value={note} onChange={(e) => setNote(e.target.value)} disabled={isCompleted} maxLength={MAX_NOTE_LEN} rows={2} className="text-xs rounded resize-none w-full" />
         </div>
 
         {!isCompleted && (
@@ -1586,22 +1591,22 @@ function LaundryPaymentSection({ cleaning, onChanged }: LaundryPaymentSectionPro
         <div className="grid grid-cols-2 gap-3">
           <div>
             <label className={labelClass}>Amount (₱) {!isCompleted && '*'}</label>
-            <Input type="number" min={0} value={amount} onChange={(e) => setAmount(e.target.value)} disabled={isCompleted} placeholder="0" className={inputClass} />
+            <Input aria-label="Laundry payment amount" type="number" min={0} value={amount} onChange={(e) => setAmount(e.target.value)} disabled={isCompleted} placeholder="0" className={inputClass} />
           </div>
           <div>
             <label className={labelClass}>Method {!isCompleted && '*'}</label>
-            <Input value={method} onChange={(e) => setMethod(e.target.value)} disabled={isCompleted} placeholder="GCash, Cash…" maxLength={MAX_METHOD_LEN} className={inputClass} />
+            <Input aria-label="Laundry payment method" value={method} onChange={(e) => setMethod(e.target.value)} disabled={isCompleted} placeholder="GCash, Cash…" maxLength={MAX_METHOD_LEN} className={inputClass} />
           </div>
         </div>
 
         <div>
           <label className={labelClass}>Reference</label>
-          <Input value={reference} onChange={(e) => setReference(e.target.value)} disabled={isCompleted} maxLength={MAX_REFERENCE_LEN} className={inputClass} />
+          <Input aria-label="Laundry payment reference" value={reference} onChange={(e) => setReference(e.target.value)} disabled={isCompleted} maxLength={MAX_REFERENCE_LEN} className={inputClass} />
         </div>
 
         <div>
           <label className={labelClass}>Note</label>
-          <Textarea value={note} onChange={(e) => setNote(e.target.value)} disabled={isCompleted} maxLength={MAX_NOTE_LEN} rows={2} className="text-xs rounded resize-none w-full" />
+          <Textarea aria-label="Laundry payment note" value={note} onChange={(e) => setNote(e.target.value)} disabled={isCompleted} maxLength={MAX_NOTE_LEN} rows={2} className="text-xs rounded resize-none w-full" />
         </div>
 
         {!isCompleted && (
@@ -1626,7 +1631,7 @@ const emptyNewCleaning = () => ({
   unit_id: '',
   booking_id: '',
   type: 'basic',
-  scheduled_date: new Date().toISOString().slice(0, 10),
+  scheduled_date: localISODate(),
   housekeeper_id: '',
   notes: '',
 })
@@ -1662,7 +1667,7 @@ function NewCleaningModal({ open, onClose, onCreated, units, bookings, housekeep
   const setField = (k, v) => setForm((p) => ({ ...p, [k]: v }))
 
   const eligibleUnits = useMemo(() => {
-    const today = new Date().toISOString().slice(0, 10)
+    const today = localISODate()
     return units.filter((u) => {
       if (u.status !== 'ACTIVE') return false
       return contracts.some((c) =>
@@ -1748,7 +1753,7 @@ function NewCleaningModal({ open, onClose, onCreated, units, bookings, housekeep
   }
 
   const labelClass = 'text-[10px] uppercase tracking-wider text-foreground font-semibold mb-1 block'
-  const inputClass = 'h-8 text-xs rounded'
+  const inputClass = 'h-8 text-xs rounded w-full'
 
   return (
     <div className="fixed inset-0 z-[9999] flex items-center justify-center p-4">
@@ -1770,13 +1775,13 @@ function NewCleaningModal({ open, onClose, onCreated, units, bookings, housekeep
       >
         <div className="flex items-center justify-between px-5 py-3 border-b border-border">
           <h2 id="new-cleaning-title" className="text-sm font-bold text-foreground">New Cleaning</h2>
-          <button onClick={onClose} className="p-1 rounded hover:bg-muted transition-colors"><X size={16} /></button>
+          <button aria-label="Close" onClick={onClose} className="p-1 rounded hover:bg-muted transition-colors"><X size={16} /></button>
         </div>
         <div className="flex-1 overflow-y-auto px-5 py-4 space-y-4">
           <div>
             <label className={labelClass}>Unit *</label>
             <Select value={form.unit_id} onValueChange={(v) => setField('unit_id', v)}>
-              <SelectTrigger className={inputClass}>
+              <SelectTrigger aria-label="Unit" className={inputClass}>
                 <SelectValue placeholder="Select a unit...">
                   {form.unit_id
                     ? (() => { const u = units.find((x) => x.id === form.unit_id); return u ? `${u.building || '—'} — ${u.unit_code || '—'}` : null })()
@@ -1816,7 +1821,7 @@ function NewCleaningModal({ open, onClose, onCreated, units, bookings, housekeep
           <div>
             <label className={labelClass}>Linked Booking (optional)</label>
             <Select value={form.booking_id || '__none__'} onValueChange={handleBookingChange}>
-              <SelectTrigger className={inputClass}>
+              <SelectTrigger aria-label="Linked booking" className={inputClass}>
                 <SelectValue placeholder="No booking (standalone)">
                   {form.booking_id
                     ? (() => { const b = bookings.find((x) => x.id === form.booking_id); return b ? `${b.booking_code} · ${b.guest_name}` : null })()
@@ -1833,7 +1838,7 @@ function NewCleaningModal({ open, onClose, onCreated, units, bookings, housekeep
             <div>
               <label className={labelClass}>Type</label>
               <Select value={form.type} onValueChange={(v) => setField('type', v)} items={TYPE_ITEMS}>
-                <SelectTrigger className={inputClass}><SelectValue /></SelectTrigger>
+                <SelectTrigger aria-label="Type" className={inputClass}><SelectValue /></SelectTrigger>
                 <SelectContent>
                   <SelectItem value="basic" className="text-xs">Basic</SelectItem>
                   <SelectItem value="deep" className="text-xs">Deep</SelectItem>
@@ -1849,7 +1854,7 @@ function NewCleaningModal({ open, onClose, onCreated, units, bookings, housekeep
           <div>
             <label className={labelClass}>Housekeeper (optional)</label>
             <Select value={form.housekeeper_id || '__none__'} onValueChange={(v) => setField('housekeeper_id', v === '__none__' ? '' : v)}>
-              <SelectTrigger className={inputClass}>
+              <SelectTrigger aria-label="Housekeeper" className={inputClass}>
                 <SelectValue placeholder="Unassigned">
                   {form.housekeeper_id
                     ? (() => { const h = housekeepers.find((x) => x.id === form.housekeeper_id); return h ? `${h.name} · ${h.code}` : null })()
@@ -1944,7 +1949,7 @@ function CleaningDetailPanel({ cleaning, onClose, onChanged, onDelete, housekeep
                   <StatusText cleaning={cleaning} />
                 </div>
               </div>
-              <button onClick={onClose} className="p-1 rounded hover:bg-muted text-foreground flex-shrink-0"><X size={16} /></button>
+              <button aria-label="Close" onClick={onClose} className="p-1 rounded hover:bg-muted text-foreground flex-shrink-0"><X size={16} /></button>
             </div>
           </div>
 
@@ -2004,7 +2009,7 @@ function CleaningDetailPanel({ cleaning, onClose, onChanged, onDelete, housekeep
                   <span className="text-[10px] uppercase tracking-wider text-foreground font-semibold min-w-[72px] flex-shrink-0">Type</span>
                   <div className="flex-1">
                     <Select value={cleaning.type} onValueChange={(v) => updateField('type', v)} items={TYPE_ITEMS} disabled={isCompleted || isCancelled}>
-                      <SelectTrigger className="h-7 text-xs rounded"><SelectValue /></SelectTrigger>
+                      <SelectTrigger aria-label="Type" className="h-7 text-xs rounded"><SelectValue /></SelectTrigger>
                       <SelectContent>
                         <SelectItem value="basic" className="text-xs">Basic</SelectItem>
                         <SelectItem value="deep" className="text-xs">Deep</SelectItem>
@@ -2043,7 +2048,7 @@ function CleaningDetailPanel({ cleaning, onClose, onChanged, onDelete, housekeep
                       }}
                       disabled={isCompleted || isCancelled}
                     >
-                      <SelectTrigger className="h-7 text-xs rounded"><SelectValue /></SelectTrigger>
+                      <SelectTrigger aria-label="Status" className="h-7 text-xs rounded"><SelectValue /></SelectTrigger>
                       <SelectContent>
                         {['scheduled', 'ready', 'to-be-evaluated', 'completed', 'cancelled'].map((s) => {
                           const statusKey = s === 'to-be-evaluated' ? 'submitted' : s
@@ -2092,7 +2097,7 @@ function CleaningDetailPanel({ cleaning, onClose, onChanged, onDelete, housekeep
                   </div>
                 )}
                 <Select value={cleaning.housekeeper_id || '__none__'} onValueChange={(v) => updateField('housekeeper_id', v === '__none__' ? null : v)} disabled={isCompleted || isCancelled}>
-                  <SelectTrigger className="h-8 text-xs rounded w-full">
+                  <SelectTrigger aria-label="Housekeeper" className="h-8 text-xs rounded w-full">
                     <SelectValue placeholder="Unassigned">
                       {selectedHousekeeper ? selectedHousekeeper.name : <span className="text-foreground italic">Unassigned</span>}
                     </SelectValue>
@@ -2617,11 +2622,11 @@ export default function HousekeepingPage({ initialSelectedId, fromBookingId }: H
             <Input ref={searchRef} placeholder="Search code, unit, booking, housekeeper, notes..." value={search} onChange={(e) => setSearch(e.target.value)} className="pl-8 pr-9 h-8 text-xs rounded" />
             {!search && <SearchKeyHint />}
           </div>
-          <Button size="sm" className="h-8 rounded text-xs text-white transition-all duration-150 active:scale-[0.98]" style={{ backgroundColor: BRAND }} onClick={() => setNewModalOpen(true)}>
+          <Button size="sm" className="h-8 rounded text-xs text-white transition-all duration-150 active:scale-[0.98]" style={{ backgroundColor: BRAND }} onClick={() => setNewModalOpen(true)} aria-label="New cleaning">
             <Plus size={13} />
             <span className="hidden sm:inline ml-1">New Cleaning</span>
           </Button>
-          <Button variant="outline" size="sm" onClick={fetchData} disabled={isRefreshing} className="h-8 rounded transition-all duration-150">
+          <Button variant="outline" size="sm" onClick={fetchData} disabled={isRefreshing} className="h-8 rounded transition-all duration-150" aria-label="Refresh" title="Refresh">
             <RefreshCw size={13} className={cn(isRefreshing && 'animate-spin')} />
           </Button>
         </div>

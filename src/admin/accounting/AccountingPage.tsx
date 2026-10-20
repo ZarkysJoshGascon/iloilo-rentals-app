@@ -2214,7 +2214,7 @@ function ExpenseImageControl({ path, onUpload, onRemove, contractId, size = 'md'
               </div>
             )}
           </button>
-          <button
+          <button aria-label="Close"
             type="button"
             onClick={handleRemove}
             className="absolute -top-1.5 -right-1.5 w-5 h-5 rounded-full bg-red-600 text-white flex items-center justify-center opacity-0 group-hover/img:opacity-100 transition-opacity"
@@ -2237,10 +2237,13 @@ function ExpenseImageControl({ path, onUpload, onRemove, contractId, size = 'md'
 
       {lightboxUrl && (
         <div
+          role="dialog"
+          aria-modal="true"
+          aria-label="Receipt photo"
           className="fixed inset-0 z-[10001] bg-black/85 backdrop-blur-sm flex items-center justify-center p-4"
           onClick={() => setLightboxUrl(null)}
         >
-          <button
+          <button aria-label="Close"
             type="button"
             onClick={(e) => { e.stopPropagation(); setLightboxUrl(null) }}
             className="absolute top-4 right-4 z-10 p-2 rounded-full bg-white/10 hover:bg-white/20 text-white"

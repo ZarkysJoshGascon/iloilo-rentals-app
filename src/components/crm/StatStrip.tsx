@@ -6,10 +6,13 @@ import { cn } from '@/lib/utils'
 import type { ReactNode } from 'react'
 import type { LucideIcon } from 'lucide-react'
 
+// Columns follow the room the strip has, not the window's width: with a side
+// panel open beside the list, five tiles wrap to three and two rather than
+// cutting their labels short. A tile needs about 150px.
 const COLS = {
-  4: 'sm:grid-cols-4',
-  5: 'sm:grid-cols-5',
-  6: 'sm:grid-cols-3 xl:grid-cols-6',
+  4: '@2xl:grid-cols-4',
+  5: '@lg:grid-cols-3 @3xl:grid-cols-5',
+  6: '@lg:grid-cols-3 @5xl:grid-cols-6',
 }
 
 type StatStripProps = {
@@ -20,14 +23,16 @@ type StatStripProps = {
 
 export function StatStrip({ cols = 5, children, className }: StatStripProps) {
   return (
-    <div
-      className={cn(
-        'rounded-md border border-border bg-border shadow-sm overflow-hidden grid grid-cols-2 gap-px',
-        COLS[cols],
-        className,
-      )}
-    >
-      {children}
+    <div className="@container">
+      <div
+        className={cn(
+          'rounded-md border border-border bg-border shadow-sm overflow-hidden grid grid-cols-2 gap-px',
+          COLS[cols],
+          className,
+        )}
+      >
+        {children}
+      </div>
     </div>
   )
 }

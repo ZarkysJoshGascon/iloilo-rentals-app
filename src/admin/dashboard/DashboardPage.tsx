@@ -1389,7 +1389,7 @@ function WorkDoneCard({ items, loading, area, onArea, person, onPerson }: WorkDo
         subtitle="Everything added, changed or submitted since midnight, as it happens"
         count={loading ? null : items.length}
         action={personName && (
-          <button
+          <button aria-label="Close"
             type="button"
             onClick={() => onPerson(null)}
             className="inline-flex items-center gap-1 h-7 px-2 rounded-md border border-border text-[11.5px] font-medium text-foreground hover:bg-muted/50 flex-shrink-0"
