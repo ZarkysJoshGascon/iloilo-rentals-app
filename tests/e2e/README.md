@@ -24,6 +24,11 @@ in a desktop window and a phone-sized one, against the dev server
 - `housekeeper.spec.ts`: the housekeeping page: the task list, adding photos
   from the gallery (turned into JPEGs before upload), submitting a cleaning,
   refusing a file that isn't a photo, approved cleanings locked, accessibility.
+- `crm-dropdowns.spec.ts`: the CRM's dropdowns as an admin (made up, on the
+  fake backend): a long list opens fully on screen and on top of the form
+  it's in, scrolls to its last item, fits above a phone's keyboard, and Esc
+  closes it and not the form; select menus inside a filter open above it and
+  show names, not ids. In every browser, iPhone Safari included.
 - `photos.spec.ts`: photo preparation in each browser engine: large phone
   photos shrunk, sideways iPhone photos upright, see-through PNGs on white,
   a clear message for HEIC files the browser can't open.
@@ -45,7 +50,7 @@ in a desktop window and a phone-sized one, against the dev server
 
 ## Signed-in pages without touching the live data
 
-The owner portal and housekeeping tests sign in as made-up people and answer
+The owner portal, housekeeping and CRM dropdown tests sign in as made-up people and answer
 every request to Supabase from `support/` instead of the real backend:
 
 - `support/fakeSupabase.ts`: `signInAs(page, user)` puts a session in the

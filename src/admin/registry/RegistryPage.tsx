@@ -28,12 +28,12 @@ import { InitialsAvatar } from '@/components/crm/Panel'
 import { StatStrip, StatTile } from '@/components/crm/StatStrip'
 import { SortHeader, nextSort, ResultsBar, SearchKeyHint, useListShortcuts, CARD_ON_PHONE, MobileSort, useSidePanelMotion, useListCap } from '@/components/crm/listTools'
 import { StatusTabs } from '@/components/crm/StatusTabs'
-import type { ReactNode } from 'react'
+import type { ReactNode, RefObject } from 'react'
 import type { LucideIcon } from 'lucide-react'
 import { Code } from '@/components/common/Code'
 import { cleanFields } from '@/lib/domain/clean'
 import { DatePicker } from '@/components/crm/DatePicker'
-import { revealOnMount } from '@/components/crm/useRevealOnOpen'
+import { FloatingPanel } from '@/components/crm/FloatingPanel'
 
 const BRAND = 'var(--brand-solid)'
 const SOFT_SHADOW = '0 20px 40px -16px rgba(15,23,42,0.24), 0 6px 16px -6px rgba(15,23,42,0.10)'
@@ -73,7 +73,7 @@ function ProfileEmailCombobox({
   placeholder = 'name@example.com',
   autoFocus = false,
 }: ProfileEmailComboboxProps) {
-  const wrapRef = useRef(null)
+  const fieldRef = useRef(null)
   const [open, setOpen] = useState(false)
   const [query, setQuery] = useState(value || '')
   const [results, setResults] = useState([])
@@ -98,20 +98,6 @@ function ProfileEmailCombobox({
     }, 200)
     return () => { ac.abort(); clearTimeout(t); setLoading(false) }
   }, [query, open])
-
-  useEffect(() => {
-    if (!open) return
-    const onDown = (e) => {
-      if (wrapRef.current && !wrapRef.current.contains(e.target)) setOpen(false)
-    }
-    const onKey = (e) => { if (e.key === 'Escape') setOpen(false) }
-    document.addEventListener('mousedown', onDown)
-    window.addEventListener('keydown', onKey)
-    return () => {
-      document.removeEventListener('mousedown', onDown)
-      window.removeEventListener('keydown', onKey)
-    }
-  }, [open])
 
   const choose = (row) => {
     setQuery(row.email)
@@ -149,8 +135,8 @@ function ProfileEmailCombobox({
   const showDropdown = open && (loading || results.length > 0 || query.trim().length >= 2)
 
   return (
-    <div className="relative" ref={wrapRef}>
-      <div className="relative">
+    <div className="relative">
+      <div className="relative" ref={fieldRef}>
         <Input
           type="email"
           value={query}
@@ -197,56 +183,52 @@ function ProfileEmailCombobox({
         </div>
       )}
 
-      <AnimatePresence>
-        {showDropdown && (
-          <motion.div
-            initial={{ opacity: 0, y: -4 }}
-            animate={{ opacity: 1, y: 0 }}
-            exit={{ opacity: 0, y: -4 }}
-            transition={{ duration: 0.1 }}
-            style={BTN_RADIUS}
-            ref={revealOnMount} className="absolute z-30 left-0 right-0 mt-1 bg-popover border border-border shadow-lg max-h-[280px] overflow-y-auto"
-          >
-            {loading && results.length === 0 ? (
-              <div className="px-3 py-2 text-[11px] text-foreground italic">Searching…</div>
-            ) : results.length === 0 && query.trim().length >= 2 ? (
-              <div className="px-3 py-3 text-[11px] text-foreground italic">
-                No registered user matches.
-                <div className="mt-1 text-[10px]">
-                  Ask them to log in at Iloilo Rentals first, then come back.
+      <FloatingPanel
+        open={showDropdown}
+        anchorRef={fieldRef}
+        onClose={() => setOpen(false)}
+        maxHeight={280}
+        style={BTN_RADIUS}
+        className="bg-popover border border-border shadow-lg"
+      >
+        {loading && results.length === 0 ? (
+          <div className="px-3 py-2 text-[11px] text-foreground italic">Searching…</div>
+        ) : results.length === 0 && query.trim().length >= 2 ? (
+          <div className="px-3 py-3 text-[11px] text-foreground italic">
+            No registered user matches.
+            <div className="mt-1 text-[10px]">
+              Ask them to log in at Iloilo Rentals first, then come back.
+            </div>
+          </div>
+        ) : (
+          results.map((r, i) => (
+            <button
+              key={r.id}
+              type="button"
+              onMouseDown={(e) => { e.preventDefault(); choose(r) }}
+              onMouseEnter={() => setHighlight(i)}
+              className={cn(
+                'w-full text-left px-3 py-2 flex items-center gap-2 transition-colors',
+                i === highlight ? 'bg-muted' : 'hover:bg-muted/60',
+              )}
+            >
+              {r.avatar_url ? (
+                <img src={r.avatar_url} alt="" className="w-6 h-6 rounded-full object-cover flex-shrink-0" />
+              ) : (
+                <div className="w-6 h-6 rounded-full bg-card ring-1 ring-border text-foreground flex items-center justify-center text-[9px] font-bold flex-shrink-0">
+                  {initials(r.full_name || r.email)}
                 </div>
+              )}
+              <div className="min-w-0 flex-1">
+                {r.full_name && (
+                  <p className="text-[11px] font-semibold text-foreground truncate">{r.full_name}</p>
+                )}
+                <p className="text-[10px] text-foreground truncate font-mono">{r.email}</p>
               </div>
-            ) : (
-              results.map((r, i) => (
-                <button
-                  key={r.id}
-                  type="button"
-                  onMouseDown={(e) => { e.preventDefault(); choose(r) }}
-                  onMouseEnter={() => setHighlight(i)}
-                  className={cn(
-                    'w-full text-left px-3 py-2 flex items-center gap-2 transition-colors',
-                    i === highlight ? 'bg-muted' : 'hover:bg-muted/60',
-                  )}
-                >
-                  {r.avatar_url ? (
-                    <img src={r.avatar_url} alt="" className="w-6 h-6 rounded-full object-cover flex-shrink-0" />
-                  ) : (
-                    <div className="w-6 h-6 rounded-full bg-card ring-1 ring-border text-foreground flex items-center justify-center text-[9px] font-bold flex-shrink-0">
-                      {initials(r.full_name || r.email)}
-                    </div>
-                  )}
-                  <div className="min-w-0 flex-1">
-                    {r.full_name && (
-                      <p className="text-[11px] font-semibold text-foreground truncate">{r.full_name}</p>
-                    )}
-                    <p className="text-[10px] text-foreground truncate font-mono">{r.email}</p>
-                  </div>
-                </button>
-              ))
-            )}
-          </motion.div>
+            </button>
+          ))
         )}
-      </AnimatePresence>
+      </FloatingPanel>
     </div>
   )
 }
@@ -267,23 +249,11 @@ type DateRangeFilterProps = {
 // ─────────────────────────────────────────────────────────────
 function DateRangeFilter({ from, to, onFromChange, onToChange, onClear }: DateRangeFilterProps) {
   const [open, setOpen] = useState(false)
-  const wrapRef = useRef(null)
+  const btnRef = useRef(null)
   const [localFrom, setLocalFrom] = useState(from || '')
   const [localTo, setLocalTo] = useState(to || '')
 
   useEffect(() => { setLocalFrom(from || ''); setLocalTo(to || '') }, [from, to])
-
-  useEffect(() => {
-    if (!open) return
-    const onDown = (e) => { if (wrapRef.current && !wrapRef.current.contains(e.target)) setOpen(false) }
-    const onKey = (e) => { if (e.key === 'Escape') setOpen(false) }
-    document.addEventListener('mousedown', onDown)
-    window.addEventListener('keydown', onKey)
-    return () => {
-      document.removeEventListener('mousedown', onDown)
-      window.removeEventListener('keydown', onKey)
-    }
-  }, [open])
 
   const hasAny = !!from || !!to
   const summary = hasAny
@@ -301,10 +271,14 @@ function DateRangeFilter({ from, to, onFromChange, onToChange, onClear }: DateRa
   }
 
   return (
-    <div className="relative flex-shrink-0" ref={wrapRef}>
+    <div className="relative flex-shrink-0">
       <button
+        ref={btnRef}
         type="button"
         onClick={() => setOpen((v) => !v)}
+        aria-haspopup="dialog"
+        aria-expanded={open}
+        aria-label={`Contract expiry: ${summary}`}
         style={BTN_RADIUS}
         className={cn(
           'inline-flex items-center gap-2 h-9 px-3.5 text-xs font-semibold transition-colors border',
@@ -335,44 +309,44 @@ function DateRangeFilter({ from, to, onFromChange, onToChange, onClear }: DateRa
         )}
       </button>
 
-      <AnimatePresence>
-        {open && (
-          <motion.div
-            initial={{ opacity: 0, y: -4 }}
-            animate={{ opacity: 1, y: 0 }}
-            exit={{ opacity: 0, y: -4 }}
-            transition={{ duration: 0.12 }}
+      <FloatingPanel
+        open={open}
+        anchorRef={btnRef}
+        onClose={() => setOpen(false)}
+        width={280}
+        align="right"
+        maxHeight={420}
+        role="dialog"
+        aria-label="Contract expiry range"
+        style={BTN_RADIUS}
+        className="bg-popover border border-border shadow-xl p-3"
+      >
+        <p className="text-[10px] font-bold uppercase tracking-wider text-foreground mb-2">
+          Contract expiry range
+        </p>
+        <div className="space-y-2">
+          <div>
+            <label className="text-[10px] uppercase tracking-wider text-foreground font-semibold mb-1 block">From</label>
+            <DatePicker value={localFrom} onChange={setLocalFrom} maxDate={localTo || null} rangeEnd={localTo || null} placeholder="Any day" size="sm" align="right" ariaLabel="From" />
+          </div>
+          <div>
+            <label className="text-[10px] uppercase tracking-wider text-foreground font-semibold mb-1 block">To</label>
+            <DatePicker value={localTo} onChange={setLocalTo} minDate={localFrom || null} rangeStart={localFrom || null} placeholder="Any day" size="sm" align="right" ariaLabel="To" />
+          </div>
+        </div>
+        <div className="flex items-center justify-between pt-3 mt-3 border-t border-border">
+          <button type="button" onClick={clear} disabled={!localFrom && !localTo}
+            className="text-[11px] font-semibold text-foreground hover:text-foreground disabled:opacity-40">
+            Clear
+          </button>
+          <button type="button" onClick={apply}
             style={BTN_RADIUS}
-            ref={revealOnMount} className="absolute right-0 z-30 mt-1 w-[280px] max-w-[calc(100vw-2rem)] bg-popover border border-border shadow-xl p-3"
-          >
-            <p className="text-[10px] font-bold uppercase tracking-wider text-foreground mb-2">
-              Contract expiry range
-            </p>
-            <div className="space-y-2">
-              <div>
-                <label className="text-[10px] uppercase tracking-wider text-foreground font-semibold mb-1 block">From</label>
-                <DatePicker value={localFrom} onChange={setLocalFrom} maxDate={localTo || null} rangeEnd={localTo || null} placeholder="Any day" size="sm" align="right" ariaLabel="From" />
-              </div>
-              <div>
-                <label className="text-[10px] uppercase tracking-wider text-foreground font-semibold mb-1 block">To</label>
-                <DatePicker value={localTo} onChange={setLocalTo} minDate={localFrom || null} rangeStart={localFrom || null} placeholder="Any day" size="sm" align="right" ariaLabel="To" />
-              </div>
-            </div>
-            <div className="flex items-center justify-between pt-3 mt-3 border-t border-border">
-              <button type="button" onClick={clear} disabled={!localFrom && !localTo}
-                className="text-[11px] font-semibold text-foreground hover:text-foreground disabled:opacity-40">
-                Clear
-              </button>
-              <button type="button" onClick={apply}
-                style={BTN_RADIUS}
-                className="inline-flex items-center gap-1 h-7 px-3 bg-brand-solid text-white text-[11px] font-semibold hover:bg-brand-solid/90">
-                <Check size={11} />
-                Apply
-              </button>
-            </div>
-          </motion.div>
-        )}
-      </AnimatePresence>
+            className="inline-flex items-center gap-1 h-7 px-3 bg-brand-solid text-white text-[11px] font-semibold hover:bg-brand-solid/90">
+            <Check size={11} />
+            Apply
+          </button>
+        </div>
+      </FloatingPanel>
     </div>
   )
 }
@@ -782,26 +756,27 @@ function WarningChip({ icon: Icon, label, count, active, onClick, children }: Wa
 }
 
 type DropdownPanelProps = {
+  open: boolean
+  anchorRef: RefObject<HTMLElement | null>
   title: string
   subtitle: string
   onClose: () => void
   children: ReactNode
 }
 
-function DropdownPanel({ title, subtitle, onClose, children }: DropdownPanelProps) {
+function DropdownPanel({ open, anchorRef, title, subtitle, onClose, children }: DropdownPanelProps) {
   return (
-    <motion.div initial={{ opacity: 0, y: -4 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -4 }} transition={{ duration: 0.12 }}
-      style={BTN_RADIUS}
-      ref={revealOnMount} className="absolute right-0 top-full mt-2 w-[420px] max-w-[calc(100vw-2rem)] max-h-[520px] bg-popover border border-border z-50 overflow-hidden flex flex-col">
-      <div className="flex items-start justify-between gap-3 px-4 py-3 border-b border-border">
+    <FloatingPanel open={open} anchorRef={anchorRef} onClose={onClose} width={420} align="right" maxHeight={520} scrollsInside
+      style={BTN_RADIUS} className="bg-popover border border-border shadow-lg">
+      <div className="flex-shrink-0 flex items-start justify-between gap-3 px-4 py-3 border-b border-border">
         <div className="min-w-0">
           <p className="text-xs font-semibold text-foreground">{title}</p>
           <p className="text-[10px] text-foreground mt-0.5">{subtitle}</p>
         </div>
         <button type="button" onClick={onClose} style={BTN_RADIUS} className="p-1 -m-1 hover:bg-muted text-foreground"><X size={12} /></button>
       </div>
-      <div className="flex-1 overflow-y-auto">{children}</div>
-    </motion.div>
+      <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain">{children}</div>
+    </FloatingPanel>
   )
 }
 
@@ -815,42 +790,29 @@ function WarningsStrip({ missingUnits, onSelectUnit }: WarningsStripProps) {
   const wrapRef = useRef(null)
   const safeMissing = Array.isArray(missingUnits) ? missingUnits : []
 
-  useEffect(() => {
-    if (!open) return
-    const onDown = (e) => { if (wrapRef.current && !wrapRef.current.contains(e.target)) setOpen(null) }
-    const onKey = (e) => { if (e.key === 'Escape') setOpen(null) }
-    document.addEventListener('mousedown', onDown)
-    window.addEventListener('keydown', onKey)
-    return () => { document.removeEventListener('mousedown', onDown); window.removeEventListener('keydown', onKey) }
-  }, [open])
-
   const missingCount = safeMissing.length
   if (missingCount === 0) return null
 
   return (
     <div className="flex items-center gap-2" ref={wrapRef}>
       <WarningChip icon={AlertTriangle} label="Missing fields" count={missingCount} active={open === 'missing'} onClick={() => setOpen((v) => (v === 'missing' ? null : 'missing'))}>
-        <AnimatePresence>
-          {open === 'missing' && (
-            <DropdownPanel title="Missing fields" subtitle={`${missingCount} unit${missingCount === 1 ? '' : 's'} with incomplete data`} onClose={() => setOpen(null)}>
-              {safeMissing.map(({ unit, missing }) => (
-                <button key={unit.id} type="button" onClick={() => { onSelectUnit(unit); setOpen(null) }}
-                  className="w-full text-left px-4 py-3 border-b border-border last:border-0 hover:bg-muted/40 transition-colors group">
-                  <div className="flex items-baseline gap-2 mb-2">
-                    <Code value={unit.unit_code} label="Unit code" className="text-xs" />
-                    <span className="text-[11px] text-foreground truncate">{unit.building}</span>
-                    <span className="ml-auto text-[10px] text-foreground tabular-nums">{missing.total}</span>
-                  </div>
-                  <div className="flex flex-wrap gap-1">
-                    {missing.warnings.map((f) => (
-                      <span key={f.key} className="text-[10px] font-semibold text-amber-600 dark:text-amber-400">{f.label}</span>
-                    ))}
-                  </div>
-                </button>
-              ))}
-            </DropdownPanel>
-          )}
-        </AnimatePresence>
+        <DropdownPanel open={open === 'missing'} anchorRef={wrapRef} title="Missing fields" subtitle={`${missingCount} unit${missingCount === 1 ? '' : 's'} with incomplete data`} onClose={() => setOpen(null)}>
+          {safeMissing.map(({ unit, missing }) => (
+            <button key={unit.id} type="button" onClick={() => { onSelectUnit(unit); setOpen(null) }}
+              className="w-full text-left px-4 py-3 border-b border-border last:border-0 hover:bg-muted/40 transition-colors group">
+              <div className="flex items-baseline gap-2 mb-2">
+                <Code value={unit.unit_code} label="Unit code" className="text-xs" />
+                <span className="text-[11px] text-foreground truncate">{unit.building}</span>
+                <span className="ml-auto text-[10px] text-foreground tabular-nums">{missing.total}</span>
+              </div>
+              <div className="flex flex-wrap gap-1">
+                {missing.warnings.map((f) => (
+                  <span key={f.key} className="text-[10px] font-semibold text-amber-600 dark:text-amber-400">{f.label}</span>
+                ))}
+              </div>
+            </button>
+          ))}
+        </DropdownPanel>
       </WarningChip>
     </div>
   )
@@ -1349,6 +1311,7 @@ function AddUnitModal({ open, onClose, onCreated, existingBuildings = [], channe
   const [draftName, setDraftName] = useState('')
   const [saving, setSaving] = useState(false)
   const [buildingFocus, setBuildingFocus] = useState(false)
+  const buildingRef = useRef(null)
   const [buildingSuggestions, setBuildingSuggestions] = useState([])
 
   useEffect(() => {
@@ -1475,17 +1438,16 @@ function AddUnitModal({ open, onClose, onCreated, existingBuildings = [], channe
               <div><label className={labelClass}>Unit Code *</label>
                 <Input value={form.unit_code} onChange={(e) => setField('unit_code', e.target.value)} placeholder="e.g., P S1 503" style={BTN_RADIUS} className={inputClass} autoFocus /></div>
               <div className="relative"><label className={labelClass}>Building *</label>
-                <Input value={form.building} onChange={(e) => setField('building', e.target.value)}
+                <Input ref={buildingRef} value={form.building} onChange={(e) => setField('building', e.target.value)}
                   onFocus={() => setBuildingFocus(true)} onBlur={() => setTimeout(() => setBuildingFocus(false), 150)}
                   placeholder="Type to search or add new" style={BTN_RADIUS} className={inputClass} />
-                {buildingFocus && buildingSuggestions.length > 0 && (
-                  <div style={BTN_RADIUS} ref={revealOnMount} className="absolute left-0 right-0 top-full mt-1 bg-popover border border-border z-10 max-h-44 overflow-y-auto">
-                    {buildingSuggestions.map((b) => (
-                      <button key={b} type="button" onMouseDown={(e) => { e.preventDefault(); setField('building', b); setBuildingFocus(false) }}
-                        className="w-full text-left px-3 py-2 text-xs hover:bg-muted transition-colors">{b}</button>
-                    ))}
-                  </div>
-                )}
+                <FloatingPanel open={buildingFocus && buildingSuggestions.length > 0} anchorRef={buildingRef} onClose={() => setBuildingFocus(false)}
+                  maxHeight={176} style={BTN_RADIUS} className="bg-popover border border-border shadow-lg">
+                  {buildingSuggestions.map((b) => (
+                    <button key={b} type="button" onMouseDown={(e) => { e.preventDefault(); setField('building', b); setBuildingFocus(false) }}
+                      className="w-full text-left px-3 py-2 text-xs hover:bg-muted transition-colors">{b}</button>
+                  ))}
+                </FloatingPanel>
               </div>
               <div><label className={labelClass}>Unit Type</label>
                 <Select value={form.unit_type} onValueChange={(v) => setField('unit_type', v)}>

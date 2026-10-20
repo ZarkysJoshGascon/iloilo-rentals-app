@@ -9,8 +9,9 @@ const baseURL = process.env.E2E_BASE_URL || 'http://localhost:5173'
 const local = baseURL.startsWith('http://localhost')
 
 // What also runs in Firefox and in Safari's engine: the public site and the
-// pages staff and owners open on their phones, most of them iPhones.
-const OTHER_ENGINES = /(public-site|smoke|photos|owner-portal|housekeeper).spec.ts$/
+// pages staff and owners open on their phones (most of them iPhones), and
+// the CRM's dropdowns.
+const OTHER_ENGINES = /(public-site|smoke|photos|owner-portal|housekeeper|crm-dropdowns)\.spec\.ts$/
 
 export default defineConfig({
   testDir: 'tests/e2e',

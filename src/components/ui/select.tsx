@@ -78,7 +78,9 @@ function SelectContent({
         align={align}
         alignOffset={alignOffset}
         alignItemWithTrigger={alignItemWithTrigger}
-        className="isolate z-50"
+        // Above the CRM's dialogs (z 10000–10002) and floating panels (10040):
+        // a select inside one opens on top of it, not hidden behind it.
+        className="isolate z-[10060]"
       >
         <SelectPrimitive.Popup
           data-slot="select-content"

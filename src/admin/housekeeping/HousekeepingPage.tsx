@@ -87,6 +87,8 @@ const TYPE_TEXT = {
   basic: { label: 'Basic', className: 'text-blue-600 dark:text-blue-400' },
   deep:  { label: 'Deep',  className: 'text-purple-600 dark:text-purple-400' },
 }
+// What a type select shows once picked ("Basic", not "basic").
+const TYPE_ITEMS = { basic: TYPE_TEXT.basic.label, deep: TYPE_TEXT.deep.label }
 
 const STATUS_TEXT = {
   scheduled:         { label: 'Scheduled',        className: 'text-amber-600 dark:text-amber-400' },
@@ -1830,7 +1832,7 @@ function NewCleaningModal({ open, onClose, onCreated, units, bookings, housekeep
           <div className="grid grid-cols-2 gap-3">
             <div>
               <label className={labelClass}>Type</label>
-              <Select value={form.type} onValueChange={(v) => setField('type', v)}>
+              <Select value={form.type} onValueChange={(v) => setField('type', v)} items={TYPE_ITEMS}>
                 <SelectTrigger className={inputClass}><SelectValue /></SelectTrigger>
                 <SelectContent>
                   <SelectItem value="basic" className="text-xs">Basic</SelectItem>
@@ -2001,7 +2003,7 @@ function CleaningDetailPanel({ cleaning, onClose, onChanged, onDelete, housekeep
                 <div className="flex items-center gap-2 py-0.5">
                   <span className="text-[10px] uppercase tracking-wider text-foreground font-semibold min-w-[72px] flex-shrink-0">Type</span>
                   <div className="flex-1">
-                    <Select value={cleaning.type} onValueChange={(v) => updateField('type', v)} disabled={isCompleted || isCancelled}>
+                    <Select value={cleaning.type} onValueChange={(v) => updateField('type', v)} items={TYPE_ITEMS} disabled={isCompleted || isCancelled}>
                       <SelectTrigger className="h-7 text-xs rounded"><SelectValue /></SelectTrigger>
                       <SelectContent>
                         <SelectItem value="basic" className="text-xs">Basic</SelectItem>

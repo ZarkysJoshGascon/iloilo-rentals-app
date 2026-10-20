@@ -1,6 +1,5 @@
 // src/admin/bookings/BookingsPage.tsx
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { createPortal } from 'react-dom'
 import { useNavigate } from 'react-router'
 import { motion, AnimatePresence } from 'framer-motion'
 import {
@@ -48,7 +47,7 @@ import {
 import { StatStrip, StatTile } from '@/components/crm/StatStrip'
 import { StatusTabs } from '@/components/crm/StatusTabs'
 import { DatePicker } from '@/components/crm/DatePicker'
-import { revealOnMount } from '@/components/crm/useRevealOnOpen'
+import { FloatingPanel, typesStraightAway } from '@/components/crm/FloatingPanel'
 import type { ReactNode } from 'react'
 import type { LucideIcon } from 'lucide-react'
 import { Code } from '@/components/common/Code'
@@ -369,6 +368,8 @@ type PersonComboboxProps = {
   secondaryLabel?: any
   disabled?: boolean
   tierFor?: any
+  /** The field's name, read out with the person picked ("Booked by: Ana Cruz"). */
+  label?: string
 }
 
 // ─────────────────────────────────────────────────────────────
@@ -382,25 +383,14 @@ function PersonCombobox({
   emptyLabel = 'No selection', secondaryLabel,
   disabled = false,
   tierFor = null, // optional fn(code) => { tier, rate } for affiliates
+  label,
 }: PersonComboboxProps) {
-  const wrapRef = useRef(null)
+  const btnRef = useRef(null)
   const [open, setOpen] = useState(false)
   const [query, setQuery] = useState('')
 
   useEffect(() => {
     if (!open) setQuery('')
-  }, [open])
-
-  useEffect(() => {
-    if (!open) return
-    const onDown = (e) => { if (wrapRef.current && !wrapRef.current.contains(e.target)) setOpen(false) }
-    const onKey = (e) => { if (e.key === 'Escape') setOpen(false) }
-    document.addEventListener('mousedown', onDown)
-    window.addEventListener('keydown', onKey)
-    return () => {
-      document.removeEventListener('mousedown', onDown)
-      window.removeEventListener('keydown', onKey)
-    }
   }, [open])
 
   const selected = useMemo(() => people.find((p) => p.code === value) || null, [people, value])
@@ -415,11 +405,15 @@ function PersonCombobox({
   }, [people, query])
 
   return (
-    <div className="relative" ref={wrapRef}>
+    <div className="relative">
       <button
+        ref={btnRef}
         type="button"
         disabled={disabled}
         onClick={() => setOpen((v) => !v)}
+        aria-haspopup="dialog"
+        aria-expanded={open}
+        aria-label={label ? `${label}: ${selected ? selected.name : emptyLabel}` : undefined}
         className={cn(
           'w-full h-10 text-sm rounded-lg border bg-background px-3 flex items-center justify-between gap-2 text-left transition-colors',
           open ? 'border-primary ring-2 ring-primary/25' : 'border-input hover:bg-muted/40',
@@ -439,84 +433,84 @@ function PersonCombobox({
         <ChevronDown size={14} className="text-foreground flex-shrink-0" />
       </button>
 
-      <AnimatePresence>
-        {open && (
-          <motion.div
-            initial={{ opacity: 0, y: -4, scale: 0.98 }}
-            animate={{ opacity: 1, y: 0, scale: 1 }}
-            exit={{ opacity: 0, y: -4, scale: 0.98 }}
-            transition={{ duration: 0.12, ease: [0.16, 1, 0.3, 1] }}
-            ref={revealOnMount} className="absolute z-40 mt-2 w-full rounded-xl border border-border bg-popover overflow-hidden"
-            style={{ boxShadow: SOFT_SHADOW }}
+      <FloatingPanel
+        open={open}
+        anchorRef={btnRef}
+        onClose={() => setOpen(false)}
+        maxHeight={380}
+        scrollsInside
+        role="dialog"
+        aria-label={label || placeholder}
+        className="rounded-xl border border-border bg-popover"
+        style={{ boxShadow: SOFT_SHADOW }}
+      >
+        <div className="p-2 border-b border-border bg-card flex-shrink-0">
+          <Input
+            value={query}
+            onChange={(e) => setQuery(e.target.value)}
+            placeholder="Search name or code…"
+            aria-label="Search name or code"
+            className="h-8 text-xs rounded-lg"
+            autoFocus={typesStraightAway()}
+          />
+        </div>
+
+        <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain py-1">
+          <button
+            type="button"
+            onClick={() => { onChange(''); setOpen(false) }}
+            className={cn(
+              'w-full text-left px-3 py-2 text-xs italic text-foreground hover:bg-muted/60 transition-colors',
+              !value && 'bg-muted font-semibold',
+            )}
           >
-            <div className="p-2 border-b border-border bg-card">
-              <Input
-                value={query}
-                onChange={(e) => setQuery(e.target.value)}
-                placeholder="Search name or code…"
-                className="h-8 text-xs rounded-lg"
-                autoFocus
-              />
-            </div>
+            {emptyLabel}
+          </button>
 
-            <div className="max-h-[280px] overflow-y-auto py-1">
-              <button
-                type="button"
-                onClick={() => { onChange(''); setOpen(false) }}
-                className={cn(
-                  'w-full text-left px-3 py-2 text-xs italic text-foreground hover:bg-muted/60 transition-colors',
-                  !value && 'bg-muted font-semibold',
-                )}
-              >
-                {emptyLabel}
-              </button>
-
-              {filtered.length === 0 ? (
-                <div className="px-3 py-3 text-xs text-foreground italic text-center">
-                  No matches
-                </div>
-              ) : (
-                filtered.map((p) => {
-                  const tier = tierFor ? tierFor(p.code) : null
-                  const isActive = p.code === value
-                  return (
-                    <button
-                      key={p.id || p.code}
-                      type="button"
-                      onClick={() => { onChange(p.code); setOpen(false) }}
-                      className={cn(
-                        'w-full text-left px-3 py-2 flex items-center gap-2.5 transition-colors',
-                        isActive ? 'bg-muted' : 'hover:bg-muted/60',
-                      )}
-                    >
-                      <GuestAvatar name={p.name} photo_url={p.photo_url || null} size="sm" />
-                      <div className="min-w-0 flex-1">
-                        <div className="flex items-baseline gap-2 flex-wrap">
-                          <span className="text-[12px] font-semibold text-foreground truncate">
-                            {p.name || '—'}
-                          </span>
-                          <Code value={p.code} className="text-[10px]" iconSize={11} />
-                        </div>
-                        {tier && (
-                          <p className="text-[10px] text-foreground mt-0.5">
-                            {tier.tier} · {tier.rate}%
-                          </p>
-                        )}
-                        {secondaryLabel && !tier && (
-                          <p className="text-[10px] text-foreground mt-0.5">
-                            {secondaryLabel(p)}
-                          </p>
-                        )}
-                      </div>
-                      {isActive && <Check size={12} className="flex-shrink-0 text-foreground" />}
-                    </button>
-                  )
-                })
-              )}
+          {filtered.length === 0 ? (
+            <div className="px-3 py-3 text-xs text-foreground italic text-center">
+              No matches
             </div>
-          </motion.div>
-        )}
-      </AnimatePresence>
+          ) : (
+            filtered.map((p) => {
+              const tier = tierFor ? tierFor(p.code) : null
+              const isActive = p.code === value
+              return (
+                <button
+                  key={p.id || p.code}
+                  type="button"
+                  onClick={() => { onChange(p.code); setOpen(false) }}
+                  className={cn(
+                    'w-full text-left px-3 py-2 flex items-center gap-2.5 transition-colors',
+                    isActive ? 'bg-muted' : 'hover:bg-muted/60',
+                  )}
+                >
+                  <GuestAvatar name={p.name} photo_url={p.photo_url || null} size="sm" />
+                  <div className="min-w-0 flex-1">
+                    <div className="flex items-baseline gap-2 flex-wrap">
+                      <span className="text-[12px] font-semibold text-foreground truncate">
+                        {p.name || '—'}
+                      </span>
+                      <Code value={p.code} className="text-[10px]" iconSize={11} />
+                    </div>
+                    {tier && (
+                      <p className="text-[10px] text-foreground mt-0.5">
+                        {tier.tier} · {tier.rate}%
+                      </p>
+                    )}
+                    {secondaryLabel && !tier && (
+                      <p className="text-[10px] text-foreground mt-0.5">
+                        {secondaryLabel(p)}
+                      </p>
+                    )}
+                  </div>
+                  {isActive && <Check size={12} className="flex-shrink-0 text-foreground" />}
+                </button>
+              )
+            })
+          )}
+        </div>
+      </FloatingPanel>
     </div>
   )
 }
@@ -629,23 +623,11 @@ type DateRangeFilterProps = {
 
 function DateRangeFilter({ from, to, onFromChange, onToChange, onClear }: DateRangeFilterProps) {
   const [open, setOpen] = useState(false)
-  const wrapRef = useRef(null)
+  const btnRef = useRef(null)
   const [localFrom, setLocalFrom] = useState(from || '')
   const [localTo, setLocalTo] = useState(to || '')
 
   useEffect(() => { setLocalFrom(from || ''); setLocalTo(to || '') }, [from, to])
-
-  useEffect(() => {
-    if (!open) return
-    const onDown = (e) => { if (wrapRef.current && !wrapRef.current.contains(e.target)) setOpen(false) }
-    const onKey = (e) => { if (e.key === 'Escape') setOpen(false) }
-    document.addEventListener('mousedown', onDown)
-    window.addEventListener('keydown', onKey)
-    return () => {
-      document.removeEventListener('mousedown', onDown)
-      window.removeEventListener('keydown', onKey)
-    }
-  }, [open])
 
   const hasAny = !!from || !!to
   const summary = hasAny
@@ -659,10 +641,14 @@ function DateRangeFilter({ from, to, onFromChange, onToChange, onClear }: DateRa
   const clear = () => { setLocalFrom(''); setLocalTo(''); onClear?.(); setOpen(false) }
 
   return (
-    <div className="relative" ref={wrapRef}>
+    <div className="relative">
       <button
+        ref={btnRef}
         type="button"
         onClick={() => setOpen((v) => !v)}
+        aria-haspopup="dialog"
+        aria-expanded={open}
+        aria-label={`Check-in dates: ${summary}`}
         className={cn(
           'inline-flex items-center gap-2 h-8 px-3 rounded-lg text-xs font-semibold transition-colors border',
           hasAny
@@ -686,42 +672,42 @@ function DateRangeFilter({ from, to, onFromChange, onToChange, onClear }: DateRa
         )}
       </button>
 
-      <AnimatePresence>
-        {open && (
-          <motion.div
-            initial={{ opacity: 0, y: -4 }}
-            animate={{ opacity: 1, y: 0 }}
-            exit={{ opacity: 0, y: -4 }}
-            transition={{ duration: 0.12 }}
-            ref={revealOnMount} className="absolute right-0 z-30 mt-1 w-[280px] max-w-[calc(100vw-2rem)] rounded-xl bg-popover border border-border shadow-xl p-3"
-          >
-            <p className="text-[10px] font-bold uppercase tracking-wider text-foreground mb-2">
-              Booking check-in range
-            </p>
-            <div className="space-y-2">
-              <div>
-                <label className="text-[10px] uppercase tracking-wider text-foreground font-semibold mb-1 block">From</label>
-                <DatePicker value={localFrom} onChange={setLocalFrom} maxDate={localTo || null} rangeEnd={localTo || null} placeholder="Any day" size="sm" align="right" ariaLabel="Check-in from" />
-              </div>
-              <div>
-                <label className="text-[10px] uppercase tracking-wider text-foreground font-semibold mb-1 block">To</label>
-                <DatePicker value={localTo} onChange={setLocalTo} minDate={localFrom || null} rangeStart={localFrom || null} placeholder="Any day" size="sm" align="right" ariaLabel="Check-in to" />
-              </div>
-            </div>
-            <div className="flex items-center justify-between pt-3 mt-3 border-t border-border">
-              <button type="button" onClick={clear} disabled={!localFrom && !localTo}
-                className="text-[11px] font-semibold text-foreground hover:text-foreground disabled:opacity-40">
-                Clear
-              </button>
-              <button type="button" onClick={apply}
-                className="inline-flex items-center gap-1 h-7 px-3 rounded-lg bg-brand-solid text-white text-[11px] font-semibold hover:bg-brand-solid/90">
-                <Check size={11} />
-                Apply
-              </button>
-            </div>
-          </motion.div>
-        )}
-      </AnimatePresence>
+      <FloatingPanel
+        open={open}
+        anchorRef={btnRef}
+        onClose={() => setOpen(false)}
+        width={280}
+        align="right"
+        maxHeight={420}
+        role="dialog"
+        aria-label="Booking check-in range"
+        className="rounded-xl bg-popover border border-border shadow-xl p-3"
+      >
+        <p className="text-[10px] font-bold uppercase tracking-wider text-foreground mb-2">
+          Booking check-in range
+        </p>
+        <div className="space-y-2">
+          <div>
+            <label className="text-[10px] uppercase tracking-wider text-foreground font-semibold mb-1 block">From</label>
+            <DatePicker value={localFrom} onChange={setLocalFrom} maxDate={localTo || null} rangeEnd={localTo || null} placeholder="Any day" size="sm" align="right" ariaLabel="Check-in from" />
+          </div>
+          <div>
+            <label className="text-[10px] uppercase tracking-wider text-foreground font-semibold mb-1 block">To</label>
+            <DatePicker value={localTo} onChange={setLocalTo} minDate={localFrom || null} rangeStart={localFrom || null} placeholder="Any day" size="sm" align="right" ariaLabel="Check-in to" />
+          </div>
+        </div>
+        <div className="flex items-center justify-between pt-3 mt-3 border-t border-border">
+          <button type="button" onClick={clear} disabled={!localFrom && !localTo}
+            className="text-[11px] font-semibold text-foreground hover:text-foreground disabled:opacity-40">
+            Clear
+          </button>
+          <button type="button" onClick={apply}
+            className="inline-flex items-center gap-1 h-7 px-3 rounded-lg bg-brand-solid text-white text-[11px] font-semibold hover:bg-brand-solid/90">
+            <Check size={11} />
+            Apply
+          </button>
+        </div>
+      </FloatingPanel>
     </div>
   )
 }
@@ -930,54 +916,19 @@ function WarningChip({ icon: Icon, label, count, active, onClick, triggerRef, ch
 }
 
 type DropdownPortalProps = {
+  open: boolean
   anchorRef: any
   onClose: () => void
   children: ReactNode
 }
 
-function DropdownPortal({ anchorRef, onClose, children }: DropdownPortalProps) {
-  const [pos, setPos] = useState(null)
-  const panelRef = useRef(null)
-
-  useEffect(() => {
-    if (!anchorRef.current) return
-    const rect = anchorRef.current.getBoundingClientRect()
-    const width = 420
-    let left = rect.right - width
-    if (left < 8) left = 8
-    if (left + width > window.innerWidth - 8) left = window.innerWidth - width - 8
-    setPos({ top: rect.bottom + 8, left, width })
-  }, [anchorRef])
-
-  useEffect(() => {
-    const onDown = (e) => {
-      if (panelRef.current && !panelRef.current.contains(e.target) &&
-        anchorRef.current && !anchorRef.current.contains(e.target)) onClose()
-    }
-    const onKey = (e) => { if (e.key === 'Escape') onClose() }
-    document.addEventListener('mousedown', onDown)
-    window.addEventListener('keydown', onKey)
-    return () => {
-      document.removeEventListener('mousedown', onDown)
-      window.removeEventListener('keydown', onKey)
-    }
-  }, [onClose, anchorRef])
-
-  if (!pos) return null
-
-  return createPortal(
-    <motion.div
-      ref={panelRef}
-      initial={{ opacity: 0, y: -4 }}
-      animate={{ opacity: 1, y: 0 }}
-      exit={{ opacity: 0, y: -4 }}
-      transition={{ duration: 0.12 }}
-      style={{ position: 'fixed', top: pos.top, left: pos.left, width: pos.width, zIndex: 9999 }}
-      className="max-h-[520px] bg-popover border border-border rounded-lg shadow-lg overflow-hidden flex flex-col"
-    >
+// A warning chip's list: a header, then the bookings, which scroll.
+function DropdownPortal({ open, anchorRef, onClose, children }: DropdownPortalProps) {
+  return (
+    <FloatingPanel open={open} anchorRef={anchorRef} onClose={onClose} width={420} align="right" maxHeight={520} scrollsInside
+      className="bg-popover border border-border rounded-lg shadow-lg">
       {children}
-    </motion.div>,
-    document.body,
+    </FloatingPanel>
   )
 }
 
@@ -1028,51 +979,43 @@ function WarningsStrip({ needsAttention, endingSoon, onSelect }: WarningsStripPr
       {naCount > 0 && (
         <WarningChip icon={AlertTriangle} label="Needs attention" count={naCount} active={open === 'na'}
           onClick={() => toggle('na')} triggerRef={naRef}>
-          <AnimatePresence>
-            {open === 'na' && (
-              <DropdownPortal anchorRef={naRef} onClose={() => setOpen(null)}>
-                <div className="flex items-start justify-between gap-3 px-4 py-3 border-b border-border">
-                  <div className="min-w-0">
-                    <p className="text-xs font-semibold text-foreground">Needs Attention</p>
-                    <p className="text-[10px] text-foreground mt-0.5">
-                      {naCount} booking{naCount === 1 ? '' : 's'} past check-out with balance still owed
-                    </p>
-                  </div>
-                  <button type="button" onClick={() => setOpen(null)} className="p-1 -m-1 rounded hover:bg-muted text-foreground"><X size={12} /></button>
-                </div>
-                <div className="flex-1 overflow-y-auto">
-                  {needsAttention.map((b) => (
-                    <WarningRow key={b.id} booking={b} chip={`${formatMoney(b.balance)} due`} chipTone="amber" onClick={() => { onSelect(b); setOpen(null) }} />
-                  ))}
-                </div>
-              </DropdownPortal>
-            )}
-          </AnimatePresence>
+          <DropdownPortal open={open === 'na'} anchorRef={naRef} onClose={() => setOpen(null)}>
+            <div className="flex-shrink-0 flex items-start justify-between gap-3 px-4 py-3 border-b border-border">
+              <div className="min-w-0">
+                <p className="text-xs font-semibold text-foreground">Needs Attention</p>
+                <p className="text-[10px] text-foreground mt-0.5">
+                  {naCount} booking{naCount === 1 ? '' : 's'} past check-out with balance still owed
+                </p>
+              </div>
+              <button type="button" onClick={() => setOpen(null)} className="p-1 -m-1 rounded hover:bg-muted text-foreground"><X size={12} /></button>
+            </div>
+            <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain">
+              {needsAttention.map((b) => (
+                <WarningRow key={b.id} booking={b} chip={`${formatMoney(b.balance)} due`} chipTone="amber" onClick={() => { onSelect(b); setOpen(null) }} />
+              ))}
+            </div>
+          </DropdownPortal>
         </WarningChip>
       )}
       {esCount > 0 && (
         <WarningChip icon={Clock} label="Ending soon" count={esCount} active={open === 'es'}
           onClick={() => toggle('es')} triggerRef={esRef}>
-          <AnimatePresence>
-            {open === 'es' && (
-              <DropdownPortal anchorRef={esRef} onClose={() => setOpen(null)}>
-                <div className="flex items-start justify-between gap-3 px-4 py-3 border-b border-border">
-                  <div className="min-w-0">
-                    <p className="text-xs font-semibold text-foreground">Ending Soon</p>
-                    <p className="text-[10px] text-foreground mt-0.5">
-                      {esCount} booking{esCount === 1 ? '' : 's'} ending in the next 2 days with balance due
-                    </p>
-                  </div>
-                  <button type="button" onClick={() => setOpen(null)} className="p-1 -m-1 rounded hover:bg-muted text-foreground"><X size={12} /></button>
-                </div>
-                <div className="flex-1 overflow-y-auto">
-                  {endingSoon.map((b) => (
-                    <WarningRow key={b.id} booking={b} chip={`${formatMoney(b.balance)} due`} chipTone="red" onClick={() => { onSelect(b); setOpen(null) }} />
-                  ))}
-                </div>
-              </DropdownPortal>
-            )}
-          </AnimatePresence>
+          <DropdownPortal open={open === 'es'} anchorRef={esRef} onClose={() => setOpen(null)}>
+            <div className="flex-shrink-0 flex items-start justify-between gap-3 px-4 py-3 border-b border-border">
+              <div className="min-w-0">
+                <p className="text-xs font-semibold text-foreground">Ending Soon</p>
+                <p className="text-[10px] text-foreground mt-0.5">
+                  {esCount} booking{esCount === 1 ? '' : 's'} ending in the next 2 days with balance due
+                </p>
+              </div>
+              <button type="button" onClick={() => setOpen(null)} className="p-1 -m-1 rounded hover:bg-muted text-foreground"><X size={12} /></button>
+            </div>
+            <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain">
+              {endingSoon.map((b) => (
+                <WarningRow key={b.id} booking={b} chip={`${formatMoney(b.balance)} due`} chipTone="red" onClick={() => { onSelect(b); setOpen(null) }} />
+              ))}
+            </div>
+          </DropdownPortal>
         </WarningChip>
       )}
     </div>
@@ -2159,6 +2102,7 @@ function BookingFormModal({ open, onClose, onSaved, units, editing, specialists,
                   <div>
                     <label className={labelClass}>Booked by (specialist)</label>
                     <PersonCombobox
+                      label="Booked by"
                       value={form.booker_code}
                       onChange={(v) => setField('booker_code', v)}
                       people={specialists}
@@ -2169,6 +2113,7 @@ function BookingFormModal({ open, onClose, onSaved, units, editing, specialists,
                   <div>
                     <label className={labelClass}>Affiliate</label>
                     <PersonCombobox
+                      label="Affiliate"
                       value={form.affiliate_code}
                       onChange={(v) => setField('affiliate_code', v)}
                       people={affiliates}
@@ -3348,7 +3293,7 @@ export default function BookingsPage({ initialSelectedId }: BookingsPageProps) {
             {!search && <SearchKeyHint />}
           </div>
           <DateRangeFilter from={dateFrom} to={dateTo} onFromChange={setDateFrom} onToChange={setDateTo} onClear={() => { setDateFrom(''); setDateTo('') }} />
-          <Button size="sm" className="h-8 rounded text-xs text-white transition-all duration-150 active:scale-[0.98]" style={{ backgroundColor: BRAND }} onClick={openNew}>
+          <Button size="sm" className="h-8 rounded text-xs text-white transition-all duration-150 active:scale-[0.98]" style={{ backgroundColor: BRAND }} onClick={openNew} aria-label="New booking">
             <Plus size={13} />
             <span className="hidden sm:inline ml-1">New Booking</span>
           </Button>

@@ -40,13 +40,13 @@ import { InitialsAvatar } from '@/components/crm/Panel'
 import { StatementActions } from './StatementActions'
 import { SortHeader, nextSort, ResultsBar, SearchKeyHint, useListShortcuts, CARD_ON_PHONE, MobileSort, PHONE_LABEL, useSidePanelMotion, useListCap } from '@/components/crm/listTools'
 import { StatusTabs } from '@/components/crm/StatusTabs'
-import type { ReactNode } from 'react'
+import type { ReactNode, RefObject } from 'react'
 import { Code } from '@/components/common/Code'
 import { ContextMenu } from '@/components/ui/ContextMenu'
 import { crmLink } from '@/lib/domain/crmLinks'
 import { cleanFields } from '@/lib/domain/clean'
 import { DatePicker } from '@/components/crm/DatePicker'
-import { useRevealOnOpen } from '@/components/crm/useRevealOnOpen'
+import { FloatingPanel } from '@/components/crm/FloatingPanel'
 import { preparePhoto, DOCUMENT_PHOTO } from '@/lib/images'
 import { manilaToday } from '@/admin/dashboard/workLog'
 
@@ -517,6 +517,7 @@ const STATUS_PILLS = [
 
 type FilterPanelProps = {
   open: boolean
+  anchorRef: RefObject<HTMLElement | null>
   onClose: () => void
   building: string
   setBuilding: (...args: any[]) => any
@@ -538,6 +539,7 @@ type FilterPanelProps = {
 // ── Filter panel ────────────────────────────────────────────
 function FilterPanel({
   open,
+  anchorRef,
   onClose,
   building, setBuilding,
   ownerId, setOwnerId,
@@ -547,23 +549,6 @@ function FilterPanel({
   buildings, owners, units,
   activeCount, onClear,
 }: FilterPanelProps) {
-  const panelRef = useRef(null)
-  useRevealOnOpen(panelRef, open)
-
-  useEffect(() => {
-    if (!open) return
-    const onMouseDown = (e) => {
-      if (panelRef.current && !panelRef.current.contains(e.target)) onClose()
-    }
-    const onKey = (e) => { if (e.key === 'Escape') onClose() }
-    document.addEventListener('mousedown', onMouseDown)
-    window.addEventListener('keydown', onKey)
-    return () => {
-      document.removeEventListener('mousedown', onMouseDown)
-      window.removeEventListener('keydown', onKey)
-    }
-  }, [open, onClose])
-
   const sortedUnits = useMemo(() => {
     return [...units].sort((a, b) => {
       const av = `${a.building || ''} ${a.unit_code || ''}`.trim()
@@ -572,82 +557,80 @@ function FilterPanel({
     })
   }, [units])
 
+  // What each select shows once picked: a name, not "all" or an id.
+  const buildingItems = useMemo(() => ({ all: 'All buildings', ...Object.fromEntries(buildings.map((b) => [b, b])) }), [buildings])
+  const ownerItems = useMemo(() => ({ all: 'All owners', ...Object.fromEntries(owners.map((o) => [o.id, o.name])) }), [owners])
+  const unitItems = useMemo(() => ({
+    all: 'All units',
+    ...Object.fromEntries(sortedUnits.map((u) => [u.id, `${u.building ? `${u.building} — ` : ''}${u.unit_code}`])),
+  }), [sortedUnits])
+
   return (
-    <AnimatePresence>
-      {open && (
-        <motion.div
-          ref={panelRef}
-          initial={{ opacity: 0, y: -4 }}
-          animate={{ opacity: 1, y: 0 }}
-          exit={{ opacity: 0, y: -4 }}
-          transition={{ duration: 0.12 }}
-          className="absolute right-0 top-full mt-2 w-[380px] max-w-[90vw] bg-popover border border-border rounded-md shadow-lg z-50 overflow-hidden"
-        >
-          <div className="flex items-center justify-between px-4 py-2.5 border-b border-border">
-            <h3 className="text-xs font-bold text-foreground">Filters</h3>
-            <button onClick={onClose} className="p-1 rounded hover:bg-muted"><X size={13} /></button>
-          </div>
-          <div className="p-4 space-y-3 max-h-[460px] overflow-y-auto">
+    <FloatingPanel open={open} anchorRef={anchorRef} onClose={onClose} width={380} align="right" maxHeight={600} scrollsInside
+      role="dialog" aria-label="Filters" className="bg-popover border border-border rounded-md shadow-lg">
+      <div className="flex-shrink-0 flex items-center justify-between px-4 py-2.5 border-b border-border">
+        <h3 className="text-xs font-bold text-foreground">Filters</h3>
+        <button onClick={onClose} aria-label="Close filters" className="p-1 rounded hover:bg-muted"><X size={13} /></button>
+      </div>
+      <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain p-4 space-y-3">
+        <div>
+          <p className="text-[10px] uppercase tracking-wider text-foreground font-semibold mb-1.5">Building</p>
+          <Select value={building} onValueChange={setBuilding} items={buildingItems}>
+            <SelectTrigger className="h-8 text-xs rounded"><SelectValue placeholder="All buildings" /></SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all" className="text-xs">All buildings</SelectItem>
+              {buildings.map((b) => <SelectItem key={b} value={b} className="text-xs">{b}</SelectItem>)}
+            </SelectContent>
+          </Select>
+        </div>
+        <div>
+          <p className="text-[10px] uppercase tracking-wider text-foreground font-semibold mb-1.5">Owner</p>
+          <Select value={ownerId} onValueChange={setOwnerId} items={ownerItems}>
+            <SelectTrigger className="h-8 text-xs rounded"><SelectValue placeholder="All owners" /></SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all" className="text-xs">All owners</SelectItem>
+              {owners.map((o) => <SelectItem key={o.id} value={o.id} className="text-xs">{o.name}</SelectItem>)}
+            </SelectContent>
+          </Select>
+        </div>
+        <div>
+          <p className="text-[10px] uppercase tracking-wider text-foreground font-semibold mb-1.5">Unit</p>
+          <Select value={unitId} onValueChange={setUnitId} items={unitItems}>
+            <SelectTrigger className="h-8 text-xs rounded"><SelectValue placeholder="All units" /></SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all" className="text-xs">All units</SelectItem>
+              {sortedUnits.map((u) => (
+                <SelectItem key={u.id} value={u.id} className="text-xs">
+                  {u.building ? `${u.building} — ` : ''}<span className="font-mono font-bold">{u.unit_code}</span>
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </div>
+        <div>
+          <p className="text-[10px] uppercase tracking-wider text-foreground font-semibold mb-1.5">
+            Active within date range
+          </p>
+          <div className="grid grid-cols-2 gap-2">
             <div>
-              <p className="text-[10px] uppercase tracking-wider text-foreground font-semibold mb-1.5">Building</p>
-              <Select value={building} onValueChange={setBuilding}>
-                <SelectTrigger className="h-8 text-xs rounded"><SelectValue placeholder="All buildings" /></SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="all" className="text-xs">All buildings</SelectItem>
-                  {buildings.map((b) => <SelectItem key={b} value={b} className="text-xs">{b}</SelectItem>)}
-                </SelectContent>
-              </Select>
+              <label className="text-[10px] uppercase tracking-wider text-foreground font-semibold mb-1 block">From</label>
+              <DatePicker value={rangeFrom} onChange={setRangeFrom} maxDate={rangeTo || null} rangeEnd={rangeTo || null} placeholder="Any day" size="sm" ariaLabel="Active from" />
             </div>
             <div>
-              <p className="text-[10px] uppercase tracking-wider text-foreground font-semibold mb-1.5">Owner</p>
-              <Select value={ownerId} onValueChange={setOwnerId}>
-                <SelectTrigger className="h-8 text-xs rounded"><SelectValue placeholder="All owners" /></SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="all" className="text-xs">All owners</SelectItem>
-                  {owners.map((o) => <SelectItem key={o.id} value={o.id} className="text-xs">{o.name}</SelectItem>)}
-                </SelectContent>
-              </Select>
-            </div>
-            <div>
-              <p className="text-[10px] uppercase tracking-wider text-foreground font-semibold mb-1.5">Unit</p>
-              <Select value={unitId} onValueChange={setUnitId}>
-                <SelectTrigger className="h-8 text-xs rounded"><SelectValue placeholder="All units" /></SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="all" className="text-xs">All units</SelectItem>
-                  {sortedUnits.map((u) => (
-                    <SelectItem key={u.id} value={u.id} className="text-xs">
-                      {u.building ? `${u.building} — ` : ''}<span className="font-mono font-bold">{u.unit_code}</span>
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
-            <div>
-              <p className="text-[10px] uppercase tracking-wider text-foreground font-semibold mb-1.5">
-                Active within date range
-              </p>
-              <div className="grid grid-cols-2 gap-2">
-                <div>
-                  <label className="text-[10px] uppercase tracking-wider text-foreground font-semibold mb-1 block">From</label>
-                  <DatePicker value={rangeFrom} onChange={setRangeFrom} maxDate={rangeTo || null} rangeEnd={rangeTo || null} placeholder="Any day" size="sm" ariaLabel="Active from" />
-                </div>
-                <div>
-                  <label className="text-[10px] uppercase tracking-wider text-foreground font-semibold mb-1 block">To</label>
-                  <DatePicker value={rangeTo} onChange={setRangeTo} minDate={rangeFrom || null} rangeStart={rangeFrom || null} placeholder="Any day" size="sm" align="right" ariaLabel="Active to" />
-                </div>
-              </div>
-              <p className="text-[10px] text-foreground mt-1.5">
-                Shows contracts whose active period overlaps this range.
-              </p>
+              <label className="text-[10px] uppercase tracking-wider text-foreground font-semibold mb-1 block">To</label>
+              <DatePicker value={rangeTo} onChange={setRangeTo} minDate={rangeFrom || null} rangeStart={rangeFrom || null} placeholder="Any day" size="sm" align="right" ariaLabel="Active to" />
             </div>
           </div>
-          <div className="flex items-center justify-between px-4 py-2.5 border-t border-border">
-            <Button variant="ghost" size="sm" onClick={onClear} disabled={activeCount === 0} className="text-xs h-7 rounded">Clear all</Button>
-            <Button size="sm" onClick={onClose} className="text-xs h-7 rounded"><Check size={11} className="mr-1" />Done</Button>
-          </div>
-        </motion.div>
-      )}
-    </AnimatePresence>
+          <p className="text-[10px] text-foreground mt-1.5">
+            Shows contracts whose active period overlaps this range.
+          </p>
+        </div>
+      </div>
+      <div className="flex-shrink-0 flex items-center justify-between px-4 py-2.5 border-t border-border">
+        <Button variant="ghost" size="sm" onClick={onClear} disabled={activeCount === 0} className="text-xs h-7 rounded">Clear all</Button>
+        <Button size="sm" onClick={onClose} className="text-xs h-7 rounded"><Check size={11} className="mr-1" />Done</Button>
+      </div>
+    </FloatingPanel>
   )
 }
 
@@ -1947,6 +1930,7 @@ export default function ContractsPage() {
   const [search, setSearch] = useState('')
   const [debouncedSearch, setDebouncedSearch] = useState('')
   const [filterOpen, setFilterOpen] = useState(false)
+  const filterAnchorRef = useRef(null)
 
   const [selectedId, setSelectedId] = useState(initialContractId || null)
   const [newModalOpen, setNewModalOpen] = useState(false)
@@ -2196,12 +2180,15 @@ export default function ContractsPage() {
               <Plus size={13} />
               <span className="hidden sm:inline ml-1">Add Contract</span>
             </Button>
-            <div className="relative">
+            <div className="relative" ref={filterAnchorRef}>
               <Button
                 variant={activeFilterCount > 0 ? 'default' : 'outline'}
                 size="sm"
                 className="h-9 rounded-md text-xs transition-all duration-150"
                 onClick={() => setFilterOpen((v) => !v)}
+                aria-label={activeFilterCount > 0 ? `Filter (${activeFilterCount} on)` : 'Filter'}
+                aria-haspopup="dialog"
+                aria-expanded={filterOpen}
               >
                 <SlidersHorizontal size={13} />
                 <span className="hidden sm:inline ml-1">Filter</span>
@@ -2211,6 +2198,7 @@ export default function ContractsPage() {
               </Button>
               <FilterPanel
                 open={filterOpen}
+                anchorRef={filterAnchorRef}
                 onClose={() => setFilterOpen(false)}
                 building={building}
                 setBuilding={setBuilding}

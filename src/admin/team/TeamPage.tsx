@@ -32,7 +32,7 @@ import { ResultsBar, SearchKeyHint, useListShortcuts } from '@/components/crm/li
 import { Code } from '@/components/common/Code'
 import { cleanFields } from '@/lib/domain/clean'
 import { DatePicker } from '@/components/crm/DatePicker'
-import { revealOnMount } from '@/components/crm/useRevealOnOpen'
+import { FloatingPanel } from '@/components/crm/FloatingPanel'
 import { readAll } from '@/lib/api/readAll'
 import { preparePhoto, DOCUMENT_PHOTO } from '@/lib/images'
 
@@ -234,7 +234,7 @@ type StaffEmailComboboxProps = {
 // StaffEmailCombobox
 // ============================================================
 function StaffEmailCombobox({ value, onChange, disabled, placeholder = 'user@example.com', autoFocus = false, verifiedProfile, onVerifiedChange }: StaffEmailComboboxProps) {
-  const wrapRef = useRef(null)
+  const fieldRef = useRef(null)
   const [open, setOpen] = useState(false)
   const [query, setQuery] = useState(value || '')
   const [results, setResults] = useState([])
@@ -259,18 +259,6 @@ function StaffEmailCombobox({ value, onChange, disabled, placeholder = 'user@exa
     }, 200)
     return () => { ac.abort(); clearTimeout(t); setLoading(false) }
   }, [query, open])
-
-  useEffect(() => {
-    if (!open) return
-    const onDown = (e) => { if (wrapRef.current && !wrapRef.current.contains(e.target)) setOpen(false) }
-    const onKey = (e) => { if (e.key === 'Escape') setOpen(false) }
-    document.addEventListener('mousedown', onDown)
-    window.addEventListener('keydown', onKey)
-    return () => {
-      document.removeEventListener('mousedown', onDown)
-      window.removeEventListener('keydown', onKey)
-    }
-  }, [open])
 
   const choose = (row) => {
     setQuery(row.email)
@@ -305,8 +293,8 @@ function StaffEmailCombobox({ value, onChange, disabled, placeholder = 'user@exa
   const showDropdown = open && (loading || results.length > 0 || query.trim().length >= 2)
 
   return (
-    <div className="relative" ref={wrapRef}>
-      <div className="relative">
+    <div className="relative">
+      <div className="relative" ref={fieldRef}>
         <Input
           type="email"
           value={query}
@@ -352,55 +340,51 @@ function StaffEmailCombobox({ value, onChange, disabled, placeholder = 'user@exa
         </div>
       )}
 
-      <AnimatePresence>
-        {showDropdown && (
-          <motion.div
-            initial={{ opacity: 0, y: -4 }}
-            animate={{ opacity: 1, y: 0 }}
-            exit={{ opacity: 0, y: -4 }}
-            transition={{ duration: 0.1 }}
-            ref={revealOnMount} className="absolute z-30 left-0 right-0 mt-1 bg-popover border border-border rounded-lg shadow-lg max-h-[280px] overflow-y-auto"
-          >
-            {loading && results.length === 0 ? (
-              <div className="px-3 py-2 text-[11px] text-foreground italic">Searching…</div>
-            ) : results.length === 0 && query.trim().length >= 2 ? (
-              <div className="px-3 py-3 text-[11px] text-foreground italic">
-                No registered user matches.
-                <div className="mt-1 text-[11px]">
-                  Ask them to log in at Iloilo Rentals first, then come back.
+      <FloatingPanel
+        open={showDropdown}
+        anchorRef={fieldRef}
+        onClose={() => setOpen(false)}
+        maxHeight={280}
+        className="bg-popover border border-border rounded-lg shadow-lg"
+      >
+        {loading && results.length === 0 ? (
+          <div className="px-3 py-2 text-[11px] text-foreground italic">Searching…</div>
+        ) : results.length === 0 && query.trim().length >= 2 ? (
+          <div className="px-3 py-3 text-[11px] text-foreground italic">
+            No registered user matches.
+            <div className="mt-1 text-[11px]">
+              Ask them to log in at Iloilo Rentals first, then come back.
+            </div>
+          </div>
+        ) : (
+          results.map((r, i) => (
+            <button
+              key={r.id}
+              type="button"
+              onMouseDown={(e) => { e.preventDefault(); choose(r) }}
+              onMouseEnter={() => setHighlight(i)}
+              className={cn(
+                'w-full text-left px-3 py-2 flex items-center gap-2 transition-colors',
+                i === highlight ? 'bg-muted' : 'hover:bg-muted/60',
+              )}
+            >
+              {r.avatar_url ? (
+                <img src={r.avatar_url} alt="" className="w-6 h-6 rounded-full object-cover flex-shrink-0" />
+              ) : (
+                <div className="w-6 h-6 rounded-full bg-card ring-1 ring-border text-foreground flex items-center justify-center text-[9px] font-bold flex-shrink-0">
+                  {initials(r.full_name || r.email)}
                 </div>
+              )}
+              <div className="min-w-0 flex-1">
+                {r.full_name && (
+                  <p className="text-[11px] font-semibold text-foreground truncate">{r.full_name}</p>
+                )}
+                <p className="text-[11px] text-foreground truncate font-mono">{r.email}</p>
               </div>
-            ) : (
-              results.map((r, i) => (
-                <button
-                  key={r.id}
-                  type="button"
-                  onMouseDown={(e) => { e.preventDefault(); choose(r) }}
-                  onMouseEnter={() => setHighlight(i)}
-                  className={cn(
-                    'w-full text-left px-3 py-2 flex items-center gap-2 transition-colors',
-                    i === highlight ? 'bg-muted' : 'hover:bg-muted/60',
-                  )}
-                >
-                  {r.avatar_url ? (
-                    <img src={r.avatar_url} alt="" className="w-6 h-6 rounded-full object-cover flex-shrink-0" />
-                  ) : (
-                    <div className="w-6 h-6 rounded-full bg-card ring-1 ring-border text-foreground flex items-center justify-center text-[9px] font-bold flex-shrink-0">
-                      {initials(r.full_name || r.email)}
-                    </div>
-                  )}
-                  <div className="min-w-0 flex-1">
-                    {r.full_name && (
-                      <p className="text-[11px] font-semibold text-foreground truncate">{r.full_name}</p>
-                    )}
-                    <p className="text-[11px] text-foreground truncate font-mono">{r.email}</p>
-                  </div>
-                </button>
-              ))
-            )}
-          </motion.div>
+            </button>
+          ))
         )}
-      </AnimatePresence>
+      </FloatingPanel>
     </div>
   )
 }

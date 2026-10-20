@@ -2,11 +2,10 @@
 // "Filter by date" button with a from/to popover, shared by the Leads pages.
 // The button turns logo blue while a range is applied.
 import { useEffect, useRef, useState } from 'react'
-import { motion, AnimatePresence } from 'framer-motion'
 import { Calendar, Check, X } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { DatePicker } from './DatePicker'
-import { revealOnMount } from './useRevealOnOpen'
+import { FloatingPanel } from './FloatingPanel'
 
 function fmtDateShort(iso) {
   if (!iso) return null
@@ -28,7 +27,7 @@ type DateRangeFilterProps = {
 
 export function DateRangeFilter({ from, to, onFromChange, onToChange, onClear, title = 'Date range' }: DateRangeFilterProps) {
   const [open, setOpen] = useState(false)
-  const wrapRef = useRef(null)
+  const btnRef = useRef(null)
   const [localFrom, setLocalFrom] = useState(from || '')
   const [localTo, setLocalTo] = useState(to || '')
 
@@ -36,18 +35,6 @@ export function DateRangeFilter({ from, to, onFromChange, onToChange, onClear, t
     setLocalFrom(from || '')
     setLocalTo(to || '')
   }, [from, to])
-
-  useEffect(() => {
-    if (!open) return
-    const onDown = (e) => { if (wrapRef.current && !wrapRef.current.contains(e.target)) setOpen(false) }
-    const onKey = (e) => { if (e.key === 'Escape') setOpen(false) }
-    document.addEventListener('mousedown', onDown)
-    window.addEventListener('keydown', onKey)
-    return () => {
-      document.removeEventListener('mousedown', onDown)
-      window.removeEventListener('keydown', onKey)
-    }
-  }, [open])
 
   const hasAny = !!from || !!to
   const summary = hasAny
@@ -69,10 +56,13 @@ export function DateRangeFilter({ from, to, onFromChange, onToChange, onClear, t
   }
 
   return (
-    <div className="relative flex-shrink-0" ref={wrapRef}>
+    <div className="relative flex-shrink-0">
       <button
+        ref={btnRef}
         type="button"
         onClick={() => setOpen((v) => !v)}
+        aria-haspopup="dialog"
+        aria-label={`${title}: ${summary}`}
         className={cn(
           'inline-flex items-center gap-2 h-9 px-3 rounded-md text-xs font-semibold transition-colors border',
           hasAny
@@ -98,53 +88,53 @@ export function DateRangeFilter({ from, to, onFromChange, onToChange, onClear, t
         )}
       </button>
 
-      <AnimatePresence>
-        {open && (
-          <motion.div
-            initial={{ opacity: 0, y: -4 }}
-            animate={{ opacity: 1, y: 0 }}
-            exit={{ opacity: 0, y: -4 }}
-            transition={{ duration: 0.12 }}
-            ref={revealOnMount} className="absolute right-0 z-30 mt-1 w-[280px] max-w-[calc(100vw-2rem)] rounded-md bg-popover border border-border shadow-xl p-3"
-          >
-            <p className="text-[11px] font-semibold uppercase tracking-wider text-foreground mb-2">{title}</p>
-            <div className="space-y-2">
-              <div>
-                <label className={LABEL}>From</label>
-                <DatePicker value={localFrom} onChange={setLocalFrom} maxDate={localTo || null} rangeEnd={localTo || null} placeholder="Any day" size="sm" align="right" ariaLabel="From" />
-              </div>
-              <div>
-                <label className={LABEL}>To</label>
-                <DatePicker value={localTo} onChange={setLocalTo} minDate={localFrom || null} rangeStart={localFrom || null} placeholder="Any day" size="sm" align="right" ariaLabel="To" />
-              </div>
-            </div>
-            {invalid && (
-              <p className="text-[11px] text-red-600 dark:text-red-400 mt-1.5">
-                End date must be on or after start date.
-              </p>
-            )}
-            <div className="flex items-center justify-between pt-3 mt-3 border-t border-border">
-              <button
-                type="button"
-                onClick={clear}
-                disabled={!localFrom && !localTo}
-                className="text-[11px] font-semibold text-foreground hover:underline underline-offset-2 disabled:opacity-40"
-              >
-                Clear
-              </button>
-              <button
-                type="button"
-                onClick={apply}
-                disabled={invalid}
-                className="inline-flex items-center gap-1 h-7 px-3 rounded-md bg-brand-solid text-white text-[11px] font-semibold hover:bg-brand-solid/90 disabled:opacity-40"
-              >
-                <Check size={11} />
-                Apply
-              </button>
-            </div>
-          </motion.div>
+      <FloatingPanel
+        open={open}
+        anchorRef={btnRef}
+        onClose={() => setOpen(false)}
+        width={280}
+        align="right"
+        maxHeight={420}
+        role="dialog"
+        aria-label={title}
+        className="rounded-md bg-popover border border-border shadow-xl p-3"
+      >
+        <p className="text-[11px] font-semibold uppercase tracking-wider text-foreground mb-2">{title}</p>
+        <div className="space-y-2">
+          <div>
+            <label className={LABEL}>From</label>
+            <DatePicker value={localFrom} onChange={setLocalFrom} maxDate={localTo || null} rangeEnd={localTo || null} placeholder="Any day" size="sm" align="right" ariaLabel="From" />
+          </div>
+          <div>
+            <label className={LABEL}>To</label>
+            <DatePicker value={localTo} onChange={setLocalTo} minDate={localFrom || null} rangeStart={localFrom || null} placeholder="Any day" size="sm" align="right" ariaLabel="To" />
+          </div>
+        </div>
+        {invalid && (
+          <p className="text-[11px] text-red-600 dark:text-red-400 mt-1.5">
+            End date must be on or after start date.
+          </p>
         )}
-      </AnimatePresence>
+        <div className="flex items-center justify-between pt-3 mt-3 border-t border-border">
+          <button
+            type="button"
+            onClick={clear}
+            disabled={!localFrom && !localTo}
+            className="text-[11px] font-semibold text-foreground hover:underline underline-offset-2 disabled:opacity-40"
+          >
+            Clear
+          </button>
+          <button
+            type="button"
+            onClick={apply}
+            disabled={invalid}
+            className="inline-flex items-center gap-1 h-7 px-3 rounded-md bg-brand-solid text-white text-[11px] font-semibold hover:bg-brand-solid/90 disabled:opacity-40"
+          >
+            <Check size={11} />
+            Apply
+          </button>
+        </div>
+      </FloatingPanel>
     </div>
   )
 }
