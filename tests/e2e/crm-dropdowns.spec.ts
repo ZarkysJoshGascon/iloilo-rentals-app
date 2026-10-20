@@ -37,11 +37,14 @@ async function openBookingForm(page: Page) {
   await expect(page.getByRole('heading', { name: 'New Booking' })).toBeVisible()
 }
 
-/** Whether what's at the middle of `target` is `target` itself: nothing covers it. */
-const onTop = (target: Locator) => target.evaluate((el) => {
+/** What covers the middle of `target`, or null when nothing does (it's on top). */
+const coveredBy = (target: Locator) => target.evaluate((el) => {
   const r = el.getBoundingClientRect()
   const hit = document.elementFromPoint(r.left + r.width / 2, r.top + r.height / 2)
-  return !!hit && el.contains(hit)
+  if (hit && el.contains(hit)) return null
+  if (!hit) return 'nothing there (off screen)'
+  const slot = hit.getAttribute('data-slot')
+  return `<${hit.tagName.toLowerCase()}${slot ? ` data-slot="${slot}"` : ''} class="${String(hit.getAttribute('class') || '').slice(0, 80)}">: ${(hit.textContent || '').trim().slice(0, 40)}`
 })
 
 /** How far `target` sticks out past the screen's edges (0 when it's fully on screen). */
@@ -61,11 +64,11 @@ test.describe('in the booking form', () => {
     const list = page.getByRole('dialog', { name: 'Booked by' })
     await expect(list).toBeVisible()
     await expect.poll(() => overflow(page, list)).toBe(0)
-    expect(await onTop(list.getByText('Specialist 1', { exact: true }))).toBe(true)
+    expect(await coveredBy(list.getByText('Specialist 1', { exact: true }))).toBeNull()
 
     const last = list.getByText('Specialist 25', { exact: true })
     await last.scrollIntoViewIfNeeded()
-    expect(await onTop(last)).toBe(true) // not behind the form's buttons
+    expect(await coveredBy(last)).toBeNull() // not behind the form's buttons
     await last.click()
     await expect(list).toBeHidden()
     await expect(page.getByRole('button', { name: 'Booked by: Specialist 25' })).toBeVisible()
@@ -84,7 +87,7 @@ test.describe('in the booking form', () => {
     await expect.poll(() => overflow(page, list)).toBe(0)
     const last = list.getByText('Specialist 25', { exact: true })
     await last.scrollIntoViewIfNeeded()
-    expect(await onTop(last)).toBe(true)
+    expect(await coveredBy(last)).toBeNull()
   })
 
   test('Esc closes the list, not the booking form', async ({ page }) => {
@@ -103,9 +106,10 @@ test.describe('in the booking form', () => {
     await openBookingForm(page)
     await page.getByText('Select a unit...').click()
 
+    // A select menu lays an invisible guard over itself while it opens, so a
+    // pixel check misreads it; a click only lands once nothing covers the
+    // option (Playwright checks), and fails naming what's in the way.
     const last = page.getByRole('option', { name: 'Megaworld Tower — 30S' })
-    await last.scrollIntoViewIfNeeded()
-    expect(await onTop(last)).toBe(true)
     await last.click()
     await expect(last).toBeHidden()
     await expect(page.locator('[data-slot="select-value"]').first()).toHaveText('Megaworld Tower — 30S')
@@ -121,9 +125,7 @@ test.describe('filters', () => {
     await expect.poll(() => overflow(page, filters)).toBe(0)
 
     await filters.getByText('All buildings').click()
-    const option = page.getByRole('option', { name: 'Ayala Residences' })
-    expect(await onTop(option)).toBe(true) // above the filter panel
-    await option.click()
+    await page.getByRole('option', { name: 'Ayala Residences' }).click() // lands only if above the filter panel
     await expect(filters).toBeVisible()
     await expect(filters.getByText('Ayala Residences')).toBeVisible()
 
