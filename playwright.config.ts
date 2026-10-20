@@ -19,7 +19,10 @@ export default defineConfig({
   expect: { timeout: 10_000 },
   fullyParallel: true,
   retries: process.env.CI ? 1 : 0,
-  reporter: [['list'], ['html', { open: 'never', outputFolder: 'playwright-report' }]],
+  // On GitHub, each failure is also posted as an annotation on the run's page.
+  reporter: process.env.CI
+    ? [['github'], ['list'], ['html', { open: 'never', outputFolder: 'playwright-report' }]]
+    : [['list'], ['html', { open: 'never', outputFolder: 'playwright-report' }]],
   use: {
     baseURL,
     // The browsers' clock is in Manila, as for the business, on any computer
